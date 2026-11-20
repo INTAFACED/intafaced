@@ -22016,6 +22016,1887 @@
         }
       ]
     },
+    "quant.library.browse": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "library.browse",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.list_cursor_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "listingId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+                  }
+                },
+                "visibility": {
+                  "type": "string",
+                  "enum": ["open", "protected"]
+                },
+                "licence": {
+                  "type": "string"
+                },
+                "strategyVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "ownerId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "listedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["listingId", "title", "tags", "visibility", "licence", "strategyVersion", "ownerId", "listedAt"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["entries", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 10
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "tag": "trend",
+            "limit": 10,
+            "cursor": "3"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "tag": "arbitrage",
+            "limit": 10
+          }
+        }
+      ]
+    },
+    "quant.library.check": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "library.check",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.library_licences_unset": "PRECONDITION_FAILED",
+        "quant.params_invalid": "BAD_REQUEST",
+        "quant.studio_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "tags": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "licence": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "strategyVersion", "title", "description", "tags", "visibility", "licence"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "enum": ["version", "backtest", "costs", "claim", "licence"]
+                },
+                "passed": {
+                  "type": "boolean"
+                },
+                "detail": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "passed", "detail"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["strategyId", "strategyVersion", "passed", "checks"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "title": "TEST trend",
+            "description": "A moving-average cross.",
+            "tags": ["trend"],
+            "visibility": "open",
+            "licence": "MIT"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "title": "TEST trend",
+            "description": "A moving-average cross.",
+            "tags": ["trend", "swing", "momentum", "breakout"],
+            "visibility": "open",
+            "licence": "MIT"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "title": "TEST trend",
+            "description": "A moving-average cross.",
+            "tags": ["trend"],
+            "visibility": "public",
+            "licence": "MIT"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 0,
+            "title": "TEST trend",
+            "description": "A moving-average cross.",
+            "tags": ["trend"],
+            "visibility": "open",
+            "licence": "MIT"
+          }
+        }
+      ]
+    },
+    "quant.library.clone": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "library.clone",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.listing_not_found": "NOT_FOUND",
+        "quant.listing_access_denied": "FORBIDDEN",
+        "quant.listing_source_protected": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["listingId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "listingId": {
+            "type": "string"
+          },
+          "listingTitle": {
+            "type": "string"
+          },
+          "sourceVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "clonedAt": {
+            "type": "string"
+          }
+        },
+        "required": ["strategyId", "listingId", "listingTitle", "sourceVersion", "clonedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "listingId": "l-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": 7
+          }
+        }
+      ]
+    },
+    "quant.library.get": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "library.get",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.listing_not_found": "NOT_FOUND",
+        "quant.listing_access_denied": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["listingId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "licence": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "listedAt": {
+            "type": "string"
+          },
+          "mine": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": ["string", "null"]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "runId": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string",
+                    "const": "Historical simulation — not a forecast"
+                  },
+                  "symbol": {
+                    "type": "string"
+                  },
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  },
+                  "startCash": {
+                    "type": "string"
+                  },
+                  "net": {
+                    "type": "string"
+                  },
+                  "endEquity": {
+                    "type": "string"
+                  },
+                  "trades": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["runId", "label", "symbol", "from", "to", "startCash", "net", "endEquity", "trades"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviews": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "reviewerId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["reviewerId", "text", "createdAt"],
+              "additionalProperties": false
+            }
+          },
+          "clone": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "strategyId": {
+                    "type": "string"
+                  }
+                },
+                "required": ["strategyId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "listingId",
+          "title",
+          "description",
+          "tags",
+          "visibility",
+          "licence",
+          "strategyVersion",
+          "stale",
+          "ownerId",
+          "listedAt",
+          "mine",
+          "source",
+          "result",
+          "reviews",
+          "clone"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "listingId": "l-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": "l-1",
+            "accountId": "not-a-uuid"
+          }
+        }
+      ]
+    },
+    "quant.library.grant": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "library.grant",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.listing_not_found": "NOT_FOUND",
+        "quant.params_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "userId": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["listingId", "userId", "seq"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "headVersion": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "licence": {
+            "type": "string"
+          },
+          "checklistVersion": {
+            "type": "string"
+          },
+          "listedAt": {
+            "type": "string"
+          },
+          "access": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["requested", "granted", "revoked"]
+                },
+                "at": {
+                  "type": "string"
+                },
+                "rows": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["userId", "state", "at", "rows"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "listingId",
+          "strategyId",
+          "strategyVersion",
+          "headVersion",
+          "stale",
+          "title",
+          "description",
+          "tags",
+          "visibility",
+          "licence",
+          "checklistVersion",
+          "listedAt",
+          "access"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "listingId": "l-1",
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "seq": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": "l-1",
+            "userId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": "l-1",
+            "userId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "seq": 0
+          }
+        }
+      ]
+    },
+    "quant.library.lineage": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "library.lineage",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.studio_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "lineage": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "strategyId": {
+                    "type": "string"
+                  },
+                  "listingId": {
+                    "type": "string"
+                  },
+                  "listingTitle": {
+                    "type": "string"
+                  },
+                  "sourceVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "clonedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["strategyId", "listingId", "listingTitle", "sourceVersion", "clonedAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["lineage"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        }
+      ]
+    },
+    "quant.library.mine": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "library.mine",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "listingId": {
+                  "type": "string"
+                },
+                "strategyId": {
+                  "type": "string"
+                },
+                "strategyVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "headVersion": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "stale": {
+                  "type": "boolean"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+                  }
+                },
+                "visibility": {
+                  "type": "string",
+                  "enum": ["open", "protected", "invite"]
+                },
+                "licence": {
+                  "type": "string"
+                },
+                "checklistVersion": {
+                  "type": "string"
+                },
+                "listedAt": {
+                  "type": "string"
+                },
+                "access": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": ["requested", "granted", "revoked"]
+                      },
+                      "at": {
+                        "type": "string"
+                      },
+                      "rows": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["userId", "state", "at", "rows"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "listingId",
+                "strategyId",
+                "strategyVersion",
+                "headVersion",
+                "stale",
+                "title",
+                "description",
+                "tags",
+                "visibility",
+                "licence",
+                "checklistVersion",
+                "listedAt",
+                "access"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["listings"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "accountId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "accountId": "not-a-uuid"
+          }
+        }
+      ]
+    },
+    "quant.library.options": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "library.options",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "licences": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "checklist": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["version", "items"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["open", "protected", "invite"]
+            }
+          }
+        },
+        "required": ["licences", "checklist", "tags", "visibilities"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "accept"
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "accountId": "not-a-uuid"
+          }
+        }
+      ]
+    },
+    "quant.library.preview": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "library.preview",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.listing_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["listingId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "access": {
+            "type": "string",
+            "enum": ["owner", "open", "granted", "requested", "revoked", "none"]
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["listingId", "title", "visibility", "access", "rows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "listingId": "l-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        }
+      ]
+    },
+    "quant.library.publish": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "library.publish",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.listing_stale": "CONFLICT",
+        "quant.library_licences_unset": "PRECONDITION_FAILED",
+        "quant.params_invalid": "BAD_REQUEST",
+        "quant.listing_check_failed": "PRECONDITION_FAILED",
+        "quant.realism_checklist_unset": "PRECONDITION_FAILED",
+        "quant.realism_checklist_unaccepted": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "tags": {
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "licence": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "checklistVersion": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "checklistAccepted": {
+            "type": "boolean"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": [
+          "strategyId",
+          "strategyVersion",
+          "title",
+          "description",
+          "tags",
+          "visibility",
+          "licence",
+          "checklistVersion",
+          "checklistAccepted"
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "headVersion": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "licence": {
+            "type": "string"
+          },
+          "checklistVersion": {
+            "type": "string"
+          },
+          "listedAt": {
+            "type": "string"
+          },
+          "access": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["requested", "granted", "revoked"]
+                },
+                "at": {
+                  "type": "string"
+                },
+                "rows": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["userId", "state", "at", "rows"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "listingId",
+          "strategyId",
+          "strategyVersion",
+          "headVersion",
+          "stale",
+          "title",
+          "description",
+          "tags",
+          "visibility",
+          "licence",
+          "checklistVersion",
+          "listedAt",
+          "access"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "title": "TEST trend",
+            "description": "A moving-average cross.",
+            "tags": ["trend"],
+            "visibility": "open",
+            "licence": "MIT",
+            "checklistVersion": "v1",
+            "checklistAccepted": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "title": "TEST trend",
+            "description": "A moving-average cross.",
+            "tags": ["trend"],
+            "visibility": "open",
+            "licence": "MIT"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "title": "TEST trend",
+            "description": "A moving-average cross.",
+            "tags": ["trend"],
+            "visibility": "open",
+            "licence": "MIT",
+            "checklistVersion": "v1",
+            "checklistAccepted": "yes"
+          }
+        }
+      ]
+    },
+    "quant.library.request": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "library.request",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.listing_not_found": "NOT_FOUND",
+        "quant.params_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["listingId", "seq"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "access": {
+            "type": "string",
+            "enum": ["owner", "open", "granted", "requested", "revoked", "none"]
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["listingId", "title", "visibility", "access", "rows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "listingId": "l-1",
+            "seq": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": "l-1",
+            "seq": -1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": "l-1"
+          }
+        }
+      ]
+    },
+    "quant.library.review": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "library.review",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.listing_not_found": "NOT_FOUND",
+        "quant.listing_access_denied": "FORBIDDEN",
+        "quant.params_invalid": "BAD_REQUEST",
+        "quant.review_needs_run": "PRECONDITION_FAILED",
+        "quant.listing_check_failed": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["listingId", "text"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "licence": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "listedAt": {
+            "type": "string"
+          },
+          "mine": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": ["string", "null"]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "runId": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string",
+                    "const": "Historical simulation — not a forecast"
+                  },
+                  "symbol": {
+                    "type": "string"
+                  },
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  },
+                  "startCash": {
+                    "type": "string"
+                  },
+                  "net": {
+                    "type": "string"
+                  },
+                  "endEquity": {
+                    "type": "string"
+                  },
+                  "trades": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["runId", "label", "symbol", "from", "to", "startCash", "net", "endEquity", "trades"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reviews": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "reviewerId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["reviewerId", "text", "createdAt"],
+              "additionalProperties": false
+            }
+          },
+          "clone": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "strategyId": {
+                    "type": "string"
+                  }
+                },
+                "required": ["strategyId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "listingId",
+          "title",
+          "description",
+          "tags",
+          "visibility",
+          "licence",
+          "strategyVersion",
+          "stale",
+          "ownerId",
+          "listedAt",
+          "mine",
+          "source",
+          "result",
+          "reviews",
+          "clone"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "listingId": "l-1",
+            "text": "Clear rules."
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": "l-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": "l-1",
+            "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        }
+      ]
+    },
+    "quant.library.revoke": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "library.revoke",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.listing_not_found": "NOT_FOUND",
+        "quant.params_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "userId": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["listingId", "userId", "seq"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "headVersion": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "licence": {
+            "type": "string"
+          },
+          "checklistVersion": {
+            "type": "string"
+          },
+          "listedAt": {
+            "type": "string"
+          },
+          "access": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["requested", "granted", "revoked"]
+                },
+                "at": {
+                  "type": "string"
+                },
+                "rows": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["userId", "state", "at", "rows"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "listingId",
+          "strategyId",
+          "strategyVersion",
+          "headVersion",
+          "stale",
+          "title",
+          "description",
+          "tags",
+          "visibility",
+          "licence",
+          "checklistVersion",
+          "listedAt",
+          "access"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "listingId": "l-1",
+            "userId": "33333333-3333-4333-8333-333333333333",
+            "seq": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": "l-1",
+            "userId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "listingId": "l-1",
+            "userId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "seq": 0
+          }
+        }
+      ]
+    },
     "quant.lifecycle.get": {
       "service": "svc-quant",
       "module": "quant",
