@@ -62,7 +62,7 @@
  *
  * Full names what the change can reach, never what a pull request runs: no pull request runs the full suite. A full
  * change, or a pick past PR_MAX_FILES, runs the bounded set (pullPick: its changed and named journeys, the map's
- * always-run list and the CANARY), in at most 12 shards (journey-shards.mjs PR_MAX_SHARDS); main's full run after the
+ * always-run list and the CANARY), in at most 30 shards (journey-shards.mjs PR_MAX_SHARDS); main's full run after the
  * merge judges the rest, as OWNER 249 (3) says. The seal holds the pull request to the same set.
  *
  *   node tooling/ci/journey-touch.mjs --base origin/main     (this checkout's branch against a base; prints what to run)
@@ -552,7 +552,7 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
 /**
  * The most journey files a pull request's own run takes. A pick past it runs the bounded set instead (pullPick). About
  * 100 files are about 240 minutes of journeys (main's full run: about 891 minutes over some 365 files), which
- * journey-shards.mjs packs into its PR_MAX_SHARDS of 12 with every shard clear of its limit.
+ * journey-shards.mjs packs into its PR_MAX_SHARDS of 30 at about 10 minutes a shard.
  */
 export const PR_MAX_FILES = 100;
 
