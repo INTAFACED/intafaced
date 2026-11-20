@@ -666,6 +666,18 @@ export interface VenueBuilderTotal {
 }
 
 /**
+ * Our builder address's account mode at the venue (J-ops-console-28), beside the mode the venue requires an address to be
+ * in to accrue builder fees. Each is the venue's own name for it: on Hyperliquid, "Builder code addresses must be in
+ * standard mode to accrue builder fees". `mode` not known is a mode that can't be read, never "ok"; `required` not known
+ * is a requirement the venue does not publish.
+ */
+export interface VenueBuilderAccountMode {
+  readonly builder: string;
+  readonly mode: MaybeKnown<string>;
+  readonly required: MaybeKnown<string>;
+}
+
+/**
  * One claim of builder fees, as the venue itself records it (J-derivatives-17; launch money model, rule 5): the venue paid
  * `amount` of the builder's earned fees into the builder's own account at the venue. `claimId` is the venue's own id for
  * it, so a claim read twice is one claim.
@@ -1886,6 +1898,11 @@ export interface UserVenue {
    * claim of our builder fees"). Absent on an adapter that does not read the claim record; nothing is then collected.
    */
   builderClaims?(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>>;
+  /**
+   * Our builder address's account mode as the venue reports it, and the mode the venue requires for it to accrue builder
+   * fees (J-ops-console-28). Absent on an adapter that does not read it; the console then reads the mode as unknown.
+   */
+  builderAccountMode?(builder: string): Promise<AsOf<VenueBuilderAccountMode>>;
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>>;
   /**
    * The account's leverage setting on `symbol`, or `null` when none is set

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { poolBoardSchema, type CampaignView, type PoolBoard } from '@intafaced/contracts/campaigns-catalogue';
+import { type CampaignView, type PoolBoard } from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGNS_POOL_BOARD } from '@intafaced/contracts/campaigns-procedures';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { DataTable, Failure, Loading, Panel } from '../../shared/ui';
@@ -16,7 +17,7 @@ export function CampaignPool({ campaign, version }: { campaign: CampaignView; ve
   const api = useApi();
   const { t, renderedLocale } = campaignPoolCopy.useCopy();
   const board = useResource(
-    (signal) => api.query('campaigns', 'pool.board', { campaignId: campaign.id }, poolBoardSchema, { signal }),
+    (signal) => api.call(CAMPAIGNS_POOL_BOARD, { campaignId: campaign.id }, { signal }),
     `pool-${campaign.id}-${version}`,
   );
   const when = useMemo(() => {

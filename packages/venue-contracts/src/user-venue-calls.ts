@@ -49,6 +49,7 @@ export const USER_VENUE_READS = {
   feeStatus: { path: '/fee-status', args: ['account'] },
   builderTotals: { path: '/builder-totals', args: ['builder'] },
   builderClaims: { path: '/builder-claims', args: ['builder'] },
+  builderAccountMode: { path: '/builder-account-mode', args: ['builder'] },
   agents: { path: '/agents', args: ['account'] },
   leverage: { path: '/leverage', args: ['account', 'symbol'] },
   leverageChange: { path: '/leverage-change', args: ['account', 'symbol', 'leverageBps', 'marginMode'] },
