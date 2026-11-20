@@ -1,17 +1,12 @@
 import type { ZodType } from 'zod';
-import {
-  dexHealthSchema,
-  indexerStatusSchema,
-  unwrapTrpcData,
-  type BlockerSource,
-  type DexHealth,
-  type IndexerStatus,
-} from '@intafaced/contracts';
+import { indexerStatusSchema, unwrapTrpcData, type BlockerSource, type IndexerStatus } from '@intafaced/contracts';
+import { DEX_HEALTH, type DexHealth } from '@intafaced/contracts/dex-procedures';
+import { trpcRecordReply } from '@intafaced/contracts/procedure-trpc';
 
 /**
  * Where `protocol.blockers` learns what the indexer and the DEX say about themselves.
  *
- * Both are read through their public tRPC procedures (`indexer.status`, `dex.health`), never their tables. Neither read
+ * Both are read through their public tRPC procedures (`indexer.status`, `dex.health` by its record), never their tables. Neither read
  * carries a credential, and the caller's region is forwarded so a screened region stays screened at the peer.
  *
  * A peer with no URL or no timeout is "not connected in this environment" (the gateway's own word for it). Nothing here
@@ -37,7 +32,16 @@ const NOT_CONNECTED = {
 
 const unreachable = (message: string): BlockerSource<never> => ({ status: 'down', reason: 'unreachable', message });
 
-async function read<T>(config: PeerConfig, procedure: string, schema: ZodType<T>, region: string | undefined): Promise<BlockerSource<T>> {
+/** A reply's parser: the data, or `null` when it is not the published shape. */
+type Reply<T> = (body: unknown) => T | null;
+const bySchema =
+  <T>(schema: ZodType<T>): Reply<T> =>
+  (body) => {
+    const parsed = schema.safeParse(unwrapTrpcData(body));
+    return parsed.success ? parsed.data : null;
+  };
+
+async function read<T>(config: PeerConfig, procedure: string, reply: Reply<T>, region: string | undefined): Promise<BlockerSource<T>> {
   const timeoutMs = config.timeoutMs;
   if (!config.url || timeoutMs === undefined) return NOT_CONNECTED;
   const doFetch = config.fetch ?? globalThis.fetch;
@@ -58,16 +62,16 @@ async function read<T>(config: PeerConfig, procedure: string, schema: ZodType<T>
   } catch {
     return { status: 'down', reason: 'malformed', message: 'The service answered with something unreadable.' };
   }
-  const parsed = schema.safeParse(unwrapTrpcData(body));
-  return parsed.success
-    ? { status: 'ok', data: parsed.data }
+  const data = reply(body);
+  return data !== null
+    ? { status: 'ok', data }
     : { status: 'down', reason: 'malformed', message: 'The service answered with something unreadable.' };
 }
 
 export function createPeers(config: { indexer: PeerConfig; dex: PeerConfig }): Peers {
   return {
-    indexer: (region) => read(config.indexer, 'status', indexerStatusSchema, region),
-    dex: (region) => read(config.dex, 'health', dexHealthSchema, region),
+    indexer: (region) => read(config.indexer, 'status', bySchema(indexerStatusSchema), region),
+    dex: (region) => read(config.dex, DEX_HEALTH.path, (body) => trpcRecordReply(DEX_HEALTH, body), region),
   };
 }
 
