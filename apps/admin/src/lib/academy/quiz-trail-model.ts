@@ -7,7 +7,7 @@ import type {
   AcademyCourseQuizQuestion,
   AcademyRescoreCourseQuizResult,
 } from '@intafaced/contracts/academy-course-quizzes';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * A quiz's finished attempts and their score changes on the founder console (AC-quizzes-04): attempts under aliases with

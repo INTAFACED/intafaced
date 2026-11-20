@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   localStackState,
   localPgOsUser,
@@ -170,6 +170,23 @@ const fixture = () => ({
   services: ['edge'],
 });
 assert.doesNotThrow(() => assertStackOwnership(fixture()));
+// A Node service started with this checkout's code-reach preload (service-reach.mjs) is still this checkout's.
+const preloaded = (url) => {
+  const f = fixture();
+  const argv = command.split(' ');
+  f.records.edge.argv = [argv[0], '--import', url, ...argv.slice(1)];
+  f.processes.get(20).command = f.records.edge.argv.join(' ');
+  return f;
+};
+assert.doesNotThrow(
+  () => assertStackOwnership(preloaded(pathToFileURL(path.join(repo, 'tooling', 'scripts', 'service-reach.mjs')).href)),
+  'ownership: the preload of this checkout passes',
+);
+assert.throws(
+  () => assertStackOwnership(preloaded(pathToFileURL('/fixture/old/tooling/scripts/service-reach.mjs').href)),
+  /edge checkout differs/,
+  "ownership: another checkout's preload refuses",
+);
 for (const alter of [
   (f) => {
     f.postgres[1] = '/fixture/old/data/postgres';

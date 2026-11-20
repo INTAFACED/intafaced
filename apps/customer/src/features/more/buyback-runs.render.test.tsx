@@ -6,7 +6,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { BuybackRunsView, buybackRunsSchema, type BuybackRunsRead } from './BuybackRuns';
 
 const html = (data: BuybackRunsRead) =>

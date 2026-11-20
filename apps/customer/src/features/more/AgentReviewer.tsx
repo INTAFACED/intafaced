@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { z } from 'zod';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Read, Select } from './common';

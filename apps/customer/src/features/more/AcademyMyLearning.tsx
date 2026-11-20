@@ -8,7 +8,7 @@ import {
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { EmptyState, Loading, Panel } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { Details } from './common';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref, formatDay } from './academy-lms';

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { z } from 'zod';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { Button, DataTable, Dialog, Field, Panel } from '../../shared/ui';

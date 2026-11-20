@@ -320,6 +320,25 @@ export function assertTransition(row: PaymentRow, next: PaymentStatus): void {
 }
 
 /**
+ * The one way a payment's status is written once the payment is locked: the move must be in TRANSITIONS, and the
+ * `UPDATE` only lands on the status the caller read under that lock. Zero rows means someone moved it anyway: a bug,
+ * refused with the same typed error, never a silent overwrite.
+ */
+export async function movePayment(tx: Queryable, row: PaymentRow, next: PaymentStatus): Promise<PaymentRow> {
+  assertTransition(row, next);
+  const moved = await tx`
+    UPDATE pay.payments SET status = ${next}, updated_at = now() WHERE id = ${row.id} AND status = ${row.status}
+  `;
+  if (moved.count !== 1) {
+    throw new PayError(`Payment ${row.id} is no longer ${row.status}; it cannot go to ${next}`, 'pay.invalid_transition', {
+      from: row.status,
+      to: next,
+    });
+  }
+  return { ...row, status: next };
+}
+
+/**
  * Captured and refunded totals, summed from the append-only log.
  *
  * Deliberately not columns. A running total on the payment row would be a

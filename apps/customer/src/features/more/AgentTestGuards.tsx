@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure } from '../../shared/ui';
 import { agentTestRunsCopy, hasTestRunsWords } from './agent-test-runs-copy';

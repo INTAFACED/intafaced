@@ -84,11 +84,8 @@ pub trait Stream: Send + Sync {
 /// `NullStreamProvider`: no SFU is configured; opening a room or a credential refuses, closing is a no-op.
 pub struct NullStream;
 
-fn stream_unavailable() -> Refusal {
-    Refusal::Academy(AcademyError::new(
-        "No streaming provider is configured — set ACADEMY_STREAM_PROVIDER and its URL (SOCKET §13 socket.stream-provider)",
-        "academy.stream_unavailable",
-    ))
+fn stream_unavailable(message: &str) -> Refusal {
+    Refusal::Academy(AcademyError::new(message, "academy.stream_unavailable"))
 }
 
 impl Stream for NullStream {
@@ -105,10 +102,14 @@ impl Stream for NullStream {
         false
     }
     fn open_room(&self, _session_id: &str) -> Result<String, Refusal> {
-        Err(stream_unavailable())
+        Err(stream_unavailable(
+            "No streaming provider is configured — set ACADEMY_STREAM_PROVIDER and its URL (SOCKET §13 socket.stream-provider)",
+        ))
     }
     fn credential(&self, _: &str, _: &str, _: &str, _: &str) -> Result<StreamCredential, Refusal> {
-        Err(stream_unavailable())
+        Err(stream_unavailable(
+            "No streaming provider is configured — this lobby can run as text and presence only (SOCKET §13 socket.stream-provider)",
+        ))
     }
     fn close_room(&self, _stream_room: &str) -> Result<(), Refusal> {
         Ok(())
@@ -166,12 +167,19 @@ impl Approvals for StubApprovals {
 /// asked or read.
 pub trait LinkedWallets: Send + Sync {
     fn read(&self, user_id: &str) -> Option<Json>;
+    /// Whether identity is asked at all: without it nothing is sold (`CoursePurchaseDeps.wallets` null).
+    fn wired(&self) -> bool {
+        true
+    }
 }
 
 /// No identity: no wallet is known, so nothing is sold.
 pub struct NoLinkedWallets;
 
 impl LinkedWallets for NoLinkedWallets {
+    fn wired(&self) -> bool {
+        false
+    }
     fn read(&self, _user_id: &str) -> Option<Json> {
         None
     }
@@ -188,12 +196,20 @@ pub struct PaperFlag {
 /// `PaperMarketFlagPort`: whether svc-trade lists a market as paper.
 pub trait PaperFlags: Send + Sync {
     fn lookup(&self, market_id: &str, symbol: &str) -> Result<Option<PaperFlag>, Refusal>;
+    /// Whether svc-trade is asked at all (`options.paperMarketFlagPort` set): `index.ts` builds the port only while
+    /// `TRADE_URL` is set, and so does `main.rs`.
+    fn wired(&self) -> bool {
+        true
+    }
 }
 
 /// No svc-trade: the flag cannot be read, so a paper workbook refuses.
 pub struct NoPaperFlags;
 
 impl PaperFlags for NoPaperFlags {
+    fn wired(&self) -> bool {
+        false
+    }
     fn lookup(&self, _market_id: &str, _symbol: &str) -> Result<Option<PaperFlag>, Refusal> {
         Err(Refusal::Academy(AcademyError::new(
             "the paper flag cannot be read: TRADE_URL is unset",
@@ -266,23 +282,6 @@ pub trait Refunds: Send + Sync {
     fn send(&self, input: &RefundSend) -> Result<Option<String>, Refusal>;
 }
 
-/// The video store's signed URLs (`VideoStorageConfig`).
-pub trait ObjectStore: Send + Sync {
-    fn signed_url(&self, key: &str, expires_at: Instant) -> Result<String, Refusal>;
-}
-
-/// No video store: `academy.video_storage_unconfigured`.
-pub struct NoObjectStore;
-
-impl ObjectStore for NoObjectStore {
-    fn signed_url(&self, _key: &str, _expires_at: Instant) -> Result<String, Refusal> {
-        Err(Refusal::Academy(AcademyError::new(
-            "video storage is not configured",
-            "academy.video_storage_unconfigured",
-        )))
-    }
-}
-
 /// The event bus's publish side (`JetStreamEventBus`): the certification XP awards and their reversals.
 pub trait Bus: Send + Sync {
     /// Reported on `/ready`: `none` means nothing leaves this process.
@@ -324,8 +323,9 @@ impl JetStreamBus {
 }
 
 impl Bus for JetStreamBus {
+    /// `BusCertXpPublisher.id`: what `/ready` and `certXpPlane` name.
     fn id(&self) -> &str {
-        "nats"
+        "bus"
     }
     fn usable(&self) -> bool {
         true
@@ -363,7 +363,8 @@ pub struct Ports {
     pub ledger: Option<Box<dyn Ledger>>,
     pub chain: Option<Box<dyn Chain>>,
     pub refunds: Option<Box<dyn Refunds>>,
-    pub objects: Box<dyn ObjectStore>,
+    /// The bytes of an assignment file sent to and read from a signed store address (`putOverHttp`, `getOverHttp`).
+    pub object_bytes: Box<dyn crate::assessment::storage::ObjectBytes>,
     pub bus: Box<dyn Bus>,
     /// How a service's call to the S2S door (`/internal/curriculum`) is judged: inbound, but an outside caller.
     pub services: crate::curriculum::internal::ServiceAuth,
@@ -384,7 +385,8 @@ impl Ports {
             ledger: None,
             chain: None,
             refunds: None,
-            objects: Box::new(NoObjectStore),
+            // The TypeScript's default is the real wire; it is reached only once the store is configured.
+            object_bytes: Box::new(crate::assessment::storage::HttpObjectBytes::default()),
             bus: Box::new(NoBus),
             services: crate::curriculum::internal::ServiceAuth::unwired(),
         }

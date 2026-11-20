@@ -55,7 +55,7 @@ export function RolesCatalogue({ catalogue, retry }: { catalogue: Resource<Permi
               {data.areas.map((group) => (
                 <DataTable key={group.area} label={areaName(group.area, t)} headers={[areaName(group.area, t), ...ROLES.map(roleName)]}>
                   {group.permissions.map((perm) => (
-                    <tr key={perm.key}>
+                    <tr key={perm.key} data-permission={perm.key}>
                       <th scope="row">
                         {permissionName(perm.key, t)}
                         <small className="pay-cell-note">

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, Failure, Field, Panel } from '../../shared/ui';
 import { agentAutomationCopy, hasAutomationWords } from './agent-automation-copy';

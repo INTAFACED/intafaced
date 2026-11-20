@@ -20,7 +20,13 @@ import { NamedBlocker, TestBanner, useTestMode } from './common';
 import { formatMoney } from '../ui/format';
 import { mc } from './copy';
 import { bpsPercent, closestToLimit, limitRows, type LimitRow } from './model';
-import type { Cap, LimitOpen, LimitRequest, TierList, TierSummary } from './schemas';
+import type {
+  MerchantLimitOpen as LimitOpen,
+  MerchantLimitRequest as LimitRequest,
+  MerchantTierList as TierList,
+  MerchantTierSummary as TierSummary,
+  PayCap as Cap,
+} from '@intafaced/contracts/merchant-control';
 
 type Words = ReturnType<typeof mc.useCopy>['t'];
 const kindName = (t: Words, kind: string) => t(`limitKind_${kind}` as 'limitKind_daily_intake');

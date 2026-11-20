@@ -5,7 +5,7 @@ import { readContract, writeContract } from '../../shared/contract-call';
 import type { ApiResult } from '../../shared/api';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { Button, Field } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { chatCopy } from './support-chat-copy';
 import {
   chatAvailability,

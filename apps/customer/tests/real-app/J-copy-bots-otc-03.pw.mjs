@@ -6,7 +6,7 @@ import { test, expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
 import { fundedTrader, openOrders, signIn } from './desk.mjs';
 import { confirmStepUp, refusalCode, restorePasskey, testPasskey } from './p2p.mjs';
-import { testDeposit, testVenue, venueForThisFile, venueInfo } from './venue.mjs';
+import { TEST_VENUE, testDeposit, testVenue, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 import { copiedOrders, copiedOrdersLoaded, followOnScreen, leadFill, listLeader, openFollow } from './copy.mjs';
 
 // J-copy-bots-otc-03, in the running app (docs/roadmap/journeys.json): pause, stop or leave a copy, close what I choose,
@@ -470,13 +470,9 @@ async function approveBuilder(session, key, subAccount, tag) {
   });
 }
 
-/** A venue account as the TEST venue names it. */
-const venueAcct = async (owner, subAccount = null) => ({ venueId: (await venueInfo()).id, owner: owner.toLowerCase(), subAccount });
-/** The TEST venue's own record for an account, sub-account or main, read directly. */
+/** The TEST venue's own record for an account, sub-account or main, read directly by the venue fixture's read. */
 async function onVenue(path, owner, subAccount = null, extra = {}) {
-  const res = await testVenue(path, { account: await venueAcct(owner, subAccount), ...extra });
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-  return res.body.value;
+  return (await venueRecord(owner, path, extra, TEST_VENUE, subAccount)).value;
 }
 /** The venue's client order id for one of our business keys (venue-contracts `venueClientOrderId`). */
 const cloidOf = async (key) =>

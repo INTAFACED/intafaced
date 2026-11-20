@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Download } from 'lucide-react';
 import { Button } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { refusalCopy } from '../../data';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from '../../screens/money/statement-model';
 import { statementFileSchema, statementJobSchema, type LineTotal } from './contracts';

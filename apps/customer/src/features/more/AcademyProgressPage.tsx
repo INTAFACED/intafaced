@@ -14,7 +14,7 @@ import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { Button, EmptyState, Loading, Panel } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { formatDay } from './academy-lms';
 import { AcademyRefusal, GuardedButton, ProgressBar, pathLabel } from './AcademyLmsParts';

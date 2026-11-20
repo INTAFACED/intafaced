@@ -6,7 +6,7 @@ import { MoneyText } from '../ui/MoneyText';
 import { MoneyFailure } from './common';
 import { mc } from './copy';
 import { bpsPercent } from './model';
-import type { ReserveView } from './schemas';
+import type { MerchantReserveView as ReserveView } from '@intafaced/contracts/merchant-control';
 import type { PartnerTerms } from './partner-terms-api';
 import { PartnerReserveLine } from './PartnerTerms';
 

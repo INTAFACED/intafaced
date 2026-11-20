@@ -26,6 +26,7 @@ import {
   type RunAction,
 } from '../../../features/trade/venue/VenueKit';
 import { futuresRoutesCopy } from './routes-copy';
+import { approvalState } from './venue-routes-logic';
 
 /**
  * ROUTING OVER THE VENUES THE PERSON CAN SIGN FOR (J-derivatives-28). Shown only when the deployment has more than one
@@ -340,7 +341,8 @@ export function RoutedReview({
   const [result, setResult] = useState<ActionResult | null>(null);
   const fee = status.builder?.feeBps ?? null;
   const approvedAmount = approval.data && 'value' in approval.data ? approval.data.value : null;
-  const approved = !carries || (fee !== null && approvedAmount !== null && parseAmount(approvedAmount) >= parseAmount(fee));
+  const approvalNow = approvalState(carries, fee, { approved: approvedAmount, failed: approval.failure !== null });
+  const approved = approvalNow === 'not_needed' || approvalNow === 'approved';
 
   async function order() {
     if (!chosen) return;
@@ -521,7 +523,12 @@ export function RoutedReview({
         ) : null}
         {chosen ? (
           <Button
-            disabled={busy || step === 'approval' || (result !== null && result.kind !== 'rejected' && result.kind !== 'wallet_failed')}
+            disabled={
+              busy ||
+              step === 'approval' ||
+              approvalNow === 'reading' ||
+              (result !== null && result.kind !== 'rejected' && result.kind !== 'wallet_failed')
+            }
             onClick={() => {
               setStep('review');
               void confirm();
