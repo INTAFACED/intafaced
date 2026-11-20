@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { P2P_TRADES_LIST } from '@intafaced/contracts/p2p-procedures';
 import { describe, expect, it } from 'vitest';
 import { P2pError, assertTradeListLimit } from './p2p-service.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
@@ -47,16 +48,13 @@ describe('trades.list limit unset refuse', () => {
     expect(fn).not.toMatch(/\?\? 50/);
   });
 
-  it('router does not invent 50 when trades.list omits limit', () => {
+  it('the list record lets an omitted limit reach the named refusal, and the handler does not invent 50', () => {
+    expect(P2P_TRADES_LIST.input.safeParse(undefined).success).toBe(true);
+    expect(P2P_TRADES_LIST.input.safeParse({}).success).toBe(true);
+    expect(P2P_TRADES_LIST.refusals['p2p.trade_list_limit_unset']).toBe('PRECONDITION_FAILED');
     const src = readFileSync(join(ROOT, 'services/svc-p2p/src/router.ts'), 'utf8');
-    const start = src.indexOf("list: merchantApiProcedure('p2p:read')");
-    // First `list:` after trades.get is trades.list — pin on listTrades.
-    const call = src.indexOf('p2p.listTrades(');
-    expect(call).toBeGreaterThan(-1);
-    const fn = src.slice(Math.max(0, call - 800), call + 120);
-    expect(fn).toContain('listTrades(ctx.principal.userId, input?.limit)');
-    expect(fn).not.toMatch(/input\?\.limit \?\? 50/);
-    expect(fn).not.toMatch(/\?\? 50/);
-    expect(start).toBeGreaterThan(-1);
+    const handler = src.slice(src.indexOf("'p2p.trades.list':"), src.indexOf("'p2p.trades.page':"));
+    expect(handler).toContain('listTrades(userOf(ctx), input?.limit)');
+    expect(handler).not.toMatch(/\?\? 50/);
   });
 });
