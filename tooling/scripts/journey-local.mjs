@@ -35,6 +35,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { dispatchCommands } from '../ci/journey-touch.mjs';
 import { CHECKOUT, localStackSlot, localStackState, slotClaims, slotPorts } from './local-test-facts.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -73,8 +74,8 @@ export function journeyFiles(ids, dir = JOURNEY_DIR, exists = fs.existsSync) {
   return { files };
 }
 
-/** The GitHub run that proves a journey, for a builder who cannot run it here. */
-export const githubRun = (branch, files) => `gh workflow run real-app-journeys.yml --ref ${branch} -f journeys="${files.join(' ')}"`;
+/** The GitHub runs that prove the journeys, for a builder who cannot run them here: each one starts (dispatchCommands). */
+export const githubRun = (branch, files) => dispatchCommands(branch, files).join(' ; ');
 
 /** The start's output -> why it refused, in its own words, or null. */
 export function refusal(text) {
