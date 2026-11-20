@@ -9,15 +9,18 @@
  *   - The person's browser (the client side, `/client/*`, reached through the TEST stack's same-origin path
  *     `/__test-wallet-provider/client/*`) asks for a one-time challenge for one action, answers it with a WebAuthn
  *     assertion from a passkey bound to the wallet, and only then is a message or EIP-712 typed data (a venue action:
- *     the trading session's one approval, J-wallet-22 #8) signed, the key exported to the person, or a recovery passkey
+ *     the trading session's one approval, J-wallet-22 #8) signed, a transaction signed and sent on the TEST chain (the
+ *     person's own deposit to the venue's bridge, J-wallet-24 #4), the key exported to the person, or a recovery passkey
  *     added. A session without that passkey cannot sign anything.
+ *   - The page reads the TEST chain through the provider's own connection (`/client/rpc`), as a real provider's wallet
+ *     reads its chain: read-only methods only (balances, a fee estimate, a receipt), never one that signs or sends.
  * No seed phrase exists anywhere: the key is a fresh random secp256k1 key, and export hands the person the key itself,
  * once (J-dex-protocol-08 #9, the export policy the owner's provider is set up with): the first export after a passkey
  * check is recorded on the wallet, and every later export request, from any device, is refused `export_spent` with no key.
  *
  * It refuses to start unless APP_ENV is exactly `dev` or `test`. Never part of a real environment.
  *
- *   node tooling/scripts/local-test-wallet-provider.mjs   (TEST_WALLET_PROVIDER_HOST, _PORT, _ORIGINS, _STATE_FILE, APP_ENV)
+ *   node tooling/scripts/local-test-wallet-provider.mjs   (TEST_WALLET_PROVIDER_HOST, _PORT, _ORIGINS, _STATE_FILE, _RPC_URL, APP_ENV)
  */
 import { createHash, createPublicKey, randomBytes, verify as verifySignature } from 'node:crypto';
 import fs from 'node:fs';
@@ -31,7 +34,20 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 export const TEST_WALLET_PROVIDER_LABEL = 'TEST wallet provider';
 /** How long a client challenge can be answered. */
 export const CHALLENGE_TTL_MS = 5 * 60 * 1000;
-const ACTIONS = new Set(['sign', 'signtyped', 'export', 'recovery']);
+const ACTIONS = new Set(['sign', 'signtyped', 'sendtx', 'export', 'recovery']);
+/** The chain reads the page may make through the provider's connection: none of them signs or sends. */
+export const RPC_READS = new Set([
+  'eth_chainId',
+  'eth_blockNumber',
+  'eth_getBlockByNumber',
+  'eth_getBalance',
+  'eth_call',
+  'eth_getTransactionReceipt',
+  'eth_getTransactionCount',
+  'eth_estimateGas',
+  'eth_gasPrice',
+  'eth_maxPriorityFeePerGas',
+]);
 /** Where the TEST stack's Customer site passes the provider's client routes, on the page's own origin. */
 export const TEST_WALLET_PROVIDER_CLIENT_PATH = '/__test-wallet-provider';
 
@@ -60,6 +76,8 @@ export const payloadHash = (action, payload) => b64url(sha256(JSON.stringify([ac
 export function createTestWalletProvider({
   origins,
   accounts,
+  /** One JSON-RPC call on the TEST chain: `(method, params) => result`, throwing on an error; absent: no chain. */
+  rpc = null,
   now = () => Date.now(),
   random = randomBytes,
   saved = null,
@@ -70,6 +88,8 @@ export function createTestWalletProvider({
   const wallets = new Map();
   const byOwner = new Map();
   const challenges = new Map(); // challenge -> { walletId, action, hash, expiresAt }
+  // `${walletId}:${nonce}` -> hash: a transaction is sent once per wallet nonce; asking again answers the same hash.
+  const sent = new Map();
   /** At most this many open challenges per wallet: an unanswered one never piles up. */
   const OPEN_PER_WALLET = 8;
 
@@ -214,6 +234,7 @@ export function createTestWalletProvider({
       }
       return { status: 200, body: { signature, address: w.address } };
     }
+    if (action === 'sendtx') return sendTransaction(w, payload);
     if (action === 'export') {
       // Checked again here: two challenges issued before the first export are both spent by it.
       if (w.exportedAt !== null) return spent(w);
@@ -227,6 +248,70 @@ export function createTestWalletProvider({
     w.passkeys.set(payload.passkey.credentialId, { spki: payload.passkey.publicKey, key });
     onChange();
     return { status: 200, body: { added: true, passkeys: w.passkeys.size } };
+  }
+
+  /**
+   * A transaction from the wallet on the TEST chain, after the person's passkey (J-wallet-24 #4): the payload the
+   * challenge committed to names the chain, the contract, the call data, the value and the wallet's nonce. The provider
+   * prices it from the chain (estimated gas, the chain's fees), signs it with the wallet's key and sends it, once per
+   * nonce: the same request again answers the hash already sent, never a second transfer.
+   */
+  async function sendTransaction(w, payload) {
+    const tx = payload?.transaction;
+    const hex = (v) => typeof v === 'string' && /^0x[0-9a-fA-F]*$/.test(v);
+    if (
+      !tx ||
+      typeof tx !== 'object' ||
+      !Number.isSafeInteger(tx.chainId) ||
+      typeof tx.to !== 'string' ||
+      !/^0x[0-9a-fA-F]{40}$/.test(tx.to) ||
+      !hex(tx.data) ||
+      !hex(tx.value) ||
+      !Number.isSafeInteger(tx.nonce) ||
+      tx.nonce < 0
+    )
+      return { status: 400, body: { error: 'bad_request' } };
+    if (!rpc) return { status: 503, body: { error: 'chain_unavailable' } };
+    const key = `${w.walletId}:${tx.nonce}`;
+    const done = sent.get(key);
+    if (done) return { status: 200, body: { hash: done, address: w.address, again: true } };
+    try {
+      if (Number(BigInt(await rpc('eth_chainId', []))) !== tx.chainId) return { status: 400, body: { error: 'wrong_chain' } };
+      const call = { from: w.address, to: tx.to, data: tx.data, value: tx.value };
+      const gas = BigInt(await rpc('eth_estimateGas', [call]));
+      const gasPrice = BigInt(await rpc('eth_gasPrice', []));
+      const tip = BigInt(await rpc('eth_maxPriorityFeePerGas', []));
+      const raw = await accounts.privateKeyToAccount(w.privateKey).signTransaction({
+        type: 'eip1559',
+        chainId: tx.chainId,
+        to: tx.to,
+        data: tx.data,
+        value: BigInt(tx.value),
+        nonce: tx.nonce,
+        gas,
+        maxFeePerGas: gasPrice + tip,
+        maxPriorityFeePerGas: tip,
+      });
+      const hash = await rpc('eth_sendRawTransaction', [raw]);
+      sent.set(key, hash);
+      return { status: 200, body: { hash, address: w.address, again: false } };
+    } catch (err) {
+      // The chain refused it (no gas, a revert in the estimate): nothing was sent.
+      return { status: 422, body: { error: 'chain_refused', detail: String(err instanceof Error ? err.message : err).slice(0, 300) } };
+    }
+  }
+
+  /** The page's chain reads through the provider's connection: read-only methods only. */
+  async function read(body) {
+    const { method, params } = body ?? {};
+    if (typeof method !== 'string' || !RPC_READS.has(method) || !Array.isArray(params))
+      return { status: 400, body: { error: 'bad_request' } };
+    if (!rpc) return { status: 503, body: { error: 'chain_unavailable' } };
+    try {
+      return { status: 200, body: { result: await rpc(method, params) } };
+    } catch (err) {
+      return { status: 200, body: { error: String(err instanceof Error ? err.message : err).slice(0, 300) } };
+    }
   }
 
   /** The provider's whole state, for its own state file: the TEST keys and the passkeys' PUBLIC keys. */
@@ -255,7 +340,7 @@ export function createTestWalletProvider({
     byOwner.set(w.ownerRef, w.walletId);
   }
 
-  return { createWallet, getWallet, challenge, act, wallets, challenges, snapshot };
+  return { createWallet, getWallet, challenge, act, read, wallets, challenges, snapshot };
 }
 
 async function readJson(req) {
@@ -270,7 +355,24 @@ async function readJson(req) {
 }
 
 /** The provider behind loopback HTTP. Nothing it answers or logs carries a key, except `export` to the person. */
-export async function serveTestWalletProvider({ host, port, appEnv, origins, accounts, stateFile }) {
+/** One JSON-RPC call to the TEST chain at `url`: the result, or a throw with the node's error. */
+export function chainRpc(url) {
+  let id = 0;
+  return async (method, params) => {
+    id += 1;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const body = await res.json();
+    if (body.error) throw new Error(body.error.message ?? JSON.stringify(body.error));
+    return body.result;
+  };
+}
+
+export async function serveTestWalletProvider({ host, port, appEnv, origins, accounts, stateFile, rpcUrl }) {
   refuseTestProviderOutsideTest(appEnv);
   // Its state lives in its own file in the TEST stack's state folder (mode 0600), so a restart keeps every TEST wallet
   // svc-protocol has recorded. Never a svc-* database, never a log.
@@ -279,6 +381,7 @@ export async function serveTestWalletProvider({ host, port, appEnv, origins, acc
   const provider = createTestWalletProvider({
     origins,
     accounts: accounts ?? (await loadViemAccounts()),
+    rpc: rpcUrl ? chainRpc(rpcUrl) : null,
     saved,
     onChange: () => {
       if (!stateFile) return;
@@ -309,7 +412,11 @@ export async function serveTestWalletProvider({ host, port, appEnv, origins, acc
         const r = provider.challenge(await readJson(req));
         return send(r.status, r.body);
       }
-      const action = /^\/client\/(sign|signtyped|export|recovery)$/.exec(p);
+      if (req.method === 'POST' && p === '/client/rpc') {
+        const r = await provider.read(await readJson(req));
+        return send(r.status, r.body);
+      }
+      const action = /^\/client\/(sign|signtyped|sendtx|export|recovery)$/.exec(p);
       if (req.method === 'POST' && action) {
         const r = await provider.act(action[1], await readJson(req));
         return send(r.status, r.body);
@@ -335,6 +442,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     appEnv: process.env.APP_ENV,
     origins: (process.env.TEST_WALLET_PROVIDER_ORIGINS ?? stackUrl('customer', 'localhost')).split(',').map((o) => o.trim()),
     stateFile: process.env.TEST_WALLET_PROVIDER_STATE_FILE || undefined,
+    rpcUrl: process.env.TEST_WALLET_PROVIDER_RPC_URL || undefined,
   }).catch((err) => {
     process.stderr.write(`test-wallet-provider: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);
