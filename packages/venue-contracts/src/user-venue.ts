@@ -1161,6 +1161,15 @@ export interface UserVenueOpenInterest {
 }
 
 /**
+ * How many accounts hold a long and how many a short on a perpetual, as the venue counts its own open positions
+ * (J-derivatives-14 #4: the long/short ratio is read from positions, never from a book of ours).
+ */
+export interface UserVenueLongShort {
+  readonly longAccounts: number;
+  readonly shortAccounts: number;
+}
+
+/**
  * The latest event the venue reports that settled a market's positions (J-derivatives-27 #9 #10): its deployer halted it,
  * or a split in what it tracks. The venue cancelled every order on the market and settled every position at
  * `settlementPrice` at `eventAt`; `reopenedAt` is when it took orders again, `null` while it has not.
@@ -1307,6 +1316,11 @@ export interface UserVenueMarket {
   readonly marginAccount: MaybeKnown<UserVenueMarginAccountRule>;
   /** The market's open interest and its deployer's cap (in base units), or `known: false` where the venue reports none. */
   readonly openInterest: MaybeKnown<UserVenueOpenInterest>;
+  /**
+   * The accounts long and short on the market from the venue's own positions, or `known: false` where it publishes no
+   * count. Optional on the wire for venues that report none.
+   */
+  readonly longShort?: MaybeKnown<UserVenueLongShort>;
   /** The latest halt or split that settled the market's positions, or `known: false` when the venue reports none. */
   readonly lastEvent: MaybeKnown<UserVenueMarketEvent>;
   /**

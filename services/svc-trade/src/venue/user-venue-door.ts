@@ -7,7 +7,7 @@ import {
 } from './venue-eligibility.js';
 import { createHash } from 'node:crypto';
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
+import { div, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, isApiKeyPrincipal, requireTradeTier, TIER_ORDER, tradeTier, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import {
@@ -1182,6 +1182,56 @@ export class UserVenueDoor {
       kind,
       series: read.value.known ? read.value.value : null,
       reason: read.value.known ? null : read.value.reason,
+      test: isTestVenue(venue.venue),
+    };
+  }
+
+  /**
+   * A perpetual's open interest and the venue's count of accounts long and short on it, with the ratio of the two
+   * (J-derivatives-14 #4): every figure the venue's own, from its positions. A count the venue does not publish is `null`
+   * with the venue's reason, never one of ours; the ratio is `null` while no account is short.
+   */
+  async openInterestStats(symbol: string) {
+    const venue = await this.venue();
+    const read = await this.markets();
+    const perp = read.value.find((m) => m.kind === 'perpetual' && m.symbol === symbol);
+    if (!perp)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: `${symbol} is not a perpetual we list` });
+    const name = venue.venue.displayName;
+    const longShort = perp.longShort?.known ? perp.longShort.value : null;
+    return {
+      venueId: read.venueId,
+      asOf: read.asOf,
+      symbol: perp.symbol,
+      openInterest: perp.openInterest.known ? perp.openInterest.value : null,
+      longAccounts: longShort?.longAccounts ?? null,
+      shortAccounts: longShort?.shortAccounts ?? null,
+      longShortRatio:
+        longShort === null || longShort.shortAccounts === 0
+          ? null
+          : div(parseAmount(String(longShort.longAccounts)), parseAmount(String(longShort.shortAccounts))),
+      reason: longShort === null ? `${name} publishes no long and short count for ${perp.symbol}` : null,
+      test: isTestVenue(venue.venue),
+    };
+  }
+
+  /**
+   * A perpetual's risk-limit tiers as the venue publishes them, lowest notional first (J-derivatives-14 #4). While the
+   * venue publishes no ladder the tiers are `null` with the reason `ladder_unset`, never a ladder of ours.
+   */
+  async riskLimits(symbol: string) {
+    const venue = await this.venue();
+    const read = await this.markets();
+    const perp = read.value.find((m) => m.kind === 'perpetual' && m.symbol === symbol);
+    if (!perp)
+      throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: `${symbol} is not a perpetual we list` });
+    const tiers = perp.marginTiers?.known ? perp.marginTiers.value : null;
+    return {
+      venueId: read.venueId,
+      asOf: read.asOf,
+      symbol: perp.symbol,
+      tiers,
+      reason: tiers === null ? ('ladder_unset' as const) : null,
       test: isTestVenue(venue.venue),
     };
   }
