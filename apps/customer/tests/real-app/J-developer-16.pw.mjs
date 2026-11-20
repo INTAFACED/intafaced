@@ -172,7 +172,7 @@ test(`${J} #3 the developer changelog shows dated entries by area with a breakin
   await expect(undatedEntry).toContainText('In effect date not set');
 
   // By area: only the trading entry under Trading.
-  await page.getByLabel('Area', { exact: true }).selectOption('trading');
+  await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption('trading');
   await expect(page.getByRole('heading', { name: dated.title, exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: undated.title, exact: true })).toHaveCount(0);
 
