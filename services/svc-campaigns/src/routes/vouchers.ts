@@ -1,21 +1,16 @@
-import { z } from 'zod';
-import { forwardedPrincipalHeaders, router, scopedProcedure, serviceProcedureFor } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders, router, serviceProcedureFor } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
-  myVoucherSchema,
-  myVouchersSchema,
-  voucherCodeInputSchema,
-  voucherRedeemInputSchema,
-  voucherRedeemResultSchema,
-  voucherValidationSchema,
-  campaignVoucherSchema,
-  FEE_SAVER_CALLERS,
-  feeSaverAnswerSchema,
-  feeSaverAskInputSchema,
-  voucherIssueInputSchema,
-  voucherListInputSchema,
-} from '@intafaced/contracts/campaigns-catalogue';
-import { voucherDeactivateInputSchema, watchVoucherSchema } from '@intafaced/contracts/campaigns-watch';
-import { guard, mapError, opsProcedure, sourceOf } from './kit.js';
+  CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_DEACTIVATE,
+  CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_ISSUE,
+  CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_LIST,
+  CAMPAIGNS_VOUCHERS_CLAIM,
+  CAMPAIGNS_VOUCHERS_MINE,
+  CAMPAIGNS_VOUCHERS_REDEEM,
+  CAMPAIGNS_VOUCHERS_VALIDATE,
+} from '@intafaced/contracts/campaigns-procedures';
+import { FEE_SAVER_CALLERS, feeSaverAnswerSchema, feeSaverAskInputSchema } from '@intafaced/contracts/campaigns-catalogue';
+import { mapError, refusalOf, requireOpsMfa, sourceOf } from './kit.js';
 import type { CampaignServices } from '../router.js';
 
 /** Vouchers: the customer's own, svc-trade's fee-saver ask, and the operator's voucher list. */
@@ -39,88 +34,53 @@ export function voucherRoutes({ campaigns, vouchers, watch }: CampaignServices) 
           }),
       }),
 
+      /** My vouchers (J-campaigns-08). */
       vouchers: router({
-        /** My vouchers (J-campaigns-08): the caller's own, newest claim first, with what is left and every redemption. */
-        mine: scopedProcedure('campaigns:read', guard)
-          .input(z.object({}).strict().optional())
-          .output(myVouchersSchema)
-          .query(async ({ ctx }) => {
-            try {
-              return await vouchers.mine({ accountId: ctx.principal!.userId });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
-        /** What a code would give the caller; changes nothing. A code the caller may not claim is the generic refusal. */
-        validate: scopedProcedure('campaigns:read', guard)
-          .input(voucherCodeInputSchema)
-          .output(voucherValidationSchema)
-          .query(async ({ ctx, input }) => {
-            try {
-              return await vouchers.validate({ code: input.code, accountId: ctx.principal!.userId, source: sourceOf(ctx) });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
-        /** Claims a code for the caller's own account only. */
-        claim: scopedProcedure('campaigns:write', guard)
-          .input(voucherCodeInputSchema)
-          .output(myVoucherSchema)
-          .mutation(async ({ ctx, input }) => {
-            try {
-              return await vouchers.claim({ code: input.code, accountId: ctx.principal!.userId, source: sourceOf(ctx) });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
-        /** The n-th redemption of the caller's own voucher; the same one again returns the first. */
-        redeem: scopedProcedure('campaigns:write', guard)
-          .input(voucherRedeemInputSchema)
-          .output(voucherRedeemResultSchema)
-          .mutation(async ({ ctx, input }) => {
-            try {
-              return await vouchers.redeem({ ...input, accountId: ctx.principal!.userId, forwarded: forwardedPrincipalHeaders(ctx) });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
+        mine: mountRecord(CAMPAIGNS_VOUCHERS_MINE, async ({ ctx }) => vouchers.mine({ accountId: ctx.principal.userId }), refusalOf),
+        validate: mountRecord(
+          CAMPAIGNS_VOUCHERS_VALIDATE,
+          async ({ ctx, input }) => vouchers.validate({ code: input.code, accountId: ctx.principal.userId, source: sourceOf(ctx) }),
+          refusalOf,
+        ),
+        claim: mountRecord(
+          CAMPAIGNS_VOUCHERS_CLAIM,
+          async ({ ctx, input }) => vouchers.claim({ code: input.code, accountId: ctx.principal.userId, source: sourceOf(ctx) }),
+          refusalOf,
+        ),
+        redeem: mountRecord(
+          CAMPAIGNS_VOUCHERS_REDEEM,
+          async ({ ctx, input }) =>
+            vouchers.redeem({ ...input, accountId: ctx.principal.userId, forwarded: forwardedPrincipalHeaders(ctx) }),
+          refusalOf,
+        ),
       }),
     },
     opsCampaigns: {
       vouchers: router({
-        /** A voucher campaign's vouchers, each with the revision and face value it was issued under. */
-        list: opsProcedure
-          .input(voucherListInputSchema)
-          .output(z.array(campaignVoucherSchema))
-          .query(async ({ input }) => {
-            try {
-              return await campaigns.listVouchers(input);
-            } catch (err) {
-              mapError(err);
-            }
-          }),
-        /** Publishes one voucher under the live revision; the same code again returns it. */
-        issue: opsProcedure
-          .input(voucherIssueInputSchema)
-          .output(campaignVoucherSchema)
-          .mutation(async ({ ctx, input }) => {
-            try {
-              return await campaigns.issueVoucher({ ...input, actor: ctx.principal!.userId });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
-        /** Deactivates one voucher: its claim and every later use refuse (J-campaigns-17 #5). */
-        deactivate: opsProcedure
-          .input(voucherDeactivateInputSchema)
-          .output(watchVoucherSchema)
-          .mutation(async ({ ctx, input }) => {
-            try {
-              return await watch.deactivate({ ...input, actor: ctx.principal!.userId });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
+        list: mountRecord(
+          CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_LIST,
+          async ({ ctx, input }) => {
+            requireOpsMfa(ctx);
+            return campaigns.listVouchers(input);
+          },
+          refusalOf,
+        ),
+        issue: mountRecord(
+          CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_ISSUE,
+          async ({ ctx, input }) => {
+            requireOpsMfa(ctx);
+            return campaigns.issueVoucher({ ...input, actor: ctx.principal.userId });
+          },
+          refusalOf,
+        ),
+        deactivate: mountRecord(
+          CAMPAIGNS_OPS_CAMPAIGNS_VOUCHERS_DEACTIVATE,
+          async ({ ctx, input }) => {
+            requireOpsMfa(ctx);
+            return watch.deactivate({ ...input, actor: ctx.principal.userId });
+          },
+          refusalOf,
+        ),
       }),
     },
   };

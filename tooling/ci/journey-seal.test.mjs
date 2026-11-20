@@ -301,6 +301,78 @@ test('an unreadable report fails closed unless a newer run decides', async () =>
   assert.equal((await judge({ runs: [run(1, older), run(2, newer)], reportOf: reports({ 1: new Error('boom'), 2: green }) })).ok, true);
 });
 
+test('#9253: a finished run that started no job is passed over and named; one with jobs and no report still fails closed', async () => {
+  const older = { run_started_at: '2026-11-06T01:00:00Z' };
+  const noJob = run(2, { conclusion: 'failure', jobCount: 0, run_started_at: '2026-11-06T02:00:00Z' });
+  const noReport = { error: 'no real-app-journeys artifact from its current attempt' };
+  const v = await judge({ runs: [run(1, older), noJob], reportOf: reports({ 1: green, 2: noReport }) });
+  assert.equal(v.ok, true);
+  assert.equal(v.lines.filter((l) => l.startsWith('run 2 (attempt 1) started no job')).length, 1);
+  // Planted: the same run with jobs, or never counted, fails closed; alone, a no-job run proves nothing; going, it holds.
+  assert.equal((await judge({ runs: [run(1, older), { ...noJob, jobCount: 1 }], reportOf: reports({ 1: green, 2: noReport }) })).ok, false);
+  assert.equal(
+    (await judge({ runs: [run(1, older), { ...noJob, jobCount: undefined }], reportOf: reports({ 1: green, 2: noReport }) })).ok,
+    false,
+  );
+  assert.equal((await judge({ runs: [noJob], reportOf: reports({ 2: noReport }) })).ok, false);
+  assert.equal(
+    (await judge({ runs: [run(1, older), { ...noJob, status: 'in_progress', conclusion: null }], reportOf: reports({ 1: green }) })).state,
+    'wait',
+  );
+});
+
+test("#9253: the seal's run list counts each finished run's jobs from GitHub's jobs list, never its title", async () => {
+  const { makeIo, startedNoJob } = await import('./journey-seal.mjs');
+  const listed = [
+    run(1, { conclusion: 'failure', display_title: 'Real-app journeys by hand, J-a-01.pw.mjs' }),
+    run(2, { conclusion: 'success' }),
+    run(3, { conclusion: 'cancelled' }),
+    run(4, { status: 'in_progress', conclusion: null }),
+  ];
+  const jobs = {
+    1: [],
+    2: [{ name: 'Journeys (1/4)', status: 'completed', conclusion: 'success' }],
+    4: [{ name: 'touch', status: 'in_progress' }],
+  };
+  const asked = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    asked.push(String(url));
+    const u = new URL(url);
+    const id = /\/runs\/(\d+)\/jobs$/.exec(u.pathname)?.[1];
+    const body = id ? { total_count: jobs[id].length, jobs: jobs[id] } : { total_count: listed.length, workflow_runs: listed };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const runs = await makeIo(REPO, 'x').runs(HEAD);
+    assert.deepEqual(
+      runs.map((r) => [r.id, r.jobCount, startedNoJob(r)]),
+      [
+        [1, 0, true],
+        [2, 1, false],
+        [3, undefined, false],
+        [4, undefined, false],
+      ],
+    );
+    assert.ok(
+      asked.every((u) => !/runs\/3\/jobs/.test(u)),
+      'a cancelled run is passed over without a read',
+    );
+  } finally {
+    globalThis.fetch = real;
+  }
+  // A jobs list that can't be read fails the whole read closed.
+  globalThis.fetch = async (url) =>
+    /\/jobs/.test(String(url))
+      ? new Response('{}', { status: 200 })
+      : new Response(JSON.stringify({ total_count: 1, workflow_runs: [listed[0]] }), { status: 200 });
+  try {
+    await assert.rejects(makeIo(REPO, 'x').runs(HEAD), /run 1's jobs: not a list/);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
 test("a run's report is the artifact from its current attempt only", () => {
   const r = run(1, { run_attempt: 2, run_started_at: '2026-11-06T03:00:00Z' });
   const first = { id: 10, name: 'real-app-journeys', created_at: '2026-11-06T02:00:00Z', expired: false };

@@ -23,7 +23,15 @@ const noRewards = { ok: true, data: { rewards: [], totals: [], more: false } };
 const route = (module: string, ...rest: unknown[]) => (module === 'campaigns' ? Promise.resolve(noRewards) : query(module, ...rest));
 vi.mock('../session', async (original) => ({
   ...(await original<typeof import('../session')>()),
-  useSession: () => ({ userId: 'u1', api: { mutate, query: route } }),
+  useSession: () => ({
+    userId: 'u1',
+    api: {
+      mutate,
+      query: route,
+      call: (record: { kind: string; module: string; path: string; output: unknown }, input: unknown, options?: unknown) =>
+        (record.kind === 'query' ? route : mutate)(record.module, record.path, input, record.output, options),
+    },
+  }),
 }));
 const mint = vi.fn();
 vi.mock('./withdraw-step-up', async (original) => ({

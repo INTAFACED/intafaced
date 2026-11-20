@@ -2,6 +2,7 @@
 // the local stack on 2026-10-17); the shapes mirror the legacy `features/trade/tool-api.ts`, which stays the owner of
 // the calls both rooms share. Only fields the screen shows are kept, and no service sentence is ever kept
 // (`residual` and `statusLine` are deliberately left out of the schema).
+import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
 import { GRID_SUBMIT_PERMISSION } from '@intafaced/contracts/trade-grid-procedures';
 import { z } from 'zod';
 import {
@@ -49,7 +50,7 @@ import {
   studioStrategySchema,
   venueFollowCheckSchemaOf,
 } from '@intafaced/contracts/trade-copy-room';
-import type { ApiClient } from '../../../shared/api';
+import { parsesAs, type ApiClient } from '../../../shared/api';
 import { algoSchema, copyFollowSchema, createToolApi } from '../../../features/trade/tool-api';
 
 export {
@@ -307,7 +308,8 @@ export function createRoomApi(api: ApiClient) {
     gridTopUp: (input: GridTopUpRequest) => api.mutate('trade', 'bots.grid.topUp', input, gridTopUpSchema),
     gridModify: (input: GridModifyRequest) => api.mutate('trade', 'bots.grid.modify', input, gridBotSchema),
     gridWithdraw: (input: GridWithdrawRequest) => api.mutate('trade', 'bots.grid.withdrawProfit', input, gridWithdrawalSchema),
-    studio: (signal?: AbortSignal) => api.query('quant', 'studio.list', { limit: 50 }, studioListSchema, { signal }),
+    // The room shows only strategies whose amounts read as unsigned amounts; a page with any other reads as unverified.
+    studio: (signal?: AbortSignal) => api.call(QUANT_STUDIO_LIST, { limit: 50 }, { signal, accept: parsesAs(studioListSchema) }),
   };
 }
 export type RoomApi = ReturnType<typeof createRoomApi>;

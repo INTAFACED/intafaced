@@ -221,6 +221,11 @@
       "value": "test-chain:rewards=0x00000000000000000000000000000000ce510001",
       "note": "LOCAL TEST ONLY, not an owner decision: INTAFACED's TEST rewards wallet on the stack's TEST chain (no key; svc-campaigns pays rewards from it by impersonating it on that anvil only, J-campaigns-03). Blank, the sweep waits trade.own_funds_wallet_unset."
     },
+    "TRADE_BUILDER_MODE_ALERT_CONTACT": {
+      "service": "trade",
+      "value": "TEST founders on call (oncall@intafaced.test)",
+      "note": "LOCAL TEST ONLY, not an owner decision: the named contact an alert goes to when our builder address leaves the mode a TEST venue requires for builder fees (J-ops-console-28). Blank, the console shows the modes and refuses to alert trade.builder_mode_alert_contact_unset."
+    },
     "TRADE_USER_VENUE_BUILDER_FEE_BPS": {
       "service": "trade",
       "value": "0.5",

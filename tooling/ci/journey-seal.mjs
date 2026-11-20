@@ -15,7 +15,8 @@
  *     when the run finishes (its last job, START_JOB, starts the seal). A run dispatched after a green seal does not turn it red until it
  *     finishes, so a merge in between rests on the finished run that sealed it. On a merge queue's commit nothing waits:
  *     only finished runs are read;
- *   - cancelled and skipped runs say nothing and are passed over;
+ *   - cancelled and skipped runs say nothing and are passed over, and so does a finished run that started no job
+ *     (startedNoJob, read from the run's jobs list), each named on one line;
  *   - per step, the newest finished run (by its current attempt's start) whose merged report lists the step decides:
  *     passed is green; failed or skipped is red. A newer run that failed a step outranks an older pass;
  *   - a run's report is the `real-app-journeys` artifact uploaded during its current attempt (created at or after the
@@ -290,9 +291,8 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
       ],
     };
   }
-  const finished = mine
-    .filter((r) => r.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion))
-    .sort((a, b) => Date.parse(b.run_started_at ?? b.created_at) - Date.parse(a.run_started_at ?? a.created_at) || b.id - a.id);
+  const { finished, noJob } = speaking(mine);
+  lines.push(...noJob);
   const reports = new Map();
   const report = async (r) => {
     if (!reports.has(r.id)) {
@@ -390,6 +390,41 @@ const onHead = (runs, sha, repo) =>
 const newestFirst = (a, b) => Date.parse(b.run_started_at ?? b.created_at) - Date.parse(a.run_started_at ?? a.created_at) || b.id - a.id;
 
 /**
+ * Whether a finished run started no job: GitHub's jobs list for its current attempt is empty (`jobCount`, which io.runs
+ * sets from that list, never from the run's title). Such a run ran no journey, so it can prove nothing and refuse
+ * nothing. (Failure it prevents: #9253 on 4bf99e5d, 20 Nov 2026: dispatch 44785010056's concurrency group passed 400
+ * characters, GitHub started no job, and the seal failed closed on its missing report although five other runs on the
+ * head had run every needed journey clean.) A run whose jobs were never counted is not this, so it still fails closed
+ * when its report is missing. Pure.
+ */
+export const startedNoJob = (r) => r?.status === 'completed' && r?.jobCount === 0;
+
+/** The finished runs on a head that speak, newest first, and one line naming each that started no job (startedNoJob). */
+function speaking(mine) {
+  const done = mine.filter((r) => r.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion));
+  return {
+    finished: done.filter((r) => !startedNoJob(r)).sort(newestFirst),
+    noJob: done
+      .filter(startedNoJob)
+      .map(
+        (r) =>
+          `run ${r.id} (attempt ${r.run_attempt ?? 1}) started no job (GitHub lists none for its current attempt), so it ran no journey and is passed over`,
+      ),
+  };
+}
+
+/** `runs` with each finished one that is not cancelled or skipped given its `jobCount`, from `jobsOf(id)` (its
+ *  latest-attempt jobs, listed whole or thrown, so a list that can't be read fails the seal closed). */
+export async function countJobs(runs, jobsOf) {
+  const out = [];
+  for (const r of runs ?? [])
+    out.push(
+      r?.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion) ? { ...r, jobCount: (await jobsOf(r.id)).length } : r,
+    );
+  return out;
+}
+
+/**
  * The touched-journeys verdict for a head whose pull request touches only journey test files (`files`: their names, as
  * a report's `ran` lists them). Newest finished run first: every run read is judged by the journeys
  * verdict on the files it has (`verdictOf`, the default branch's baseline), and any red step there fails the seal, so a
@@ -428,7 +463,8 @@ export async function judgeTouchedRun({
       lines: [`touched journeys: ${why}; Real-app journeys run ${ids} on this head has not finished; the seal reads it once it does`],
     };
   }
-  const finished = mine.filter((r) => r.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion)).sort(newestFirst);
+  const { finished, noJob } = speaking(mine);
+  const passedOver = noJob.map((l) => `touched journeys: ${l}`);
   const left = new Set(files);
   const read = [];
   for (const r of finished) {
@@ -445,7 +481,7 @@ export async function judgeTouchedRun({
         ok: false,
         state: 'fail',
         kinds: ['runner'],
-        lines: [`touched journeys: ${why}; ${where}'s report couldn't be read (${rep.error}), so the seal fails closed`],
+        lines: [`touched journeys: ${why}; ${where}'s report couldn't be read (${rep.error}), so the seal fails closed`, ...passedOver],
       };
     let v;
     try {
@@ -455,7 +491,10 @@ export async function judgeTouchedRun({
         ok: false,
         state: 'fail',
         kinds: ['runner'],
-        lines: [`touched journeys: ${why}; ${where}'s verdict couldn't be worked out (${e.message}), so the seal fails closed`],
+        lines: [
+          `touched journeys: ${why}; ${where}'s verdict couldn't be worked out (${e.message}), so the seal fails closed`,
+          ...passedOver,
+        ],
       };
     }
     // A red this head inherited from main outside this pull request's area stops no one.
@@ -473,13 +512,14 @@ export async function judgeTouchedRun({
             .map((x) => `${x.step}: ${x.why}`)
             .join('; ')}${red.length > 10 ? `; ${red.length - 10} more` : ''}`,
           ...read.map((l) => `touched journeys: ${l}`),
+          ...passedOver,
         ],
       };
     const covered = (rep.ran ?? []).filter((f) => left.has(f));
     for (const f of covered) left.delete(f);
     if (covered.length) read.push(`${where} ran ${covered.join(', ')} clean`);
   }
-  if (!left.size) return { ok: true, state: 'pass', lines: [`touched journeys: ${why}; ${read.join('; ')}`] };
+  if (!left.size) return { ok: true, state: 'pass', lines: [`touched journeys: ${why}; ${read.join('; ')}`, ...passedOver] };
   return {
     ok: false,
     state: 'fail',
@@ -487,6 +527,7 @@ export async function judgeTouchedRun({
     lines: [
       `touched journeys: ${why}, and no finished Real-app journeys run on this exact head ran ${[...left].join(', ')}; ${how([...left])}`,
       ...read.map((l) => `touched journeys: ${l}`),
+      ...passedOver,
     ],
   };
 }
@@ -565,11 +606,22 @@ export function makeIo(repo, token) {
     pullCommits: (n) => api(`/repos/${repo}/pulls/${n}/commits?per_page=2`, token),
     commit: (sha) => api(`/repos/${repo}/commits/${sha}?per_page=300`, token),
     // A run whose last job (START_JOB) is what started this seal is read as finished (settledRun).
-    runs: async (sha) =>
-      settleRuns(
-        await listWhole(`/repos/${repo}/actions/workflows/${file}/runs?head_sha=${sha}`, 'workflow_runs', token, `${file} runs on ${sha}`),
-        (id) => listWhole(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest`, 'jobs', token, `run ${id}'s jobs`),
-      ),
+    // Each finished one carries its job count (countJobs), so a run that started no job is passed over (startedNoJob).
+    runs: async (sha) => {
+      const jobsOf = (id) => listWhole(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest`, 'jobs', token, `run ${id}'s jobs`);
+      return countJobs(
+        await settleRuns(
+          await listWhole(
+            `/repos/${repo}/actions/workflows/${file}/runs?head_sha=${sha}`,
+            'workflow_runs',
+            token,
+            `${file} runs on ${sha}`,
+          ),
+          jobsOf,
+        ),
+        jobsOf,
+      );
+    },
     async reportOf(run) {
       const arts = await listWhole(
         `/repos/${repo}/actions/runs/${run.id}/artifacts?name=${JOURNEYS_ARTIFACT}`,
