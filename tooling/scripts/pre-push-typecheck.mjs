@@ -11,12 +11,16 @@
  * Failure it prevents: a type error first seen as a red Typecheck & build job minutes after the push (#8814's first head
  * on 18 Nov, TS2339 in services/svc-trade/src/venue/venue-adl-acks.sql.test.ts; #8804 and #8783 the same week).
  *
+ * On a shared machine INTAFACED_LOCAL_JOBS bounds how many packages it checks at once (turbo's --concurrency;
+ * tooling/scripts/local-jobs.mjs); unset, turbo's own default.
+ *
  *   node tooling/scripts/pre-push-typecheck.mjs [--limit <seconds>]
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { localJobs } from './local-jobs.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const LIMIT_SECONDS = 240;
@@ -31,9 +35,22 @@ export function touchesTypes(files) {
   );
 }
 
+/** turbo's arguments for the typecheck of the filters, bounded by INTAFACED_LOCAL_JOBS when it is set. */
+export function typecheckArgs(filters, env = process.env) {
+  const jobs = localJobs(env);
+  return [
+    'turbo',
+    'run',
+    'typecheck',
+    '--output-logs=errors-only',
+    ...(jobs === null ? [] : [`--concurrency=${jobs}`]),
+    ...filters.map((f) => `--filter=${f}`),
+  ];
+}
+
 /** Runs `pnpm turbo run typecheck` over the filters; resolves to 'pass', 'fail' or 'timeout'. */
 function typecheck(filters, { limitSeconds = LIMIT_SECONDS, cwd = ROOT } = {}) {
-  const args = ['turbo', 'run', 'typecheck', '--output-logs=errors-only', ...filters.map((f) => `--filter=${f}`)];
+  const args = typecheckArgs(filters);
   return new Promise((resolve) => {
     // Its own process group, so a timeout stops turbo and every tsc it started, not only pnpm.
     const child = spawn('pnpm', args, { cwd, stdio: ['ignore', 'inherit', 'inherit'], detached: true });
@@ -77,7 +94,10 @@ async function main() {
   const { affectedFilters, readEdges } = await import('../ci/ci-affected.mjs');
   const filters = affectedFilters(files, readEdges(), base);
   const started = Date.now();
-  console.log(`typecheck: the packages this push reaches (${filters.join(' ')}), limit ${limitSeconds}s`);
+  const jobs = localJobs();
+  console.log(
+    `typecheck: the packages this push reaches (${filters.join(' ')}), limit ${limitSeconds}s${jobs === null ? '' : `, ${jobs} at once`}`,
+  );
   const verdict = await typecheck(filters, { limitSeconds });
   const took = Math.round((Date.now() - started) / 1000);
   if (verdict === 'timeout') {
