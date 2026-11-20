@@ -10,8 +10,8 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../session/session', async (original) => ({
-  ...(await original<typeof import('../session/session')>()),
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
   useSession: () => ({ userId: 'u1', api: {} }),
 }));
 vi.mock('./holdings', () => ({ useHoldings: () => ({ resource: { status: 'ready', data: { assets: [] } } }) }));

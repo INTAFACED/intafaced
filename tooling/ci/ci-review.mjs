@@ -476,7 +476,10 @@ export function citedOwnerItems(diff) {
  * The project-state decided rows a diff's added lines of the brief cite ("project-state row d74"), in order, or []:
  * OWNER.md closed as history at item 303, so a later decision of the owner's is recorded in project-state
  * `open-list/decided/dN.md`, which quotes his words (intafaced #8265, CI review FAIL on 3e9000de: no OWNER.md item holds
- * the 12 Nov test sentence, so the route could never pass it).
+ * the 12 Nov test sentence, so the route could never pass it). Since project-state row d117 (17 Nov) a new decision has
+ * no row file: his words stand in the body of a merged project-state PR labelled `decision`, cited as "project-state
+ * decision PR #N" and returned as `#N` (intafaced #9186, CI review FAIL on 8b3f6cdc: the 20 Nov look decision had no
+ * row to cite, so the route could never pass it).
  */
 export function citedRows(diff) {
   const rows = new Set();
@@ -485,6 +488,7 @@ export function citedRows(diff) {
     if (l.startsWith('diff --git ')) inBrief = l.endsWith(` b/${BRIEF_PATH}`);
     if (!inBrief || !l.startsWith('+') || l.startsWith('+++ ')) continue;
     for (const m of l.matchAll(/\bproject-state row d(\d{1,4})\b/g)) rows.add(`d${Number(m[1])}`);
+    for (const m of l.matchAll(/\bproject-state decision PR #(\d{1,6})\b/g)) rows.add(`#${Number(m[1])}`);
   }
   return [...rows];
 }
@@ -511,14 +515,20 @@ export function ownerRecordSection({ items, ref, rows = new Map() }) {
   const body = [
     ...[...items].map(([n, t]) => (t === null ? `Item ${n}: OWNER.md has no item ${n}.` : quoted(t))),
     ...[...rows].map(([r, t]) =>
-      t === null ? `Row ${r}: project-state has no row ${r}.` : `Row ${r} (project-state open-list/decided/${r}.md):\n${quoted(t.trim())}`,
+      r.startsWith('#')
+        ? t === null
+          ? `Decision PR ${r}: project-state has no merged pull request ${r} into main labelled \`decision\`.`
+          : `Decision PR ${r} (project-state, merged into main, labelled \`decision\`; its body):\n${quoted(t.trim())}`
+        : t === null
+          ? `Row ${r}: project-state has no row ${r}.`
+          : `Row ${r} (project-state open-list/decided/${r}.md):\n${quoted(t.trim())}`,
     ),
   ];
   const cites = [items.size ? `items ${[...items.keys()].join(', ')}` : '', rows.size ? `rows ${[...rows.keys()].join(', ')}` : '']
     .filter(Boolean)
     .join(' and ');
   return [
-    `The owner's record. The job read the items${rows.size ? ' and rows' : ''} the diff's added lines of this brief cite from project-state OWNER.md${rows.size ? ' and open-list/decided/' : ''} at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${cites || 'no item'}.`,
+    `The owner's record. The job read the items${rows.size ? ' and rows' : ''} the diff's added lines of this brief cite from project-state OWNER.md${rows.size ? ' and open-list/decided/ (a row dN) or its merged `decision` pull requests (a #N: the body, as long as it was not edited after the merge)' : ''} at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${cites || 'no item'}.`,
     'BEGIN OWNER RECORD',
     ...body,
     'END OWNER RECORD',
@@ -526,7 +536,7 @@ export function ownerRecordSection({ items, ref, rows = new Map() }) {
 }
 
 /** OWNER.md from project-state's default branch, with the commit it was read at (the token reads project-state). */
-export async function readOwnerRecord(token, get = getText, rows = []) {
+export async function readOwnerRecord(token, get = getText, rows = [], gql = postGraphql) {
   const repo = 'INTAFACED/project-state';
   const ref = await get(`/repos/${repo}/commits/main`, 'application/vnd.github.sha', token);
   if (ref.status !== 200 || !SHA40.test(ref.text.trim())) throw new Error(`could not read project-state's main: HTTP ${ref.status}`);
@@ -536,6 +546,10 @@ export async function readOwnerRecord(token, get = getText, rows = []) {
   // A cited row, at the same commit; one that isn't there is no record, which blocks the entry (REVIEW.md's route).
   const read = new Map();
   for (const row of rows) {
+    if (/^#\d{1,6}$/.test(row)) {
+      read.set(row, await readDecisionPull(row.slice(1), token, gql));
+      continue;
+    }
     if (!/^d\d{1,4}$/.test(row)) throw new Error(`not a row: ${row}`);
     const f = await get(`/repos/${repo}/contents/open-list/decided/${row}.md?ref=${sha}`, 'application/vnd.github.raw', token);
     if (f.status === 404) read.set(row, null);
@@ -543,6 +557,38 @@ export async function readOwnerRecord(token, get = getText, rows = []) {
     else read.set(row, f.text.trim() === '' ? null : f.text);
   }
   return { text: r.text, ref: sha, rows: read };
+}
+
+/** A cited decision PR's body, or null when it is no record: not found, not merged into main, not labelled `decision`
+ *  by the time it merged, or its body edited after it merged (project-state row d117: "a decision that changes a rule is
+ *  one `decision` pull request quoting him"). Unlike a row file read at main's commit, a body or label can change with no
+ *  commit and no check, so only what stood when it merged counts (intafaced #9187's fresh review). */
+export const DECISION_PULL_QUERY = `query($n: Int!) { repository(owner: "INTAFACED", name: "project-state") { pullRequest(number: $n) {
+  mergedAt baseRefName body lastEditedAt labels(first: 50) { nodes { name } }
+  timelineItems(itemTypes: [LABELED_EVENT], first: 100) { nodes { ... on LabeledEvent { createdAt label { name } } } } } } }`;
+async function readDecisionPull(n, token, gql) {
+  const f = await gql(DECISION_PULL_QUERY, { n: Number(n) }, token);
+  if (f.status !== 200) throw new Error(`could not read project-state pull request #${n}: HTTP ${f.status}`);
+  let out;
+  try {
+    out = JSON.parse(f.text);
+  } catch {
+    throw new Error(`could not read project-state pull request #${n}: no JSON`);
+  }
+  const p = out?.data?.repository?.pullRequest;
+  if (!p) {
+    if ((out?.errors ?? []).every((e) => e?.type === 'NOT_FOUND')) return null;
+    throw new Error(`could not read project-state pull request #${n}: ${JSON.stringify(out?.errors ?? 'no data').slice(0, 300)}`);
+  }
+  const merged = Date.parse(p.mergedAt ?? '');
+  const by = (t) => Number.isFinite(Date.parse(t ?? '')) && Date.parse(t) <= merged;
+  const ok =
+    Number.isFinite(merged) &&
+    p.baseRefName === 'main' &&
+    (p.labels?.nodes ?? []).some((l) => l?.name === 'decision') &&
+    (p.timelineItems?.nodes ?? []).some((e) => e?.label?.name === 'decision' && by(e.createdAt)) &&
+    (p.lastEditedAt == null || by(p.lastEditedAt));
+  return ok && String(p.body ?? '').trim() !== '' ? String(p.body) : null;
 }
 
 /** The prompt: the brief from the default branch, then the diff fenced as untrusted data. */
@@ -643,6 +689,19 @@ async function getText(path, accept, token = process.env.GH_TOKEN) {
     throw new Error(
       `GitHub ${res.status} on GET ${path}: stopping, not retrying${isBudgetResponse(res) ? `; ${budgetLine(res.headers.get('x-ratelimit-reset'))}` : ''}`,
     );
+  return { status: res.status, text };
+}
+
+/** A GraphQL read (a cited decision PR's edit and label times, which REST does not give); a 403 or 429 stops, as in getText. */
+async function postGraphql(query, variables, token) {
+  const res = await fetch('https://api.github.com/graphql', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const text = await res.text();
+  if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on GraphQL: stopping, not retrying`);
   return { status: res.status, text };
 }
 

@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
 import { navigate } from '../../../app/location';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { Button, EmptyState, Field, Page, Panel, Tabs } from '../../../shared/ui';

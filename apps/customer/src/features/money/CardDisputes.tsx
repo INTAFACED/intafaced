@@ -3,7 +3,7 @@ import type { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { displayAmount } from '../../shared/money';
 import { Button, Field } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { ResourceView, useBankRead } from './components';
 import { bankWrites, type cardSchema } from './contracts';
 import { DepthPanel } from './DepthParts';

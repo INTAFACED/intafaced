@@ -4,7 +4,7 @@ import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState } from '../../shared/ui';
 import { stamp } from '../../screens/money/time';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { t as copyText, Text } from './copy';
 import { Details, Limit, Read, type useAction } from './common';
 import { SupportEvents } from './SupportEvents';

@@ -2,7 +2,7 @@ import type { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import type { StepUpBegin } from '../account';
 import { displayAmount, formatAmount, parseAmount } from '../../shared/money';
-import type { transferQuoteSchema } from '../pay';
+import type { transferQuoteSchema } from './contracts-payments';
 import { termsVerdict } from '../../screens/pay/send-terms';
 import { amount } from './components';
 import { bankReads } from './contracts';

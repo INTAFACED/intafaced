@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scripts/journey-freeze-guard.mjs';
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
-import { REACH_ATTACHMENT, makeLogReader, makeRecorder } from '../../../../tooling/scripts/journey-reach.mjs';
+import { REACH_ATTACHMENT, makeCodeReader, makeLogReader, makeRecorder, settleCode } from '../../../../tooling/scripts/journey-reach.mjs';
+import { codeReachDir } from '../../../../tooling/scripts/service-reach.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
@@ -67,7 +68,13 @@ export const expect = new Proxy(baseExpect, {
 // The build on disk here, unless the stack serves the customer app from another folder (local-test-stack.mjs's
 // customer-dist override): then no script can be placed, and each record says so (otherDist).
 const servesOtherDist = !!process.env.LOCAL_STACK_CUSTOMER_DIST || existsSync(path.join(localStackState(), 'customer-dist.json'));
-const reach = makeRecorder({ root: ROOT, distDir: servesOtherDist ? null : path.join(ROOT, 'apps', 'customer', 'dist') });
+// Which of each Node service's own files ran (service-reach.mjs, a preload the stack starts every Node service with).
+const stackCode = makeCodeReader(codeReachDir(localStackState()));
+const reach = makeRecorder({
+  root: ROOT,
+  distDir: servesOtherDist ? null : path.join(ROOT, 'apps', 'customer', 'dist'),
+  codeServices: () => stackCode.services(),
+});
 let reachFile = 'outside-any-file';
 // What the stack's services logged they served, read from their own logs at each read below (journey-reach.mjs).
 const stackLogs = makeLogReader(path.join(localStackState(), 'logs'));
@@ -359,6 +366,7 @@ const extended = base.extend({
       try {
         await readAll([...covered.keys()]);
         readLogs();
+        await settleCode(stackCode, reach);
         for (const file of reach.files()) {
           const record = reach.take(file);
           if (record) await testInfo.attach(REACH_ATTACHMENT, { body: JSON.stringify(record), contentType: 'application/json' });
@@ -471,6 +479,7 @@ extended.afterAll = (...args) => {
     } finally {
       await readAll([...covered.keys()]).catch(() => {});
       readLogs();
+      await settleCode(stackCode, reach);
       reach.afterAll(testInfo.file);
     }
   };

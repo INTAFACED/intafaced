@@ -7,7 +7,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import type { useAction } from './common';
 import { SupportRequestActions } from './SupportRequestActions';
 import type { Ticket } from './support-schemas';

@@ -8,10 +8,14 @@ vi.mock('../../../../shared/preferences', async (original) => {
 
 import type { Resource } from '../../../../shared/resource';
 import { ReserveCard } from './Reserve';
-import { reserveViewSchema, type ReserveView } from './schemas';
+import {
+  type MerchantReserveView as ReserveView,
+  merchantReserveViewSchema as reserveViewSchema,
+} from '@intafaced/contracts/merchant-control';
 
 // TEST DATA written for these tests: no real merchant or amount.
 const view = (patch: Partial<ReserveView> = {}): ReserveView => ({
+  merchantId: '00000000-0000-4000-8000-000000000001',
   rule: { rollingReserveBps: 500, holdDays: 30 },
   holding: 'recorded_not_withheld',
   payoutsRefused: true,
@@ -46,7 +50,7 @@ describe('the reserve card on Money (J-merchant-07 #1)', () => {
   });
 
   it('parses the service read and refuses any other holding', () => {
-    const wire = { merchantId: 'TEST', ...view() };
+    const wire = view();
     expect(reserveViewSchema.safeParse(wire).success).toBe(true);
     expect(reserveViewSchema.safeParse({ ...wire, holding: 'withheld' }).success).toBe(false);
   });

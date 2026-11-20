@@ -1,4 +1,4 @@
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { SalaryRails } from '@/lib/bank-rails/model';
 import type { RailsDesk } from '@/lib/bank-rails/read';
 

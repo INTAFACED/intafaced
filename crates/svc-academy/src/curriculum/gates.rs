@@ -150,20 +150,12 @@ fn cell<'a, T: postgres::types::FromSql<'a>>(
     row.try_get(i).map_err(|e| db::refusal(&e))
 }
 
-/// `readCourseStart(sql, path)` for the item's path.
+/// `readCourseStart(sql, path)` for the item's path (authoring's read).
 fn course_starts_at(c: &mut Client, item_slug: &str) -> Result<Option<i64>, Refusal> {
     let Some(item) = spine::get(item_slug) else {
         return Ok(None);
     };
-    let rows = q(
-        c,
-        &format!(
-            "SELECT {} FROM academy.course_starts WHERE path = $1",
-            ms("starts_at")
-        ),
-        &[&item.path],
-    )?;
-    rows.first().map_or(Ok(None), |r| cell(r, 0))
+    crate::authoring::release::course_start(c, &item.path)
 }
 
 fn window_of(c: &mut Client, item_slug: &str) -> Result<Option<Window>, Refusal> {
@@ -255,6 +247,19 @@ fn load(
         now,
         course_starts_at,
     ))
+}
+
+/// `ReleaseAccess.itemRelease({ userId, itemSlug, now, courseStartsAt })`: the learner's decision for one item, its
+/// course's start given by the caller that read it once for every item.
+pub fn item_release(
+    pool: &Pool,
+    user_id: &str,
+    item_slug: &str,
+    now: i64,
+    course_starts_at: Option<i64>,
+) -> Result<Decision, Refusal> {
+    let slug = require_slug(item_slug)?;
+    db::with_client(pool, |c| load(c, user_id, slug, now, course_starts_at))
 }
 
 /// `ReleaseAccess.assertMayRead`, then the learner's access record for the item's course (`useAccessGate`): a lock
@@ -376,7 +381,7 @@ pub fn assert_access(pool: &Pool, user_id: &str, path: &str, now: i64) -> Result
 }
 
 /// `settleExpiries`: the expired event, once, for every record of the learner whose end has passed.
-fn settle_expiries(pool: &Pool, user_id: &str, now: i64) -> Result<(), Refusal> {
+pub fn settle_expiries(pool: &Pool, user_id: &str, now: i64) -> Result<(), Refusal> {
     let at = iso(now);
     serializable(pool, |tx| {
         let due = tx

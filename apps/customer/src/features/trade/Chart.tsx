@@ -13,8 +13,7 @@ import { chartValue } from '../../shared/chart-value';
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react';
 import type { OHLCV, Position } from '@intafaced/exchange-contract/schemas';
 import { TIMEFRAME_MS } from '@intafaced/exchange-contract/schemas';
-import { z } from 'zod';
-import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
+import { parseAmount, formatAmount } from '../../shared/money';
 import { Button, EmptyState, Loading } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import type { Listing, TradeApi, Order } from './trade-api';
@@ -29,6 +28,8 @@ import {
 import { authoredRefusal, type ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { useSession } from '../session';
+import { tradePrintSchema } from '@intafaced/contracts/market-trade-print';
+import { drawingsSchema } from './chart-drawings';
 import type { DailyMetadata, DailyPlan } from './zoned-daily-history';
 import { TIMEFRAMES } from './trade-api';
 import { PriceAlerts } from './PriceAlerts';
@@ -206,15 +207,6 @@ declare global {
 type Drawing = { kind: 'level' | 'trend' | 'rectangle'; points: [number, string][] };
 export type Study = 'MA' | 'Volume' | 'VWAP' | 'RSI' | 'MACD' | 'Bollinger';
 export type ChartView = { interval: string; type: string; studies: Study[] };
-const drawingsSchema = z.array(
-  z.object({
-    kind: z.enum(['level', 'trend', 'rectangle']),
-    points: z
-      .array(z.tuple([z.number().int().nonnegative().safe(), decimalSchema.refine((value) => parseAmount(value) > 0n)]))
-      .min(1)
-      .max(2),
-  }),
-);
 /** Numeric values are chart geometry only. They never leave this component as order data. */
 function chartBars(rows: readonly OHLCV[], type: string): Bar[] {
   let previous: Bar | undefined;
@@ -563,14 +555,9 @@ export function MarketChart({
       connections = 0;
     const seen = new Set<number>();
     const span = TIMEFRAME_MS[interval as keyof typeof TIMEFRAME_MS];
-    const printSchema = z.object({
-      type: z.literal('trade'),
-      marketId: z.string(),
-      sequence: z.number().int().nonnegative().safe(),
-      price: decimalSchema.refine((value) => parseAmount(value) > 0n),
-      quantity: decimalSchema.refine((value) => parseAmount(value) > 0n),
-      ts: z.string().datetime({ offset: true }),
-      kind: z.enum(['aggressor', 'liquidation', 'block', 'bust', 'correction', 'unknown']),
+    const printSchema = tradePrintSchema.extend({
+      price: tradePrintSchema.shape.price.refine((value) => parseAmount(value) > 0n),
+      quantity: tradePrintSchema.shape.quantity.refine((value) => parseAmount(value) > 0n),
     });
     const connect = () => {
       if (closed || !history.current()) return;

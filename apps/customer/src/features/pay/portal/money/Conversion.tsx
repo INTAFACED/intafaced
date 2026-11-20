@@ -27,7 +27,7 @@ import { uiCopy } from '../ui/copy';
 import { ListBody, LinkButton, localRefusal, NamedBlocker, shortDay } from './common';
 import { mc } from './copy';
 import { useMoneyReason } from '../access/MoneyAction';
-import { conversionStatuses, type ConversionOrder, type ConversionQuote } from './schemas';
+import { type ConversionOrder, type ConversionQuote, PAY_CONVERSION_STATUSES as conversionStatuses } from '@intafaced/contracts/conversion';
 import { settlementName } from './Settlements';
 import { isConversionOff } from './refusals';
 

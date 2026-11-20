@@ -70,6 +70,12 @@ if (status !== 0 || cancelled) {
   process.exit(status || 1);
 }
 
+// Every node_modules/.bin/tsc the install wrote now runs the repo's one type-check command, so a hand-typed `npx tsc
+// --noEmit` is incremental, starts from this machine's last passing check and waits for one already running on the same
+// project (tooling/scripts/tsc.mjs; INTAFACED/project-state#3374).
+const { installShims } = await import('../scripts/tsc.mjs');
+console.log(`tsc: ${installShims(worktree)} node_modules/.bin/tsc files point at tooling/scripts/tsc.mjs`);
+
 // The Rust toolchain rust-toolchain.toml pins, so `pnpm rust:check` needs no step by hand. rustup installs it once per
 // machine (a no-op when it is there). Without rustup the install above still stands: the line to run is printed, and
 // only a push that changes Rust is refused for it (.githooks/pre-push).

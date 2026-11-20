@@ -3,7 +3,7 @@ import { PAY_DEPOSIT_WALLET_TYPES, type PayDepositWalletType, type PayTravelRule
 import { Button } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
 import { writeContract } from '../../shared/contract-call';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { ReportedTime } from './bank-context';
 import { depositRecordsCopy } from './deposit-records-copy';
 import { depositTravelRuleDeclare, useDepositTravelRule, type DepositTravelRuleView } from './deposit-reads';

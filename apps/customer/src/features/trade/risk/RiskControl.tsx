@@ -11,7 +11,7 @@ import {
 } from '@intafaced/ui';
 import { EmptyState, Failure, Loading, Page } from '../../../shared/ui';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { fmtAmount } from '../../../data/format';
 import { useDataEnv } from '../../../data/hooks';
 import { defaultDeskPair } from '../../../app/navigation';

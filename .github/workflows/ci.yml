@@ -455,7 +455,8 @@ jobs:
           if [ -f apps/customer/dist/index.html ]; then pnpm --filter @intafaced/customer test:deployment
           else echo "the Customer app was not built: nothing to test"; fi
       # The tooling tests that read a build (NEEDS_BUILD in tooling/scripts/tooling-tests.mjs; the Doctrine gates job runs
-      # the rest unbuilt). They run whenever this job built packages/contracts, as every tooling/ change does.
+      # the rest unbuilt). They run whenever this job built packages/contracts, as every tooling/ change does but a lint
+      # rule or a gate's baseline file (ci-affected.mjs isGateOnlyTooling), which no NEEDS_BUILD test reads.
       - name: Tooling tests that need the build
         run: |
           if [ -f packages/contracts/dist/index.js ]; then

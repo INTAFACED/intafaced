@@ -7,7 +7,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 const answers: { chain: unknown; indexer?: unknown; keyed: Record<string, unknown> } = { chain: undefined, keyed: {} };
 vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
+  const real = await original<typeof import('../session')>();
   const api = { query: () => new Promise(() => undefined), canWrite: () => true };
   return { ...real, useApi: () => api as never, useSession: () => ({ session: null }) as never };
 });

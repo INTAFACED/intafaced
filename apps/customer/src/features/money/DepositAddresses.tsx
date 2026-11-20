@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button } from '../../shared/ui';
 import { useResource, type Resource } from '../../shared/resource';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { CopyButton } from '../../screens/account/CopyButton';
 import { depositAddressesCopy } from './deposit-addresses-copy';
 import { createDepositReads, type DepositAddressItem, type DepositAddressList, type DepositNetworkView } from './deposit-reads';
