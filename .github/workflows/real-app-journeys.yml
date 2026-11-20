@@ -1274,7 +1274,7 @@ jobs:
   # attempt's shards: deleted once they are done, so it neither waits out the cache's 7 days nor pushes the pnpm and
   # browser caches out. A shard re-run after this finds no copy and seeds its own stack. A failed delete leaves it to
   # the cache's own expiry, and fails nothing.
-  seed-drop:
+  drop:
     name: Drop the seeded stack
     needs: [build, journeys]
     if: ${{ always() && needs.build.outputs.seeded == 'true' }}
@@ -1299,8 +1299,7 @@ jobs:
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
   seal-start:
     name: Start the seal
-    needs:
-      [touch, release, early-break, release-after-dispatch, build, journeys, scoreboard, seed-drop]
+    needs: [touch, release, early-break, release-after-dispatch, build, journeys, scoreboard, drop]
     if: ${{ !cancelled() && github.ref != 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes
