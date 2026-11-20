@@ -1,3 +1,4 @@
+import type { IndexerCandleInterval } from '@intafaced/contracts/indexer-procedures';
 import type { ChainTxLog } from '../chain/source.js';
 import type { TokenFact } from './address.js';
 
@@ -186,8 +187,8 @@ export interface PoolVolumeFact {
 }
 
 /** Candle widths the page can ask for. Structural (chart resolutions), not an owner magnitude. */
-export const CANDLE_SECONDS = { '5m': 300, '1h': 3600 } as const;
-export type CandleInterval = keyof typeof CANDLE_SECONDS;
+export const CANDLE_SECONDS: Readonly<Record<IndexerCandleInterval, number>> = { '5m': 300, '1h': 3600 };
+export type CandleInterval = IndexerCandleInterval;
 
 /** The volume and candles cover one day, the window the page names. */
 export const POOL_WINDOW_SECONDS = 86_400;

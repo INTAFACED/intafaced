@@ -54,6 +54,7 @@ export const USER_VENUE_READS = {
   leverageChange: { path: '/leverage-change', args: ['account', 'symbol', 'leverageBps', 'marginMode'] },
   isolatedMargin: { path: '/isolated-margin', args: ['account', 'symbol'] },
   accountSummary: { path: '/account-summary', args: ['account'] },
+  accountMode: { path: '/account-mode', args: ['account'] },
   liquidationStatus: { path: '/liquidation-status', args: ['account', 'symbol'] },
   liquidations: { path: '/liquidations', args: ['account', 'since'] },
   insuranceFund: { path: '/insurance-fund', args: [] },

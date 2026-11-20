@@ -211,6 +211,7 @@ export type UserVenueDoorCode =
   | 'trade.venue_order_amount_raise'
   // J-derivatives-04 #6: a whole-position take profit and stop loss rest, and another whole close was asked for.
   | 'trade.venue_whole_close_taken'
+  | 'trade.venue_account_mode_unknown'
   | 'trade.venue_action_key_invalid'
   | 'idempotency.conflict'
   | 'idempotency.in_progress'
@@ -1429,7 +1430,8 @@ export class UserVenueDoor {
     else if (intent.kind === 'cancel_order') key = actionKey ?? `cancel:${intent.clientOrderKey}`;
     else if (intent.kind === 'sub_account_transfer' || intent.kind === 'market_margin_transfer') key = intent.moveKey;
     else if (intent.kind === 'create_sub_account') key = intent.subAccountKey;
-    else if (intent.kind === 'update_isolated_margin') key = intent.changeKey;
+    else if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode') key = intent.changeKey;
+    else if (intent.kind === 'spot_perps_transfer') key = intent.moveKey;
     else key = actionKey;
     const k = (key ?? '').trim();
     if (k.length < 3 || k.length > 200 || UUID_RE.test(k) || !BUSINESS_KEY_RE.test(k)) {
@@ -1544,6 +1546,20 @@ export class UserVenueDoor {
     const venue = await this.venue();
     const account = await this.account(req.owner, req.subAccount);
     const signer: VenueSigner = { role: req.signer.role, address: req.signer.address.toLowerCase() };
+    // A move between spot and perps and a mode switch depend on the account's mode (J-derivatives-29 #11): while the venue
+    // does not report it, each is refused here, naming the unknown mode, before anything is signed.
+    if (intent.kind === 'spot_perps_transfer' || intent.kind === 'set_account_mode') {
+      const reported = venue.accountMode ? (await venue.accountMode(account)).value.mode : null;
+      if (reported === null) {
+        throw new UserVenueDoorError(
+          `${venue.venue.displayName} does not report this account's mode (not known), so ${
+            intent.kind === 'set_account_mode' ? 'a mode switch' : 'a move between spot and perps'
+          } is refused. Nothing was signed or sent`,
+          'trade.venue_account_mode_unknown',
+          409,
+        );
+      }
+    }
     let finalIntent: VenueIntent = intent;
     finalIntent = await eachOrder(finalIntent, (order) => this.withBuilderFee(venue, order));
     await this.assertEligible(principal, venue, finalIntent);

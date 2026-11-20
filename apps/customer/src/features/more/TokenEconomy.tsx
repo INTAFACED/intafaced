@@ -1,66 +1,36 @@
-// hand-declared-ok: svc-token's emissionSchedule, treasury, buybackRuns and revenueShareHistory outputs are declared in its router; packages/contracts has no token schemas yet
 import { useEffect, useState } from 'react';
-import { z } from 'zod';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import {
+  TOKEN_BUYBACK_RUNS,
+  TOKEN_EMISSION_SCHEDULE,
+  TOKEN_REVENUE_SHARE_HISTORY,
+  TOKEN_TREASURY,
+} from '@intafaced/contracts/token-procedures';
 import type { ApiResult } from '../../shared/api';
 import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
-import { decimalSchema, displayAmount } from '../../shared/money';
+import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { Details, Read } from './common';
 import { tokenEconomyCopy } from './token-economy-copy';
 
-const paramsReason = z.enum(['token.params_unset', 'token.params_missing', 'token.params_invalid']);
-
 /** The token service's `emissionSchedule` read: the owner's parameters and the next epochs' rewards, or why they are blank. */
-export const emissionScheduleSchema = z
-  .object({
-    params: z
-      .object({
-        initialEpochReward: decimalSchema,
-        halvingIntervalEpochs: z.number().int().positive(),
-        maxSupply: decimalSchema,
-      })
-      .nullable(),
-    epochs: z.array(z.object({ epoch: z.number().int().nonnegative(), reward: decimalSchema })).nullable(),
-    missing: z.string().nullable(),
-    reason: paramsReason.nullable(),
-  })
-  .refine((r) => (r.params === null) === (r.reason !== null), 'emission schedule is neither set nor refused');
-
+export type EmissionScheduleRead = ProcedureOutput<typeof TOKEN_EMISSION_SCHEDULE>;
 /**
  * The treasury read's supply figures: `minted` is the lifetime sum of closed epoch mints (null when none closed) and
  * `burned` the burn account's balance.
  */
-export const mintedSchema = z.object({ minted: decimalSchema.nullable(), burned: decimalSchema });
-
+export type MintedRead = Pick<ProcedureOutput<typeof TOKEN_TREASURY>, 'minted' | 'burned'>;
 /** The token service's `revenueShareHistory` read: this account's real-yield payouts, one row per weekly window, each read from its ledger posting. */
-export const yieldHistorySchema = z.object({
-  items: z.array(
-    z.object({
-      windowId: z.string().min(1),
-      amount: decimalSchema.nullable(),
-      assetId: z.string().nullable(),
-      ledgerTxId: z.string().nullable(),
-      reason: z.literal('ledger_tx_unread').nullable(),
-    }),
-  ),
-  nextCursor: z.string().nullable(),
-});
-
+export type YieldHistoryRead = ProcedureOutput<typeof TOKEN_REVENUE_SHARE_HISTORY>;
 /**
  * The buyback rate of the token service's `buybackRuns` read. Its runs are not drawn here, so their arithmetic, which
  * the Burn tab checks, does not decide whether the rate can be shown.
  */
-export const buybackRateSchema = z.object({
-  rate: z.object({ buybackBps: z.number().int().min(0).max(10_000), burnSplitBps: z.number().int().min(0).max(10_000) }).nullable(),
-  reason: paramsReason.nullable(),
-});
-
-export type BuybackRateRead = z.infer<typeof buybackRateSchema>;
-export type EmissionScheduleRead = z.infer<typeof emissionScheduleSchema>;
-export type MintedRead = z.infer<typeof mintedSchema>;
-export type YieldHistoryRead = z.infer<typeof yieldHistorySchema>;
+export type BuybackRateRead = Pick<ProcedureOutput<typeof TOKEN_BUYBACK_RUNS>, 'rate' | 'reason'>;
+/** Every window this room lists names its window. */
+const windowsNamed = (read: YieldHistoryRead) => read.items.every((item) => item.windowId.length > 0);
 type Loaded<T> = { resource: Resource<T>; reload: () => void };
 
 const EPOCHS = 12;
@@ -76,14 +46,11 @@ export function TokenEconomyPanels() {
   const api = useApi();
   const { userId } = useSession();
   const schedule = useResource(
-    (signal) => api.query('token', 'emissionSchedule', { count: EPOCHS }, emissionScheduleSchema, { signal }),
+    (signal) => api.call(TOKEN_EMISSION_SCHEDULE, { count: EPOCHS }, { signal }),
     `token-emission-schedule:${userId}`,
   );
-  const minted = useResource((signal) => api.query('token', 'treasury', undefined, mintedSchema, { signal }), `token-minted:${userId}`);
-  const buyback = useResource(
-    (signal) => api.query('token', 'buybackRuns', { limit: 1 }, buybackRateSchema, { signal }),
-    `token-buyback-rate:${userId}`,
-  );
+  const minted = useResource((signal) => api.call(TOKEN_TREASURY, undefined, { signal }), `token-minted:${userId}`);
+  const buyback = useResource((signal) => api.call(TOKEN_BUYBACK_RUNS, { limit: 1 }, { signal }), `token-buyback-rate:${userId}`);
   return (
     <>
       <EmissionScheduleView schedule={schedule} minted={minted} />
@@ -205,7 +172,7 @@ export function YieldHistory() {
   const api = useApi();
   const { userId } = useSession();
   const first = useResource(
-    (signal) => api.query('token', 'revenueShareHistory', { limit: YIELD_PAGE }, yieldHistorySchema, { signal }),
+    (signal) => api.call(TOKEN_REVENUE_SHARE_HISTORY, { limit: YIELD_PAGE }, { signal, accept: windowsNamed }),
     `token-yield-history:${userId}`,
   );
   const [later, setLater] = useState<YieldHistoryRead | null>(null);
@@ -218,7 +185,7 @@ export function YieldHistory() {
   async function more(cursor: string) {
     setBusy(true);
     setFailure(null);
-    const res = await api.query('token', 'revenueShareHistory', { limit: YIELD_PAGE, cursor }, yieldHistorySchema);
+    const res = await api.call(TOKEN_REVENUE_SHARE_HISTORY, { limit: YIELD_PAGE, cursor }, { accept: windowsNamed });
     setBusy(false);
     if (res.ok) setLater((prev) => ({ items: [...(prev?.items ?? []), ...res.data.items], nextCursor: res.data.nextCursor }));
     else setFailure(res);

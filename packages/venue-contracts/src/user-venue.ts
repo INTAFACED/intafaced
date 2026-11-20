@@ -335,6 +335,33 @@ export interface MarketMarginTransferIntent {
 }
 
 /**
+ * Move USDC between the account's own perps and spot balances, while the venue holds the account in standard mode
+ * (J-derivatives-29 #2 #3 #6; Hyperliquid: `usdClassTransfer`), signed by the owner's wallet. Only free balance moves;
+ * the venue refuses `insufficient_balance` for more than the source balance holds free, and refuses outright where the
+ * account's mode keeps one balance per asset. Nothing leaves the venue and the ledger posts nothing.
+ */
+export interface SpotPerpsTransferIntent {
+  readonly kind: 'spot_perps_transfer';
+  readonly direction: 'perps_to_spot' | 'spot_to_perps';
+  readonly asset: string;
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this move (`class-move:<owner>:<draft>`): a retry re-sends the same bytes and it moves once. */
+  readonly moveKey: string;
+}
+
+/**
+ * Change the venue account's mode (J-derivatives-29 #7 #8), the person's own signed venue action; the venue may refuse it,
+ * and the mode is then unchanged. Only the owner's wallet signs it; INTAFACED never changes it for them.
+ */
+export interface SetAccountModeIntent {
+  readonly kind: 'set_account_mode';
+  readonly mode: VenueAccountMode;
+  /** The business key of this change (`account-mode:<owner>:<draft>`). */
+  readonly changeKey: string;
+}
+
+/**
  * Add margin to, or remove margin from, the account's open isolated position on one perpetual (J-derivatives-06 #2 #3),
  * one signed venue action (Hyperliquid: `updateIsolatedMargin`). `add` moves free collateral into the position's margin;
  * `remove` moves it back, and the venue refuses a removal that would take the margin below its own limit for the
@@ -383,7 +410,9 @@ export type VenueIntent =
   | CreateSubAccountIntent
   | SubAccountTransferIntent
   | MarketMarginTransferIntent
-  | UpdateIsolatedMarginIntent;
+  | UpdateIsolatedMarginIntent
+  | SpotPerpsTransferIntent
+  | SetAccountModeIntent;
 
 export type VenueIntentKind = VenueIntent['kind'];
 
@@ -396,6 +425,8 @@ export const OWNER_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueInt
   'create_sub_account',
   'sub_account_transfer',
   'market_margin_transfer',
+  'spot_perps_transfer',
+  'set_account_mode',
 ]);
 
 /** Actions signed on the owner's MAIN account only, never on a sub-account. */
@@ -406,6 +437,14 @@ export const MAIN_ACCOUNT_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<V
 ]);
 
 export type VenueMarginMode = 'cross' | 'isolated';
+
+/**
+ * The venue's own setting on the person's account for how it keeps their money (J-derivatives-29; Hyperliquid
+ * `account-abstraction-modes`): `standard` keeps separate spot and perps balances; `unified` and `portfolio_margin` hold one
+ * balance for each asset, used by spot and perps alike.
+ */
+export type VenueAccountMode = 'standard' | 'unified' | 'portfolio_margin';
+export const VENUE_ACCOUNT_MODES: readonly VenueAccountMode[] = ['standard', 'unified', 'portfolio_margin'];
 
 // ════════════════════════════════════════════════════════════════════════════
 // PREPARED → SIGNED → SUBMITTED
@@ -808,6 +847,20 @@ export interface UserVenueCrossMargin {
   readonly marginRatio: MaybeKnown<Amount>;
   readonly liquidationEquity: Amount;
   readonly rule: string;
+}
+
+/**
+ * The account's mode as the venue reports it (J-derivatives-29 #1 #9 #11). `mode` is `null` where the venue does not
+ * report it: never a guess. In standard mode `spot` and `perps` are the two balances, each as the venue reports it (and
+ * `balances()` is then the perps balance); in a mode with one balance per asset both are `null` and `balances()` holds it.
+ * `actions` is the venue's count of the account's actions today and its daily limit for the mode (`dailyLimit` `null`:
+ * the mode has none), or `null` where the venue reports no count.
+ */
+export interface UserVenueAccountMode {
+  readonly mode: VenueAccountMode | null;
+  readonly spot: readonly UserVenueBalance[] | null;
+  readonly perps: readonly UserVenueBalance[] | null;
+  readonly actions: { readonly usedToday: number; readonly dailyLimit: number | null } | null;
 }
 
 // ── Liquidation and its aftermath, as the venue reports them (J-derivatives-07) ─────────────────────────────────────
@@ -1861,6 +1914,8 @@ export interface UserVenue {
   isolatedMargin?(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueIsolatedMargin>>;
   /** The account's margin summary as the venue reports it (J-derivatives-06 #1). Optional: absent, not read. */
   accountSummary?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>>;
+  /** The account's mode, its spot and perps balances in standard mode, and its daily action count (J-derivatives-29). */
+  accountMode?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountMode>>;
 
   /**
    * The account's position's liquidation state on `symbol` and the venue's price and fee rules (J-derivatives-07 #1 #3).
@@ -1993,6 +2048,29 @@ export function assertSignerMaySign(account: UserVenueAccount, signer: VenueSign
     }
     if (typeof intent.amount !== 'bigint' || compare(intent.amount, ZERO) <= 0) {
       throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a margin change must be positive' });
+    }
+    assertBusinessKey(venueId, intent.changeKey, 'change key');
+  }
+  if (intent.kind === 'spot_perps_transfer') {
+    if (intent.direction !== 'perps_to_spot' && intent.direction !== 'spot_to_perps') {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `transfer direction "${String(intent.direction)}" is not one the venue knows`,
+      });
+    }
+    if (typeof intent.amount !== 'bigint' || compare(intent.amount, ZERO) <= 0) {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a transfer must be positive' });
+    }
+    assertBusinessKey(venueId, intent.moveKey, 'move key');
+  }
+  if (intent.kind === 'set_account_mode') {
+    if (!VENUE_ACCOUNT_MODES.includes(intent.mode)) {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `account mode "${String(intent.mode)}" is not one the venue knows`,
+      });
     }
     assertBusinessKey(venueId, intent.changeKey, 'change key');
   }
