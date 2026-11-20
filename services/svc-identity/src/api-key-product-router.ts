@@ -33,6 +33,7 @@ type ProductExchanger = ApiKeyMinter & {
     requireNonEmptyIpAllowlist?: boolean;
     ipAllowlist?: string[];
     rateLimit?: KeyRateLimit | null;
+    apiVersionDefault?: string | null;
   }>;
 };
 
@@ -194,6 +195,7 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger, ga
           requireNonEmptyIpAllowlist: z.boolean().optional(),
           ipAllowlist: z.array(z.string()).optional(),
           rateLimit: keyRateLimitSchema.nullable().optional(),
+          apiVersionDefault: z.string().nullable().optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
@@ -215,6 +217,7 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger, ga
             ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
             ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
             ...(result.rateLimit === undefined ? {} : { rateLimit: result.rateLimit }),
+            ...(result.apiVersionDefault === undefined ? {} : { apiVersionDefault: result.apiVersionDefault }),
           };
         } catch (err) {
           toProductTrpc(err);

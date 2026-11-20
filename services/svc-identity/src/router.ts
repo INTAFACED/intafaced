@@ -3396,6 +3396,7 @@ export function createIdentityRouter(
             requireNonEmptyIpAllowlist: z.boolean().optional(),
             ipAllowlist: z.array(z.string()).optional(),
             rateLimit: keyRateLimitSchema.nullable().optional(),
+            apiVersionDefault: z.string().nullable().optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -3416,6 +3417,7 @@ export function createIdentityRouter(
               ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
               ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
               ...(result.rateLimit === undefined ? {} : { rateLimit: result.rateLimit }),
+              ...(result.apiVersionDefault === undefined ? {} : { apiVersionDefault: result.apiVersionDefault }),
             };
           } catch (err) {
             throw toTrpcError(err);

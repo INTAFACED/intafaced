@@ -1,5 +1,14 @@
 import { P2P_CANCEL_REASONS, P2P_CANCELLED_BY } from '@intafaced/contracts/p2p-cancel';
-import { P2P_CONTACTS_LIST, P2P_MODERATION } from '@intafaced/contracts/p2p-procedures';
+import {
+  P2P_CHAT_MESSAGES_LIST,
+  P2P_CHAT_MESSAGES_SEND,
+  P2P_CONTACTS_LIST,
+  P2P_MODERATION,
+  P2P_REPUTATION_APPEAL,
+  P2P_REPUTATION_GET,
+  P2P_REVIEWS_FOR_TRADE,
+  P2P_REVIEWS_LEAVE,
+} from '@intafaced/contracts/p2p-procedures';
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
@@ -245,29 +254,6 @@ export const orderReceiptSchema = z.object({
   dailyRemaining: z.number().int().nonnegative(),
   tradeRemaining: z.number().int().nonnegative(),
 });
-/** svc-p2p `chat.messages.list`: oldest first; `nextCursor` is set while a full page was returned. */
-export const chatMessageSchema = z.object({
-  id,
-  tradeId: id,
-  senderId: z.string(),
-  clientId: z.string(),
-  text: z.string(),
-  createdAt: z.string(),
-});
-export const chatPageSchema = z.object({
-  messages: z.array(chatMessageSchema),
-  nextCursor: z.string().nullable(),
-  unread: z.number().int().nonnegative(),
-});
-/** `chat.messages.send`: the stored message, `created: false` when the same client id had already been stored. */
-export const chatSentSchema = chatMessageSchema.extend({
-  created: z.boolean(),
-  notify: z.object({
-    delivered: z.boolean(),
-    code: z.enum(['p2p.chat_notify_delivered', 'p2p.chat_notify_unwired', 'p2p.chat_notify_failed']),
-  }),
-});
-export const chatUnreadSchema = z.object({ tradeId: id, unread: z.number().int().nonnegative() });
 export const instrumentSchema = z.object({
   id,
   methodId: z.string(),
@@ -353,42 +339,6 @@ export const disputeOpenedSchema = z.object({
   moderationConfigured: z.boolean(),
   moderation: P2P_MODERATION,
 });
-export const reputationSchema = z
-  .object({
-    tradesTotal: z.number().int().nonnegative().max(2147483647),
-    completed: z.number().int().nonnegative().max(2147483647),
-    cancelled: z.number().int().nonnegative().max(2147483647),
-    disputed: z.number().int().nonnegative().max(2147483647),
-    disputesLost: z.number().int().nonnegative().max(2147483647),
-    completionRate: z.number().finite().min(0).max(1),
-    avgReleaseSecs: z.number().int().nonnegative().max(2147483647),
-    badges: z.array(z.string()),
-    merchant: z.boolean().nullable(),
-    /** Public handle from identity. Null or absent when the service has none to give; never guessed. */
-    handle: z.string().nullish(),
-    memberSince: z.string().nullish(),
-    /** Whether identity's public profile was read: `unwired` and `absent` explain a missing handle. */
-    profile: z
-      .object({ status: z.enum(['unwired', 'found', 'absent']) })
-      .passthrough()
-      .optional(),
-    /** P-trade-orders-21: decimal-string percents ("95.24") over 30 days and all time; null when nothing is counted. */
-    completionRate30d: z
-      .string()
-      .regex(/^\d{1,3}\.\d{2}$/)
-      .nullish(),
-    completionRateTotal: z
-      .string()
-      .regex(/^\d{1,3}\.\d{2}$/)
-      .nullish(),
-    /** What the rates count, as the service words it (data, so the page and the SQL cannot disagree). */
-    completionDefinition: z
-      .object({ numerator: z.string(), denominator: z.string(), window30d: z.string(), noHistory: z.string() })
-      .nullish(),
-    /** Visible good and bad reviews; null when there are none. */
-    rating: z.object({ good: z.number().int().nonnegative(), bad: z.number().int().nonnegative() }).nullish(),
-  })
-  .refine((record) => record.completed + record.cancelled <= record.tradesTotal && record.disputesLost <= record.disputed);
 /** `trades.stepUpWindow`: until when this session's takes need no new confirmation, or null. */
 export const takeStepUpWindowSchema = z.object({ confirmedUntil: z.string().datetime({ offset: true }).nullable() });
 /** What `trades.quote` returns: exact figures for one take, before anything is locked. */
@@ -712,48 +662,21 @@ export type OrderPage = z.infer<typeof orderPageSchema>;
 export type OrderTab = (typeof orderTabs)[number];
 export type OrderExport = z.infer<typeof orderExportSchema>;
 /** svc-p2p `reviews.*`: one good/bad review per party of a released order. */
-export const orderReviewSchema = z.object({
-  id,
-  /** Null for a viewer who is neither the author nor the subject (`reviews.list`). */
-  tradeId: id.nullable(),
-  authorId: z.string().nullable(),
-  subjectId: z.string(),
-  rating: z.enum(['good', 'bad']),
-  comment: z.string(),
-  explanation: z.string().nullable(),
-  reply: z.string().nullable(),
-  repliedAt: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  hidden: z.boolean(),
-  hiddenReason: z.string().nullable(),
-});
+export type OrderReview = ProcedureOutput<typeof P2P_REVIEWS_LEAVE>;
 /** `reviews.forTrade`: the viewer's own review of the order and the visible one about them. */
-export const tradeReviewsSchema = z.object({ mine: orderReviewSchema.nullable(), theirs: orderReviewSchema.nullable() });
-export type OrderReview = z.infer<typeof orderReviewSchema>;
-export type TradeReviews = z.infer<typeof tradeReviewsSchema>;
+export type TradeReviews = ProcedureOutput<typeof P2P_REVIEWS_FOR_TRADE>;
 export type OrderReceipt = z.infer<typeof orderReceiptSchema>;
-export type ChatMessage = z.infer<typeof chatMessageSchema>;
-export type ChatPage = z.infer<typeof chatPageSchema>;
-export type ChatSent = z.infer<typeof chatSentSchema>;
+/** svc-p2p `chat.messages.list`: oldest first; `nextCursor` is set while a full page was returned. */
+export type ChatPage = ProcedureOutput<typeof P2P_CHAT_MESSAGES_LIST>;
+export type ChatMessage = ChatPage['messages'][number];
+/** `chat.messages.send`: the stored message, `created: false` when the same client id had already been stored. */
+export type ChatSent = ProcedureOutput<typeof P2P_CHAT_MESSAGES_SEND>;
 /** `contacts.list` and every contacts change answer with the caller's whole lists of account ids. */
 export type Contacts = ProcedureOutput<typeof P2P_CONTACTS_LIST>;
 export type TakeQuote = z.infer<typeof takeQuoteSchema>;
-export type Reputation = z.infer<typeof reputationSchema>;
+export type Reputation = ProcedureOutput<typeof P2P_REPUTATION_GET>;
 /** P-trade-orders-21: the person's one completion appeal (`reputation.myAppeal`, `reputation.appeal`). */
-export const completionAppealSchema = z.object({
-  id,
-  userId: z.string(),
-  tradeId: id,
-  reason: z.string(),
-  status: z.enum(['submitted', 'accepted', 'rejected']),
-  submittedAt: z.string(),
-  reviewDueAt: z.string(),
-  decidedBy: z.string().nullable(),
-  decidedAt: z.string().nullable(),
-  decisionReason: z.string().nullable(),
-});
-export type CompletionAppeal = z.infer<typeof completionAppealSchema>;
+export type CompletionAppeal = ProcedureOutput<typeof P2P_REPUTATION_APPEAL>;
 export type Merchant = z.infer<typeof merchantSchema>;
 export type Payment = z.infer<typeof paymentSchema>;
 
