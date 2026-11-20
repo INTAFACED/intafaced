@@ -8,7 +8,7 @@ import { usePaperMode } from './paper-mode';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { renderAuthoredCopy, type UiLocale } from '../../shared/i18n';
 import { uiDirection } from '../../shared/locale';

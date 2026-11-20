@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { Button, Panel } from '../../shared/ui';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { currentRoute, subscribeRoute } from '../../shared/route-watch';

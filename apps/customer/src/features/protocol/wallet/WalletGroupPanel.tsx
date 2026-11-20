@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button, DataTable, EmptyState, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import type { ApiResult } from '../../../shared/api';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createExplorerApi } from '../explorer/explorer-api';
 import { WALLET_GROUP_ID, WALLET_SECTIONS } from '../routes';
 import type { WalletGroup } from './address-book-api';

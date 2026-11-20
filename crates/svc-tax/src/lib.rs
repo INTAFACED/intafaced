@@ -10,7 +10,6 @@
 //! (`tests/wire_replay.rs`), the service parity corpus (`tests/service_parity.rs`), the I/O golden (`tests/io_golden.rs`),
 //! the export (`tests/export_parity.rs`) and zod's input checks (`tests/input_parity.rs`).
 
-pub mod access;
 pub mod basis;
 pub mod choices;
 pub mod clients;
@@ -31,7 +30,7 @@ pub mod venue_book;
 pub mod wire;
 
 // The generic parts are the kit's (`crates/service-kit`); their paths here stay as they were.
-pub use service_kit::{edge, http, json, money, posture, s2s, telemetry, time, zod};
+pub use service_kit::{access, edge, http, json, money, posture, s2s, telemetry, time, zod};
 
 /// The service this crate becomes.
 pub const SERVICE: &str = "svc-tax";

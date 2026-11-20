@@ -3,7 +3,7 @@ import type { TokenBasics, TokenListRow, TokensBrief, TokensLeaderboard } from '
 import { navigate } from '../../../app/location';
 import { DataTable, EmptyState, Failure, Page, Panel } from '../../../shared/ui';
 import { useResource } from '../../../shared/resource';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { ADDRESS_SHAPE } from '../routes';
 import { currentPreferences, usePreferences } from '../../../shared/preferences';

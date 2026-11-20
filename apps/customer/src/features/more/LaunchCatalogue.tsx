@@ -1,7 +1,7 @@
 // hand-declared-ok: svc-token's launch outputs are declared in its launch router; packages/contracts has no token schemas yet
 import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';

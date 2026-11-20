@@ -41,7 +41,7 @@ import {
 import { pictureCount, usePayoutPicture } from './payout-picture';
 import { settlementHref } from './Settlements';
 import { fallbackEvents, LifecycleTrail, Trail } from './Trail';
-import type { Lifecycle, PayoutItem } from './schemas';
+import type { PayPayoutLifecycle as Lifecycle, PayPayoutListItem as PayoutItem } from '@intafaced/contracts/pay-portal-reads';
 import { Facts, NotConfigured, UsageBar } from '../components';
 import type { PayoutState } from '../model';
 import { PAYOUT_RETRY_ENABLED } from './payout-retry';
@@ -121,6 +121,7 @@ export function Payouts({ portal, merchantId }: { portal: PortalApi; merchantId:
         data: {
           items: derived.data.items.map((s): PayoutItem => ({
             id: s.id,
+            merchantId: s.merchantId,
             window: s.window,
             assetId: s.assetId,
             gross: s.gross,

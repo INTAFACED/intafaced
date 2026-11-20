@@ -1087,6 +1087,15 @@ export function pathReach(map, path, subscribesHere = false, head = null) {
 }
 
 /**
+ * The journey files the map can't speak for, which run with every change: its `full` journeys and every journey file at
+ * the head (`atHead`, a Set of names) it doesn't know. Read only from a map mapProblem passes.
+ */
+export function alwaysRun(map, atHead) {
+  const known = new Set(map?.journeys ?? []);
+  return [...Object.keys(map?.full ?? {}), ...[...atHead].filter((f) => !known.has(f))];
+}
+
+/**
  * The journeys a set of product paths reaches: { mode: 'files', files, because } or { mode: 'full', why }. `atHead`:
  * the journey files at the head (a Set of names), or null when they can't be listed. `subscribes(path)`: pathReach's
  * `subscribesHere`; `head`: its `head`. Every journey the map can't speak for (its `full` journeys, and a journey file at the head it
@@ -1110,8 +1119,7 @@ export function reachSelect({ map, paths, behind, atHead, subscribes = () => fal
     for (const i of r.journeys) picked.add(map.journeys[i]);
     because.push(`${p}: ${r.journeys.length} journey file(s) reach it`);
   }
-  const known = new Set(map.journeys);
-  const always = [...Object.keys(map.full ?? {}), ...[...atHead].filter((f) => !known.has(f))];
+  const always = alwaysRun(map, atHead);
   for (const f of always) picked.add(f);
   const files = [...picked].filter((f) => atHead.has(f)).sort();
   if (files.length >= atHead.size) return { mode: 'full', why: 'the recorded reach of what it changes holds every journey' };

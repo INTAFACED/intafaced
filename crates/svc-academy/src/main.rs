@@ -1,0 +1,400 @@
+//! The svc-academy process: `svc-academy` serves; `svc-academy migrate [--down]` applies (or reverses) the academy
+//! schema's migrations.
+//!
+//! It is not wired into compose or the stack yet: the TypeScript service serves the Academy until the switch.
+
+use std::collections::BTreeMap;
+use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use service_kit::edge::EdgeKey;
+use service_kit::http::{Fetch, UreqFetch};
+use service_kit::json::Json;
+use service_kit::pg::Pool;
+use service_kit::s2s::{CallSigner, s2s_from_env};
+use service_kit::server::{self, App};
+use service_kit::telemetry::{Logger, Telemetry};
+
+use svc_academy::community::{Db, analytics, moderation};
+use svc_academy::curriculum::{internal::ServiceAuth, spine};
+use svc_academy::db::Store;
+use svc_academy::door::{AcademyDoor, DoorConfig, system_now};
+use svc_academy::env::{self, AcademyEnv};
+use svc_academy::identity_approvals::IdentityApprovals;
+use svc_academy::learner::purchases::chain::RpcChain;
+use svc_academy::learner::purchases::clients::{IdentityWallets, LedgerHttp, RefundHttp};
+use svc_academy::lobbies::clients::{HttpHostRights, HttpStake};
+use svc_academy::lobbies::stream::stream_from_env;
+use svc_academy::migrate;
+use svc_academy::ports::{JetStreamBus, PaymentSettings, Ports};
+use svc_academy::programme::ambassadors::check_laws;
+use svc_academy::programme::paper::flag::TradePaperFlags;
+use svc_academy::settings::Settings;
+use svc_academy::slices;
+
+fn process_env() -> BTreeMap<String, String> {
+    std::env::vars_os()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+        .collect()
+}
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let out = if args.first().map(String::as_str) == Some("migrate") {
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| migrate::DEFAULT_URL.to_owned());
+        migrate::run(
+            &url,
+            args.iter().any(|a| a == "--down"),
+            &mut std::io::stdout(),
+        )
+    } else {
+        run()
+    };
+    match out {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// The owner's course-payment values (`index.ts`): every one set, or none. The token and receiver are lowercased.
+fn payment_settings(env: &AcademyEnv) -> Option<PaymentSettings> {
+    let set = |k: &str| env.str(k).filter(|v| !v.is_empty());
+    set("ACADEMY_PAYMENT_RPC_URL")?;
+    Some(PaymentSettings {
+        chain_id: env.int("ACADEMY_PAYMENT_CHAIN_ID")?,
+        token: set("ACADEMY_PAYMENT_TOKEN_ADDRESS")?.to_lowercase(),
+        decimals: env.int("ACADEMY_PAYMENT_TOKEN_DECIMALS")?,
+        asset: set("ACADEMY_PAYMENT_ASSET")?.to_owned(),
+        receiver: set("ACADEMY_PAYMENT_RECEIVER")?.to_lowercase(),
+        confirmations: env.int("ACADEMY_PAYMENT_CONFIRMATIONS")?,
+    })
+}
+
+/// The door, built once from the environment, with every outside port `index.ts` wires.
+fn door(
+    env: &AcademyEnv,
+    bus: Option<JetStreamBus>,
+    fetch: &Arc<dyn Fetch>,
+) -> Result<AcademyDoor, String> {
+    let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    let pool_max = usize::try_from(env.int("DATABASE_POOL_MAX").unwrap_or(1)).unwrap_or(1);
+    let mut ports = Ports::unwired();
+    ports.stream_configured = env.str("ACADEMY_STREAM_PROVIDER").map(str::to_owned);
+    // The lobbies' outside reads and the stream (`index.ts`): signed with svc-academy's own key when S2S is on.
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-academy",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = str_of("INTERNAL_SERVICE_SECRET");
+    let signer = |audience: &str| CallSigner::new("svc-academy", audience, &secret, keyed.clone());
+    ports.stake = Box::new(HttpStake::new(
+        &str_of("TOKEN_URL"),
+        signer("svc-token"),
+        fetch.clone(),
+    ));
+    ports.host_rights = Box::new(HttpHostRights::new(
+        &str_of("IDENTITY_URL"),
+        signer("svc-identity"),
+        fetch.clone(),
+    ));
+    ports.stream = stream_from_env(
+        env.str("ACADEMY_STREAM_PROVIDER"),
+        env.str("LIVEKIT_URL"),
+        env.str("LIVEKIT_API_KEY"),
+        env.str("LIVEKIT_API_SECRET"),
+        env.int("LIVEKIT_TOKEN_TTL_SECONDS"),
+        fetch.clone(),
+    );
+    // Course purchases (`index.ts`): the chain reader while payments are set up, the ledger client while `LEDGER_URL`
+    // is set, the refund signer while its URL is set, and svc-identity's linked wallets always.
+    ports.payment_settings = payment_settings(env);
+    if ports.payment_settings.is_some() {
+        ports.chain = Some(Box::new(RpcChain::new(
+            &str_of("ACADEMY_PAYMENT_RPC_URL"),
+            fetch.clone(),
+        )));
+    }
+    if let Some(url) = env.str("LEDGER_URL").filter(|u| !u.is_empty()) {
+        ports.ledger = Some(Box::new(LedgerHttp::new(
+            url,
+            signer("svc-ledger"),
+            fetch.clone(),
+        )));
+    }
+    if let Some(url) = env
+        .str("ACADEMY_REFUND_SIGNER_URL")
+        .filter(|u| !u.is_empty())
+    {
+        ports.refunds = Some(Box::new(RefundHttp::new(url, fetch.clone())));
+    }
+    ports.wallets = Box::new(IdentityWallets::new(
+        &str_of("IDENTITY_URL"),
+        signer("svc-identity"),
+        fetch.clone(),
+    ));
+    if let Some(bus) = bus {
+        ports.bus = Box::new(bus);
+    }
+    ports.services = ServiceAuth::from_env(
+        &str_of("INTERNAL_SERVICE_SECRET"),
+        &str_of("INTERNAL_SERVICE_BODY_BIND"),
+        &str_of("S2S_AUTH_MODE"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+    )?;
+    // As `index.ts`: identity consumes operator approvals whenever IDENTITY_URL is set (it has a default).
+    if let Some(identity) = env.str("IDENTITY_URL") {
+        ports.approvals = Box::new(IdentityApprovals::new(
+            identity,
+            &str_of("INTERNAL_SERVICE_SECRET"),
+            fetch.clone(),
+            service_kit::s2s::system_seconds,
+        ));
+    }
+    // svc-trade's public paper flags, only when TRADE_URL is set; unset, a drill claiming paper refuses unverified.
+    if let Some(trade) = env.str("TRADE_URL") {
+        ports.paper_flags = Box::new(TradePaperFlags::new(
+            trade,
+            env.int("ACADEMY_PAPER_MARKETS_LIMIT"),
+            fetch.clone(),
+        ));
+    }
+    let settings = Settings(env.json.clone());
+    // As `index.ts`, which parses both ambassador pay laws at load: a malformed one stops the boot.
+    check_laws(&settings).map_err(|r| format!("{} [{}]", r.message, r.code))?;
+    let door = AcademyDoor::new(DoorConfig {
+        edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
+        env: env.raw.clone(),
+        store: Store::Pool(Pool::new(&str_of("DATABASE_URL"), pool_max)),
+        ports,
+        settings,
+        now: system_now,
+    })?;
+    Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
+        None => door,
+        Some(key) => door.with_edge_key(EdgeKey::from_env(
+            &str_of("SERVICE_NAME"),
+            key,
+            env.int("EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS"),
+            env.int("EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS"),
+        )?),
+    })
+}
+
+/// `SELECT 1 FROM academy.rooms LIMIT 1` at boot: a database without the academy schema stops the start.
+fn schema_present(store: &Store) -> Result<(), String> {
+    const MISSING: &str = "academy schema is missing — run migrations before starting svc-academy";
+    let pool = store.pool().map_err(|_| MISSING.to_owned())?;
+    svc_academy::db::with_client(pool, |c| {
+        c.query("SELECT 1 FROM academy.rooms LIMIT 1", &[])
+            .map_err(|e| svc_academy::db::refusal(&e))
+    })
+    .map(|_| ())
+    .map_err(|_| MISSING.to_owned())
+}
+
+/// AC-analytics-02: the report sweep runs requested reports, one sweep at a time, every `ACADEMY_REPORT_SWEEP_SECONDS`
+/// (the first after one interval, as `setInterval`), on its own connection. A blank interval runs none.
+fn report_sweep(
+    door: &AcademyDoor,
+    log: &Logger,
+    stop: &Arc<AtomicBool>,
+) -> Option<std::thread::JoinHandle<()>> {
+    let settings = slices::community::report_settings(door.settings());
+    let seconds = u64::try_from(settings.sweep_seconds?).ok()?;
+    let url = door.store().pool().ok()?.url().to_owned();
+    let (log, stop) = (log.clone(), stop.clone());
+    Some(std::thread::spawn(move || {
+        let pool = Pool::new(&url, 1);
+        let tick = std::time::Duration::from_millis(200);
+        'sweeps: loop {
+            let due = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+            while std::time::Instant::now() < due {
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    break 'sweeps;
+                }
+                std::thread::sleep(tick);
+            }
+            if let Err(e) = analytics::sweep(&pool, &settings, system_now()) {
+                log.error(
+                    vec![("err", Json::str(format!("{e:?}")))],
+                    "report sweep failed; the next one retries",
+                );
+            }
+        }
+        pool.end();
+    }))
+}
+
+fn run() -> Result<(), String> {
+    let env = env::load(&process_env()).map_err(|e| e.message)?;
+    // The embedded spine loads, or the service does not start (the TypeScript catalog throws at module load).
+    spine::check()?;
+    // `assertCertCatalog(CERT_CATALOG)` at module load: a broken certificate catalogue does not start.
+    svc_academy::certs::catalog::check()?;
+    let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    let log = Logger::stdout(&str_of("LOG_LEVEL"));
+    let fetch: Arc<dyn Fetch> = Arc::new(UreqFetch::new());
+    let telemetry = Telemetry::start(
+        env.flag("OTEL_ENABLED"),
+        &str_of("SERVICE_NAME"),
+        &str_of("OTEL_EXPORTER_OTLP_ENDPOINT"),
+        &str_of("APP_ENV"),
+        fetch.clone(),
+        log.clone(),
+    );
+    // As the TypeScript: a bus that cannot be reached is reported on /ready, not fatal.
+    let bus = match JetStreamBus::connect(
+        &str_of("NATS_URL"),
+        &str_of("SERVICE_NAME"),
+        &str_of("NATS_STREAM_PREFIX"),
+    ) {
+        Ok(b) => Some(b),
+        Err(e) => {
+            log.error(
+                vec![("err", Json::str(e))],
+                "svc-academy could not reach the bus — certification XP will not be published",
+            );
+            None
+        }
+    };
+    let door = match door(&env, bus, &fetch) {
+        Ok(d) => d,
+        Err(e) => {
+            telemetry.shutdown();
+            return Err(e);
+        }
+    };
+    // As `index.ts`: the schema answers before anything is served, or the service does not start.
+    if let Err(e) = schema_present(door.store()) {
+        telemetry.shutdown();
+        return Err(e);
+    }
+    // AC-rooms-02: author notices a down bus left waiting go now. A failure leaves them waiting; the boot goes on.
+    let outbox = moderation::Outbox {
+        bus: door.ports().bus.as_ref(),
+        producer: slices::community::producer(door.settings()),
+        log: &slices::community::log_notice_error,
+    };
+    if let Err(e) = moderation::send_waiting(&Db(door.store()), &outbox) {
+        log.error(
+            vec![("err", Json::str(format!("{e:?}")))],
+            "moderation notices could not be sent at boot",
+        );
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let report_sweep = report_sweep(&door, &log, &stop);
+    let ready_body = door.ready().compact();
+    let app = App {
+        wire: door,
+        service_name: str_of("SERVICE_NAME"),
+        ready_body,
+    };
+    let port_number = env.int("HTTP_PORT").unwrap_or(env::DEFAULT_PORT);
+    let port = u16::try_from(port_number)
+        .map_err(|_| format!("options.port should be >= 0 and < 65536. Received {port_number}."))?;
+    let server =
+        tiny_http::Server::http((str_of("HTTP_HOST").as_str(), port)).map_err(|e| e.to_string())?;
+    log.info(
+        vec![
+            ("port", Json::int(i64::from(port))),
+            ("trpc", Json::Bool(true)),
+        ],
+        "svc-academy ready",
+    );
+
+    for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
+        signal_hook::flag::register(signal, stop.clone()).map_err(|e| e.to_string())?;
+    }
+    let sweep = env.int("ACADEMY_PURCHASE_RECONCILE_SECONDS");
+    std::thread::scope(|scope| {
+        if let Some(seconds) = sweep {
+            let (wire, stop, log) = (&app.wire, &stop, &log);
+            scope.spawn(move || reconcile_purchases(wire, seconds, stop, log));
+        }
+        // AC-certificates-02: the issue sweep issues delayed certificates once due, one sweep at a time; blank interval, no
+        // sweep (and a delayed rule refuses `academy.cert_sweep_unset`). It finishes its sweep before the process stops.
+        if let Some(seconds) = env
+            .int("ACADEMY_CERT_ISSUE_SWEEP_SECONDS")
+            .and_then(|s| u64::try_from(s).ok())
+        {
+            let (app, log, stop) = (&app, &log, &stop);
+            scope
+                .spawn(move || cert_sweep(app, log, stop, std::time::Duration::from_secs(seconds)));
+        }
+        server::serve(&server, &app, &log, &telemetry, &stop);
+    });
+    drop(server);
+    if let Some(t) = report_sweep {
+        let _ = t.join();
+    }
+    app.wire.end();
+    telemetry.shutdown();
+    log.info(Vec::new(), "svc-academy stopped");
+    Ok(())
+}
+
+/// J-academy-07: the purchase reconciler, every `ACADEMY_PURCHASE_RECONCILE_SECONDS`, one pass at a time (a pass that
+/// runs past the next tick is not overlapped). A blank interval starts no sweep: only a read of a purchase reconciles it.
+fn reconcile_purchases(door: &AcademyDoor, seconds: i64, stop: &AtomicBool, log: &Logger) {
+    let tick = std::time::Duration::from_secs(u64::try_from(seconds).unwrap_or(1));
+    let step = std::time::Duration::from_millis(200);
+    loop {
+        let started = std::time::Instant::now();
+        while started.elapsed() < tick {
+            if stop.load(Ordering::Relaxed) {
+                return;
+            }
+            std::thread::sleep(step.min(tick.saturating_sub(started.elapsed())));
+        }
+        let mut one = |key: &str, err: &svc_academy::errors::Refusal| {
+            log.error(
+                vec![
+                    ("err", Json::str(format!("{err:?}"))),
+                    ("key", Json::str(key)),
+                ],
+                "purchase reconcile failed on one purchase; the next pass retries it",
+            );
+        };
+        if let Err(err) = door.reconcile_course_purchases(&mut one) {
+            log.error(
+                vec![("err", Json::str(format!("{err:?}")))],
+                "purchase reconcile failed; the next pass retries",
+            );
+        }
+    }
+}
+
+/// `setInterval(() => academy.issueDueCertificates(), seconds * 1000)`, never stacked: each sweep runs to its end, then
+/// the next waits its interval. A failed sweep is logged and the next one retries.
+fn cert_sweep(app: &App<AcademyDoor>, log: &Logger, stop: &AtomicBool, every: std::time::Duration) {
+    let tick = std::time::Duration::from_millis(200);
+    loop {
+        let mut waited = std::time::Duration::ZERO;
+        while waited < every {
+            if stop.load(Ordering::SeqCst) {
+                return;
+            }
+            std::thread::sleep(tick);
+            waited += tick;
+        }
+        if let Err(e) = app.wire.sweep_certs() {
+            log.error(
+                vec![("err", Json::str(format!("{e:?}")))],
+                "certificate issue sweep failed; the next one retries",
+            );
+        }
+    }
+}

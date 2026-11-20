@@ -27,7 +27,10 @@ const base = {
 
 let viewer: string | null = owner;
 let resource: Resource<unknown> = { status: 'loading' };
-vi.mock('../session/session', () => ({ useSession: () => ({ api: {}, userId: viewer }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ api: {}, userId: viewer }),
+}));
 vi.mock('../../shared/resource', async (original) => ({
   ...(await original<typeof import('../../shared/resource')>()),
   useResource: () => ({ resource, reload: () => undefined }),

@@ -3,7 +3,7 @@ import { Button } from '@intafaced/ui';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { SupportScamContact, SupportScamReportInput, SupportScamWhen } from '@intafaced/contracts/support-safety';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { safetyCopy, type SafetyCopyKey } from '../safety-copy';
 import { Acknowledgement, EarlierAcknowledgements, safetyState, useMyAcknowledgements, useSafetySend } from '../safety-ack';
 

@@ -1,6 +1,6 @@
 // hand-declared-ok: svc-bank's `bank.assets.list` mirrors packages/contracts/src/asset-registry.ts, whose module also hashes edits with node:crypto, so it has no browser-safe export yet.
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiClient, ApiResult } from '../../shared/api';
 

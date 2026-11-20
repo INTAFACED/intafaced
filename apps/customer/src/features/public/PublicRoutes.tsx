@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { Suspense, type ComponentType } from 'react';
 import { BrandLockup, BrandWordmark } from '@intafaced/ui';
 import { useSession } from '../session';
 import { Page, EmptyState } from '../../shared/ui';
@@ -30,9 +30,6 @@ import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
 import { StatusSubscriptionPage } from './StatusSubscription';
 import { GuestChat, GuestNewRequest, GuestRequest, GuestVerify } from '../more';
-
-// A backtest result shared by link (AL-report-03) loads only when one is opened.
-const SharedResultRoute = lazy(() => import('../quant/SharedResultRoute'));
 
 /** The public header carries the horizontal lockup (mark 28 pixels, small drawing); the footer line the wordmark alone. */
 function Brand({ footer }: { footer?: boolean }) {
@@ -69,7 +66,11 @@ export function PublicHeader({ path }: { path: string }) {
     </header>
   );
 }
-export function PublicRoutes({ path }: { path: string }) {
+/**
+ * `SharedResult` is the quant room a backtest result shared by link opens (AL-report-03). The app passes it in, lazily
+ * loaded, so the public rooms neither reach inside quant nor load its entry.
+ */
+export function PublicRoutes({ path, SharedResult }: { path: string; SharedResult: ComponentType<{ path: string }> }) {
   const { t } = publicCopy.useCopy();
   const auth = path.startsWith('/login') || path === '/register';
   const library = helpLibraryPath(path);
@@ -132,7 +133,7 @@ export function PublicRoutes({ path }: { path: string }) {
           <NoticePage detail id={path.split('/')[2] ?? null} />
         ) : path.startsWith('/quant/share/') ? (
           <Suspense fallback={null}>
-            <SharedResultRoute path={path} />
+            <SharedResult path={path} />
           </Suspense>
         ) : path === '/fees' ? (
           <FeesPage />

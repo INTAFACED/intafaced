@@ -2,7 +2,7 @@ import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { orderBookSchema, tradeSchema } from '@intafaced/exchange-contract/schemas';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { DataTable, Panel, Tabs } from '../../shared/ui';
 import { Details, Read } from './common';

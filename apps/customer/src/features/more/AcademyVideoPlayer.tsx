@@ -13,7 +13,7 @@ import {
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Loading } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyRefusalText } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { AcademyRefusal } from './AcademyLmsParts';

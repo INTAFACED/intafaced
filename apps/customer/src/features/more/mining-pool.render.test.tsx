@@ -6,7 +6,7 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { MinerSecretView, MiningPoolStatus, PoolConnectView, PoolOverviewView, PoolProbeView, workerNameFor } from './MiningPool';
 import type { ApiResult } from '../../shared/api';
 

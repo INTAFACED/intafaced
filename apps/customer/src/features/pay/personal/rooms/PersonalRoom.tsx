@@ -4,7 +4,7 @@ import { navigate } from '../../../../app/location';
 import { createActivityFeed, fmtAmount, refusalCopy } from '../../../../data';
 import { usePreferences } from '../../../../shared/preferences';
 import { stamp } from '../../../../screens/money/time';
-import { useSession } from '../../../session/session';
+import { useSession } from '../../../session';
 import { contactLabel, contactsFrom, readRequests, readSent, removeRequest, requestPath } from '../personal-model';
 import { cameraRefusal, payTarget, readCode, scanImage, ScanError, type ScanRefusal } from '../scan';
 import { decodedSegment, type PersonalRoomMatch } from './rooms';

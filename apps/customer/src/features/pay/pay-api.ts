@@ -15,7 +15,7 @@ import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
-import { createMoneyClient } from '../money/client';
+import { createMoneyClient, transferQuoteSchema } from '../money';
 import { createMerchantRefundApi } from './merchant-refund-api';
 import * as s from './schemas';
 import { shareCopy } from './personal/p2p-share-copy';
@@ -486,7 +486,7 @@ export function createPersonalPayApi(
     spaces,
     /** Published limits and fee for this send. Refuses `bank.personal_transfer_terms_unset` while none are published. */
     quote: (input: { assetId: string; amount: string }, signal?: AbortSignal) =>
-      signedIn() ? Promise.resolve(signedIn()!) : api.query('bank', 'transfers.quote', input, s.transferQuoteSchema, { signal }),
+      signedIn() ? Promise.resolve(signedIn()!) : api.query('bank', 'transfers.quote', input, transferQuoteSchema, { signal }),
     async send(input: z.infer<typeof s.sendInput>, isCurrent?: () => boolean, recoveryCurrent?: () => boolean) {
       if (isCurrent && !isCurrent()) return sendContextChanged();
       const denied = signedIn();

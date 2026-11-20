@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import type { Resource } from '../../shared/resource';
 import { Loading, Panel } from '../../shared/ui';

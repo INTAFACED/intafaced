@@ -610,16 +610,20 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 const ISO_TIME = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})/g;
 
 /** Ids and times the database made, recorded by their place; the numbering carries over the whole run. */
-function stable(body: string, ids: Map<string, string>): string {
-  return body
-    .replace(/"stack":"(?:[^"\\]|\\.)*"/g, '"stack":"<stack>"')
-    .replace(/"(nextCursor|cursor)":"(?:[^"\\]|\\.)*"/g, '"$1":"<cursor>"')
-    .replace(UUID, (id) => {
-      if (FIXED_IDS.has(id)) return id;
-      if (!ids.has(id)) ids.set(id, `<uuid-${ids.size + 1}>`);
-      return ids.get(id)!;
-    })
-    .replace(ISO_TIME, '<time>');
+function stable(body: string, ids: Map<string, string>, today: string): string {
+  return (
+    body
+      .replace(/"stack":"(?:[^"\\]|\\.)*"/g, '"stack":"<stack>"')
+      .replace(/"(nextCursor|cursor)":"(?:[^"\\]|\\.)*"/g, '"$1":"<cursor>"')
+      .replace(UUID, (id) => {
+        if (FIXED_IDS.has(id)) return id;
+        if (!ids.has(id)) ids.set(id, `<uuid-${ids.size + 1}>`);
+        return ids.get(id)!;
+      })
+      .replace(ISO_TIME, '<time>')
+      // A bare date the service read off its own clock (the status history's day) is the day the replay ran, not the recording's.
+      .replaceAll(`"${today}"`, '"<today>"')
+  );
 }
 
 /** The shard a call is kept in: its namespace (`notify`), or `rest`; `depth` adds one more part when a shard would pass SHARD_BYTES. */
@@ -751,7 +755,7 @@ async function replaySetup(
       headers: body === undefined ? h : { ...h, 'content-type': 'application/json' },
       ...(body === undefined ? {} : { payload: body }),
     });
-    return { status: res.statusCode, body: stable(res.body, ids) };
+    return { status: res.statusCode, body: stable(res.body, ids, new Date().toISOString().slice(0, 10)) };
   };
   try {
     for (const path of Object.keys(procedures).sort()) {

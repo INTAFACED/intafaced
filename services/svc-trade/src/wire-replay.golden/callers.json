@@ -113,6 +113,7 @@
   { "path": "bots.grid.presets", "type": "query", "caller": "scope" },
   { "path": "bots.grid.setup", "type": "query", "caller": "scope" },
   { "path": "bots.grid.stop", "type": "mutation", "caller": "scope" },
+  { "path": "bots.grid.submitPermission", "type": "mutation", "caller": "scope" },
   { "path": "bots.grid.topUp", "type": "mutation", "caller": "scope" },
   { "path": "bots.grid.topUpFree", "type": "query", "caller": "scope" },
   { "path": "bots.grid.withdrawProfit", "type": "mutation", "caller": "scope" },

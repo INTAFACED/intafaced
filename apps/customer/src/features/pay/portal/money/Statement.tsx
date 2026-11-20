@@ -14,7 +14,7 @@ import { useServerList } from '../ui/useServerList';
 import { ListBody, MoneyFailure, TestBanner, useTestMode } from './common';
 import { mc } from './copy';
 import { defaultStatementRange, runningView, STATEMENT_MAX_DAYS, statementRangeTooWide, tieView, lineSign } from './model';
-import type { StatementLine, StatementPage } from './schemas';
+import type { PayStatementLine as StatementLine, PayStatementPage as StatementPage } from '@intafaced/contracts/pay-portal-reads';
 
 type Words = ReturnType<typeof mc.useCopy>['t'];
 const KNOWN_KINDS = ['payment_captured', 'fee', 'refund', 'chargeback', 'settlement', 'payout', 'reserve'] as const;
