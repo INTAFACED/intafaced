@@ -115,6 +115,19 @@ fn files<'a>(ctx: &Ctx<'a>) -> Files<'a> {
     }
 }
 
+/// `settleCertificatesNeeding(userId, 'assessment:<slug>', now)`: every certificate that needs this assessment's pass.
+fn settle_assessment(ctx: &Ctx<'_>, user_id: &str, slug: &str, now: i64) {
+    crate::certs::settle_needing(
+        ctx.store,
+        ctx.ports,
+        &ctx.settings.0,
+        ctx.certs.clock,
+        user_id,
+        &format!("assessment:{slug}"),
+        now,
+    );
+}
+
 pub fn handle(ctx: &Ctx<'_>) -> Answer {
     let input = &ctx.input;
     let store = ctx.store;
@@ -466,7 +479,14 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
             text(input, "choiceId"),
             now,
         )?,
-        "assessment.finish" => legacy::finish(store, user, text(input, "attemptId"), now)?,
+        "assessment.finish" => {
+            let attempt = legacy::finish(store, user, text(input, "attemptId"), now)?;
+            // `settleCertificatesNeeding(userId, 'assessment:<attempt.slug>')`, after the attempt is finished.
+            if let Some(Json::String(slug)) = attempt.get("slug") {
+                settle_assessment(ctx, user, slug, now);
+            }
+            attempt
+        }
         "assessment.review" => legacy::review(store, user, text(input, "attemptId"), now)?,
         "assessment.submit" => {
             let answers: Vec<(String, String)> = match input.get("answers") {
@@ -481,7 +501,7 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
                     .collect(),
                 _ => Vec::new(),
             };
-            legacy::submit(
+            let row = legacy::submit(
                 store,
                 legacy::CATALOG,
                 user,
@@ -489,7 +509,10 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
                 &answers,
                 text(input, "clientAttemptId"),
                 now,
-            )?
+            )?;
+            // `settleCertificatesNeeding(userId, 'assessment:<input.slug>')`, after the attempt is stored.
+            settle_assessment(ctx, user, text(input, "slug"), now);
+            row
         }
         "assessment.attempts" => {
             legacy::attempts(store, legacy::CATALOG, user, text(input, "slug"), now)?

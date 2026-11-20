@@ -417,7 +417,7 @@ impl Store<'_> {
                 AcademyError::new("clientRequestId is required", "academy.cert_invalid").into(),
             );
         }
-        let item = video::spine_item(video_slug).ok_or_else(|| video::not_on_spine(video_slug))?;
+        let item = video::require_spine_item(video_slug)?;
         let p = position_seconds;
         if !p.is_finite() || p.fract() != 0.0 || p < 0.0 {
             return Err(AcademyError::new(
@@ -497,9 +497,7 @@ impl Store<'_> {
 
     /// `getVideoProgress`: the stored position, or null.
     pub fn get_video_progress(&self, user_id: &str, video_slug: &str) -> Result<Json, Refusal> {
-        if video::spine_item(video_slug).is_none() {
-            return Err(video::not_on_spine(video_slug));
-        }
+        video::require_spine_item(video_slug)?;
         let position = sql::on_pool(self.pool, |c| {
             first(
                 c,
@@ -514,9 +512,7 @@ impl Store<'_> {
 
     /// The stored position alone (the router's `watched` read).
     pub fn video_position(&self, user_id: &str, video_slug: &str) -> Result<Option<i64>, Refusal> {
-        if video::spine_item(video_slug).is_none() {
-            return Err(video::not_on_spine(video_slug));
-        }
+        video::require_spine_item(video_slug)?;
         sql::on_pool(self.pool, |c| {
             first(
                 c,

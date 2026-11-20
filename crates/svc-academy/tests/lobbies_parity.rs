@@ -140,7 +140,7 @@ fn the_pins_read_the_catalogue_in_its_order() {
     let first = &spine::list()[0];
     assert_eq!(first.slug, "builder-first-automation");
     assert_eq!(
-        first.json().compact(),
+        first.summary_json().compact(),
         r#"{"slug":"builder-first-automation","title":"First automation, no live capital","kind":"playbook","path":"builder","order":10,"summary":"Agent guardrails and paper runs before any live rail.","estimatedMinutes":3}"#
     );
     assert!(spine::has_slug("  builder-first-automation "));

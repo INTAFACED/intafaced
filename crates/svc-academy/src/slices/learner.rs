@@ -60,13 +60,6 @@ pub fn setting_int(ctx: &Ctx<'_>, key: &str) -> Option<i64> {
     }
 }
 
-fn setting_str<'a>(ctx: &'a Ctx<'_>, key: &str) -> &'a str {
-    match ctx.settings.0.get(key) {
-        Some(Json::String(s)) => s,
-        _ => "",
-    }
-}
-
 /// `new Date(text)` in epoch milliseconds, for an input the schema already checked as an instant.
 fn instant(text: &str) -> Option<i64> {
     service_kit::time::js_date(text).map(|t| t.0)
@@ -103,14 +96,33 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
     let now = ctx.now.0;
     let user = ctx.user_id();
     let store = ctx.store;
-    let settle = Settle::NONE;
+    // `settleCertificatesNeeding` and `settleProgrammesHolding`, which every completion path calls after it records.
+    let certificates_needing = |user_id: &str, slug: &str, at: i64| {
+        crate::certs::settle_needing(
+            store,
+            ctx.ports,
+            &ctx.settings.0,
+            ctx.certs.clock,
+            user_id,
+            slug,
+            at,
+        );
+    };
+    let programmes_holding = |user_id: &str, slug: &str, at: i64| {
+        crate::authoring::programmes::settle_programmes_holding(store, user_id, slug, at);
+    };
+    let settle = Settle {
+        certificates_needing: &certificates_needing,
+        programmes_holding: &programmes_holding,
+    };
+    let video_options = crate::authoring::Options::from_settings(ctx.settings);
     let learning = || Learning {
         pool: store,
         ports: ctx.ports,
         options: Options {
             watch_threshold_seconds: setting_int(ctx, "ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS"),
-            video_min_tier: setting_str(ctx, "ACADEMY_VIDEO_MIN_TIER"),
-            video_min_stake: setting_str(ctx, "ACADEMY_VIDEO_MIN_STAKE"),
+            video_storage: video_options.storage.as_ref(),
+            video_gate: &video_options.gate,
             settle: &settle,
         },
     };
@@ -129,13 +141,13 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
     // `requireSpineItem` runs before the service is called.
     if ctx.call.path == "videoProgress.watched" {
         let slug = text(input, "videoSlug");
-        if video::spine_item(slug).is_none() {
-            return Err(video::not_on_spine(slug));
-        }
+        video::require_spine_item(slug)?;
         enter(ctx)?;
         let position = customer().video_position(user, slug)?;
-        let threshold =
-            video::require_threshold(setting_int(ctx, "ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS"))?;
+        let threshold = crate::authoring::video::require_watch_threshold(setting_int(
+            ctx,
+            "ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS",
+        ))?;
         return Ok(Some(Json::obj([
             ("videoSlug", Json::str(slug)),
             ("positionSeconds", position.map_or(Json::Null, Json::int)),

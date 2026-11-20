@@ -366,6 +366,21 @@ pub fn item_videos<C: GenericClient>(
     .collect()
 }
 
+/// `VideoTracks.itemsWithVideo(videoSlug)`: the items a video is attached to, by slug.
+pub fn items_with_video<C: GenericClient>(
+    c: &mut C,
+    video_slug: &str,
+) -> Result<Vec<String>, Refusal> {
+    query(
+        c,
+        "SELECT item_slug FROM academy.item_videos WHERE video_slug = $1::text ORDER BY item_slug",
+        &[&video_slug],
+    )?
+    .iter()
+    .map(|r| get(r, "item_slug"))
+    .collect()
+}
+
 /// `VideoTracks.setItemVideo`.
 pub fn set_item_video(
     pool: &Store,

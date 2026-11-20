@@ -42,7 +42,7 @@ The replay fails on any difference the door decides (401, scope 403, input 400, 
 
 Calls that consume an approval but are not flagged approval-gated in the table (`createSeason`, `revokeCert`, `grantCertException`) call `access::approval_precheck` themselves where the TypeScript handler does.
 
-`src/lobbies/spine.json` and `tests/fixtures/lobbies-parity.golden.json` are recorded from the TypeScript (after `pnpm --filter "@intafaced/svc-academy^..." build`):
+`tests/fixtures/lobbies-parity.golden.json` is recorded from the TypeScript (after `pnpm --filter "@intafaced/svc-academy^..." build`):
 
 ```sh
 TZ=UTC node --import tsx crates/svc-academy/scripts/record-lobbies.mjs          # write

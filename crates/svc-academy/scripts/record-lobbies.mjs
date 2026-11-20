@@ -1,8 +1,5 @@
 // Records, from the TypeScript svc-academy in this checkout, what the Rust lobbies slice is held to:
 //
-// - `src/lobbies/spine.json`: the curriculum summaries a room's pinned lessons show (`listCurriculum()`, in its
-//   order) and the spine size the pin read pages by. The full spine belongs to the curriculum slice; this is the part
-//   the lobbies read.
 // - `tests/fixtures/lobbies-parity.golden.json`: zod's own verdicts, through the TypeScript functions themselves, on
 //   a corpus of scenes (`parseScene`, `sceneFingerprint`, `decideHostSceneWrite`) and rank-perk payloads
 //   (`rankPerksSchema`).
@@ -22,7 +19,6 @@ const CRATE = fileURLToPath(new URL('../', import.meta.url));
 const SVC = `${ROOT}services/svc-academy/src/`;
 const CHECK = process.argv.includes('--check');
 
-const { listCurriculum, curriculumSpineSize } = await import(`${SVC}curriculum/catalog.ts`);
 const { parseScene, emptyScene } = await import(`${SVC}spatial/scene.ts`);
 const { decideHostSceneWrite, sceneFingerprint } = await import(`${SVC}spatial/edit-policy.ts`);
 const { rankPerksSchema, BASE_PERKS } = await import(`${SVC}../node_modules/@intafaced/contracts/dist/index.js`);
@@ -143,9 +139,7 @@ const perks = [
 
 // ── Write or check ──────────────────────────────────────────────────────────────────────────────────────────────────
 
-const spine = { size: curriculumSpineSize(), items: listCurriculum() };
 const files = [
-  [`${CRATE}src/lobbies/spine.json`, `${JSON.stringify(spine, null, 1)}\n`],
   [
     `${CRATE}tests/fixtures/lobbies-parity.golden.json`,
     `${JSON.stringify({ big, parsed: parsed.map((p) => (p.input === big ? { ...p, input: 'BIG' } : p)), writes, perks })}\n`,

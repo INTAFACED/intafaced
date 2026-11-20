@@ -922,8 +922,8 @@ fn a_specialist_room_page_shows_the_lessons_its_host_pinned() {
     }
     assert_eq!(slugs(&l, &room), [second.clone(), first.clone()]);
     assert_eq!(
-        l.pinned_lessons(&room).unwrap()[0].json().compact(),
-        spine::summary(&second).unwrap().json().compact()
+        l.pinned_lessons(&room).unwrap()[0].summary_json().compact(),
+        spine::summary(&second).unwrap().summary_json().compact()
     );
 
     // Only the host pins or unpins, and nothing changes on a refusal.

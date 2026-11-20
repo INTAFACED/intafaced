@@ -339,7 +339,7 @@ mod flag_verify {
         let at = |needle: &str| src.find(needle).unwrap_or_else(|| panic!("{needle}"));
         let gate = at("fn gate(");
         let verify = at("assert_caller_cannot_lie_paper_flag(flag_port(ctx)");
-        let spine = at("spine::kind_of(slug)");
+        let spine = at("spine::get(slug)");
         assert!(gate < verify && verify < spine);
         let drill = at("fn paper_drill(");
         let result = at("fn paper_drill_result(");
@@ -365,9 +365,12 @@ mod flag_verify {
         assert!(env.contains("o.blank_url(\"TRADE_URL\");"));
         assert!(env.contains("o.owner_int(\"ACADEMY_PAPER_MARKETS_LIMIT\", 1, 500);"));
         assert!(!env.contains("localhost:4004"));
-        // The handler takes the port only when TRADE_URL is set.
+        // The handler takes the port only when one was built, and the process builds it only when TRADE_URL is set.
         let handler = include_str!("../src/programme/paper/mod.rs");
-        assert!(handler.contains("get(\"TRADE_URL\")"));
+        assert!(handler.contains("port.wired().then_some(port)"));
+        let main = include_str!("../src/main.rs");
+        assert!(main.contains("if let Some(trade) = env.str(\"TRADE_URL\")"));
+        assert!(main.contains("ports.paper_flags = Box::new(TradePaperFlags::new("));
         let verify = include_str!("../src/programme/paper/flag.rs");
         assert!(verify.contains("/api/v1/markets?limit={page}"));
         assert!(!verify.contains("/api/v1/markets\""));

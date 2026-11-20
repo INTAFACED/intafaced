@@ -354,10 +354,15 @@ pub fn submit(
         if let Some(prior) = first(tx, &select, &[&user_id, &key])? {
             return attempt_row(&prior);
         }
-        let Some(def) = definition(tx, catalog, slug)? else { return unpublished(slug) };
+        let Some(def) = definition(tx, catalog, slug)? else {
+            return unpublished(slug);
+        };
         let def_slug = s(&def, "slug");
         if by_slug(catalog, &def_slug).is_none() || opt_num(&def, "timeLimitSeconds").is_some() {
-            return refuse(format!("academy.attempt_required slug={def_slug} is taken with Start"), "academy.attempt_required");
+            return refuse(
+                format!("academy.attempt_required slug={def_slug} is taken with Start"),
+                "academy.attempt_required",
+            );
         }
         if opt_num(&def, "passMark").is_none() {
             return pass_mark_unset(&def_slug);
@@ -382,7 +387,15 @@ pub fn submit(
                  ON CONFLICT (user_id, client_attempt_id) DO NOTHING RETURNING {}",
                 attempt_sql_columns()
             ),
-            &[&user_id, &def_slug, &key, &i(score), &i(max), &pass, &iso(now)],
+            &[
+                &user_id,
+                &def_slug,
+                &key,
+                &i(score),
+                &i(max),
+                &pass,
+                &iso(now),
+            ],
         )?;
         if let Some(r) = inserted {
             return attempt_row(&r);
@@ -392,15 +405,7 @@ pub fn submit(
             None => refuse("attempt insert left no row", "academy.assessment_invalid"),
         }
     })
-    // `settleCertificatesNeeding(userId, 'assessment:<slug>')`: no certificate of the owner's catalogue names an
-    // assessment, so nothing is settled (see `settle_certificates_needing`).
-    .inspect(|_| settle_certificates_needing(&format!("assessment:{slug}")))
 }
-
-/// `settleCertificatesNeeding(userId, requirement, now)`: every certificate whose requirements name `requirement` is
-/// settled. The owner's catalogue (`CERT_CATALOG`: Foundations, whose requirements are lessons only) names no
-/// `assessment:` requirement, so after a quiz there is nothing to settle; a failure there is logged and never refuses.
-fn settle_certificates_needing(_requirement: &str) {}
 
 /// A timed attempt row (`AttemptRowSql`).
 struct Row {
@@ -727,9 +732,6 @@ pub fn finish(pool: &Store, user_id: &str, attempt_id: &str, now: i64) -> Result
         let hidden = attempt_hidden_until(tx, user_id, &finished.id, now)?;
         Ok(view(&finished, now, hidden))
     })?;
-    if let Some(slug) = field_str(&out, "slug") {
-        settle_certificates_needing(&format!("assessment:{slug}"));
-    }
     Ok(out)
 }
 

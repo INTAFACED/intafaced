@@ -11,12 +11,12 @@ pub mod cert_hook;
 pub mod flag;
 pub mod ops;
 pub mod simulated;
-pub mod spine;
 pub mod workbook;
 
 use service_kit::json::Json;
 use service_kit::schema::Value;
 
+use crate::curriculum::spine;
 use crate::door::Ctx;
 use crate::errors::{AcademyError, Refusal};
 use crate::ports::PaperFlags;
@@ -39,13 +39,11 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
     }
 }
 
-/// `options.paperMarketFlagPort`: the port the service was built with, or none when `TRADE_URL` is unset (`index.ts`
-/// builds the trade port only then).
+/// `options.paperMarketFlagPort`: the port the service was built with, or none when it was built without one
+/// (`TRADE_URL` unset: `index.ts` and `main.rs` build the trade port only then).
 fn flag_port<'a>(ctx: &Ctx<'a>) -> Option<&'a dyn PaperFlags> {
-    match ctx.settings.0.get("TRADE_URL") {
-        Some(Json::String(s)) if !s.is_empty() => Some(ctx.ports.paper_flags.as_ref()),
-        _ => None,
-    }
+    let port = ctx.ports.paper_flags.as_ref();
+    port.wired().then_some(port)
 }
 
 /// `market` as the checked input holds it: `null` (the default) or trade's flag.
@@ -68,7 +66,8 @@ fn gate(ctx: &Ctx<'_>, market: Option<&PaperMarketRef>) -> Result<&'static str, 
     method(ctx)?;
     flag::assert_caller_cannot_lie_paper_flag(flag_port(ctx), market)?;
     let slug = ctx.input.get("slug").as_str().unwrap_or_default();
-    spine::kind_of(slug).ok_or_else(|| {
+    // `getCurriculumItem(slug)?.kind`: the curriculum spine's own lookup.
+    spine::get(slug).map(|i| i.kind.as_str()).ok_or_else(|| {
         AcademyError::new(
             format!("Curriculum item \"{slug}\" is not in the day-one spine"),
             "academy.curriculum_not_found",
