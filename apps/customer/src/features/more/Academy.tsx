@@ -13,14 +13,8 @@ import { AcademyVideos } from './AcademyVideos';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyPublic } from './AcademyPublic';
 import { CertificateShelf, CertificateVerifyPage } from './AcademyCertificates';
-import {
-  AcademyLearning,
-  certificateDefinitions,
-  progressFor,
-  lessonHref,
-  selectedCertificate,
-  rememberCertificate,
-} from './AcademyLearning';
+import { ACADEMY_CERT_DEFINITIONS, ACADEMY_CERT_PROGRESS } from '@intafaced/contracts/academy-learner-procedures';
+import { AcademyLearning, definitionsHold, progressFits, lessonHref, selectedCertificate, rememberCertificate } from './AcademyLearning';
 import { academyLearningCopy } from './academy-learning-copy';
 import { AcademyCoursePage, AcademyHub } from './AcademyHub';
 import { AcademyAssignment } from './AcademyAssignment';
@@ -218,7 +212,7 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
         .safeParse(action.result.data)
     : null;
   const definitions = useResource(
-    (signal) => api.query('academy', 'certDefinitions', undefined, certificateDefinitions, { signal }),
+    (signal) => api.call(ACADEMY_CERT_DEFINITIONS, undefined, { signal, accept: definitionsHold }),
     `cert-defs:${userId}`,
   );
   const selectedDefinition = definitions.resource.status === 'ready' ? definitions.resource.data.find((c) => c.id === selected) : undefined;
@@ -230,9 +224,14 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
   const detail = useResource(
     (signal) =>
       selectedDefinition
-        ? api.query('academy', 'certProgress', { certId: selected }, progressFor(userId, selected, selectedDefinition.requiredItemSlugs), {
-            signal,
-          })
+        ? api.call(
+            ACADEMY_CERT_PROGRESS,
+            { certId: selected },
+            {
+              signal,
+              accept: progressFits(userId, selected, selectedDefinition.requiredItemSlugs),
+            },
+          )
         : Promise.resolve({ ok: true as const, data: null }),
     `cert-progress:${userId}:${selected}:${currentDefinition.current ?? ''}`,
   );
@@ -360,11 +359,10 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
                         grant: { certId: expected.selected, dispatched: () => dispatched },
                         run: async (canDispatch) => {
                           if (!canDispatch() || !grantUnchanged()) return changed();
-                          const fresh = await api.query(
-                            'academy',
-                            'certProgress',
+                          const fresh = await api.call(
+                            ACADEMY_CERT_PROGRESS,
                             { certId: expected.selected },
-                            progressFor(expected.userId, expected.selected, required),
+                            { accept: progressFits(expected.userId, expected.selected, required) },
                           );
                           if (!canDispatch() || !grantUnchanged()) return changed();
                           if (!fresh.ok) return fresh;
@@ -457,7 +455,7 @@ function AcademyProgress({ action }: { action: AcademyAction }) {
   const api = useApi(),
     { userId } = useSession();
   const definitions = useResource(
-    (signal) => api.query('academy', 'certDefinitions', undefined, certificateDefinitions, { signal }),
+    (signal) => api.call(ACADEMY_CERT_DEFINITIONS, undefined, { signal, accept: definitionsHold }),
     `cert-defs:${userId}`,
   );
   return (
