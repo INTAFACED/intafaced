@@ -1,5 +1,18 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
+import { academyItemCompletionSchema, type AcademyCurriculumSummary } from '@intafaced/contracts/academy-catalogue';
+import {
+  ACADEMY_CERT_DEFINITIONS,
+  ACADEMY_CERT_PROGRESS,
+  ACADEMY_CURRICULUM,
+  ACADEMY_CURRICULUM_ITEM_LOCALIZED,
+  ACADEMY_MARK_CURRICULUM_COMPLETE,
+  ACADEMY_TOUCH_LESSON,
+  type AcademyCertDefinition,
+  type AcademyCertProgress,
+  type AcademyLocalizedItem,
+} from '@intafaced/contracts/academy-learner-procedures';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import { useApi, useSession } from '../session';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
@@ -22,57 +35,30 @@ import './academy-learning.css';
 
 const ref = z.string().min(1);
 const unique = (values: string[]) => new Set(values).size === values.length;
-const date = z.string().datetime({ offset: true });
-const summary = z.object({
-  slug: ref,
-  title: ref,
-  kind: z.enum(['playbook', 'workbook', 'lesson']),
-  path: z.enum(['foundations', 'markets', 'builder', 'sovereign']),
-  order: z.number().int().safe(),
-  summary: z.string(),
-  estimatedMinutes: z.number().int().safe().positive(),
-});
-const item = summary.extend({
-  body: z.string(),
-  objectives: z.array(z.string()),
-  keyTerms: z.array(z.object({ term: z.string(), definition: z.string() })),
-  selfCheck: z.array(z.string()),
-  locale: ref,
-  fellBack: z.boolean(),
-  i18nStrategy: z.string(),
-});
-export const certificateDefinitions = z
-  .array(z.object({ id: ref, title: ref, requiredItemSlugs: z.array(ref).refine(unique) }))
-  .refine((rows) => unique(rows.map((row) => row.id)));
-export const certificateProgress = z.object({
-  userId: z.string().guid(),
-  certId: ref,
-  title: ref,
-  requiredCount: z.number().int().safe().positive(),
-  completedCount: z.number().int().safe().nonnegative(),
-  ratio: z.string(),
-  missingItemSlugs: z.array(ref).refine(unique),
-  complete: z.boolean(),
-  granted: z.boolean(),
-  grantIdempotencyKey: ref.nullable(),
-});
-export function progressFor(owner: string | null | undefined, certId: string, required: readonly string[]) {
-  return certificateProgress.refine(
-    (p) =>
-      p.userId === owner &&
-      p.certId === certId &&
-      p.completedCount <= p.requiredCount &&
-      p.missingItemSlugs.length === p.requiredCount - p.completedCount &&
-      p.complete === (p.missingItemSlugs.length === 0) &&
-      p.ratio === (p.requiredCount ? p.completedCount / p.requiredCount : 0).toFixed(4) &&
-      (p.granted ? p.grantIdempotencyKey === `cert:${owner}:${certId}` : p.grantIdempotencyKey === null) &&
-      p.requiredCount === required.length &&
-      p.missingItemSlugs.every((s) => required.includes(s)) &&
-      p.missingItemSlugs.join('|') === required.filter((s) => p.missingItemSlugs.includes(s)).join('|'),
-  );
+type Summary = AcademyCurriculumSummary;
+/** The certificate screens' own check over `certDefinitions`: no certificate twice, and none needs an item twice. */
+export const definitionsHold = (rows: AcademyCertDefinition[]) =>
+  unique(rows.map((row) => row.id)) && rows.every((row) => unique(row.requiredItemSlugs));
+type CurriculumAsk = NonNullable<ProcedureInput<typeof ACADEMY_CURRICULUM>>;
+/**
+ * The progress belongs to this learner and this certificate, adds up, and names only the items the certificate needs, in
+ * its order, each once. The certificate screens' own check over `certProgress`.
+ */
+export function progressFits(owner: string | null | undefined, certId: string, required: readonly string[]) {
+  return (p: AcademyCertProgress) =>
+    p.userId === owner &&
+    p.certId === certId &&
+    p.requiredCount > 0 &&
+    unique(p.missingItemSlugs) &&
+    p.completedCount <= p.requiredCount &&
+    p.missingItemSlugs.length === p.requiredCount - p.completedCount &&
+    p.complete === (p.missingItemSlugs.length === 0) &&
+    p.ratio === (p.requiredCount ? p.completedCount / p.requiredCount : 0).toFixed(4) &&
+    (p.granted ? p.grantIdempotencyKey === `cert:${owner}:${certId}` : p.grantIdempotencyKey === null) &&
+    p.requiredCount === required.length &&
+    p.missingItemSlugs.every((s) => required.includes(s)) &&
+    p.missingItemSlugs.join('|') === required.filter((s) => p.missingItemSlugs.includes(s)).join('|');
 }
-const completion = z.object({ userId: z.string().guid(), itemSlug: ref, completedAt: date });
-const touched = z.object({ lastItemSlug: ref.nullable() });
 type Context = { owner: string; certId: string; slug: string };
 const contextSchema = z.object({ owner: z.string().guid(), certId: z.string(), slug: ref });
 const selectionKey = (owner: string) => `intafaced:academy:certificate:${owner}`;
@@ -167,45 +153,40 @@ export function AcademyLearning({
       },
     );
   const definitions = useResource(
-    (signal) => api.query('academy', 'certDefinitions', undefined, certificateDefinitions, { signal }),
+    (signal) => api.call(ACADEMY_CERT_DEFINITIONS, undefined, { signal, accept: definitionsHold }),
     `academy-learning-definitions:${userId}`,
   );
   const selected = definitions.resource.status === 'ready' ? definitions.resource.data.find((c) => c.id === certId) : undefined;
   const progress = useResource(
     (signal) =>
       selected
-        ? api.query('academy', 'certProgress', { certId }, progressFor(userId, certId, selected.requiredItemSlugs), { signal })
+        ? api.call(ACADEMY_CERT_PROGRESS, { certId }, { signal, accept: progressFits(userId, certId, selected.requiredItemSlugs) })
         : Promise.resolve({ ok: true as const, data: null }),
     `academy-learning-progress:${userId}:${certId}:${selected?.requiredItemSlugs.join('|') ?? ''}`,
   );
   const list = useResource(
     (signal) =>
-      api.query(
-        'academy',
-        'curriculum',
-        { limit, ...(path !== 'all' ? { path } : {}), ...(kind !== 'all' ? { kind } : {}) },
-        z
-          .array(summary)
-          .max(limit)
-          .refine(
-            (rows) =>
-              unique(rows.map((r) => r.slug)) &&
-              rows.every((r) => (path === 'all' || r.path === path) && (kind === 'all' || r.kind === kind)),
-          ),
-        { signal },
+      api.call(
+        ACADEMY_CURRICULUM,
+        {
+          limit,
+          ...(path !== 'all' ? { path: path as CurriculumAsk['path'] } : {}),
+          ...(kind !== 'all' ? { kind: kind as CurriculumAsk['kind'] } : {}),
+        },
+        {
+          signal,
+          accept: (rows) =>
+            rows.length <= limit &&
+            unique(rows.map((r) => r.slug)) &&
+            rows.every((r) => (path === 'all' || r.path === path) && (kind === 'all' || r.kind === kind)),
+        },
       ),
     `academy-learning-library:${userId}:${path}:${kind}:${limit}`,
   );
   const reader = useResource(
     (signal) =>
       slug
-        ? api.query(
-            'academy',
-            'curriculumItemLocalized',
-            { slug, locale: language },
-            item.refine((lesson) => lesson.slug === slug),
-            { signal },
-          )
+        ? api.call(ACADEMY_CURRICULUM_ITEM_LOCALIZED, { slug, locale: language }, { signal, accept: (lesson) => lesson.slug === slug })
         : Promise.resolve({ ok: true as const, data: null }),
     `academy-learning-reader:${userId}:${slug}:${language}`,
   );
@@ -213,17 +194,8 @@ export function AcademyLearning({
   const pathItems = useResource(
     (signal) =>
       certId
-        ? api.query(
-            'academy',
-            'curriculum',
-            { limit: 200 },
-            z
-              .array(summary)
-              .max(200)
-              .refine((rows) => unique(rows.map((r) => r.slug))),
-            { signal },
-          )
-        : Promise.resolve({ ok: true as const, data: [] as z.infer<typeof summary>[] }),
+        ? api.call(ACADEMY_CURRICULUM, { limit: 200 }, { signal, accept: (rows) => rows.length <= 200 && unique(rows.map((r) => r.slug)) })
+        : Promise.resolve({ ok: true as const, data: [] as Summary[] }),
     `academy-learning-path-items:${userId}:${certId}`,
   );
   const overview = useAcademyTracking();
@@ -236,13 +208,13 @@ export function AcademyLearning({
     rememberLastLesson(userId, openedLesson);
     // Academy keeps where this account last read, so Continue opens the same item on any device. A failed write leaves
     // the lesson readable and Continue where it was; it is not worth a notice on the lesson.
-    void api.mutate('academy', 'touchLesson', { slug: openedLesson, clientRequestId: `open:${openedLesson}:${visit.current}` }, touched);
+    void api.call(ACADEMY_TOUCH_LESSON, { slug: openedLesson, clientRequestId: `open:${openedLesson}:${visit.current}` });
   }, [userId, openedLesson]);
   const pending = originalPending(userId);
-  const receipt = action.result?.ok ? completion.safeParse(action.result.data) : null;
+  const receipt = action.result?.ok ? academyItemCompletionSchema.safeParse(action.result.data) : null;
   const receiptMatches = receipt?.success && receipt.data.userId === userId && receipt.data.itemSlug === slug;
   const certificateLink = `/academy/certificates${certId ? `?${new URLSearchParams({ cert: certId })}` : ''}`;
-  function review(lesson: z.infer<typeof item>) {
+  function review(lesson: AcademyLocalizedItem) {
     const expected = { ...context.current },
       originalLocale = language;
     action.stage({
@@ -275,11 +247,10 @@ export function AcademyLearning({
         } catch {
           return localFailure('contextStorage');
         }
-        const fresh = await api.query(
-          'academy',
-          'curriculumItemLocalized',
+        const fresh = await api.call(
+          ACADEMY_CURRICULUM_ITEM_LOCALIZED,
           { slug: lesson.slug, locale: originalLocale },
-          item.refine((r) => r.slug === lesson.slug),
+          { accept: (r) => r.slug === lesson.slug },
         );
         if (!canDispatch() || !matches(expected)) return localFailure('changed');
         if (!fresh.ok) return fresh;
@@ -291,11 +262,10 @@ export function AcademyLearning({
         )
           return localFailure('lessonChanged');
         if (!canDispatch() || !matches(expected)) return localFailure('changed');
-        return api.mutate(
-          'academy',
-          'markCurriculumComplete',
+        return api.call(
+          ACADEMY_MARK_CURRICULUM_COMPLETE,
           { itemSlug: lesson.slug },
-          completion.refine((r) => r.userId === expected.owner && r.itemSlug === lesson.slug),
+          { accept: (r) => r.userId === expected.owner && r.itemSlug === lesson.slug },
         );
       },
       done: () => {

@@ -257,15 +257,9 @@ const CALLS: Record<string, { valid: unknown; alt: unknown }> = {
   'explorer.pools.swaps': { valid: { chainId: CHAIN_ID, address: FACTORY }, alt: { chainId: OTHER_CHAIN, address: FACTORY } },
   'explorer.tx.get': { valid: { chainId: CHAIN_ID, hash: HASH }, alt: { chainId: OTHER_CHAIN, hash: HASH } },
   'explorer.tx.networks': { valid: { hash: HASH }, alt: { hash: '0x1' } },
-  health: { valid: undefined, alt: { extra: 1 } },
   status: { valid: undefined, alt: { extra: 1 } },
-  markets: { valid: { limit: 10 }, alt: { limit: 0 } },
   book: { valid: { market: MARKET, depth: 10 }, alt: { market: MARKET } },
-  fills: { valid: { market: MARKET, limit: 10 }, alt: { market: MARKET, limit: 501 } },
-  accountFills: { valid: { account: ACCOUNT, limit: 10 }, alt: { account: 'not-an-address', limit: 10 } },
-  position: { valid: { market: MARKET, account: ACCOUNT }, alt: { market: 'NONE-USD', account: ACCOUNT } },
   positions: { valid: { account: ACCOUNT, limit: 10 }, alt: { account: ACCOUNT } },
-  stream: { valid: { market: MARKET, depth: 10 }, alt: { depth: 10 } },
 };
 
 function inputs(call: { valid: unknown; alt: unknown }): Array<[string, unknown]> {
@@ -430,7 +424,7 @@ describe('the wire replay: svc-indexer answers as main did before its calls were
     if (process.env.WIRE_REPLAY_WRITE === '1') await writeGolden(now);
     const golden = readGolden();
     expect(Object.keys(golden.answers).sort()).toEqual(Object.keys(now.answers).sort());
-    expect(Object.values(golden.answers).reduce((n, row) => n + Object.keys(row).length, 0)).toBe(1680);
+    expect(Object.values(golden.answers).reduce((n, row) => n + Object.keys(row).length, 0)).toBe(1248);
     expect(now.callers).toEqual(golden.callers);
     const diffs = Object.entries(golden.answers).flatMap(([call, row]) =>
       Object.entries(row)

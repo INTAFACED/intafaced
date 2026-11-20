@@ -1,7 +1,8 @@
 import { formatAmount, type Amount } from '@intafaced/ledger-client/money';
 import { sweepCost } from '@intafaced/venue-adapter';
 import { presentRoute, route, type VenueKind as RouterVenueKind, type VenueQuote } from '../router-quote.js';
-import { dexDoorHonesty, type DexDoorHonesty } from './door-honesty.js';
+import type { DexDoorHonesty } from '@intafaced/contracts/dex-procedures';
+import { dexDoorHonesty } from './door-honesty.js';
 import { asConsolidatedBook } from './market-data-source.js';
 import type { ChainFinality, QuoteVenue, SettlementPlane, VenueUnavailableReason } from './venue.js';
 import { isCustodial, planeOf, routerKindOf, VenueUnavailableError } from './venue.js';

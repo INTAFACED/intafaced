@@ -283,6 +283,12 @@ pub fn issues_json(issues: &[Issue]) -> Json {
 /// `Err(message)` is a refine that threw.
 pub trait Refiner {
     fn refine(&self, id: &str, value: &Value) -> Result<bool, String>;
+    /// A `superRefine` named `id`: the issues its `ctx.addIssue` calls add, each a path and a message (code `custom`,
+    /// and the parse goes on, as zod 3's form of `addIssue` sets it). A service without one refuses the name.
+    fn super_refine(&self, id: &str, value: &Value) -> Result<Vec<(Vec<Json>, String)>, String> {
+        let _ = value;
+        Err(format!("no superRefine named {id}"))
+    }
 }
 
 /// A refine threw: the parse stops, and tRPC answers 400 with this message.
@@ -308,6 +314,8 @@ enum Check {
         msg: Option<String>,
         abort: bool,
     },
+    /// `superRefine(fn)`: the service's own code adds its issues.
+    Super(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -468,6 +476,11 @@ fn read_check(c: &Json) -> Result<Check, String> {
             }
         }
         "int" => Check::Int,
+        "super" => Check::Super(
+            field_str(c, "id")
+                .ok_or("a superRefine without its name")?
+                .to_owned(),
+        ),
         "refine" => Check::Refine {
             id: field_str(c, "id")
                 .ok_or("a refine without its name")?
@@ -1026,6 +1039,14 @@ impl Schema {
                     )
                     .at(path.clone()),
                 );
+            }
+            Check::Super(id) => {
+                for (path, message) in refiner.super_refine(id, &p.value).map_err(Thrown)? {
+                    p.issues.push(
+                        Issue::new(vec![("code", Json::str("custom"))], message, Cont::Yes)
+                            .at(path),
+                    );
+                }
             }
         }
         Ok(())

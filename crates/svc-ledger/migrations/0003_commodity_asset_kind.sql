@@ -1,0 +1,21 @@
+-- svc-ledger · add the `commodity` asset kind (§4.2)
+-- Reversal: 0003_commodity_asset_kind.down.sql
+--
+-- The multi-asset instrument catalogue (packages/contracts/src/instruments.ts)
+-- lists XAU, XAG, WTI, BRENT and NATGAS. Every one of them needs a row in
+-- `ledger.assets` before a balance in it can exist, and none of them is honestly
+-- 'crypto', 'fiat' or 'native'. Gold is not a currency and a barrel of oil is
+-- not a token; filing them under an existing kind to avoid a migration would put
+-- a wrong answer in the one table that every balance is keyed on.
+--
+-- WHY THIS IS ITS OWN MIGRATION, SEPARATE FROM THE SEED.
+--
+-- Postgres allows `ALTER TYPE ... ADD VALUE` inside a transaction block, but it
+-- does NOT allow the new value to be USED in that same transaction — the insert
+-- would fail with "unsafe use of new value of enum type". The migration runner
+-- (scripts/migrate.ts) executes each file in its own implicit transaction, so
+-- splitting the ALTER from the INSERT is what makes both legal. Merging these
+-- two files back together would break on a fresh database and nowhere else,
+-- which is the worst possible place for it to break.
+
+ALTER TYPE "ledger"."asset_kind" ADD VALUE IF NOT EXISTS 'commodity';

@@ -310,7 +310,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
           TRADE_PROTECTION_ENGINE_INTERVAL_MS: '1000',
           TRADE_AGENT_MAX_ORDER_NOTIONAL: testValue('TRADE_AGENT_MAX_ORDER_NOTIONAL'),
           TRADE_AGENT_WORST_PRICE_BPS: testValue('TRADE_AGENT_WORST_PRICE_BPS'),
-          TRADE_AGENT_MARKETS: testValue('TRADE_AGENT_MARKETS'),
+          // `LOCAL_STACK_AGENT_MARKETS_ADD=<symbols>` adds a journey's own TEST markets to the list for one restart, so an
+          // assistant may copy on a market no other file trades (J-copy-bots-otc-06 #1).
+          TRADE_AGENT_MARKETS: [testValue('TRADE_AGENT_MARKETS'), process.env.LOCAL_STACK_AGENT_MARKETS_ADD?.trim()]
+            .filter(Boolean)
+            .join(','),
           // J-agents-21 #16: the ceilings of the person's own leverage and daily-loss caps (the per-order cap's is the
           // largest agent order above).
           TRADE_AGENT_MAX_LEVERAGE: testValue('TRADE_AGENT_MAX_LEVERAGE'),

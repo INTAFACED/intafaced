@@ -25,6 +25,7 @@ import {
   type SourceLine,
 } from './activity-sources';
 import { sourcesCopy } from './activity-sources-copy';
+import { CopiedFees } from './CopiedFees';
 
 type T = ReturnType<typeof sourcesCopy.useCopy>['t'];
 
@@ -229,6 +230,7 @@ function Sources({
           </tbody>
         </table>
       )}
+      {!source ? <CopiedFees /> : null}
       {bank.status === 'ready' && bank.data.hasMore && partner.length > 0 ? (
         <div className="money-more">
           <Button variant="secondary" size={40} loading={bank.data.loadingMore} onClick={bank.data.loadMore}>

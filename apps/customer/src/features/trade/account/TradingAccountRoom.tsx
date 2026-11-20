@@ -29,6 +29,7 @@ import { useVenueMode } from '../use-venue-mode';
 import type { VenueUp } from '../venue-api';
 import { TestMark, VENUE_POLL_MS, VenueFrame, WalletBar, useOwner, useVenueApi } from '../venue/VenueKit';
 import { tradingAccountCopy } from './trading-account-copy';
+import { AccountModePanel } from './AccountMode';
 
 /**
  * The trading account (`/trade/account`, J-derivatives-25): two named groups, each with its own source and time. Trading
@@ -217,6 +218,7 @@ function VenueAccount({
           ))}
         </DataTable>
       )}
+      <AccountModePanel owner={owner} venue={venue} balances={rows} onChanged={balances.reload} />
       <CrossMargin owner={owner} venue={venue} revision={revision} onMoveIn={onMoveIn} />
       <Liquidations owner={owner} venue={venue} revision={revision} />
     </div>

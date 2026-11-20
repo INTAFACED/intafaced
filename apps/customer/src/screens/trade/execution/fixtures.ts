@@ -149,9 +149,10 @@ export const TEST_ORDERS = {
 
 export const TEST_SPINE: Spine = {
   doors: [
-    { id: 'TEST-door-1', module: 'execution.plan', kind: 'plan', callerSubmit: false },
-    { id: 'TEST-door-2', module: 'execution.route', kind: 'route', callerSubmit: true },
+    { id: 'TEST-door-1', module: 'execution.plan', kind: 'plan', inventsQuotes: false, callerSubmit: false },
+    { id: 'TEST-door-2', module: 'execution.route', kind: 'route', inventsQuotes: false, callerSubmit: true },
   ],
+  sorUsesVenueAdapterPlanRoute: true,
   externalOnly: true,
   houseInternalRefuse: true,
 };

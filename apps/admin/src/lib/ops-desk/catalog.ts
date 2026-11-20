@@ -1,6 +1,9 @@
+import { DEX_HEALTH } from '@intafaced/contracts/dex-procedures';
+import { INDEXER_STATUS } from '@intafaced/contracts/indexer-procedures';
 import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
 import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
+import { TOKEN_BURNED_SUPPLY } from '@intafaced/contracts/token-procedures';
 import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 
 /** A read whose call has a record: its module and path are the record's, never typed again here. */
@@ -2272,9 +2275,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'token.burned',
         title: 'Burned supply',
         note: 'Tokens burned so far, as a decimal exactly as svc-token formats it. A burn total, not the circulating supply.',
-        module: 'token',
         plainName: 'burned supply',
-        procedure: 'burnedSupply',
+        ...readOf(TOKEN_BURNED_SUPPLY),
         shape: 'record',
         columns: [amount('burned', 'Burned')],
         emptyText: '',
@@ -2429,9 +2431,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.indexer',
         title: 'Indexer status',
         note: 'Live per request. A blank height means the indexer has none yet, not zero. "Blocks behind" is blank when the chain tip or the indexer cursor is unknown.',
-        module: 'indexer',
+        ...readOf(INDEXER_STATUS),
         plainName: 'indexer finality',
-        procedure: 'status',
         shape: 'record',
         columns: [
           int('chainId', 'Chain id'),
@@ -2467,9 +2468,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.dex',
         title: 'DEX health',
         note: 'Configuration facts from svc-dex. A venue that is not wired is not a venue that is down.',
-        module: 'dex',
+        ...readOf(DEX_HEALTH),
         plainName: 'DEX health',
-        procedure: 'health',
         shape: 'record',
         columns: [
           bool('ammVenueWired', 'AMM venue wired'),

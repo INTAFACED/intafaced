@@ -40,7 +40,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
  *        /leverage {account,symbol}, /leverage-change {account,symbol,leverageBps,marginMode},
- *        /isolated-margin {account,symbol}, /account-summary {account}, /book {symbol,depth},
+ *        /isolated-margin {account,symbol}, /account-summary {account}, /account-mode {account}, /book {symbol,depth},
  *        /fee-status {account?}   the published fee tiers, and with an account its tier, counted volume and rates
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
@@ -53,6 +53,9 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/deficit {account,asset,amount,lossRef}     a loss past margin booked as a deficit: the balance may go below zero
  *        /test/stake {account,asset,amount,stakeRef}      a TEST stake: free into locked, reported in the balance's lockedBy.staked
  *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?}   each fee a MaybeKnown<Amount>
+ *        /test/account-mode {account,mode?,actionsToday?,unreported?,refuseSwitch?}   the account's mode (J-derivatives-29),
+ *                                                         the day's action count, the mode withheld from reads, a mode
+ *                                                         switch the venue refuses with that reason (null: takes it)
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down;
@@ -1034,6 +1037,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.isolatedMargin(account(body), str(body, 'symbol'));
     case '/account-summary':
       return sim.accountSummary(account(body));
+    case '/account-mode':
+      return sim.accountMode(account(body));
     case '/sub-accounts':
       return sim.subAccounts(account(body));
     case '/transfer':
@@ -1140,6 +1145,32 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         otherFeesUnpublished: sim.switches.otherFeesUnpublished,
         label: 'TEST',
       };
+    }
+    case '/test/account-mode': {
+      // J-derivatives-29: the account's mode, its day's action count, a mode withheld from reads, a switch refused.
+      const set: Parameters<TestVenueSimulator['testAccountMode']>[1] = {};
+      if (body.mode !== undefined) {
+        if (body.mode !== 'standard' && body.mode !== 'unified' && body.mode !== 'portfolio_margin')
+          throw new VenueWireError("mode is 'standard', 'unified' or 'portfolio_margin'");
+        set.mode = body.mode;
+      }
+      if (body.actionsToday !== undefined) {
+        const n = body.actionsToday;
+        if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > 1_000_000)
+          throw new VenueWireError('actionsToday is a whole number 0 to 1000000');
+        set.actionsToday = n;
+      }
+      if (body.unreported !== undefined) {
+        if (typeof body.unreported !== 'boolean') throw new VenueWireError('unreported is true or false');
+        set.unreported = body.unreported;
+      }
+      if (body.refuseSwitch !== undefined) {
+        if (body.refuseSwitch !== null && (typeof body.refuseSwitch !== 'string' || body.refuseSwitch.trim() === ''))
+          throw new VenueWireError("refuseSwitch is the venue's reason, or null");
+        set.refuseSwitch = body.refuseSwitch;
+      }
+      sim.testAccountMode(account(body), set);
+      return { label: 'TEST', ...(await sim.accountMode(account(body))) };
     }
     case '/test/account-switches':
       return { ...setAccountSwitches(sim, body), label: 'TEST' };
@@ -1419,6 +1450,8 @@ export async function startTestVenueServer(
     markets: TEST_VENUE_MARKETS,
     feeSchedule: TEST_VENUE_FEE_TIERS,
     chainId: opts.chainId,
+    // Each start names its claims apart: a restarted venue counts claims from one again, and our books key a claim by its id.
+    claimIdPrefix: `sim-builder-claim-${Date.now().toString(36)}`,
     ...(opts.id ? { id: opts.id } : {}),
     ...(opts.displayName ? { displayName: opts.displayName } : {}),
     ...(opts.ordersPerAction !== undefined ? { ordersPerAction: opts.ordersPerAction } : {}),

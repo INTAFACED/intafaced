@@ -57,12 +57,16 @@ async function adsMarked(state, marker) {
 /** A decimal string as the customer app shows amounts: the whole part grouped by thousands (1000 is 1,000). */
 const grouped = (decimal) => decimal.replace(/^\d+/, (whole) => whole.replace(/\B(?=(\d{3})+$)/g, ','));
 
+// The fiat field is a three-letter text box until the fiat list loads, then a list. selectOption throws at once on the
+// text box instead of waiting, so the step reaches for the list by its role: only the loaded list is a combobox.
+const fiatPicker = (form) => form.getByRole('combobox', { name: 'Fiat currency' });
+
 async function fillAd(page, terms) {
   const form = page.getByTestId('offer-form');
   await expect(form).toBeVisible();
   await form.getByLabel('Sell crypto and receive fiat').check();
   await form.getByLabel('Asset').fill('USDT');
-  await form.getByLabel('Fiat currency').selectOption('EUR');
+  await fiatPicker(form).selectOption('EUR');
   await form.getByLabel('Fixed price').check();
   await form.getByLabel('Price per unit').fill(AD.price);
   await form.getByLabel('Minimum per order').fill(AD.min);
@@ -107,7 +111,7 @@ test('J-p2p-03 #1 Post an ad shows the posting checklist for the coin and fiat, 
   const panel = page.getByTestId('posting-checklist');
   await expect(panel).toBeVisible(UNBUILT);
   await expect(panel).toContainText('Pick a fiat currency');
-  await page.getByTestId('offer-form').getByLabel('Fiat currency').selectOption('EUR');
+  await fiatPicker(page.getByTestId('offer-form')).selectOption('EUR');
   await expect(panel).toContainText('What posting an ad in EUR needs');
   // Every requirement the service lists is on screen with its state and both numbers, in the app's words for each.
   const LEVEL = { none: 'not verified', basic: 'basic', full: 'full', institutional: 'institutional' };

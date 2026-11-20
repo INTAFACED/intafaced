@@ -455,6 +455,19 @@ export const venueAccountSummarySchema = z.object({
 });
 export type VenueAccountSummary = z.infer<typeof venueAccountSummarySchema>;
 
+/**
+ * The account's mode as the venue reports it (J-derivatives-29): `null` where it does not report it; in standard mode
+ * its spot and perps balances apart; the day's action count against the mode's limit (`dailyLimit` null: none).
+ */
+export const venueAccountModeSchema = z.object({
+  mode: z.enum(['standard', 'unified', 'portfolio_margin']).nullable(),
+  spot: z.array(venueBalanceSchema).nullable(),
+  perps: z.array(venueBalanceSchema).nullable(),
+  actions: z.object({ usedToday: z.number().int().nonnegative(), dailyLimit: z.number().int().positive().nullable() }).nullable(),
+});
+export type VenueAccountModeRead = z.infer<typeof venueAccountModeSchema>;
+export type VenueAccountMode = NonNullable<VenueAccountModeRead['mode']>;
+
 // ── J-derivatives-07: a liquidation and its aftermath, each the venue's own figure ────────────────────────────────
 
 /** One part of a liquidation the venue carried out, with its own id, size, price and fee. */

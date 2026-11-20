@@ -13,7 +13,10 @@
     [
       ["access-control-allow-credentials", "true"],
       ["access-control-allow-origin", "https://app.example.test"],
-      ["access-control-expose-headers", "x-request-id, x-server-received, x-server-sent"],
+      [
+        "access-control-expose-headers",
+        "x-request-id, x-server-received, x-server-sent, intafaced-version, intafaced-version-source, intafaced-advisories, deprecation, link"
+      ],
       ["cache-control", "no-store"],
       ["content-security-policy", "frame-ancestors 'none'"],
       ["content-type", "application/json; charset=utf-8"],
