@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Download } from 'lucide-react';
 import { Button, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { decodeBase64, saveFile, shortFingerprint } from '../../screens/money/statement-model';
 import { amount, bps, date, useBankRead } from './components';

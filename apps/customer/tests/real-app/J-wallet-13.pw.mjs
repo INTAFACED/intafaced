@@ -232,6 +232,24 @@ test(`${J} #1 Presses Freeze on Safe: at once every session ends, every agent pe
     .poll(async () => (await subRecord(s, '/open-orders')).length, { timeout: 10_000, message: 'the run left an order open on the venue' })
     .toBe(0);
   expect((await openPositions(s)).map((x) => x.size)).toEqual([BLOCK]);
+  // svc-trade cancels the run's orders on the venue first and records the stop and the revoke after (a cancel the venue
+  // refuses must leave the run active), so the record is read within the same window, not at the instant the venue
+  // shows no order; the revoke's own time below still holds it to "at once".
+  // The revoke is recorded before its log line, so the wait covers the log too.
+  await expect
+    .poll(
+      async () => {
+        const run = body200(await fresh.get(`${LIVE}/${s.runId}`));
+        return { state: run.state, endReason: run.endReason, permission: run.permission, logged: run.log.map((e) => e.kind) };
+      },
+      { timeout: 10_000, message: 'the run was not stopped by the freeze' },
+    )
+    .toMatchObject({
+      state: 'stopped',
+      endReason: 'account_frozen',
+      permission: 'revoked',
+      logged: expect.arrayContaining(['stopped', 'permission_revoked']),
+    });
   const after = body200(await fresh.get(`${LIVE}/${s.runId}`));
   expect(after).toMatchObject({ state: 'stopped', endReason: 'account_frozen', permission: 'revoked' });
   expect(after.log.map((e) => e.kind)).toEqual(expect.arrayContaining(['stopped', 'permission_revoked']));

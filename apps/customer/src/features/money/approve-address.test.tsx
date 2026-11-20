@@ -1,6 +1,9 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: 'u1', api: {} }),
+}));
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };

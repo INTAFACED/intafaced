@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 
 /** The rail svc-pay records for a send to another account's platform address (W-withdraw-14). */
 export const INTERNAL_RAIL = 'internal';

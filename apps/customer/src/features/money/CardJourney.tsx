@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import type { z } from 'zod';
 import { Button, Dialog, Field } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useBankRead } from './components';
 import { bankWrites, type cardSchema } from './contracts';
 import { cardOrderCopy } from './card-order-copy';

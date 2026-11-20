@@ -6,7 +6,7 @@ import { parseAmount } from '../../shared/money';
 import { amount, bps, funds, NoRows, positiveMoney, Section, useBankRead, type ActionSpec } from './components';
 import { bankReads, bankWrites, type poolSchema, type positionSchema } from './contracts';
 import { earnCopy } from './earn-copy';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { instantSavingsCopy } from './instant-savings-copy';
 
 type Pool = z.infer<typeof poolSchema>;

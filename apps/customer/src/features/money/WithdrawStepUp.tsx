@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { Button, Dialog, Field } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { isStepUpCode, mintWithdrawToken, type WithdrawStepUpMethod } from './withdraw-step-up';
 import { withdrawStepUpCopy } from './withdraw-step-up-copy';
 
