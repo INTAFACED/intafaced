@@ -63,6 +63,16 @@ async function openDraft(page) {
   return who;
 }
 
+/** The step's picture from the top of the page, so the console's bar that stays at the top covers nothing of the step's
+ *  answer (a whole-page picture of a scrolled page draws that bar over the middle; J-ops-console-27 does the same). */
+async function pictureFromTop(page, stepPicture) {
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture(page);
+}
+
 test(`${J} #1 opens the campaigns desk with none: the overview with honest empty states and no sample number`, async ({ page }) => {
   await openDesk(page);
   const overview = page.getByRole('region', { name: /Overview/i });
@@ -146,6 +156,7 @@ test(`${J} #3 validates a draft with blanks: the list names each blank (budget, 
 
 test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture account, saves it to the library: each failing leaf shown, nothing stored by the test; too deep refuses`, async ({
   page,
+  stepPicture,
 }, testInfo) => {
   await openDraft(page);
   await builder(page).getByRole('tab', { name: 'Rules', exact: true }).click();
@@ -249,6 +260,7 @@ test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture accoun
   await page.getByRole('button', { name: 'Save to the library', exact: true }).click();
   await expect(builder(page).getByRole('alert')).toContainText('campaigns.rule_too_deep');
   expect(await stored()).toEqual(saved);
+  await pictureFromTop(page, stepPicture);
 });
 
 test(`${J} #5 defines participation exclusions and a region list: a blank region list refuses activation`, async ({ page }) => {
@@ -358,6 +370,7 @@ test(`${J} #7 sets the time frame, budget and limits and requests activation: ea
 test(`${J} #8 the requester tries to approve and a second founder approves: the requester is refused, and the approval applies to that revision only`, async ({
   page,
   browser,
+  stepPicture,
 }) => {
   const a = await openDraft(page);
   await page.getByRole('button', { name: /^approve and take live/i }).click(UNBUILT);
@@ -392,6 +405,7 @@ test(`${J} #8 the requester tries to approve and a second founder approves: the 
   await expect(page.getByTestId('campaign-submitted-by')).toHaveText(a.userId);
   await expect(page.getByTestId('campaign-pending')).toContainText(`Revision ${approved + 1}, a draft not yet sent for approval`);
   await expect(budget).toHaveText(/ of 100(\.0+)? USDT$/);
+  await pictureFromTop(page, stepPicture);
 });
 
 test(`${J} #9 edits the active campaign: a new revision; earlier vouchers keep the old one; archiving an active campaign is refused`, async ({
