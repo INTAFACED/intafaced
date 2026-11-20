@@ -1409,6 +1409,8 @@ export async function startTestVenueServer(
     markets: TEST_VENUE_MARKETS,
     feeSchedule: TEST_VENUE_FEE_TIERS,
     chainId: opts.chainId,
+    // Each start names its claims apart: a restarted venue counts claims from one again, and our books key a claim by its id.
+    claimIdPrefix: `sim-builder-claim-${Date.now().toString(36)}`,
     ...(opts.id ? { id: opts.id } : {}),
     ...(opts.displayName ? { displayName: opts.displayName } : {}),
     ...(opts.ordersPerAction !== undefined ? { ordersPerAction: opts.ordersPerAction } : {}),

@@ -359,6 +359,11 @@ export interface SimSwitches {
 
 export interface SimOptions {
   readonly id?: string;
+  /**
+   * What each builder fee claim id starts with; the claim's number follows. A real venue never reuses a claim id, and
+   * a restarted TEST venue counts from one again, so a server names each start apart. Default `sim-builder-claim`.
+   */
+  readonly claimIdPrefix?: string;
   /** The venue's published fee tiers (J-cex-spot-10). Default: none published. */
   readonly feeSchedule?: VenueFeeTiers;
   readonly displayName?: string;
@@ -589,6 +594,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   /** Builder fee claims, by builder address, oldest first: the venue's own claim record (J-derivatives-17). */
   private readonly builderClaimRecord = new Map<string, UserVenueBuilderClaim[]>();
   private builderClaimCounter = 0;
+  private readonly claimIdPrefix: string;
   private venueOrderCounter = 0;
   /** Each market's own state and largest order, changed by the TEST controls. */
   private readonly marketState = new Map<
@@ -637,6 +643,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly indexUnpublished = new Set<string>();
 
   constructor(options: SimOptions) {
+    this.claimIdPrefix = options.claimIdPrefix ?? 'sim-builder-claim';
     const id = options.id ?? 'test-venue-sim';
     this.venue = {
       id,
@@ -2078,7 +2085,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       if (compare(unclaimed, ZERO) <= 0) continue;
       this.builderClaimCounter += 1;
       const claim = {
-        claimId: `sim-builder-claim-${this.builderClaimCounter}`,
+        claimId: `${this.claimIdPrefix}-${this.builderClaimCounter}`,
         builder: b,
         asset,
         amount: unclaimed,
