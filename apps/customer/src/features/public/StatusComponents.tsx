@@ -76,6 +76,9 @@ export function StatusComponents() {
           </section>
           <section className="pub-card" aria-labelledby="status-components" data-testid="status-components">
             <h2 id="status-components">{copy.t('componentsTitle')}</h2>
+            <p className="muted" data-testid="status-asof">
+              {copy.t('pageAsOf')} <time dateTime={page.asOf}>{whenUtc(page.asOf)}</time>
+            </p>
             {grouped.map(([group, rows]) => (
               <div key={group ?? ''} className="status-group">
                 {group !== null || grouped.length > 1 ? <h3>{group ?? copy.t('ungrouped')}</h3> : null}
