@@ -23,7 +23,7 @@ const asset = z.string().regex(/^[A-Z0-9]{2,16}$/);
 /** svc-bank's own-move answer, the one schema its callers read too. */
 export const ownMoveView = ownMoveViewSchema;
 
-function moveOut(m: OwnMove): z.infer<typeof ownMoveView> {
+function moveOut(m: OwnMove): z.input<typeof ownMoveView> {
   return {
     id: m.id,
     direction: m.direction,

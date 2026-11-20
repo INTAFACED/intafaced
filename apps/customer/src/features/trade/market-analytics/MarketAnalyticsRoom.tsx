@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { z } from 'zod';
 import { MonitorTemplate } from '@intafaced/ui/lit/templates';
 import type { RoomState } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
