@@ -74,6 +74,7 @@ import {
   protocolEscrowDealOutputSchema,
   type ProtocolEscrowBuildInput,
 } from '@intafaced/contracts/protocol-escrow';
+import { dexQuoteSchema } from '@intafaced/contracts/dex-quote';
 import { protocolPortfolioOutputSchema } from '@intafaced/contracts/protocol-portfolio';
 import { protocolLendingPositionOutputSchema } from '@intafaced/contracts/protocol-lending-position';
 import type { ApiClient } from '../../shared/api';
@@ -81,7 +82,7 @@ import type { ApiClient } from '../../shared/api';
 /**
  * svc-protocol's own reads are called by their records (`@intafaced/contracts/protocol-procedures`), which parse each answer;
  * `audited` is a literal false there, so a response that ever claims otherwise fails validation and shows as a refusal
- * instead of a badge. The shapes below are svc-indexer `status` and svc-dex `health` / `quote`, which keep only the fields
+ * instead of a badge. svc-indexer `status` and svc-dex `health` / `quote` parse with their contracts schemas, which keep only the fields
  * this room renders.
  */
 /** A session key's scope as `buildSessionGrant` takes it: unix seconds, wei as a decimal string, exact targets and selectors. */
@@ -92,27 +93,7 @@ export type SessionGrantSpec = {
   targets: string[];
   selectors: string[];
 };
-export { dexHealthSchema, indexerStatusSchema };
-export const dexQuoteSchema = z.object({
-  symbol: z.string(),
-  side: z.enum(['buy', 'sell']),
-  route: z.object({
-    kind: z.enum(['quote', 'preview']),
-    executable: z.boolean(),
-    legs: z.array(z.object({ venue: z.string(), kind: z.string(), qty: z.string(), quoteAmount: z.string(), effectivePrice: z.string() })),
-    filledQty: z.string(),
-    unfilledQty: z.string(),
-    totalQuoteAmount: z.string(),
-  }),
-  venues: z.array(z.object({ venueId: z.string(), plane: z.string(), custodial: z.boolean(), feeBps: z.number(), ageMs: z.number() })),
-  unavailable: z.array(z.object({ venueId: z.string(), reason: z.string(), detail: z.string() })),
-  degraded: z.boolean(),
-  singleVenue: z.boolean(),
-  executable: z.boolean(),
-  nonExecutableReason: z.string().nullable(),
-  asOf: z.string(),
-});
-
+export { dexHealthSchema, dexQuoteSchema, indexerStatusSchema };
 export type ChainStatus = ProtocolChainStatus;
 export type AuditStatus = ProtocolAuditStatus;
 export type ProtocolHealth = ProtocolServiceHealth;

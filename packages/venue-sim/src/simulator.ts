@@ -49,6 +49,7 @@ import {
   type VenueLiquidationAlert,
   type UserVenueListing,
   type UserVenueMarginAccountRule,
+  type UserVenueLongShort,
   type UserVenueMarginTier,
   type UserVenueCollateral,
   type UserVenueMarketMargin,
@@ -1227,6 +1228,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       openInterest: this.openInterestCaps.has(m.symbol)
         ? { known: true, value: { size: this.openInterestOf(m.symbol), capSize: this.openInterestCaps.get(m.symbol) ?? null } }
         : { known: false },
+      // Counted from the venue's own positions where it reports open interest (J-derivatives-14 #4).
+      longShort: this.openInterestCaps.has(m.symbol) ? { known: true, value: this.longShortOf(m.symbol) } : { known: false },
       contractSize: published(m.contractSize),
       mark: published(m.kind === 'perpetual' ? this.marks.get(m.symbol) : undefined),
       funding: this.publishedFunding(m),
@@ -3214,6 +3217,19 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       if (p && p.side === 'long') open = add(open, p.size);
     }
     return open;
+  }
+
+  /** How many accounts hold a long and how many a short on `symbol`: the venue's own open positions, counted. */
+  private longShortOf(symbol: string): UserVenueLongShort {
+    let longAccounts = 0;
+    let shortAccounts = 0;
+    for (const state of this.accounts.values()) {
+      const p = state.positions.get(symbol);
+      if (!p || p.size === ZERO) continue;
+      if (p.side === 'long') longAccounts += 1;
+      else shortAccounts += 1;
+    }
+    return { longAccounts, shortAccounts };
   }
 
   private place(
