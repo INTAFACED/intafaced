@@ -9,7 +9,7 @@
 /**
  * The swept bars by loaded index (0 is the first loaded bar), or a thrown error naming why the sweep can't be indexed.
  *
- * The live feed may append a bar while the sweep runs (#8589: 211 bars, then 212, the view unchanged). Appending at the
+ * The live feed may append a bar while the sweep runs (211 bars, then 212, the view unchanged). Appending at the
  * right moves no bar already loaded: every index the sweep found stays the bar it named. Anything else that changed the
  * view (the edges moved, the oldest bar dropped, fewer bars) moved bars under the pointer, and the sweep is refused.
  */
@@ -27,7 +27,7 @@ export function indexSweep(before, after, swept) {
   const { from, to, firstAt } = after;
   // The edge bars may show only in part: the chart points pixel x at bar ceil(to - (width - 1 - x) / spacing), so a
   // fractional left edge still shows bar ceil(from) - 1 in its first pixel. Index from the loaded bar the sweep reached
-  // by its own time (the first, else the last), never from the rounded edge (#7978: from 0.3 found one bar more).
+  // by its own time (the first, else the last), never from the rounded edge (from 0.3 still shows bar 0).
   let first;
   if (head === firstAt) first = 0;
   else if (tail === lastAt) first = loaded - bars.length;
