@@ -41,7 +41,8 @@ const startCheck = (cwd) => {
   let err = '';
   child.stderr.on('data', (d) => (err += d));
   const done = new Promise((r) => child.on('close', (code) => r({ code, err })));
-  return { child, done, err: () => err };
+  const said = (re) => new Promise((r) => child.stderr.on('data', () => re.test(err) && r()));
+  return { child, done, err: () => err, said };
 };
 const buildInfo = (pkg) => join(pkg, 'node_modules', '.cache', 'tsc', 'tsconfig.tsbuildinfo');
 
@@ -99,7 +100,7 @@ test('a second check of the same project waits while the first holds it, and a d
   const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)']);
   writeFileSync(join(lockDir, 'pid'), `${holder.pid}\n`);
   const waiting = startCheck(pkg);
-  await new Promise((r) => setTimeout(r, 1500));
+  await waiting.said(/already running in this worktree/);
   assert.equal(waiting.child.exitCode, null, 'still waiting while the holder lives');
   assert.match(waiting.err(), new RegExp(`already running in this worktree \\(pid ${holder.pid}\\)`));
   assert.ok(!existsSync(buildInfo(pkg)), 'no compiler ran meanwhile');
