@@ -192,6 +192,7 @@ export const FACTORY_SCRIPTS = [
   'tooling/scripts/review-before-push.test.mjs',
   'tooling/scripts/roadmap.test.mjs',
   'tooling/scripts/runtime-safety.test.mjs',
+  'tooling/scripts/service-reach.test.mjs',
   'tooling/scripts/services-map.mjs',
   'tooling/scripts/services-map.test.mjs',
   'tooling/scripts/setup-github.mjs',
