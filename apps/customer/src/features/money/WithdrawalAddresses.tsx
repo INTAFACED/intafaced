@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Button, EmptyState, Failure, Loading, Page } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { date, useBankRead, type ActionSpec } from './components';
 import {
   approvalMailAskedSchema,

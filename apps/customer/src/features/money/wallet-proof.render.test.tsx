@@ -17,7 +17,10 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 const mutate = vi.fn();
 const query = vi.fn();
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: { mutate, query } }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: 'u1', api: { mutate, query } }),
+}));
 const mint = vi.fn();
 vi.mock('./withdraw-step-up', async (original) => ({
   ...(await original<typeof import('./withdraw-step-up')>()),

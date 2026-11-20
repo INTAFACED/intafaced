@@ -5,138 +5,65 @@
  * and extended only where the live service sends more than they read.
  */
 import { z } from 'zod';
-import { decimalSchema, signedDecimalSchema } from '../../../shared/money';
+import { decimalSchema } from '../../../shared/money';
+import {
+  algoParentFields,
+  algoResultSchema,
+  algoListSchema,
+  algoPolicySchema,
+  otcMakersSchema,
+  deskStatusSchema,
+  rfqBoardSchema,
+  convertBoundsSchema,
+  optionsPolicySchema,
+  greeksSchema,
+  batchSchema,
+  icebergAnswerSchema,
+  previewSizesSchema,
+} from '@intafaced/contracts/trade-rooms';
 import type { ApiClient } from '../../../shared/api';
 import { algoProgressSchema, algoSchema, otcFillSchema, otcQuoteSchema } from '../../../features/trade/tool-api';
 import { listingSchema } from '../../../features/trade/trade-api';
 
 export { algoProgressSchema, otcFillSchema, otcQuoteSchema };
+export {
+  algoResultSchema,
+  algoListSchema,
+  algoPolicySchema,
+  otcMakersSchema,
+  deskStatusSchema,
+  rfqBoardSchema,
+  convertBoundsSchema,
+  optionsPolicySchema,
+  greeksSchema,
+  batchItemSchema,
+  batchSchema,
+  icebergAnswerSchema,
+  previewSizesSchema,
+} from '@intafaced/contracts/trade-rooms';
+export type {
+  AlgoResult,
+  AlgoListPage,
+  AlgoPolicy,
+  OtcMakers,
+  DeskStatus,
+  RfqBoard,
+  RfqBoardStatus,
+  ConvertBounds,
+  OptionsPolicy,
+  GreeksAnswer,
+  BatchItem,
+} from '@intafaced/contracts/trade-rooms';
 
 /** `algo.get` also sends the schedule clock and the participation rate; the legacy schema drops them. */
-export const algoParentSchema = algoSchema.extend({
-  kind: z.enum(['twap', 'vwap', 'pov', 'chase']),
-  participationBps: z.number().int().nullable().optional(),
-  povBasis: z.enum(['traded_volume', 'opposite_liquidity']).nullable().optional(),
-  startedAt: z.string().nullable().optional(),
-  nextDueAt: z.string().nullable().optional(),
-  scheduleStretchReason: z.string().nullable().optional(),
-  randomSeed: z.number().int().nullable().optional(),
-  triggerPrice: decimalSchema.nullable().optional(),
-  triggeredAt: z.string().nullable().optional(),
-  awaitingTrigger: z.boolean().optional(),
-  plannedSliceQtys: z.array(decimalSchema).optional(),
-  /** Chase: the bound, the own-side best price it started from, the newest child's price and how often it re-priced. */
-  chaseMaxDistanceBps: z.number().int().nullable().optional(),
-  chaseStartPrice: decimalSchema.nullable().optional(),
-  chasePrice: decimalSchema.nullable().optional(),
-  chaseReprices: z.number().int().nullable().optional(),
-  /**
-   * `algo.get` children: each child's order id (how the blotter links it to its schedule), its placed size and, for POV,
-   * the volume or book size it was a share of; a chase child's price.
-   */
-  children: z
-    .array(
-      z.object({
-        orderId: z.string().min(1),
-        sliceIndex: z.number().int(),
-        qty: decimalSchema.optional(),
-        basisQty: decimalSchema.nullable().optional(),
-        price: decimalSchema.nullable().optional(),
-      }),
-    )
-    .optional(),
-});
+export const algoParentSchema = algoSchema.extend(algoParentFields);
 export type PovBasis = 'traded_volume' | 'opposite_liquidity';
 
-/** `algo.result`: per quote asset, the average price of the real child fills — null while nothing has filled. */
-export const algoResultSchema = z.object({
-  quotes: z.array(z.object({ quoteAsset: z.string(), filledQty: decimalSchema, averageFillPrice: decimalSchema.nullable() })),
-});
-export type AlgoResult = z.infer<typeof algoResultSchema>;
-
-/** `algo.list`: the person's schedules as the service keeps them, newest first, so every browser shows the same list. */
-export const algoListSchema = z.object({ rows: z.array(z.object({ id: z.string() })), nextCursor: z.string().nullable() });
-export type AlgoListPage = z.infer<typeof algoListSchema>;
 /** Schedules the room lists at a time. The service refuses a list read without a limit. */
 export const ALGO_LIST_PAGE = 50;
 export type AlgoParent = z.infer<typeof algoParentSchema>;
 export type AlgoProgress = z.infer<typeof algoProgressSchema>;
 
-export const algoPolicySchema = z.object({
-  productKind: z.string(),
-  capability: z.object({ createEnabled: z.boolean(), jobsEnabled: z.boolean(), icebergs: z.string() }),
-  immatureKinds: z.array(z.string()),
-  volumeImmatureCode: z.string(),
-  cancelIncompleteCode: z.string(),
-});
-export type AlgoPolicy = z.infer<typeof algoPolicySchema>;
-
-/** `otc.makers.list` (CB-otc-01): the owner's provider list and pick cap, or the honest empty state. */
-export const otcMakersSchema = z.object({
-  published: z.boolean(),
-  makers: z.array(z.object({ id: z.string(), name: z.string(), route: z.enum(['platform', 'outside']) })),
-  selectCap: z.number().int().nullable(),
-  emptyLabel: z.string().nullable(),
-});
-export type OtcMakers = z.infer<typeof otcMakersSchema>;
-
-export const deskStatusSchema = z.object({
-  published: z.boolean(),
-  statusLine: z.string(),
-  residual: z.string().nullable().optional(),
-  /** CB-otc-11: the base assets the desk quotes; null when the owner left the list blank. */
-  assets: z.array(z.string()).nullable().optional(),
-  /** CB-otc-08: the lowest verification level the desk prices for; null when the owner left it blank. */
-  minTier: z.string().nullable().optional(),
-  makerRouting: z.object({ published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
-  midFeed: z.object({ wiring: z.string(), published: z.boolean(), residual: z.string().nullable().optional() }).optional(),
-});
-export type DeskStatus = z.infer<typeof deskStatusSchema>;
-
-const rfqBoardStatusSchema = z.enum(['open', 'accepted', 'settled', 'expired']);
-/** `rfq.board` (CB-otc-02): the caller's requests grouped by status with counts, each with its quotes ranked best first. */
-export const rfqBoardSchema = z.object({
-  groups: z.array(
-    z.object({
-      status: rfqBoardStatusSchema,
-      count: z.number().int(),
-      requests: z.array(
-        z.object({
-          rfqId: z.string(),
-          status: rfqBoardStatusSchema,
-          side: z.enum(['buy', 'sell']),
-          baseAsset: z.string(),
-          quoteAsset: z.string(),
-          qty: decimalSchema,
-          createdAt: z.string(),
-          quotes: z.array(
-            z.object({
-              quoteId: z.string(),
-              makerId: z.string().nullable(),
-              rfqSeq: z.number().int(),
-              quotedPrice: decimalSchema,
-              userNotional: decimalSchema,
-              spreadBps: z.number().int(),
-              lifecycle: z.string(),
-              test: z.boolean(),
-              rank: z.number().int(),
-              best: z.boolean(),
-              expiresAt: z.string(),
-            }),
-          ),
-        }),
-      ),
-    }),
-  ),
-  more: z.boolean(),
-});
-export type RfqBoard = z.infer<typeof rfqBoardSchema>;
-export type RfqBoardStatus = z.infer<typeof rfqBoardStatusSchema>;
-
-const convertFlowBoundsSchema = z.object({ minQty: decimalSchema, maxQty: decimalSchema }).nullable();
-/** `otc.convertBounds` (CB-otc-12): the owner's size range for each flow at the desk price; null when it is blank. */
-export const convertBoundsSchema = z.object({ convert: convertFlowBoundsSchema, oneClickBuy: convertFlowBoundsSchema });
-export type ConvertBounds = z.infer<typeof convertBoundsSchema>;
 /** `otc.convertQuote`: a desk quote for a conversion, with the owner's settle window (null when blank). */
 export const otcConvertQuoteSchema = otcQuoteSchema.extend({
   flow: z.enum(['convert', 'oneClickBuy']),
@@ -146,18 +73,6 @@ export type OtcConvertQuote = z.infer<typeof otcConvertQuoteSchema>;
 export type RfqQuote = z.infer<typeof otcQuoteSchema>;
 export type RfqFill = z.infer<typeof otcFillSchema> & { fillId: string; takerOrderId: string; makerOrderId: string };
 
-export const optionsPolicySchema = z.object({
-  settlementAssetLawStamped: z.boolean(),
-  settlementFixingConfigured: z.boolean(),
-  blockers: z.array(z.string()),
-  residual: z.string(),
-  statusLine: z.string(),
-  allowed: z.object({ optionsOrders: z.boolean(), paperOptionsOrders: z.boolean(), liveOptionsOrders: z.boolean() }),
-  europeanOnly: z.boolean(),
-  fullCollateralV1: z.boolean(),
-});
-export type OptionsPolicy = z.infer<typeof optionsPolicySchema>;
-
 /** A `/markets` row, with the option terms the contract carries for kind=option. */
 export const listedMarketSchema = listingSchema.extend({
   optionType: z.enum(['call', 'put']).nullish(),
@@ -166,34 +81,6 @@ export const listedMarketSchema = listingSchema.extend({
   contractSize: decimalSchema.nullish(),
 });
 export type ListedMarket = z.infer<typeof listedMarketSchema>;
-
-export const greeksSchema = z.union([
-  // Greeks are signed: a put delta and a long option's theta are negative.
-  z.object({
-    ok: z.literal(true),
-    npv: signedDecimalSchema,
-    delta: signedDecimalSchema,
-    gamma: signedDecimalSchema,
-    vega: signedDecimalSchema,
-    theta: signedDecimalSchema,
-  }),
-  z.object({ ok: z.literal(false), code: z.string(), message: z.string(), field: z.string().optional() }),
-]);
-export type GreeksAnswer = z.infer<typeof greeksSchema>;
-
-/** One item of `POST /orders/batch`: the service answers each order on its own, and never rolls the group back. */
-export const batchItemSchema = z.object({
-  index: z.number().int(),
-  clientOrderId: z.string().nullable(),
-  status: z.enum(['success', 'refused', 'unknown']),
-  order: z.object({ id: z.string(), status: z.string() }).passthrough().optional(),
-  error: z.object({ message: z.string(), intafacedCode: z.string().optional() }).passthrough().optional(),
-});
-export type BatchItem = z.infer<typeof batchItemSchema>;
-export const batchSchema = z.object({ results: z.array(batchItemSchema) });
-
-/** The order door's answer to one iceberg: the order id, its status and the display size the service stored. */
-export const icebergAnswerSchema = z.object({ id: z.string(), status: z.string(), displayQty: z.string().optional() });
 
 export interface IcebergOrder {
   symbol: string;
@@ -233,7 +120,6 @@ export interface PreviewSizesInput {
   sliceIntervalMs: number;
   randomSeed?: number;
 }
-export const previewSizesSchema = z.object({ sliceQtys: z.array(decimalSchema) });
 
 export interface BatchOrder {
   symbol: string;

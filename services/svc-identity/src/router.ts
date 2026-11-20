@@ -1,4 +1,5 @@
 import { keyRateLimitSchema } from '@intafaced/contracts/api-rate-limits';
+import { payeeCardSchema } from '@intafaced/contracts/identity-handles';
 import { SecurityLockError } from './auth/security-lock.js';
 import { SignInChallengeError, type SignInAdmission, type SignInChallengeService } from './auth/signin-challenge.js';
 import { createKycLevelsRouter } from './kyc/levels-router.js';
@@ -1420,12 +1421,7 @@ export function createIdentityRouter(
        */
       payeeCard: scopedProcedure('identity:read')
         .input(z.object({ userId: z.string().guid() }))
-        .output(
-          z.discriminatedUnion('found', [
-            z.object({ found: z.literal(false) }),
-            z.object({ found: z.literal(true), name: z.string().nullable(), memberSince: z.string().regex(/^\d{4}-\d{2}$/) }),
-          ]),
-        )
+        .output(payeeCardSchema)
         .query(async ({ ctx, input }) => {
           if (ctx.principal.kid) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee card needs a signed-in session' });

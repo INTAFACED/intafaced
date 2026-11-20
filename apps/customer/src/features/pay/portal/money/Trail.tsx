@@ -4,7 +4,7 @@ import { mc } from './copy';
 import { whoIs } from './common';
 import { describeDestination } from './destination';
 import { orderTrail, type TrailEvent } from './model';
-import type { Lifecycle } from './schemas';
+import type { PayPayoutLifecycle as Lifecycle } from '@intafaced/contracts/pay-portal-reads';
 
 type Words = ReturnType<typeof mc.useCopy>['t'];
 const KINDS = {

@@ -11,7 +11,7 @@ import { t as copyText, Text } from './copy';
 import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
 import { maskedPan, orderBlock, type OrderBlock } from './card-controls';
 import { useHoldings } from './holdings';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { CardCashback, CardJourney, CardPayFrom } from './CardJourney';
 import { cardOrderCopy } from './card-order-copy';
 import { cardFeedCopy } from './card-feed-copy';

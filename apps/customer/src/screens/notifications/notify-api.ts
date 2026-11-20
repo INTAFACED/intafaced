@@ -4,32 +4,70 @@
  * markAllRead, channels, mutePrefs, setMute. `limit` is always sent: the service refuses a list without one.
  */
 import { NOTIFY_INBOX_POLICY } from '@intafaced/contracts/notify-inbox-policy';
+import {
+  ALERT_CONDITIONS,
+  ALERT_KINDS,
+  ALERT_SOURCES,
+  CATEGORY_CHANNELS,
+  CATEGORY_IDS,
+  WEBHOOK_CAUSES,
+  alertEvaluationSchema,
+  alertListSchema,
+  alertQuotaSchema,
+  alertTriggerSchema,
+  alertTriggersSchema,
+  cancelAlertReplySchema,
+  categoryRowSchema,
+  categoryRowsSchema,
+  createAlertReplySchema,
+  createAlertsReplySchema,
+  createWatchRuleReplySchema,
+  deleteAlertReplySchema,
+  notificationSchema,
+  notifyChannelsSchema,
+  notifyCountSchema,
+  notifyDeliverySchema,
+  notifyListSchema,
+  notifyMarkedSchema,
+  notifyOutOfAppSchema,
+  notifyPrefsSchema,
+  notifyPushKeySchema,
+  notifyRemovedSchema,
+  notifyTargetsSchema,
+  priceAlertSchema,
+  registerResultSchema,
+  setAlertActiveReplySchema,
+  setCategoryPrefReplySchema,
+  stopWatchRuleReplySchema,
+  updateAlertReplySchema,
+  verifyResultSchema,
+  watchRuleSchema,
+  watchRulesSchema,
+  webhookAttemptSchema,
+  webhookPolicySchema,
+} from '@intafaced/contracts/notify-room';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 
-const date = z.string().datetime({ offset: true });
+export {
+  ALERT_CONDITIONS,
+  ALERT_KINDS,
+  ALERT_SOURCES,
+  CATEGORY_CHANNELS,
+  CATEGORY_IDS,
+  WEBHOOK_CAUSES,
+  alertEvaluationSchema,
+  alertTriggerSchema,
+  notificationSchema,
+  priceAlertSchema,
+  registerResultSchema,
+  verifyResultSchema,
+  watchRuleSchema,
+};
 
-export const notificationSchema = z.object({
-  id: z.string().guid(),
-  userId: z.string(),
-  kind: z.string(),
-  titleKey: z.string(),
-  bodyKey: z.string(),
-  title: z.string(),
-  body: z.string(),
-  params: z.record(z.string(), z.unknown()),
-  href: z.string().nullable(),
-  severity: z.enum(['info', 'action', 'critical']),
-  readAt: date.nullable(),
-  createdAt: date,
-});
 export type Notification = z.infer<typeof notificationSchema>;
 
-const listSchema = z.object({ items: z.array(notificationSchema).max(100), nextCursor: z.string().guid().nullable() });
-export type InboxPage = z.infer<typeof listSchema>;
-
-const countSchema = z.object({ count: z.number().int().nonnegative() });
-const markedSchema = z.object({ marked: z.number().int().nonnegative() });
+export type InboxPage = z.infer<typeof notifyListSchema>;
 
 export interface ListArgs {
   limit: number;
@@ -42,13 +80,13 @@ export function listNotifications(api: ApiClient, args: ListArgs, signal?: Abort
     'notify',
     'notify.list',
     { limit: args.limit, ...(args.cursor ? { cursor: args.cursor } : {}), ...(args.unreadOnly ? { unreadOnly: true } : {}) },
-    listSchema,
+    notifyListSchema,
     { signal },
   );
 }
 
 export async function unreadCount(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<number>> {
-  const result = await api.query('notify', 'notify.unreadCount', undefined, countSchema, { signal });
+  const result = await api.query('notify', 'notify.unreadCount', undefined, notifyCountSchema, { signal });
   return result.ok ? { ok: true, data: result.data.count } : result;
 }
 
@@ -60,30 +98,18 @@ export async function inboxPolicy(api: ApiClient, signal?: AbortSignal): Promise
 }
 
 export function markRead(api: ApiClient, ids: readonly string[]): Promise<ApiResult<{ marked: number }>> {
-  return api.mutate('notify', 'notify.markRead', { ids }, markedSchema);
+  return api.mutate('notify', 'notify.markRead', { ids }, notifyMarkedSchema);
 }
 
 export function markAllRead(api: ApiClient): Promise<ApiResult<{ marked: number }>> {
-  return api.mutate('notify', 'notify.markAllRead', {}, markedSchema);
+  return api.mutate('notify', 'notify.markAllRead', {}, notifyMarkedSchema);
 }
 
-const outOfApp = z.enum(['email', 'push', 'sms']);
-export type OutOfAppChannel = z.infer<typeof outOfApp>;
-const channelsSchema = z.array(
-  z.object({ channel: z.enum(['inapp', 'email', 'push', 'sms']), configured: z.boolean(), available: z.boolean() }).passthrough(),
-);
-const prefsSchema = z.array(z.object({ channel: outOfApp, muted: z.boolean() })).max(3);
-const targetsSchema = z.array(z.object({ channel: outOfApp, address: z.string(), verifiedAt: z.string().nullable() }).passthrough()).max(3);
-export type ChannelRow = z.infer<typeof channelsSchema>[number];
-export type MutePref = z.infer<typeof prefsSchema>[number];
-export type TargetRow = z.infer<typeof targetsSchema>[number];
+export type OutOfAppChannel = z.infer<typeof notifyOutOfAppSchema>;
+export type ChannelRow = z.infer<typeof notifyChannelsSchema>[number];
+export type MutePref = z.infer<typeof notifyPrefsSchema>[number];
+export type TargetRow = z.infer<typeof notifyTargetsSchema>[number];
 
-export const registerResultSchema = z
-  .object({ status: z.enum(['sent', 'refused', 'failed']), channel: outOfApp, code: z.string().min(1).nullable(), expiresAt: z.string() })
-  .refine((row) => (row.status === 'refused' ? row.code !== null : row.code === null), 'Invalid registration outcome');
-export const verifyResultSchema = z
-  .object({ verified: z.boolean(), code: z.string().min(1).nullable() })
-  .refine((row) => !row.verified || row.code === null, 'Invalid verification outcome');
 export type RegisterResult = z.infer<typeof registerResultSchema>;
 export type VerifyResult = z.infer<typeof verifyResultSchema>;
 
@@ -104,61 +130,38 @@ export function registerTarget(
 export const verifyTarget = (api: ApiClient, channel: OutOfAppChannel, code: string): Promise<ApiResult<VerifyResult>> =>
   api.mutate('notify', 'notify.verifyTarget', { channel, code }, verifyResultSchema);
 export const removeTarget = (api: ApiClient, channel: OutOfAppChannel): Promise<ApiResult<{ removed: boolean }>> =>
-  api.mutate('notify', 'notify.removeTarget', { channel }, z.object({ removed: z.boolean() }));
+  api.mutate('notify', 'notify.removeTarget', { channel }, notifyRemovedSchema);
 
-const deliverySchema = z.object({
-  channel: z.enum(['inapp', 'email', 'push', 'sms']),
-  status: z.enum(['pending', 'accepted', 'refused', 'failed', 'abandoned']),
-  attempts: z.number().int().nonnegative(),
-  attemptedAt: z.string().nullable(),
-  acceptedAt: z.string().nullable(),
-  refusalCode: z.string().nullable(),
-});
-export type Delivery = z.infer<typeof deliverySchema>;
+export type Delivery = z.infer<typeof notifyDeliverySchema>;
 /** What happened to one of the signed-in person's notifications on each channel. An id that is not theirs returns an empty list. */
 export const deliveries = (api: ApiClient, notificationId: string, signal?: AbortSignal): Promise<ApiResult<Delivery[]>> =>
-  api.query('notify', 'notify.deliveries', { notificationId }, z.array(deliverySchema).max(8), { signal });
+  api.query('notify', 'notify.deliveries', { notificationId }, z.array(notifyDeliverySchema).max(8), { signal });
 
 export const channelStatus = (api: ApiClient, signal?: AbortSignal) =>
-  api.query('notify', 'notify.channels', undefined, channelsSchema, { signal });
+  api.query('notify', 'notify.channels', undefined, notifyChannelsSchema, { signal });
 export const mutePrefs = (api: ApiClient, signal?: AbortSignal) =>
-  api.query('notify', 'notify.mutePrefs', undefined, prefsSchema, { signal });
-const pushKeySchema = z.union([
-  z.object({ publicKey: z.string().regex(/^[A-Za-z0-9_-]{16,256}$/), unsetCode: z.null() }),
-  z.object({ publicKey: z.null(), unsetCode: z.literal('notify.push_key_unset') }),
-]);
-export type PushKey = z.infer<typeof pushKeySchema>;
+  api.query('notify', 'notify.mutePrefs', undefined, notifyPrefsSchema, { signal });
+export type PushKey = z.infer<typeof notifyPushKeySchema>;
 /** The push gateway's public application key a browser needs to subscribe; null while push delivery is not configured. */
 export const pushKey = (api: ApiClient, signal?: AbortSignal) =>
-  api.query('notify', 'notify.pushKey', undefined, pushKeySchema, { signal });
+  api.query('notify', 'notify.pushKey', undefined, notifyPushKeySchema, { signal });
 export const targets = (api: ApiClient, signal?: AbortSignal) =>
-  api.query('notify', 'notify.targets', undefined, targetsSchema, { signal });
+  api.query('notify', 'notify.targets', undefined, notifyTargetsSchema, { signal });
 export function setMute(api: ApiClient, channel: OutOfAppChannel, muted: boolean): Promise<ApiResult<MutePref[]>> {
   return api.mutate(
     'notify',
     'notify.setMute',
     { channel, muted },
-    prefsSchema.refine((rows) => rows.some((row) => row.channel === channel && row.muted === muted), 'Returned preference does not match'),
+    notifyPrefsSchema.refine(
+      (rows) => rows.some((row) => row.channel === channel && row.muted === muted),
+      'Returned preference does not match',
+    ),
   );
 }
 
-export const CATEGORY_IDS = ['security', 'orders', 'price_alerts', 'promotions', 'news', 'status'] as const;
 export type CategoryId = (typeof CATEGORY_IDS)[number];
-export const CATEGORY_CHANNELS = ['in_app', 'email', 'push', 'sms'] as const;
 export type CategoryChannel = (typeof CATEGORY_CHANNELS)[number];
-const categoryRowSchema = z.object({
-  category: z.enum(CATEGORY_IDS),
-  channel: z.enum(CATEGORY_CHANNELS),
-  enabled: z.boolean(),
-  /** The service keeps this cell on whatever is written (security and account-risk updates). */
-  locked: z.boolean(),
-  /** The platform can send on this channel at all. */
-  configured: z.boolean(),
-  /** Why the channel cannot send, when it was never connected (`vendor.email`, `vendor.push`, `vendor.sms`). */
-  notConnected: z.enum(['vendor.email', 'vendor.push', 'vendor.sms']).nullable(),
-});
 export type CategoryPrefRow = z.infer<typeof categoryRowSchema>;
-const categoryRowsSchema = z.array(categoryRowSchema).max(64);
 
 /** `notify.categoryPrefs`: one row per category and channel for the signed-in person. */
 export const categoryPrefs = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<CategoryPrefRow[]>> =>
@@ -173,7 +176,7 @@ export function setCategoryPref(
     'notify',
     'notify.setCategoryPref',
     { ...cell, clientRequestId: `catpref:${cell.category}:${cell.channel}:${cell.enabled}:${crypto.randomUUID()}` },
-    z.object({ rows: categoryRowsSchema, locked: z.boolean() }),
+    setCategoryPrefReplySchema,
   );
 }
 
@@ -197,63 +200,17 @@ export function onChange(listener: () => void): () => void {
 // `notify.cancelAlert` (scope notify:write) change them. Prices are decimal strings end to end, never a number. Neither
 // mutation takes a request id, so a lost answer cannot be replayed safely; the page checks the list instead.
 
-export const ALERT_KINDS = ['price', 'funding', 'liquidation_proximity', 'whale'] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 export type AlertDirection = 'above' | 'below';
-export const ALERT_CONDITIONS = ['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than'] as const;
 export type AlertCondition = (typeof ALERT_CONDITIONS)[number];
 
-/** The price an alert watches: the mark (mid of the book, the last trade when one side is empty), the bid, the ask or the last trade. */
-export const ALERT_SOURCES = ['mark', 'bid', 'ask', 'last'] as const;
 export type AlertSource = (typeof ALERT_SOURCES)[number];
 
-export const priceAlertSchema = z.object({
-  id: z.string().guid(),
-  userId: z.string(),
-  marketId: z.string().min(1).max(64),
-  kind: z.enum(ALERT_KINDS),
-  direction: z.enum(['above', 'below']),
-  targetPrice: z.string().min(1).max(64),
-  status: z.enum(['active', 'fired', 'cancelled', 'expired', 'stopped']),
-  firedAt: date.nullable(),
-  createdAt: date,
-  // Added by C-alerts-scan-01. A service that does not send them still parses: the page shows only what it was given.
-  condition: z.enum(ALERT_CONDITIONS).optional(),
-  name: z.string().max(200).nullable().optional(),
-  message: z.string().max(2000).nullable().optional(),
-  expiresAt: date.nullable().optional(),
-  // Added by C-alerts-scan-01b: further level conditions that must hold together with the main one.
-  extras: z.array(z.object({ condition: z.enum(['greater_than', 'less_than']), targetPrice: z.string().min(1).max(64) })).optional(),
-  // Added by C-alerts-scan-01c: a repeating alert stays active and counts its triggers. A service that sends none means once.
-  frequency: z.enum(['once', 'every_crossing']).optional(),
-  fireCount: z.number().int().min(0).optional(),
-  lastFiredAt: date.nullable().optional(),
-  // When the alert last changed (an edit, a stop, a resume, or how it ended). A service that does not send it shows no
-  // modified time.
-  updatedAt: date.optional(),
-  // Why the platform stopped it: `burst` (it triggered too often). Null or absent for a pause by the person.
-  stopReason: z.enum(['burst']).nullable().optional(),
-  // The price it watches. A service that does not send it watches the mark.
-  source: z.enum(ALERT_SOURCES).optional(),
-  // Added by C-alerts-scan-04: the out-of-app channels chosen for this alert (null: the notification settings decide) and the
-  // person's own webhook. A service that does not send them shows neither.
-  channels: z
-    .array(z.enum(['email', 'push']))
-    .nullable()
-    .optional(),
-  webhookUrl: z.string().max(2048).nullable().optional(),
-});
 export type PriceAlert = z.infer<typeof priceAlertSchema>;
 export type AlertFrequency = 'once' | 'every_crossing';
 
-export const alertEvaluationSchema = z.object({
-  markSource: z.enum(['dark', 'live']),
-  canFire: z.boolean(),
-  code: z.enum(['alert.price_unavailable', 'alerts.whale_mark_dark', 'channel.not_configured', 'channel.disabled']).nullable(),
-});
 export type AlertEvaluation = z.infer<typeof alertEvaluationSchema>;
 
-const alertListSchema = z.object({ items: z.array(priceAlertSchema).max(100), evaluation: alertEvaluationSchema });
 export type AlertList = z.infer<typeof alertListSchema>;
 
 /** The latest 100 watches, newest first. `limit` is always sent: the service refuses a list without one. */
@@ -380,12 +337,11 @@ export function createPriceAlert(
       ...(intent.channels ? { channels: intent.channels } : {}),
       ...(intent.webhookUrl ? { webhookUrl: intent.webhookUrl } : {}),
     },
-    z.object({
-      alert: priceAlertSchema.refine(
+    createAlertReplySchema.extend({
+      alert: createAlertReplySchema.shape.alert.refine(
         (row) => row.userId === userId && row.status === 'active' && row.firedAt === null && isIntent(row, intent),
         'Returned alert does not match',
       ),
-      evaluation: alertEvaluationSchema,
     }),
   );
 }
@@ -400,9 +356,8 @@ export function cancelPriceAlert(
     'notify',
     'notify.cancelAlert',
     { id },
-    z
-      .object({
-        cancelled: z.boolean(),
+    cancelAlertReplySchema
+      .extend({
         alert: priceAlertSchema.refine((row) => row.id === id && row.userId === userId, 'Returned alert does not match').nullable(),
       })
       .refine((data) => data.cancelled === (data.alert?.status === 'cancelled'), 'Inconsistent cancel answer'),
@@ -430,8 +385,8 @@ export function updatePriceAlert(api: ApiClient, id: string, edit: AlertEdit, us
     'notify',
     'notify.updateAlert',
     { id, ...edit },
-    z.object({
-      alert: priceAlertSchema.refine(
+    updateAlertReplySchema.extend({
+      alert: updateAlertReplySchema.shape.alert.refine(
         (row) =>
           row.id === id &&
           row.userId === userId &&
@@ -457,71 +412,24 @@ export function setPriceAlertActive(
     'notify',
     'notify.setAlertActive',
     { id, active },
-    z.object({
-      changed: z.boolean(),
-      alert: priceAlertSchema.refine((row) => row.id === id && row.userId === userId, 'Returned alert does not match'),
+    setAlertActiveReplySchema.extend({
+      alert: setAlertActiveReplySchema.shape.alert.refine((row) => row.id === id && row.userId === userId, 'Returned alert does not match'),
     }),
   );
 }
 
 /** Delete an alert whatever its state. `deleted: false` means it was already gone. */
 export const deletePriceAlert = (api: ApiClient, id: string): Promise<ApiResult<{ deleted: boolean }>> =>
-  api.mutate('notify', 'notify.deleteAlert', { id }, z.object({ deleted: z.boolean() }));
+  api.mutate('notify', 'notify.deleteAlert', { id }, deleteAlertReplySchema);
 
-export const WEBHOOK_CAUSES = [
-  'ok',
-  'redirect',
-  'refused',
-  'unavailable',
-  'gateway_timeout',
-  'timeout',
-  'unreachable',
-  'private_address',
-] as const;
 export type WebhookCause = (typeof WEBHOOK_CAUSES)[number];
-const webhookAttemptSchema = z.object({
-  n: z.number().int().min(1),
-  at: date,
-  status: z.number().int().nullable(),
-  cause: z.enum(WEBHOOK_CAUSES),
-  durationMs: z.number().int().min(0),
-});
 export type WebhookAttempt = z.infer<typeof webhookAttemptSchema>;
 
-export const alertTriggerSchema = z.object({
-  /** Which trigger of the alert this is, from 1; a repeating alert has one row for each. A service that sends none means 1. */
-  seq: z.number().int().min(1).optional(),
-  alertId: z.string().guid(),
-  marketId: z.string().min(1).max(64),
-  condition: z.enum(ALERT_CONDITIONS),
-  targetPrice: z.string().min(1).max(64),
-  markPrice: z.string().min(1).max(64),
-  firedAt: date,
-  notificationId: z.string().nullable(),
-  // Added by C-alerts-scan-04: what happened to this firing on each channel, and on its webhook. A service that does not send
-  // them shows no delivery lines.
-  deliveries: z.array(deliverySchema).max(8).optional(),
-  webhook: z
-    .object({
-      status: z.enum(['pending', 'delivered', 'failed']),
-      attempts: z.array(webhookAttemptSchema).max(50),
-      nextAttemptAt: date.nullable(),
-    })
-    .nullable()
-    .optional(),
-});
 export type AlertTrigger = z.infer<typeof alertTriggerSchema>;
 
-/** The owner's webhook policy: the ports a webhook may use (null: none can be saved) and the resend delays (null: none). */
-const webhookPolicySchema = z.object({
-  ports: z.array(z.number().int().min(1).max(65535)).max(32).nullable(),
-  retrySeconds: z.array(z.number().int().min(1)).max(32).nullable(),
-  timeoutMs: z.number().int().min(1),
-});
 export type WebhookPolicy = z.infer<typeof webhookPolicySchema>;
 export const readWebhookPolicy = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<WebhookPolicy>> =>
   api.query('notify', 'notify.alertWebhookPolicy', undefined, webhookPolicySchema, { signal });
-const alertTriggersSchema = z.object({ retentionDays: z.number().int().min(1), items: z.array(alertTriggerSchema).max(200) });
 export type AlertTriggerPage = z.infer<typeof alertTriggersSchema>;
 
 /** The person's triggers, newest first. `limit` is always sent. Refuses `notify.alert_trigger_log_retention_unset` while the platform has not set how long they are kept. */
@@ -542,18 +450,6 @@ export const listAlertTriggers = (
 
 // ── How many alerts a person may hold (C-alerts-scan-03a) ───────────────────────────────────────────────────────
 
-const alertQuotaSchema = z.object({
-  kind: z.literal('price'),
-  used: z.number().int().min(0),
-  max: z.number().int().min(1).nullable(),
-  // The burst auto-stop rule, or null while the owner has not set it. A service that does not send it reads as unknown.
-  burst: z
-    .object({ windowMinutes: z.number().int().min(1), maxTriggers: z.number().int().min(1) })
-    .nullable()
-    .optional(),
-  // The most conditions one alert may hold, the main one included; null while the owner has not set it.
-  maxConditions: z.number().int().min(1).nullable().optional(),
-});
 export type AlertQuota = z.infer<typeof alertQuotaSchema>;
 
 /** The price alerts the person holds open and the cap the platform set. `max: null` means the cap is not set, and a create is refused. */
@@ -589,24 +485,20 @@ export function createPriceAlerts(
       condition: intent.condition,
       targetPrice: intent.targetPrice,
     },
-    z.object({
-      alerts: z
-        .array(priceAlertSchema)
-        .min(1)
-        .refine(
-          (rows) =>
-            rows.every(
-              (row) =>
-                row.userId === userId &&
-                row.kind === 'price' &&
-                row.status === 'active' &&
-                row.firedAt === null &&
-                canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
-                (row.condition ?? levelOfDirection(row.direction)) === intent.condition,
-            ) && JSON.stringify(rows.map((row) => row.marketId).sort()) === JSON.stringify(wanted),
-          'Returned alerts do not match',
-        ),
-      evaluation: alertEvaluationSchema,
+    createAlertsReplySchema.extend({
+      alerts: createAlertsReplySchema.shape.alerts.refine(
+        (rows) =>
+          rows.every(
+            (row) =>
+              row.userId === userId &&
+              row.kind === 'price' &&
+              row.status === 'active' &&
+              row.firedAt === null &&
+              canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
+              (row.condition ?? levelOfDirection(row.direction)) === intent.condition,
+          ) && JSON.stringify(rows.map((row) => row.marketId).sort()) === JSON.stringify(wanted),
+        'Returned alerts do not match',
+      ),
     }),
   );
 }
@@ -626,23 +518,10 @@ export const WATCH_RULE_SYNC_CODES = [
 ] as const;
 export type WatchRuleSyncCode = (typeof WATCH_RULE_SYNC_CODES)[number];
 
-export const watchRuleSchema = z.object({
-  id: z.string().guid(),
-  listId: z.string().min(1).max(40),
-  listName: z.string().min(1).max(40),
-  condition: z.enum(ALERT_CONDITIONS),
-  targetPrice: z.string().min(1).max(64),
-  status: z.enum(['active', 'stopped']),
-  markets: z.array(z.string()),
-  createdAt: date,
-  lastSyncAt: date.nullable(),
-  // A code this page does not know reads as one it cannot name, never as "nothing refused".
-  lastSyncCode: z.string().nullable(),
-});
 export type WatchRule = z.infer<typeof watchRuleSchema>;
 
 export const listWatchRules = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<{ items: WatchRule[] }>> =>
-  api.query('notify', 'notify.watchlistAlerts', undefined, z.object({ items: z.array(watchRuleSchema).max(100) }), { signal });
+  api.query('notify', 'notify.watchlistAlerts', undefined, watchRulesSchema, { signal });
 
 export interface FollowIntent {
   listId: string;
@@ -661,24 +540,22 @@ export function createWatchRule(
     'notify',
     'notify.createWatchlistAlert',
     { listId: intent.listId, condition: intent.condition, targetPrice: intent.targetPrice },
-    z
-      .object({ rule: watchRuleSchema, alerts: z.array(priceAlertSchema).min(1) })
-      .refine(
-        ({ rule, alerts }) =>
-          rule.listId === intent.listId &&
-          rule.condition === intent.condition &&
-          canonicalPrice(rule.targetPrice) === canonicalPrice(intent.targetPrice) &&
-          alerts.every(
-            (row) =>
-              row.userId === userId &&
-              row.kind === 'price' &&
-              row.status === 'active' &&
-              row.condition === intent.condition &&
-              canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice),
-          ) &&
-          JSON.stringify(alerts.map((row) => row.marketId).sort()) === JSON.stringify([...rule.markets].sort()),
-        'Returned alerts do not match',
-      ),
+    createWatchRuleReplySchema.refine(
+      ({ rule, alerts }) =>
+        rule.listId === intent.listId &&
+        rule.condition === intent.condition &&
+        canonicalPrice(rule.targetPrice) === canonicalPrice(intent.targetPrice) &&
+        alerts.every(
+          (row) =>
+            row.userId === userId &&
+            row.kind === 'price' &&
+            row.status === 'active' &&
+            row.condition === intent.condition &&
+            canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice),
+        ) &&
+        JSON.stringify(alerts.map((row) => row.marketId).sort()) === JSON.stringify([...rule.markets].sort()),
+      'Returned alerts do not match',
+    ),
   );
 }
 
@@ -688,7 +565,8 @@ export const stopWatchRule = (api: ApiClient, id: string): Promise<ApiResult<{ r
     'notify',
     'notify.stopWatchlistAlert',
     { id },
-    z
-      .object({ rule: watchRuleSchema.nullable() })
-      .refine(({ rule }) => rule === null || (rule.id === id && rule.status === 'stopped'), 'Returned rule does not match'),
+    stopWatchRuleReplySchema.refine(
+      ({ rule }) => rule === null || (rule.id === id && rule.status === 'stopped'),
+      'Returned rule does not match',
+    ),
   );

@@ -84,11 +84,8 @@ pub trait Stream: Send + Sync {
 /// `NullStreamProvider`: no SFU is configured; opening a room or a credential refuses, closing is a no-op.
 pub struct NullStream;
 
-fn stream_unavailable() -> Refusal {
-    Refusal::Academy(AcademyError::new(
-        "No streaming provider is configured — set ACADEMY_STREAM_PROVIDER and its URL (SOCKET §13 socket.stream-provider)",
-        "academy.stream_unavailable",
-    ))
+fn stream_unavailable(message: &str) -> Refusal {
+    Refusal::Academy(AcademyError::new(message, "academy.stream_unavailable"))
 }
 
 impl Stream for NullStream {
@@ -105,10 +102,14 @@ impl Stream for NullStream {
         false
     }
     fn open_room(&self, _session_id: &str) -> Result<String, Refusal> {
-        Err(stream_unavailable())
+        Err(stream_unavailable(
+            "No streaming provider is configured — set ACADEMY_STREAM_PROVIDER and its URL (SOCKET §13 socket.stream-provider)",
+        ))
     }
     fn credential(&self, _: &str, _: &str, _: &str, _: &str) -> Result<StreamCredential, Refusal> {
-        Err(stream_unavailable())
+        Err(stream_unavailable(
+            "No streaming provider is configured — this lobby can run as text and presence only (SOCKET §13 socket.stream-provider)",
+        ))
     }
     fn close_room(&self, _stream_room: &str) -> Result<(), Refusal> {
         Ok(())
@@ -365,6 +366,8 @@ pub struct Ports {
     pub refunds: Option<Box<dyn Refunds>>,
     pub objects: Box<dyn ObjectStore>,
     pub bus: Box<dyn Bus>,
+    /// How a service's call to the S2S door (`/internal/curriculum`) is judged: inbound, but an outside caller.
+    pub services: crate::curriculum::internal::ServiceAuth,
 }
 
 impl Ports {
@@ -384,6 +387,7 @@ impl Ports {
             refunds: None,
             objects: Box::new(NoObjectStore),
             bus: Box::new(NoBus),
+            services: crate::curriculum::internal::ServiceAuth::unwired(),
         }
     }
 

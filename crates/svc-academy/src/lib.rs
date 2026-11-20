@@ -8,10 +8,13 @@
 //! its refusals, `env` its environment and `settings` the owner settings register.
 
 pub mod access;
+pub mod community;
+pub mod curriculum;
 pub mod db;
 pub mod door;
 pub mod env;
 pub mod errors;
+pub mod lobbies;
 pub mod migrate;
 pub mod ports;
 pub mod refines;

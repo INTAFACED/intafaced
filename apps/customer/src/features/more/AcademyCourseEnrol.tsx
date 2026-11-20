@@ -12,7 +12,7 @@ import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { Button, Loading } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { leaveReceipt } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { formatDay } from './academy-lms';

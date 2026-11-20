@@ -580,15 +580,6 @@
       "why": "reserve_key is copy.reserve:<followId> (copy/follows.ts:59), a one-to-one function of follow_id. An equal follow_id always means an equal reserve_key, which the arbiter absorbs. A different follow_id never clashes on follow_id."
     },
     {
-      "file": "services/svc-trade/src/copy/follow-store.ts",
-      "table": "copy_follows",
-      "target": "(follow_id)",
-      "constraint": "copy_follows_follower_leader_live_idx",
-      "verdict": "race",
-      "issue": 8875,
-      "why": "Narrow path: startVenueFollow (copy/copy-service.ts:791; bind at 818) builds followId from (user, leader, clientRequestId), so a double-submit carries equal follow_id and equal (follower_id, leader_id). Its beforeSave takes no lock. The only serialiser is admitNewFollow's SELECT … FOR UPDATE on the leader's listing row (copy/leader-directory.ts:289, 669), which locks nothing when the leader id has no listing row. The loser then gets 23505 on the live index, which rethrowCopyFollowUnique (copy/follow-store.ts:27) maps to 'Already following' instead of returning the follow that the doc promises. The startFollow path is serialised by lockReserves' pg_advisory_xact_lock (follow-store.ts:1183) in the same transaction."
-    },
-    {
       "file": "services/svc-trade/src/futures/conditional-orders/service.ts",
       "table": "futures_conditional_orders",
       "target": "ON CONSTRAINT futures_conditional_orders_user_client_uq",

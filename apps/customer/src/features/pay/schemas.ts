@@ -28,22 +28,6 @@ export const sendInput = z.object({
   /** The single-use fresh confirmation for exactly this send, when the bank's money-out rule asks for one. */
   stepUpApprovalId: z.string().min(1).max(64).optional(),
 });
-/** `bank.transfers.quote`: the published limits and fee for one personal send, and how much of today is used. */
-export const transferQuoteSchema = z.object({
-  assetId: asset,
-  amount,
-  perTransferLimit: amount,
-  dailyLimit: amount,
-  spentToday: amount,
-  /** The daily limit less what was sent today, from the bank (BK-acct-04). Older bank builds leave it out. */
-  remainingToday: amount.optional(),
-  fee: amount,
-  feeBlocker: z.string().nullable(),
-  /** The partner's fee on the move: absent when none is reported, null when the partner has not said ("not known"). */
-  networkFee: amount.nullable().optional(),
-  withinPerTransfer: z.boolean(),
-  withinDaily: z.boolean(),
-});
 export const sendOutput = z.object({ ledgerTxId: z.string().min(1), amount });
 export const offerSchema = z.object({
   id,

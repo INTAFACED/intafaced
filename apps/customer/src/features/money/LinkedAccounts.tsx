@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Button, EmptyState, Failure, Field, Loading } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { date, useBankRead } from './components';
 import { linkedAccountWrites, type LinkedAccount } from './contracts';
 import { DepthPanel } from './DepthParts';

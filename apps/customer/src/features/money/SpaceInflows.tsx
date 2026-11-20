@@ -3,7 +3,7 @@ import { Download } from 'lucide-react';
 import { Button } from '../../shared/ui';
 import { refusalCopy } from '../../data/refusals';
 import { decodeBase64, monthRange, saveFile, shortFingerprint } from '../../screens/money/statement-model';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { Space } from './client';
 import {
   amount,

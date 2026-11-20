@@ -5,7 +5,7 @@ import {
   type AcademyProgramme,
   type AcademyProgrammeCourseState,
 } from '@intafaced/contracts/academy-programmes';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Loading, Panel } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';

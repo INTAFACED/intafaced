@@ -12,15 +12,21 @@ use service_kit::edge::EdgeKey;
 use service_kit::http::{Fetch, UreqFetch};
 use service_kit::json::Json;
 use service_kit::pg::Pool;
+use service_kit::s2s::{CallSigner, s2s_from_env};
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
+use svc_academy::community::{Db, analytics, moderation};
+use svc_academy::curriculum::{internal::ServiceAuth, spine};
 use svc_academy::db::Store;
 use svc_academy::door::{AcademyDoor, DoorConfig, system_now};
 use svc_academy::env::{self, AcademyEnv};
+use svc_academy::lobbies::clients::{HttpHostRights, HttpStake};
+use svc_academy::lobbies::stream::stream_from_env;
 use svc_academy::migrate;
 use svc_academy::ports::{JetStreamBus, Ports};
 use svc_academy::settings::Settings;
+use svc_academy::slices;
 
 fn process_env() -> BTreeMap<String, String> {
     std::env::vars_os()
@@ -49,15 +55,59 @@ fn main() -> ExitCode {
     }
 }
 
-/// The door, built once from the environment. Every outside port is its stand-in until its slice wires the real one.
-fn door(env: &AcademyEnv, bus: Option<JetStreamBus>) -> Result<AcademyDoor, String> {
+/// The door, built once from the environment. An outside port is its stand-in until its slice wires the real one.
+fn door(
+    env: &AcademyEnv,
+    bus: Option<JetStreamBus>,
+    fetch: &Arc<dyn Fetch>,
+) -> Result<AcademyDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let pool_max = usize::try_from(env.int("DATABASE_POOL_MAX").unwrap_or(1)).unwrap_or(1);
     let mut ports = Ports::unwired();
     ports.stream_configured = env.str("ACADEMY_STREAM_PROVIDER").map(str::to_owned);
+    // The lobbies' outside reads and the stream (`index.ts`): signed with svc-academy's own key when S2S is on.
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-academy",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = str_of("INTERNAL_SERVICE_SECRET");
+    let signer = |audience: &str| CallSigner::new("svc-academy", audience, &secret, keyed.clone());
+    ports.stake = Box::new(HttpStake::new(
+        &str_of("TOKEN_URL"),
+        signer("svc-token"),
+        fetch.clone(),
+    ));
+    ports.host_rights = Box::new(HttpHostRights::new(
+        &str_of("IDENTITY_URL"),
+        signer("svc-identity"),
+        fetch.clone(),
+    ));
+    ports.stream = stream_from_env(
+        env.str("ACADEMY_STREAM_PROVIDER"),
+        env.str("LIVEKIT_URL"),
+        env.str("LIVEKIT_API_KEY"),
+        env.str("LIVEKIT_API_SECRET"),
+        env.int("LIVEKIT_TOKEN_TTL_SECONDS"),
+        fetch.clone(),
+    );
     if let Some(bus) = bus {
         ports.bus = Box::new(bus);
     }
+    ports.services = ServiceAuth::from_env(
+        &str_of("INTERNAL_SERVICE_SECRET"),
+        &str_of("INTERNAL_SERVICE_BODY_BIND"),
+        &str_of("S2S_AUTH_MODE"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+    )?;
     let door = AcademyDoor::new(DoorConfig {
         edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
         env: env.raw.clone(),
@@ -77,8 +127,43 @@ fn door(env: &AcademyEnv, bus: Option<JetStreamBus>) -> Result<AcademyDoor, Stri
     })
 }
 
+/// AC-analytics-02: the report sweep runs requested reports, one sweep at a time, every `ACADEMY_REPORT_SWEEP_SECONDS`
+/// (the first after one interval, as `setInterval`), on its own connection. A blank interval runs none.
+fn report_sweep(
+    door: &AcademyDoor,
+    log: &Logger,
+    stop: &Arc<AtomicBool>,
+) -> Option<std::thread::JoinHandle<()>> {
+    let settings = slices::community::report_settings(door.settings());
+    let seconds = u64::try_from(settings.sweep_seconds?).ok()?;
+    let url = door.store().pool().ok()?.url().to_owned();
+    let (log, stop) = (log.clone(), stop.clone());
+    Some(std::thread::spawn(move || {
+        let pool = Pool::new(&url, 1);
+        let tick = std::time::Duration::from_millis(200);
+        'sweeps: loop {
+            let due = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+            while std::time::Instant::now() < due {
+                if stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    break 'sweeps;
+                }
+                std::thread::sleep(tick);
+            }
+            if let Err(e) = analytics::sweep(&pool, &settings, system_now()) {
+                log.error(
+                    vec![("err", Json::str(format!("{e:?}")))],
+                    "report sweep failed; the next one retries",
+                );
+            }
+        }
+        pool.end();
+    }))
+}
+
 fn run() -> Result<(), String> {
     let env = env::load(&process_env()).map_err(|e| e.message)?;
+    // The embedded spine loads, or the service does not start (the TypeScript catalog throws at module load).
+    spine::check()?;
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let log = Logger::stdout(&str_of("LOG_LEVEL"));
     let fetch: Arc<dyn Fetch> = Arc::new(UreqFetch::new());
@@ -87,7 +172,7 @@ fn run() -> Result<(), String> {
         &str_of("SERVICE_NAME"),
         &str_of("OTEL_EXPORTER_OTLP_ENDPOINT"),
         &str_of("APP_ENV"),
-        fetch,
+        fetch.clone(),
         log.clone(),
     );
     // As the TypeScript: a bus that cannot be reached is reported on /ready, not fatal.
@@ -105,13 +190,27 @@ fn run() -> Result<(), String> {
             None
         }
     };
-    let door = match door(&env, bus) {
+    let door = match door(&env, bus, &fetch) {
         Ok(d) => d,
         Err(e) => {
             telemetry.shutdown();
             return Err(e);
         }
     };
+    // AC-rooms-02: author notices a down bus left waiting go now. A failure leaves them waiting; the boot goes on.
+    let outbox = moderation::Outbox {
+        bus: door.ports().bus.as_ref(),
+        producer: slices::community::producer(door.settings()),
+        log: &slices::community::log_notice_error,
+    };
+    if let Err(e) = moderation::send_waiting(&Db(door.store()), &outbox) {
+        log.error(
+            vec![("err", Json::str(format!("{e:?}")))],
+            "moderation notices could not be sent at boot",
+        );
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let report_sweep = report_sweep(&door, &log, &stop);
     let ready_body = door.ready().compact();
     let app = App {
         wire: door,
@@ -131,12 +230,14 @@ fn run() -> Result<(), String> {
         "svc-academy ready",
     );
 
-    let stop = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         signal_hook::flag::register(signal, stop.clone()).map_err(|e| e.to_string())?;
     }
     server::serve(&server, &app, &log, &telemetry, &stop);
     drop(server);
+    if let Some(t) = report_sweep {
+        let _ = t.join();
+    }
     app.wire.end();
     telemetry.shutdown();
     log.info(Vec::new(), "svc-academy stopped");

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Dialog, Field, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { networkLabel } from '../blockers';
 import { useRegionBlocked } from '../region';
