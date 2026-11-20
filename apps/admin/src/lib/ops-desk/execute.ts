@@ -1,12 +1,18 @@
 import 'server-only';
-import type { DeskRequest } from '@/lib/desk/approval-packet';
-import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { edgeCall, founderCall, type CallModule, type FounderCallContext, type FounderCallFailure } from '@/lib/desk/founder-call';
-import { treasuryTransport } from '@/lib/ledger/reconciliation-server';
-import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
+import {
+  edgeCall,
+  explainRefusal,
+  failureRefusal,
+  founderCall,
+  type DeskRequest,
+  type ExecuteFn,
+  type ExecuteReply,
+  type FounderCallContext,
+} from '@/lib/desk';
+import { treasuryTransport } from '@/lib/ledger';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
-import { normaliseCostAmount } from '@/lib/venue-economics/model';
+import { normaliseCostAmount } from '@/lib/venue-economics';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Run an approved Market or Academy request against the owning service, as the signed-in founder.
@@ -16,10 +22,6 @@ import { normaliseCostAmount } from '@/lib/venue-economics/model';
  * service's operator scope (market:ops, admin:write) and a verified second factor; the service checks both itself and
  * its refusal is shown in words (admin-BACKEND-NEEDS.md, item 27).
  */
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 interface VetAnswer {
   readonly changed: boolean;
@@ -51,6 +53,32 @@ interface ResidencyAnswer {
 export function readResidencyAnswer(raw: unknown): ResidencyAnswer | null {
   if (!isRecord(raw) || typeof raw.id !== 'string' || typeof raw.status !== 'string') return null;
   return { id: raw.id, status: raw.status };
+}
+
+interface CertRevocationAnswer {
+  readonly publicId: string;
+  readonly reason: string;
+  readonly revokedAt: string;
+}
+
+export function readCertRevocationAnswer(raw: unknown): CertRevocationAnswer | null {
+  if (!isRecord(raw) || typeof raw.publicId !== 'string' || typeof raw.reason !== 'string' || typeof raw.revokedAt !== 'string')
+    return null;
+  return { publicId: raw.publicId, reason: raw.reason, revokedAt: raw.revokedAt };
+}
+
+interface CertExceptionAnswer {
+  readonly publicId: string;
+  readonly userId: string;
+  readonly certId: string;
+  readonly reason: string;
+}
+
+export function readCertExceptionAnswer(raw: unknown): CertExceptionAnswer | null {
+  if (!isRecord(raw)) return null;
+  const { publicId, userId, certId, reason } = raw;
+  if (typeof publicId !== 'string' || typeof userId !== 'string' || typeof certId !== 'string' || typeof reason !== 'string') return null;
+  return { publicId, userId, certId, reason };
 }
 
 interface CardStatusAnswer {
@@ -201,66 +229,6 @@ const WRONG_STATE: ExecuteReply = {
   refusal: explainRefusal('admin.ops_invalid_response', 502, true),
 };
 
-const NEEDS: Readonly<Record<string, string>> = {
-  market: 'the market operator permission (market:ops) and a verified second factor',
-  academy: 'the Academy operator permission (admin:write) and a verified second factor',
-  bank: 'the bank treasury permission (admin:treasury) and a verified second factor',
-  p2p: 'moderator access (admin:compliance, or being on the moderator list) and the P2P read permission',
-  ops: 'the operator write permission (admin:write) and a verified second factor',
-};
-
-/** The permission, as the founder reads it in the refusal's headline. */
-const PERMISSION_NAME: Readonly<Record<string, string>> = {
-  market: 'market operator',
-  academy: 'Academy operator',
-  bank: 'bank treasury',
-  p2p: 'P2P moderator',
-  ops: 'operations',
-};
-
-/** A failed call as a desk refusal. A typed approval code is a definite "nothing changed"; a dropped connection is unknown. */
-export function failureRefusal(service: string, module: CallModule, failure: FounderCallFailure<unknown>): ExecuteReply {
-  switch (failure.kind) {
-    case 'forbidden': {
-      const base = explainRefusal(failure.refusal.code ?? codeInText(failure.refusal.message), failure.refusal.status, false);
-      return {
-        ok: false,
-        refusal: isKnownCode(base.code)
-          ? base
-          : {
-              ...base,
-              title: `Your console session does not have ${PERMISSION_NAME[module] ?? 'operator'} permission`,
-              body: `${service} did not accept your founder session for this. It needs ${NEEDS[module] ?? 'an operator permission'}, and founder sign-in does not carry it. Nothing was changed.`,
-              next: 'See the back-end needs note for the permission to grant.',
-            },
-      };
-    }
-    case 'refused': {
-      const code = codeInText(failure.refusal.message) ?? failure.refusal.code;
-      const view = explainRefusal(code, failure.refusal.status, false);
-      return {
-        ok: false,
-        refusal: isKnownCode(code) || failure.refusal.message === '' ? view : { ...view, body: failure.refusal.message },
-      };
-    }
-    case 'unavailable':
-      return { ok: false, refusal: explainRefusal(null, 503, failure.uncertain) };
-    case 'not_built':
-      return {
-        ok: false,
-        refusal: {
-          title: `${service} does not have this switched on`,
-          body: 'The procedure is not mounted on this deployment. Nothing was changed.',
-          next: 'Tell engineering.',
-          code: null,
-          changed: 'no',
-        },
-      };
-    case 'invalid':
-      return { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) };
-  }
-}
-
 export function opsExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request: DeskRequest, ids: { approvalId: string; operationId: string }): Promise<ExecuteReply> => {
     if (request.kind === 'market.vendor.vet') {
@@ -322,6 +290,37 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       const a = result.data;
       if (a.id !== request.id || a.status !== request.decision) return WRONG_STATE;
       return { ok: true, detail: `svc-academy answered and its returned application is ${a.status}.` };
+    }
+    if (request.kind === 'academy.cert.revoke') {
+      const result = await founderCall(
+        ctx,
+        'academy',
+        'admin.revokeCert',
+        'POST',
+        { publicId: request.publicId, reason: request.reason, ...ids },
+        readCertRevocationAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
+      const a = result.data;
+      if (a.publicId !== request.publicId) return WRONG_STATE;
+      return { ok: true, detail: `svc-academy answered: certificate ${a.publicId} is revoked, recorded ${a.revokedAt} ("${a.reason}").` };
+    }
+    if (request.kind === 'academy.cert.exception') {
+      const result = await founderCall(
+        ctx,
+        'academy',
+        'admin.grantCertException',
+        'POST',
+        { userId: request.userId, certId: request.certId, reason: request.reason, ...ids },
+        readCertExceptionAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
+      const a = result.data;
+      if (a.userId !== request.userId || a.certId !== request.certId) return WRONG_STATE;
+      return {
+        ok: true,
+        detail: `svc-academy answered: certificate ${a.certId} is issued to ${a.userId} as an exception, code ${a.publicId} ("${a.reason}").`,
+      };
     }
     if (request.kind === 'bank.card.status') {
       const result = await founderCall(

@@ -7,45 +7,41 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import { MoreHub } from './index';
-import { ROOM_SERVICES, type RoomState } from './room-state';
+import { LIVE_ROOMS, PARKED_ROOMS, type LiveState, type RoomState } from './room-state';
 
-const ROOMS = Object.keys(ROOM_SERVICES);
-const all = (state: RoomState) => Object.fromEntries(ROOMS.map((id) => [id, state]));
+const states = (live: Partial<Record<keyof typeof LIVE_ROOMS, LiveState>> = {}): Record<string, RoomState> => ({
+  ...Object.fromEntries(Object.keys(LIVE_ROOMS).map((id) => [id, { kind: 'live', state: live[id as keyof typeof LIVE_ROOMS] ?? 'open' }])),
+  ...Object.fromEntries(Object.entries(PARKED_ROOMS).map(([id, blocker]) => [id, { kind: 'parked', blocker }])),
+});
 const stateOf = (out: string, id: string) =>
-  out.match(new RegExp(`data-tile="${id}"[\\s\\S]*?<span class="more-tile__state"([^>]*)>([\\s\\S]*?)</span></span></a>`));
+  out.match(new RegExp(`data-tile="${id}"[\\s\\S]*?<span data-testid="more-tile__state"([^>]*)>([\\s\\S]*?)</span></span></a>`));
 
 // J-more-catalogue-01 #1: the six rooms are listed with their real state, none hidden.
 describe('More room states', () => {
-  it('each of the six room tiles shows its service state, and only those six carry one', () => {
-    const out = renderToStaticMarkup(<MoreHub states={{ ...all('open'), market: 'not_answering', mining: 'checking' }} />);
-    expect(out.match(/class="more-tile__state"/g)).toHaveLength(6);
-    expect(stateOf(out, 'launch')?.[1]).toContain('data-state="open"');
-    expect(stateOf(out, 'launch')?.[2]).toBe('Open: its service answers');
+  it('Market, Launch and Token say what their service answers now, and only the six room tiles carry a state', () => {
+    const out = renderToStaticMarkup(<MoreHub states={states({ market: 'not_answering', launch: 'checking' })} />);
+    expect(out.match(/data-testid="more-tile__state"/g)).toHaveLength(6);
+    expect(stateOf(out, 'token')?.[1]).toContain('data-state="open"');
+    expect(stateOf(out, 'token')?.[2]).toBe('Open: its service answers');
     expect(stateOf(out, 'market')?.[1]).toContain('data-state="not_answering"');
     expect(stateOf(out, 'market')?.[2]).toBe('Not answering right now');
-    expect(stateOf(out, 'mining')?.[2]).toBe('Checking the service');
+    expect(stateOf(out, 'launch')?.[2]).toBe('Checking the service');
+    for (const id of Object.keys(LIVE_ROOMS)) expect(stateOf(out, id)?.[1]).not.toContain('data-blocker');
     expect(out).not.toMatch(/data-tile="academy"[^]*?more-tile__state[^]*?data-tile="agents"/);
   });
 
-  it('Predict names its owner.decision blocker whatever its service answers; no other room names one', () => {
-    for (const state of ['open', 'not_answering'] as const) {
-      const out = renderToStaticMarkup(<MoreHub states={all(state)} />);
-      const predict = stateOf(out, 'predict');
-      expect(predict?.[1]).toContain('data-blocker="owner.decision"');
-      expect(predict?.[2]).toContain('Publishing waits on an owner decision');
-      expect(predict?.[2]).toContain('<code lang="zxx">owner.decision</code>');
-      expect(out.match(/data-blocker=/g)).toHaveLength(1);
+  it('Predict, Mining and Blueprint are listed as parked, each with what it waits on', () => {
+    const out = renderToStaticMarkup(<MoreHub states={states()} />);
+    expect(stateOf(out, 'predict')?.[1]).toContain('data-state="parked" data-blocker="owner.decision"');
+    expect(stateOf(out, 'predict')?.[2]).toBe('Parked: how a result settles waits on an owner decision');
+    for (const id of ['mining', 'blueprint']) {
+      expect(stateOf(out, id)?.[1]).toContain('data-state="parked" data-blocker="after.launch"');
+      expect(stateOf(out, id)?.[2]).toBe('Parked until after launch');
     }
+    expect(out.match(/data-blocker=/g)).toHaveLength(3);
   });
 
-  it('every More room tile maps to the edge module its room reads', () => {
-    expect(ROOM_SERVICES).toEqual({
-      predict: 'trade',
-      market: 'market',
-      launch: 'token',
-      token: 'token',
-      mining: 'mining',
-      blueprint: 'blueprint',
-    });
+  it('every open room maps to the edge module its room reads', () => {
+    expect(LIVE_ROOMS).toEqual({ market: 'market', launch: 'token', token: 'token' });
   });
 });

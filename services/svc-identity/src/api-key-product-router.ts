@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { keyRateLimitSchema, type KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
 import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
@@ -73,7 +74,7 @@ function toProductTrpc(err: unknown): never {
   throw new TRPCError({ code: 'BAD_REQUEST', message: (err as Error).message, cause: err });
 }
 
-async function currentList(sql: Sql, userId: string, keyId: string): Promise<string[]> {
+async function currentList(sql: Queryable, userId: string, keyId: string): Promise<string[]> {
   const rows = await sql<Array<{ product_scopes: string[] | null }>>`
     SELECT product_scopes FROM api_keys WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false FOR UPDATE
   `;

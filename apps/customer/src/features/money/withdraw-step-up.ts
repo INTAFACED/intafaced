@@ -1,7 +1,7 @@
 // hand-declared-ok: the step-up answer is declared in svc-identity, not in a browser-safe @intafaced/contracts export
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { requestPasskeyAssertion } from '../session/webauthn';
+import { requestPasskeyAssertion } from '../session';
 
 const minted = z.object({ accessToken: z.string().min(1), expiresAt: z.string().min(1), scopes: z.array(z.string()) });
 

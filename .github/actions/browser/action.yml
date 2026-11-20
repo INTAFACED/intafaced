@@ -1,0 +1,138 @@
+name: The browser
+description: >-
+  Playwright's Chromium at the version the lockfile pins, and the system packages Playwright lists for it, without
+  Ubuntu's package mirror on a normal run. Expects a checkout with dependencies installed. Every outside call is
+  time-boxed and fails the step with its reason; nothing is skipped.
+
+# Why (failure it prevents): on 11 Nov from about 14:15 UTC Ubuntu's mirror could not be resolved
+# ("Temporary failure resolving 'azure.archive.ubuntu.com'"), and `playwright install --with-deps` hung on apt until its
+# time limit in every journeys shard of every pull request and of main (run 43036851108, all 32 shards, two attempts).
+# The runner image already has every library Chromium needs (it ships Google Chrome); on a healthy run apt only added 9
+# font packages (run 43031557544). So the browser and those packages' .deb files are kept in GitHub's cache: a normal run
+# restores both and reaches neither the mirror nor the browser host. A cache miss fetches them once, time-boxed.
+# The browser stays the pinned one: Playwright looks only in its own revision's folder (chromium-<revision>) and
+# downloads that revision when it is missing, and both cache keys carry the hash of pnpm-lock.yaml, which pins Playwright.
+
+runs:
+  using: composite
+  steps:
+    - name: Restore the browser
+      id: browser-cache
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      env:
+        SEGMENT_DOWNLOAD_TIMEOUT_MINS: '3'
+      with:
+        path: ~/.cache/ms-playwright
+        key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+    # A no-op when the cache held this revision. Otherwise a download from Playwright's own host, two tries of 4 minutes.
+    - name: Install the browser
+      shell: bash
+      run: |
+        for try in 1 2; do
+          if timeout --kill-after=30 240 pnpm exec playwright install chromium; then exit 0; fi
+          echo "::warning::browser download try $try failed or ran past 4 minutes"
+        done
+        echo "::error::the browser could not be downloaded from Playwright's host (two tries of 4 minutes)"
+        exit 1
+
+    - name: Keep the browser for later runs
+      if: steps.browser-cache.outputs.cache-hit != 'true'
+      continue-on-error: true
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/ms-playwright
+        key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+    # Playwright's own check (`install-deps --dry-run` simulates apt offline from the image's package lists).
+    - name: List the system packages the image lacks
+      id: missing
+      shell: bash
+      run: |
+        set -uo pipefail
+        out=$(pnpm exec playwright install-deps --dry-run chromium 2>&1) || true # exits 1 when a package is missing
+        echo "$out"
+        if grep -q "All system dependencies are installed" <<<"$out"; then
+          echo "list=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        list=$(sed -n '/^Missing system dependencies/,$ s/^  \([^ ][^ ]*\)$/\1/p' <<<"$out" | sort | tr '\n' ' ' | sed 's/ $//')
+        if [ -z "$list" ]; then echo "::error::could not read Playwright's list of missing system packages"; exit 1; fi
+        echo "list=$list" >> "$GITHUB_OUTPUT"
+
+    - name: Restore those packages
+      id: debs-cache
+      if: steps.missing.outputs.list != ''
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      env:
+        SEGMENT_DOWNLOAD_TIMEOUT_MINS: '2'
+      with:
+        path: ${{ runner.temp }}/playwright-debs
+        key: playwright-debs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+    # From the cache when it holds them; otherwise from Ubuntu's mirror, once, with short network timeouts so an
+    # unreachable mirror fails in seconds rather than hanging (each apt call at most 2.5 minutes). If that fails too, the
+    # next step decides whether the browser can still run.
+    - name: Install those packages
+      id: debs
+      if: steps.missing.outputs.list != ''
+      shell: bash
+      env:
+        LIST: ${{ steps.missing.outputs.list }}
+        HIT: ${{ steps.debs-cache.outputs.cache-hit }}
+      run: |
+        set -uo pipefail
+        dir="$RUNNER_TEMP/playwright-debs"
+        read -ra pkgs <<<"$LIST"
+        # The cache key cannot name the image, so the cache records which packages it holds and is used only for those.
+        if [ "$HIT" = true ] && [ "$(cat "$dir/list.txt" 2>/dev/null)" = "$LIST" ] && sudo dpkg -i "$dir"/*.deb; then exit 0; fi
+        [ "$HIT" = true ] && echo "::warning::the cached packages are not the ones missing here, or did not install; fetching them from Ubuntu's mirror"
+        # One look-up of the mirror's names first: when none resolves, apt would wait 20 s on each package and list
+        # (5 minutes on 11 Nov, run 43046948299) and still fail.
+        hosts=$(sed -n 's|^[a-z]*://\([^/[:space:]]*\).*|\1|p' /etc/apt/apt-mirrors.txt 2>/dev/null | sort -u)
+        reachable=""
+        for h in ${hosts:-archive.ubuntu.com}; do
+          if timeout 5 getent hosts "$h" > /dev/null; then reachable=yes; break; fi
+        done
+        if [ -z "$reachable" ]; then
+          echo "::warning::Ubuntu's mirror does not resolve ($(tr '\n' ' ' <<<"${hosts:-archive.ubuntu.com}")), so $LIST cannot be installed"
+          exit 0
+        fi
+        rm -rf "$dir" && mkdir -p "$dir/partial"
+        apt=(sudo timeout --kill-after=30 150 apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+        fetch() { "${apt[@]}" install -y --no-install-recommends --download-only -o Dir::Cache::Archives="$dir" "${pkgs[@]}"; }
+        # The image's package lists first; if the mirror has moved on from them, fresh lists and one more try.
+        if fetch || { "${apt[@]}" update && fetch; }; then
+          sudo rm -rf "$dir/partial" "$dir/lock"
+          sudo chown -R "$(id -u):$(id -g)" "$dir"
+          echo "$LIST" > "$dir/list.txt"
+          if sudo dpkg -i "$dir"/*.deb; then echo "fetched=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+        fi
+        echo "::warning::could not install $LIST from Ubuntu's mirror"
+
+    - name: Keep those packages for later runs
+      if: steps.debs.outputs.fetched == 'true'
+      continue-on-error: true
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/playwright-debs
+        key: playwright-debs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+    # Every package present: done. Otherwise the browser's own binaries decide: a shared library they need that is not
+    # found fails the job here, by name. When they find every library, what is missing is only Playwright's extra fonts
+    # and tools (on 11 Nov: CJK, Thai, Cyrillic and Unicode fallback fonts); the browser runs, with a warning naming them.
+    - name: Check the browser can run
+      shell: bash
+      run: |
+        set -uo pipefail
+        out=$(pnpm exec playwright install-deps --dry-run chromium 2>&1) || true # exits 1 when a package is missing
+        if grep -q "All system dependencies are installed" <<<"$out"; then echo "all system packages present"; exit 0; fi
+        echo "$out"
+        bins=$(find "$HOME/.cache/ms-playwright" -type f \( -name chrome -o -name chrome-headless-shell \) -perm -u+x)
+        if [ -z "$bins" ]; then echo "::error::the browser is not in ~/.cache/ms-playwright"; exit 1; fi
+        lost=$(for b in $bins; do ldd "$b"; done | grep "not found" | sort -u) || true # grep finds nothing on a healthy image
+        if [ -n "$lost" ]; then
+          echo "::error::the browser lacks system libraries the runner image does not have and Ubuntu's mirror could not supply: $(tr -s ' \t\n' ' ' <<<"$lost")"
+          exit 1
+        fi
+        echo "::warning::the browser finds every library it needs; Playwright's extra fonts and tools above are missing because Ubuntu's mirror could not be reached"

@@ -3,7 +3,7 @@ import { Button } from '../../shared/ui';
 import { classifyRefusal } from '../../data/refusal-codes';
 import { refusalCopy } from '../../data/refusals';
 import { displayAmount } from '../../shared/money';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { CopyButton } from '../../screens/account/CopyButton';
 import { QrCode } from '../../screens/pay/QrCode';
 import type { Resource } from '../../shared/resource';
@@ -108,6 +108,8 @@ export function DepositAddressPanel({ asset, catalogue, networkId }: Omit<Props,
   const { api } = useSession();
   const network = catalogue.status === 'ready' ? networksFor(catalogue.data, asset).find((row) => row.id === networkId) : undefined;
   const off = catalogue.status === 'ready' ? haltedFor(catalogue.data, asset).find((row) => row.networkId === networkId) : undefined;
+  // The decimal places the supported asset list gives the asset, as the bank reports them; not shown when it reports none.
+  const precision = catalogue.status === 'ready' ? catalogue.data.assets.find((row) => row.assetId === asset)?.precision : undefined;
   return (
     <DepthPanel title={t('addressTitle')}>
       {(network || off) && (
@@ -168,6 +170,7 @@ export function DepositAddressPanel({ asset, catalogue, networkId }: Omit<Props,
         <Fact label={t('minimum')}>
           {network ? t('minimumValue', { amount: displayAmount(network.minimumDeposit), asset }) : t('notPublished')}
         </Fact>
+        {network && precision !== undefined && <Fact label={t('precision')}>{String(precision)}</Fact>}
         <Fact label={t('confirmations')}>{network ? String(network.confirmationsRequired) : t('notPublished')}</Fact>
         <Fact label={t('arrival')}>{network ? t('arrivalValue', { minutes: network.estimatedArrivalMinutes }) : t('notPublished')}</Fact>
       </dl>

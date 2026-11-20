@@ -9,7 +9,10 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 const address = vi.fn();
 const readFundingNotices = vi.hoisted(() => vi.fn());
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: 'u1', api: {} }),
+}));
 // The funding notice banner reads on its own; FundingNotices.render.test.tsx covers it.
 vi.mock('./funding-notices-reads', async (original) => ({
   ...(await original<typeof import('./funding-notices-reads')>()),
@@ -80,6 +83,18 @@ describe('deposit address panel', () => {
     expect(host.textContent).toContain('Not published');
     expect(button('Show my deposit address')).toBeUndefined();
     expect(address).not.toHaveBeenCalled();
+  });
+
+  it('names the decimal places the bank reports for the asset once a network is chosen, and none when it reports none', async () => {
+    const withPrecision = { status: 'ready', data: { assets: [{ ...catalogue.assets[0]!, precision: 6 }] } } as const;
+    const facts = () =>
+      Object.fromEntries([...host.querySelectorAll('dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]));
+    await mount(<DepositAddressPanel asset="USDT" catalogue={withPrecision as never} networkId="ethereum" />);
+    expect(facts()).toMatchObject({ 'Minimum deposit': '10 USDT', 'Decimal places': '6' });
+    await act(async () => root!.render(<DepositAddressPanel asset="USDT" catalogue={withPrecision as never} networkId="" />));
+    expect(facts()).not.toHaveProperty('Decimal places');
+    await act(async () => root!.render(<DepositAddressPanel asset="USDT" catalogue={ready as never} networkId="ethereum" />));
+    expect(facts()).not.toHaveProperty('Decimal places');
   });
 
   it('with no network chosen asks for one first and requests nothing', async () => {

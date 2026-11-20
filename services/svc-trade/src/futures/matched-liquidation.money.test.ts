@@ -40,8 +40,10 @@ import {
   liquidationLimit,
   planLiquidationFill,
   planLiquidationSettlement,
+  liquidationClientOrderId,
   priceBandAround,
 } from './matched-order-plan.js';
+import { matchedOrderIdFor } from './ids.js';
 import { unrealizedPnl } from './liquidation-planner.js';
 import { memoryAcceptedMarkStore } from './accepted-mark.js';
 import { DEFAULT_FUTURES_LADDER_POLICY } from './ladder-policy.test-harness.js';
@@ -820,7 +822,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
           if (ref.ownerId !== 'insurance-fund' || !drained || reads++ === 0) return real;
           return { ...real, amount: A('3') };
         },
-      } as unknown as LedgerClient;
+      } as LedgerClient;
       const svc = build({}, view);
       expect((await tick({ svc, adl: adlDeps() })).items.find((i) => i.positionId === alice.id)).toMatchObject({
         outcome: 'skipped_insurance_underfunded',
@@ -867,7 +869,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
           }
           return tx;
         },
-      } as unknown as LedgerClient;
+      } as LedgerClient;
       const svc = build({}, view);
       expect((await tick({ svc, adl: adlDeps() })).items.find((i) => i.positionId === alice.id)).toMatchObject({ outcome: 'errored' });
       expect(await rungs()).toMatchObject([{ kind: 'matched', state: 'planned' }]);
@@ -976,7 +978,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
           if (ref.ownerId === 'insurance-fund') throw new Error('ledger read timed out');
           return ledger.balance(ref);
         },
-      } as unknown as LedgerClient;
+      } as LedgerClient;
       await tick({ svc: build({}, blind) });
       expect(parseAmount((await liquidationOrders())[0]!.limit_price)).toBe(A('90'));
       expect(await bal(FUND)).toBe(A('10'));
@@ -1083,7 +1085,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
           }
           return tx;
         },
-      } as unknown as LedgerClient;
+      } as LedgerClient;
       const first = await tick({ svc: build({}, crashing) });
       expect(first.items.find((i) => i.positionId === alice.id)).toMatchObject({ outcome: 'errored' });
       expect(await sql`SELECT 1 FROM trade.futures_order_fills WHERE state = 'pending'`).toHaveLength(1);
@@ -1179,7 +1181,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
           }
           return tx;
         },
-      } as unknown as LedgerClient;
+      } as LedgerClient;
       const a = tick({ svc: build({}, slow) });
       while (!blocked) await new Promise((resolve) => setTimeout(resolve, 5));
       expect((await tick()).items.find((i) => i.positionId === alice.id)).toMatchObject({
@@ -1193,6 +1195,27 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
       expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('20') + A('1'));
       await assertBooksAgree();
     });
+
+    it('two processes driving one rung’s IOC at once: one order row and one send, never a duplicate key (#8877)', async () => {
+      const { alice } = await aliceLongBobShort();
+      mark = A('89');
+      // Two replicas of the liquidation job drive the same rung: the order id, client id and rung id are all equal. A
+      // narrow window, so 20 rounds of 8 at once; on the targeted insert the losers raised 23505 every run.
+      const port = build().liquidationPort;
+      for (let round = 0; round < 20; round += 1) {
+        const rungId = randomUUID();
+        const liquidationId = `liq:${alice.id}`;
+        const orderId = matchedOrderIdFor(ALICE, MARKET, liquidationClientOrderId(liquidationId, rungId));
+        const input = { rungId, liquidationId, positionId: alice.id, sizeClosed: A('2'), closesPosition: true, mark };
+        const outs = await Promise.allSettled(Array.from({ length: 8 }, () => port.driveBook(input)));
+        const failed = outs.filter((o) => o.status === 'rejected').map((o) => String((o as PromiseRejectedResult).reason));
+        expect(failed).toEqual([]);
+        for (const out of outs) expect((out as PromiseFulfilledResult<{ orderId: string }>).value.orderId).toBe(orderId);
+        const rows = await sql`SELECT id FROM trade.futures_orders WHERE liquidation_rung_id = ${rungId}`;
+        expect(rows.map((r) => r.id)).toEqual([orderId]);
+        expect(engine.submits.filter((s) => s.orderId === orderId)).toHaveLength(1);
+      }
+    }, 60_000);
 
     it('in the middle of an ADL pair: the pair is driven first, then the rung finishes', async () => {
       const { alice, bob } = await aliceLongBobShort();

@@ -21,9 +21,9 @@ const tiles = [
   ['p2p', '/p2p', 'Person-to-person', 'Offers, orders and counterparties'],
   ['promotions', '/uc/promotion', 'Promotions', 'Referrals, invitations and dividends'],
   ['campaigns', '/campaigns', 'Campaigns', 'Activities you can join'],
-  ['dex', '/dex', 'DEX', 'Swap and liquidity, with what blocks each action'],
-  ['chain', '/chain', 'Chain', 'Blocks, validators and chain status'],
-  ['protocol', '/protocol', 'Protocol', 'Contracts, rails and audit'],
+  ['dex', '/dex', 'DEX', 'Blocked: nothing submits trades · not audited'],
+  ['chain', '/chain', 'Chain', 'Blocked: no chain service · not audited'],
+  ['protocol', '/protocol', 'Protocol', 'Blocked: not audited · no bridge service'],
   ['predict', '/predict', 'Predict', 'Browse and trade predictions'],
   ['help', '/support', 'Help', 'Answers and support'],
   ['account', '/uc/account', 'Account', 'Your account ID and details'],
@@ -69,6 +69,14 @@ test('More at 1440x900 and 1280x800: sections, tile sizes, words, no dead links'
     const first = await page.getByTestId('more-tile').first().boundingBox();
     expect(Math.round(first.width)).toBe(392);
     expect(Math.round(first.height)).toBe(88);
+    // The Web3 tiles' blocker lines are read whole, never cut off with an ellipsis.
+    for (const id of ['dex', 'chain', 'protocol']) {
+      const fits = await page
+        .locator(`[data-tile="${id}"]`)
+        .getByTestId('more-tile__line')
+        .evaluate((node) => node.scrollWidth <= node.clientWidth);
+      expect(fits, `${id} line fits at ${size.width}`).toBe(true);
+    }
     const icon = await page.getByTestId('more-tile__icon').first().boundingBox();
     expect([Math.round(icon.width), Math.round(icon.height)]).toEqual([40, 40]);
     expect(

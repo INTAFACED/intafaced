@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import type { Principal } from '@intafaced/auth';
 import { PREVIEW_LABEL, previewRefusalSchema, type Context } from '@intafaced/contracts';
-import type { BankServices } from '../bank-service.js';
-import { createBankRouter } from '../router.js';
+import { untouchedBankRouter } from '../router/untouched-bank.js';
 import {
   CREDIT_CARD_FEES,
   CREDIT_CARD_REPAYMENT_OPTIONS,
@@ -35,17 +34,7 @@ function context(scopes: string[]): Context {
   };
 }
 
-/** Every service throws on touch: the preview must not read or write any store, the ledger or the dispute door. */
-const untouched = new Proxy(
-  {},
-  {
-    get(_t, name) {
-      throw new Error(`credit card preview touched bank.${String(name)}`);
-    },
-  },
-) as BankServices;
-
-const caller = (scopes: string[]) => createBankRouter(untouched).createCaller(context(scopes));
+const caller = (scopes: string[]) => untouchedBankRouter('credit card preview').createCaller(context(scopes));
 const writer = () => caller(['bank:read', 'bank:write']).creditCard;
 
 async function expectRefused(call: Promise<unknown>, action: string) {
@@ -112,7 +101,7 @@ describe('credit card preview', () => {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(input),
         }),
-        router: createBankRouter(untouched),
+        router: untouchedBankRouter('credit card preview'),
         createContext: async () => context(['bank:read', 'bank:write']),
       });
       expect(res.status).toBe(412);

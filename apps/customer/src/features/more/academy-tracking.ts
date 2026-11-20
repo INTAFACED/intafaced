@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import {
   buildTracking,
   certDefinition,

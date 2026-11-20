@@ -260,7 +260,7 @@ describe('exactly one function decides whether svc-notify may start', () => {
           if (entry === 'node_modules' || entry === 'dist') continue;
           const full = join(dir, entry);
           if (statSync(full).isDirectory()) walk(full);
-          else if (/\.ts$/.test(entry) && !/\.test\.ts$/.test(entry)) files.push(full);
+          else if (entry.endsWith('.ts') && !entry.endsWith('.test.ts')) files.push(full);
         }
       };
       walk(HERE);

@@ -1,8 +1,18 @@
 import type { ReactNode } from 'react';
 import { Chip } from '@/components/chip';
-import { CopyButton } from '@/components/merchants/copy-button';
-import { CsvButton } from '@/components/merchants/csv-button';
-import { AsOf, Card, FailureState, KpiTile, MoneyText, shortId, StateBlock, StatusChip, Amounts } from '@/components/merchants/ui';
+import {
+  CopyButton,
+  CsvButton,
+  AsOf,
+  Card,
+  FailureState,
+  KpiTile,
+  MoneyText,
+  shortId,
+  StateBlock,
+  StatusChip,
+  Amounts,
+} from '@/components/merchants';
 import { kybStatusChip, merchantStatusChip } from '@/lib/merchants/chips';
 import { buildCsv } from '@/lib/merchants/csv';
 import { sumByAsset } from '@/lib/merchants/money';

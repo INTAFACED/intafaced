@@ -84,6 +84,12 @@ describe('account menu', () => {
     expect(summary.textContent).not.toContain(USER);
   });
 
+  it('names a level the trading checks cleared as for trading (J-cex-spot-01 #3)', async () => {
+    world.reads['kyc.status'] = ok({ tier: 'basic', tradingOnly: true, records: [] });
+    await open();
+    expect(host.querySelector('[data-testid="account-summary"]')!.textContent).toContain('Verification: Basic, for trading');
+  });
+
   it('shows a skeleton while the reads are out, never a wrong name', async () => {
     world.reads = { me: pending, 'profile.get': pending, 'kyc.status': pending };
     await open();

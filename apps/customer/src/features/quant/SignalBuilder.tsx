@@ -2,8 +2,8 @@ import { QUANT_BAR_SIZES, quantCompileOutputSchema, type QuantSignalRules } from
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { Select } from '../more/common';
-import { useApi } from '../session/session';
+import { Select } from '../more';
+import { useApi } from '../session';
 import { builderCopy } from './builder-copy';
 import { ruleRefusal, trimSignalRules, type RuleInputName, type RuleRefusal } from './signal-rules';
 
@@ -19,6 +19,7 @@ export function useRuleWords() {
     'sizing.value': t('sizingValue'),
     'exit.stopLossPercent': t('stopLoss'),
     'exit.takeProfitPercent': t('takeProfit'),
+    pyramiding: t('pyramiding'),
   };
   const refusalText = (refusal: RuleRefusal) =>
     refusal.kind === 'outOfRange' || refusal.kind === 'invalid'
@@ -137,6 +138,15 @@ export function SignalBuilder({ value, onChange }: { value: QuantSignalRules; on
         inputMode="decimal"
         maxLength={40}
         error={errorFor('exit.takeProfitPercent')}
+      />
+      <Field
+        label={label.pyramiding}
+        value={value.pyramiding ?? ''}
+        onChange={(e) => set((r) => ({ ...r, pyramiding: e.target.value }))}
+        inputMode="numeric"
+        maxLength={12}
+        hint={t('pyramidingHint')}
+        error={errorFor('pyramiding')}
       />
       <Button type="button" variant="secondary" onClick={() => void build()} disabled={busy} data-testid="quant-build-source">
         {t('build')}

@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import {
   affiliateLegAfterUsageFeeCharge,
@@ -11,6 +11,7 @@ import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } fr
 import { AgentError } from '../errors.js';
 import type { ModelPrice } from '../gateway/routing.js';
 import type { TokenUsage } from '../providers/provider.js';
+import { ledgerOnlyPayment, type UsagePaymentPort } from '../payment/usage-payment.js';
 import { withMoneySpan } from '../tracing.js';
 import { windowCost, windowIdFor, type UsageGroup } from './pricing.js';
 
@@ -63,6 +64,11 @@ export interface UsageMeterOptions {
   readonly affiliateAccrue?: AffiliateAccruePort;
   /** Identity payout after accrue. Default noop when IDENTITY_URL is unset. */
   readonly affiliatePayout?: AffiliatePayoutPort;
+  /**
+   * How each person pays (svc-bank, J-agents-01). Absent: everyone is on the custodial layer and a window is a ledger
+   * fee charge, as before. A person whose money the partner holds has the window earned as owed, then collected.
+   */
+  readonly payment?: UsagePaymentPort;
 }
 
 export interface RecordUsageInput {
@@ -91,6 +97,18 @@ export interface SettlementResult {
   readonly chargeTxId: string | null;
   /** False when the window was already settled — the retry path. */
   readonly settled: boolean;
+}
+
+/**
+ * A window earned in our ledger as owed by the person and not collected: their payment method made no payment
+ * (svc-bank's reason, or `no_payment_method`). It stays sealed and unpaid on its charge key, counts as owed, and the
+ * next settle asks again under the same keys. Thrown, as a ledger refusal for funds is, so no caller reads it as paid.
+ */
+export class UsageOwedError extends AgentError {
+  constructor(readonly reason: string) {
+    super(`A usage window is owed and was not collected: ${reason}`, 'agents.window_unpaid', 'agents.error.window_unpaid');
+    this.name = 'UsageOwedError';
+  }
 }
 
 /** One usage window as a person's Usage page shows it. */
@@ -138,6 +156,7 @@ export class UsageMeter {
   private readonly module: string;
   private readonly affiliateAccrue: AffiliateAccruePort;
   private readonly affiliatePayout: AffiliatePayoutPort;
+  private readonly payment: UsagePaymentPort;
 
   constructor(
     private readonly sql: Sql,
@@ -149,6 +168,7 @@ export class UsageMeter {
     this.module = options.module ?? 'agents';
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
+    this.payment = options.payment ?? ledgerOnlyPayment;
   }
 
   windowFor(at: Date = new Date()): string {
@@ -162,7 +182,7 @@ export class UsageMeter {
    * same call: a usage record without its action, or an action without its
    * usage, would be a discrepancy nobody could resolve afterwards.
    */
-  async record(tx: Sql, input: RecordUsageInput): Promise<RecordedUsage> {
+  async record(tx: Queryable, input: RecordUsageInput): Promise<RecordedUsage> {
     const at = input.at ?? new Date();
     const windowId = this.windowFor(at);
 
@@ -247,7 +267,7 @@ export class UsageMeter {
   }
 
   /** Exact token totals per rate for one window. */
-  async groupsFor(sql: Sql, sessionId: string, windowId: string): Promise<UsageGroup[]> {
+  async groupsFor(sql: Queryable, sessionId: string, windowId: string): Promise<UsageGroup[]> {
     const rows = await sql<Array<{ input_tokens: string; output_tokens: string; in_price: string; out_price: string }>>`
       SELECT SUM(input_tokens)::text  AS input_tokens,
              SUM(output_tokens)::text AS output_tokens,
@@ -278,7 +298,7 @@ export class UsageMeter {
    * settlement uses, so "what have I been charged" and "what does my limit see"
    * cannot disagree.
    */
-  async sessionSpend(sessionId: string, db: Sql = this.sql): Promise<Amount> {
+  async sessionSpend(sessionId: string, db: Queryable = this.sql): Promise<Amount> {
     const rows = await db<Array<{ input_tokens: string; output_tokens: string; in_price: string; out_price: string }>>`
       SELECT SUM(input_tokens)::text  AS input_tokens,
              SUM(output_tokens)::text AS output_tokens,
@@ -397,8 +417,18 @@ export class UsageMeter {
 
     // ── Step 2 · charge ─────────────────────────────────────────────────────
     // Sealed but unbilled — either this call sealed it, or a previous attempt
-    // died between sealing and posting. Both resume to the same amount, and the
-    // ledger key makes the post itself idempotent.
+    // died between sealing and posting. Both resume to the same amount, and
+    // every key below makes each post and the payment itself idempotent.
+    //
+    // Where the person's money is held decides how (launch money model, OWNER 226). On the custodial layer the window
+    // is one ledger fee charge, as before. Otherwise it is earned in our ledger as owed by the person, then collected
+    // from their payment method by their partner, and the ledger's collect is keyed on the partner's own payment id.
+    // A business team's run (J-agents-11) is paid by the business: it is owed by the business, naming the member, and
+    // collected from the business's payment method. On the custodial layer it is the member's fee charge, as before.
+    const business = await this.teamBusinessOf(input.sessionId);
+    const held = await this.payment.read(input.userId, this.assetId, business ?? undefined);
+    if (held.heldBy !== 'ledger') return this.earnAndCollect(input, chargeKey, sealed.amount, held.heldBy, business);
+
     const ledgerTx = await this.ledger.post(
       recipes.feeCharge({
         chargeId: chargeKey,
@@ -419,7 +449,7 @@ export class UsageMeter {
     // key keeps that one charge; only the call that records its id reports a settlement, so it is logged once.
     const recorded = await this.sql`
       UPDATE agents.usage_windows
-         SET charge_tx_id = ${ledgerTx.id}
+         SET charge_tx_id = ${ledgerTx.id}, paid_by = 'ledger'
        WHERE session_id = ${input.sessionId} AND window_id = ${input.windowId} AND charge_tx_id IS NULL
       RETURNING window_id
     `;
@@ -432,6 +462,93 @@ export class UsageMeter {
       chargeTxId: ledgerTx.id,
       settled: recorded.length > 0,
     };
+  }
+
+  /**
+   * A sealed window for a person whose money we do not hold: earn it, have their partner collect it, record the collect.
+   *
+   *   earn     `charge:earned:agents:<session>.<window>`   one window earns once, for its sealed amount
+   *   pay      the partner's move under the window's key   one window is one payment at the partner
+   *   collect  `charge:collected:partner-reserve:<id>:…`   keyed on the partner's payment id: one payment, collected once
+   *
+   * A crash after any step resumes here to the same amount and the same keys, so nothing is earned, paid or collected
+   * twice. A payment the partner refuses (too little, down, frozen) leaves the window earned and owed (`charge_tx_id`
+   * null, so it is unpaid and the next settle asks again) and throws `UsageOwedError`; a person with no payment method
+   * is owed the same way.
+   */
+  private async earnAndCollect(
+    input: { sessionId: string; userId: string; windowId: string },
+    chargeKey: string,
+    amount: Amount,
+    heldBy: 'partner' | 'none',
+    business: string | null = null,
+  ): Promise<SettlementResult> {
+    // Who owes it: the business for a team run (naming the member whose run it was), else the person.
+    const debtor = business ?? input.userId;
+    await this.ledger.post(
+      recipes.chargeEarn({
+        module: this.module,
+        saleId: `${input.sessionId}.${input.windowId}`,
+        userId: debtor,
+        ...(business ? { memberUserId: input.userId } : {}),
+        assetId: this.assetId,
+        price: { perUnit: amount },
+        units: 1n,
+      }),
+    );
+    if (business) {
+      await this.sql`
+        UPDATE agents.usage_windows SET owed_by_business = ${business}
+         WHERE session_id = ${input.sessionId} AND window_id = ${input.windowId} AND owed_by_business IS NULL
+      `;
+    }
+    if (heldBy === 'none') throw new UsageOwedError('no_payment_method');
+
+    const paid = await this.payment.collect({
+      userId: input.userId,
+      assetId: this.assetId,
+      amount,
+      chargeKey,
+      ...(business ? { businessId: business } : {}),
+    });
+    if (!paid.ok) throw new UsageOwedError(paid.reason);
+
+    const collected = await this.ledger.post(
+      recipes.chargeCollect({
+        module: this.module,
+        userId: debtor,
+        to: { kind: 'partner-reserve', partnerId: paid.partnerId },
+        paymentId: paid.paymentId,
+        assetId: this.assetId,
+        amount,
+      }),
+    );
+
+    await this.notifyAgentsAffiliateAccrue(chargeKey, input.userId, amount);
+    await this.notifyAgentsAffiliatePayout(chargeKey, input.userId, amount);
+
+    const recorded = await this.sql`
+      UPDATE agents.usage_windows
+         SET charge_tx_id = ${collected.id}, paid_by = 'partner', payment_ref = ${paid.paymentId}, payment_label = ${paid.label}
+       WHERE session_id = ${input.sessionId} AND window_id = ${input.windowId} AND charge_tx_id IS NULL
+      RETURNING window_id
+    `;
+    return {
+      sessionId: input.sessionId,
+      windowId: input.windowId,
+      chargeKey,
+      amount,
+      chargeTxId: collected.id,
+      settled: recorded.length > 0,
+    };
+  }
+
+  /** The business a team session runs for (J-agents-11), or null for any other session. */
+  private async teamBusinessOf(sessionId: string): Promise<string | null> {
+    const [row] = await this.sql<Array<{ business_id: string }>>`
+      SELECT business_id::text FROM agents.team_sessions WHERE session_id = ${sessionId}
+    `;
+    return row?.business_id ?? null;
   }
 
   /** Best-effort; never throws. feeCharge already posted. */

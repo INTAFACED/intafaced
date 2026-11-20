@@ -3,6 +3,7 @@ import { test, expect } from './journey.mjs';
 import { api, fund, journeyState, mailedCodes, nextMailedCode, signOutBrowser, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { scanQr } from './qr-read.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-pay-03, in the running app (docs/roadmap/journeys.json): pick a handle, choose who can find it, and receive a payment.
 // One test per step, titled "J-pay-03 #<n>", run in order on two TEST accounts: A receives, B is a stranger who pays.
@@ -106,10 +107,11 @@ test(`${J} #1 opens Receive: the handle with Copy and the toast "Copied" (with n
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await signIn(page, me);
   // Handles are live on this stack: identity answers `me` with the person's own handle, and Receive shows exactly it.
-  const meRead = page.waitForResponse(
+  const meRead = await answerAfterNavigation(
+    page,
     (r) => new URL(r.url()).pathname === '/api/identity/trpc/me' && r.request().method() === 'GET' && r.status() === 200,
+    () => page.goto('/pay/receive'),
   );
-  await page.goto('/pay/receive');
   const identityMe = await meRead;
   expect(identityMe.status()).toBe(200);
   const mine = (await identityMe.json()).result.data;

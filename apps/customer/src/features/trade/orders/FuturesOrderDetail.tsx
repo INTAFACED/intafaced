@@ -7,7 +7,7 @@ import { dayTime } from '../../../screens/trade/desk/time';
 import type { FuturesExecution, FuturesOrder } from '../../../screens/trade/futures/api';
 import { useFuturesApi } from '../../../screens/trade/futures/data';
 import { FuturesOrderOrigin, FuturesOrderStatus } from '../../../screens/trade/futures/OrderStatus';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { futuresOrdersCopy, type FuturesOrdersT } from './futures-orders-copy';
 import { ordersCopy } from './orders-copy';
 import './orders.css';

@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { Button } from '../../shared/ui';
-import { preservePaperHref } from '../more/trade-context';
-import { useApi } from '../session/session';
+import { preservePaperHref } from '../more';
+import { useApi, useSession } from '../session';
 import { QuantRooms } from './QuantRooms';
 import { previewCopy } from './preview-copy';
 import './algo.css';
@@ -27,15 +27,19 @@ const ACTION_LABEL = { compile: 'compile', debug: 'debug', start: 'start', stop:
 /** Sends one engine action; the service always refuses it. Returns what the alert says. */
 function useEngineAction(room: PreviewRoomId) {
   const api = useApi();
+  // The rooms are public, so they render while the boot refresh restores the sign-in. An action sent then would carry no
+  // token and be refused as signed out, so every engine button waits for the restore.
+  const { restoring } = useSession();
   const [refusal, setRefusal] = useState<{ action: keyof typeof ACTION_LABEL; engine: string | null; failed: Failed } | null>(null);
   async function act(action: keyof typeof ACTION_LABEL) {
+    if (restoring) return;
     const res = await api.mutate('quant', 'preview.act', { room, action }, z.never());
     if (res.ok) return;
     // The refusal's message is `preview.engine_not_built — <engine>:<action>`; the engine names what is missing.
     const engine = /preview\.engine_not_built — ([a-z_.]+):/.exec(res.message ?? '')?.[1] ?? null;
     setRefusal({ action, engine, failed: res });
   }
-  return { refusal, act };
+  return { refusal, act, waiting: restoring };
 }
 
 function PreviewRefusalAlert({ refusal }: { refusal: ReturnType<typeof useEngineAction>['refusal'] }) {
@@ -202,7 +206,9 @@ export function EditorRoom({ paper }: { paper: boolean }) {
       </div>
       <div className="more-columns">
         <Region name={t('compile')}>
-          <Button onClick={() => void engine.act('compile')}>{t('compile')}</Button>
+          <Button disabled={engine.waiting} onClick={() => void engine.act('compile')}>
+            {t('compile')}
+          </Button>
           <EnginePanel name={t('compile')}>
             <p className="muted">{t('compileSample')}</p>
             <ul>
@@ -215,7 +221,7 @@ export function EditorRoom({ paper }: { paper: boolean }) {
           </a>
         </Region>
         <Region name={t('debugger')}>
-          <Button variant="secondary" onClick={() => void engine.act('debug')}>
+          <Button variant="secondary" disabled={engine.waiting} onClick={() => void engine.act('debug')}>
             {t('debug')}
           </Button>
           <EnginePanel name={t('debugger')}>
@@ -281,7 +287,9 @@ export function TesterRoom({ paper }: { paper: boolean }) {
         <Button variant="secondary" onClick={() => setPlaying((p) => !p)}>
           {playing ? t('pause') : t('play')}
         </Button>
-        <Button onClick={() => void engine.act('start')}>{t('start')}</Button>
+        <Button disabled={engine.waiting} onClick={() => void engine.act('start')}>
+          {t('start')}
+        </Button>
         <a className="text-link" href={preservePaperHref('/quant/backtest', paper)}>
           {t('backtest')}
         </a>
@@ -336,7 +344,9 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
   return (
     <PreviewShell room="optimise" paper={paper}>
       <Region name={t('passes')}>
-        <Button onClick={() => void engine.act('start')}>{t('start')}</Button>
+        <Button disabled={engine.waiting} onClick={() => void engine.act('start')}>
+          {t('start')}
+        </Button>
         <label className="field">
           <span>{t('show')}</span>
           <select aria-label={t('show')} value={show} onChange={(event) => setShow(event.currentTarget.value === 'loss' ? 'loss' : 'all')}>
@@ -400,13 +410,13 @@ export function OptimiseRoom({ paper }: { paper: boolean }) {
             </ol>
           </EnginePanel>
           <p data-testid="wf-gate-line">{t('gateLine')}</p>
-          <Button variant="secondary" onClick={() => void engine.act('stop')}>
+          <Button variant="secondary" disabled={engine.waiting} onClick={() => void engine.act('stop')}>
             {t('stop')}
           </Button>
-          <Button variant="secondary" onClick={() => void engine.act('resume')}>
+          <Button variant="secondary" disabled={engine.waiting} onClick={() => void engine.act('resume')}>
             {t('resume')}
           </Button>
-          <Button variant="secondary" onClick={() => void engine.act('export')}>
+          <Button variant="secondary" disabled={engine.waiting} onClick={() => void engine.act('export')}>
             {t('export')}
           </Button>
         </Region>

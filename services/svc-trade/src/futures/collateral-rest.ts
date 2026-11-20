@@ -4,7 +4,7 @@ import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import type { EdgeTrust } from '../edge-trust.js';
 import { HAIRCUT_UNSET } from './haircut-credit.js';
-import { checkCollateralClassForMargin, COLLATERAL_CLASSES, UNSUPPORTED_COLLATERAL_CLASS } from './margin-mode.js';
+import { checkCollateralClassForMargin, COLLATERAL_CLASSES, FUTURES_VENUE, UNSUPPORTED_COLLATERAL_CLASS } from './margin-mode.js';
 import { privateRead } from '../route-inventory.js';
 
 export interface CollateralFigures {
@@ -34,7 +34,8 @@ const fmt = (value: Amount | null): string | null => (value === null ? null : fo
 
 /**
  * What counts as futures margin for this account (D-margin-02): cash in each settle asset with the owner's haircut and
- * the buying power it leaves, and the classes that are refused with their code. Read-only: no ledger write port.
+ * the buying power it leaves, the classes that are refused with their code, and the venue whose rule this is. Read-only:
+ * no ledger write port.
  */
 export function registerCollateralRest(app: FastifyInstance, deps: CollateralRestDeps): void {
   const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
@@ -78,6 +79,7 @@ export function registerCollateralRest(app: FastifyInstance, deps: CollateralRes
         message: check.ok ? null : (check.reason ?? null),
       };
     });
-    return reply.send({ assets: rows, refusedClasses: refused });
+    // The venue whose margin rule this is, so a refusal can say who does not take a class.
+    return reply.send({ venue: { ...FUTURES_VENUE }, assets: rows, refusedClasses: refused });
   });
 }

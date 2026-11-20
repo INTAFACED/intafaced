@@ -1,7 +1,6 @@
 import { MODULE_IDS } from '@intafaced/config';
 import { describe, expect, it } from 'vitest';
-import { readData } from '@/lib/ops-desk/model';
-import type { ReadOutcome, ReadSpec } from '@/lib/ops-desk/types';
+import { readData, type ReadOutcome, type ReadSpec } from '@/lib/ops-desk';
 import { HEALTH_ROWS, boardReads, buildBoard } from './board';
 
 const AT = '2026-10-22T23:30:00.000Z';

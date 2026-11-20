@@ -1,6 +1,6 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { CardIssuerAdapter } from './issuer.js';
@@ -150,7 +150,7 @@ export class CardSafety {
     };
   }
 
-  private async row(sql: Sql, challengeId: string, cardId: string, lock = false): Promise<ChallengeRow | undefined> {
+  private async row(sql: Queryable, challengeId: string, cardId: string, lock = false): Promise<ChallengeRow | undefined> {
     const rows = await sql.unsafe<ChallengeRow[]>(
       `SELECT ${CHALLENGE_COLUMNS} FROM bank.card_3ds_challenges WHERE id = $1 AND card_id = $2${lock ? ' FOR UPDATE' : ''}`,
       [challengeId, cardId],

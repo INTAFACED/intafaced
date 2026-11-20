@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { Button } from '../../shared/ui';
-import { sessionSchema } from '../session/session';
+import { sessionSchema } from '../session';
 import { recoveryCodeCopy } from './recovery-code-copy';
 
 /**

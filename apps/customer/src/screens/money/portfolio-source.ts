@@ -7,8 +7,10 @@
  * prices can't be read, or the account is paused) is shown as that refusal and never papered over by the fallback.
  * Each row of the result says which one it came from (`source`).
  */
+import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { useEffect, useMemo } from 'react';
-import { z } from 'zod';
+import { breakdownSchema, summarySchema } from '@intafaced/contracts/bank-portfolio-reads';
+import type { z } from 'zod';
 import { classOf, useDataEnv, useSource, type Decimal, type Holding, type Loadable, type PortfolioSummary } from '../../data';
 import { dec, decOrNull, ratio, str, sub, sumOf, type Scaled } from '../../data/decimal';
 import { portfolioSource, type DataEnv } from '../../data/queries';
@@ -62,27 +64,6 @@ export type MoneyUnit = 'USD' | 'BTC';
 
 // ── the server's answer ──────────────────────────────────────────────────────
 
-const pricedSchema = z.object({
-  asset: z.string(),
-  amount: z.string(),
-  priceUsd: z.string(),
-  valueUsd: z.string(),
-  change24hUsd: z.string().nullable(),
-  pair: z.string().nullable(),
-});
-const unpricedSchema = z.object({ asset: z.string(), amount: z.string(), reason: z.string() });
-export const summarySchema = z.object({
-  totalUsd: z.string().nullable(),
-  change24hUsd: z.string().nullable(),
-  cashUsd: z.string().nullable(),
-  cryptoUsd: z.string().nullable(),
-  priced: z.array(pricedSchema),
-  unpriced: z.array(unpricedSchema),
-  asOf: z.number(),
-  windowStart: z.number().nullable(),
-  /** Only present when the screen asked for BTC: the same total in BTC, or null with the bank's reason. */
-  btc: z.object({ total: z.string().nullable(), priceUsd: z.string().nullable(), reason: z.string().nullable() }).optional(),
-});
 export type ServerSummary = z.infer<typeof summarySchema>;
 
 /** Coin amounts and dollar values in the order the screen shows them. */
@@ -351,13 +332,6 @@ export function useHomePortfolio(unit: MoneyUnit = 'USD'): Loadable<HomePortfoli
 
 // ── named accounts ("Spaces" on the server) ──────────────────────────────────
 
-const spaceSchema = z.object({
-  id: z.string(),
-  assetId: z.string(),
-  kind: z.string(),
-  name: z.string(),
-  balance: z.string(),
-});
 export interface NamedAccount {
   id: string;
   name: string;
@@ -369,7 +343,7 @@ const SPACES_PAGE = 200;
 
 function accountsFetcher(env: DataEnv): Fetcher<NamedAccount[]> {
   return async (signal) => {
-    const result = await env.api.query('bank', 'spaces.list', { limit: SPACES_PAGE }, z.array(spaceSchema), { signal });
+    const result = await env.api.call(BANK_SPACES_LIST, { limit: SPACES_PAGE }, { signal });
     if (!result.ok) return result;
     // A full page may not be the whole list, and a partial list would undercount; say it is not available instead.
     if (result.data.length >= SPACES_PAGE) return { ok: false, reason: 'spaces_list_may_be_partial' };
@@ -400,24 +374,6 @@ export function useNamedAccounts(): Loadable<NamedAccount[]> {
 
 const BALANCE_INTERVAL = 15_000;
 
-/** The bank's `bank.portfolio.balanceBreakdown` for the main account: each asset split into spendable and every lock kind. */
-export const breakdownSchema = z.object({
-  assets: z.array(
-    z.object({
-      assetId: z.string(),
-      total: z.string(),
-      available: z.string(),
-      locked: z.array(
-        z.object({
-          kind: z.string(),
-          amount: z.string(),
-          claims: z.array(z.object({ purpose: z.string(), amount: z.string() })),
-        }),
-      ),
-    }),
-  ),
-});
-
 /** One coin of the main account with its locks told apart: orders on one side, everything else locked on the other. */
 export interface LockSplit {
   /** What the main account holds of the coin, as the bank returned it. Absent on a coin the answer did not list. */
@@ -432,7 +388,7 @@ export interface LockSplit {
 }
 
 /** Reshape the bank's answer into one `LockSplit` per coin. Sums are exact (scaled integers), never floating point. */
-export function lockSplits(answer: z.infer<typeof breakdownSchema>): Record<string, LockSplit> | null {
+export function lockSplits(answer: z.input<typeof breakdownSchema>): Record<string, LockSplit> | null {
   const out: Record<string, LockSplit> = {};
   for (const asset of answer.assets) {
     // One amount that does not parse makes the whole answer unusable: never turn an unknown figure into a shown zero.

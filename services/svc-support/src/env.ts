@@ -74,6 +74,8 @@ const schema = serviceEnvSchema
        */
       SUPPORT_ATTACHMENT_STORE: z.string().optional(),
       SUPPORT_MALWARE_SCANNER: z.string().optional(),
+      /** LOCAL-TEST only: how long the `local-test-eicar` scanner takes per file, in milliseconds. Blank is none. */
+      SUPPORT_LOCAL_TEST_SCAN_DELAY_MS: z.string().optional(),
       /** SP-csat-02: owner cap on how many surveys exist; blank allows only the first. */
       SUPPORT_SURVEY_CAP: supportSurveyCapEnv,
       /**
@@ -190,6 +192,12 @@ const schema = serviceEnvSchema
       SUPPORT_CHAT_RATE_LIMIT: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       SUPPORT_CHAT_RATE_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       SUPPORT_CHAT_IDENTITY_TTL_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * Where a chat continued by email is mailed from (J-support-public-05 #7): `identity` asks svc-identity to mail the
+       * signed-in customer's own proved address (`POST /internal/mail`). Blank, the owner's provider setting unset, answers
+       * `vendor.email` and the chat stays open.
+       */
+      SUPPORT_CHAT_EMAIL: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['identity']).optional()),
       /**
        * The pre-chat fields a guest is asked for, comma separated (name, email). Blank asks for a free-text first message
        * only. A guest's address is sealed with SUPPORT_GUEST_ADDRESS_KEY and kept for SUPPORT_GUEST_RETENTION_DAYS.

@@ -17,7 +17,7 @@ The Protocol Plane keeps its state on chain, not in our ledger. A UI cannot quer
 
 ## API
 
-Internal tRPC (`createIndexerRouter`), self-mounted at `/trpc` behind `createEdgeContext` per [`docs/decisions/mount-boundary.md`](../../docs/decisions/mount-boundary.md).
+Internal tRPC (`createIndexerRouter`), self-mounted at `/trpc` behind `createEdgeContext`.
 
 **Every data procedure is `publicJurisdictionProcedure('indexer', 'protocol')` — no login, no KYC tier, no account gate.** That is §22 as code: `MODULES.indexer` is `custodial: false` on the `protocol` plane, so `checkAccess` returns `allowed.permissionless`. `src/index.ts` re-asserts it at boot and **refuses to start** if it ever returns anything else.
 

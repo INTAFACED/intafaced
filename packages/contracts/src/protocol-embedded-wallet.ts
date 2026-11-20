@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * Wire types for the embedded self-custody wallet (J-wallet-22), version 1: svc-protocol's `embeddedWallet.*`, signed in.
  *
- * A person gets their own wallet with a passkey and no seed phrase (OWNER 237). The key is made and kept by the owner's
+ * A person gets their own wallet with a passkey and no seed phrase. The key is made and kept by the owner's
  * embedded-wallet provider and signs only after the person's own passkey; INTAFACED's record holds the address and the
  * provider's wallet id, never key material. The record has no key field, and the provider is reached through one
  * adapter behind a provider interface, so the provider the owner picks plugs in as one adapter. Export and recovery are

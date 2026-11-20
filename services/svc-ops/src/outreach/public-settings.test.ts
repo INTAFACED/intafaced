@@ -38,12 +38,27 @@ function api(book = new MemoryPublicSettingsBook(), allowed = true) {
 describe('outreach public settings', () => {
   it('a signed-out visitor reads both values as null before anything is set', async () => {
     const { router } = api();
-    expect(await router.createCaller(visitor).publicSettings()).toEqual({
+    expect(await router.createCaller(visitor).publicSettings(undefined)).toEqual({
       joinUrl: null,
       partnerTerms: null,
+      appStoreUrl: null,
       revision: 0,
       updatedAt: null,
     });
+  });
+
+  it('a founder sets the store link; the visitor reads it, the other values stay, and null clears it again (SP-pages-03)', async () => {
+    const { router, book } = api();
+    const store = 'https://apps.apple.com/app/id0000000000';
+    const after = await router.createCaller(founder).setPublicSettings({ appStoreUrl: store, expectedRevision: 0, reason: 'TEST store' });
+    expect(after).toMatchObject({ appStoreUrl: store, joinUrl: null, partnerTerms: null, revision: 1 });
+    expect(await router.createCaller(visitor).publicSettings(undefined)).toMatchObject({ appStoreUrl: store });
+    await expect(
+      router.createCaller(founder).setPublicSettings({ appStoreUrl: 'http://apps.apple.com/app', expectedRevision: 1, reason: 'x' }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    const cleared = await router.createCaller(founder).setPublicSettings({ appStoreUrl: null, expectedRevision: 1, reason: 'TEST off' });
+    expect(cleared).toMatchObject({ appStoreUrl: null, revision: 2 });
+    expect(book.log).toHaveLength(2);
   });
 
   it('a founder sets the join address with a reason; the visitor reads it, and the change is logged once', async () => {
@@ -52,7 +67,10 @@ describe('outreach public settings', () => {
       .createCaller(founder)
       .setPublicSettings({ joinUrl: 'https://join.example.org/', expectedRevision: 0, reason: 'Invitation site is live' });
     expect(after).toMatchObject({ joinUrl: 'https://join.example.org', partnerTerms: null, revision: 1 });
-    expect(await router.createCaller(visitor).publicSettings()).toMatchObject({ joinUrl: 'https://join.example.org', revision: 1 });
+    expect(await router.createCaller(visitor).publicSettings(undefined)).toMatchObject({
+      joinUrl: 'https://join.example.org',
+      revision: 1,
+    });
     expect(book.log).toHaveLength(1);
     expect(book.log[0]).toMatchObject({ key: 'ops.public_settings:r0', by: userId, reason: 'Invitation site is live' });
   });
@@ -118,7 +136,7 @@ describe('outreach public settings', () => {
       new OutreachCrm(null, null),
       vi.fn(async () => userId),
     );
-    await expect(router.createCaller(visitor).publicSettings()).rejects.toMatchObject({
+    await expect(router.createCaller(visitor).publicSettings(undefined)).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       message: 'ops.crm.storage_unconfigured',
     });

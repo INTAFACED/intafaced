@@ -39,7 +39,7 @@ function adminUrl(): string {
 
 const a = parseAmount;
 const USER = '11111111-1111-4111-8111-1111111111d1';
-const principal = { sub: USER, userId: USER, sid: 's-sql', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
+const principal = { sub: USER, userId: USER, sid: 's-sql', scopes: ['trade:read', 'trade:write'] } as Principal;
 const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade venue door sql')));
 const owner = key.address.toLowerCase();
 const signer = { role: 'owner' as const, address: owner };
@@ -64,7 +64,8 @@ describe('UserVenueDoor on SqlPreparedActionStore (Postgres) against the TEST si
   afterAll(async () => {
     await new Promise<void>((r) => {
       server?.closeAllConnections();
-      server ? server.close(() => r()) : r();
+      if (server) server.close(() => r());
+      else r();
     });
     await db?.drop();
   }, 30_000);
@@ -91,6 +92,7 @@ describe('UserVenueDoor on SqlPreparedActionStore (Postgres) against the TEST si
       store,
       stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
       builder: null,
+      slippageCapBps: null,
       now: () => new Date(),
       listings: new StoreVenueRoutingGate(listedTestStore(['BTC-USDC', 'BTC-PERP'])),
     });

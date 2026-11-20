@@ -1,16 +1,16 @@
 /**
- * Agent keys' sensitive actions are held, not run (DV-keys-05, J-developer-15 #6).
+ * An agent key cannot move money (J-developer-15 #6: "The payout is refused `auth.scope_denied` and no approval row is
+ * made"), and has no bank or card authority (J-agents-21 #9).
  *
  * A request a key makes on one of the routes below is not forwarded until identity says the key is not an agent key.
- * For an agent key identity writes a waiting row its owner sees on the key page, and the edge answers 202
- * `edge.agent_approval_required` with that row: nothing reached the service, so the action did not run. Any other key's
- * request goes on as before (the service's own scope rules still decide it).
+ * An agent key's request is refused 403 `auth.scope_denied`: nothing reached the service and nothing was written, so
+ * the action did not run. Any other key's request goes on as before (the service's own scope rules still decide it).
  *
  * The list is explicit, by method and tRPC procedure. Widen it only together with the action list in contracts
  * (`AGENT_HELD_ACTIONS`).
  */
 import { createHash } from 'node:crypto';
-import { agentKeyHoldOutputSchema, type AgentHeldAction, type AgentKeyApproval } from '@intafaced/contracts/api-keys';
+import { AGENT_KEY_ACTION_REFUSAL, agentKeyHoldOutputSchema, type AgentHeldAction } from '@intafaced/contracts/api-keys';
 import { unwrapTrpcData } from '@intafaced/contracts';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 
@@ -19,11 +19,18 @@ const HELD_PROCEDURES: ReadonlyArray<{ readonly prefix: string; readonly procedu
   { prefix: '/api/pay/trpc/', procedure: 'payment.refund', action: 'pay.refund' },
 ];
 
+/** The bank and card door: every call an agent key makes there is held, whatever its method (J-agents-21 #9). */
+const HELD_PREFIXES: ReadonlyArray<{ readonly prefix: string; readonly action: AgentHeldAction }> = [
+  { prefix: '/api/bank/', action: 'bank.call' },
+];
+
 /**
- * The held action this request asks for, if any. A tRPC batch (`a,b?batch=1`) is held when any of its procedures is.
- * Only POST runs a tRPC mutation, so other methods are never held.
+ * The held action this request asks for, if any. Any method on a held prefix is held. On the procedures, a tRPC batch
+ * (`a,b?batch=1`) is held when any of its procedures is, and only POST runs a tRPC mutation, so other methods are not.
  */
 export function agentHeldAction(method: string, pathname: string): AgentHeldAction | undefined {
+  const path = pathname.toLowerCase().replace(/\/{2,}/g, '/');
+  for (const held of HELD_PREFIXES) if (path === held.prefix.slice(0, -1) || path.startsWith(held.prefix)) return held.action;
   if (method.toUpperCase() !== 'POST') return undefined;
   for (const held of HELD_PROCEDURES) {
     if (!pathname.startsWith(held.prefix)) continue;
@@ -46,7 +53,8 @@ export function requestBodyHash(body: Buffer | Uint8Array | undefined): string {
 }
 
 export type AgentHoldOutcome =
-  | { readonly kind: 'held'; readonly approval: AgentKeyApproval }
+  /** An agent key: the request is refused `auth.scope_denied`, never forwarded. */
+  | { readonly kind: 'agent_refused'; readonly code: typeof AGENT_KEY_ACTION_REFUSAL }
   | { readonly kind: 'not_held' }
   /** Identity refused: the key is not this user's live key. The request is refused, never forwarded. */
   | { readonly kind: 'refused' }
@@ -104,5 +112,5 @@ export async function holdAgentKeyAttempt(options: {
   }
   const parsed = agentKeyHoldOutputSchema.safeParse(unwrapTrpcData(envelope));
   if (!parsed.success) return { kind: 'unavailable' };
-  return parsed.data.held ? { kind: 'held', approval: parsed.data.approval } : { kind: 'not_held' };
+  return parsed.data.held ? { kind: 'agent_refused', code: parsed.data.refusal } : { kind: 'not_held' };
 }

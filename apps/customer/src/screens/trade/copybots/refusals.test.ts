@@ -9,6 +9,13 @@ const failure = (
 ) => ({ ok: false as const, reason, message, ...(code ? { code } : {}) });
 
 describe('roomRefusal', () => {
+  it('maps every code the signal publisher throws (J-copy-bots-otc-22)', () => {
+    const service = readFileSync(new URL('../../../../../../services/svc-market/src/signals/signal-publisher.ts', import.meta.url), 'utf8');
+    const codes = [...service.matchAll(/'(market\.(?:provider|price|signal|subscription|strategy)_[a-z_]+)'/g)].map((m) => m[1]!);
+    expect(codes.length).toBeGreaterThan(8);
+    const internal = new Set(['market.signal_vetting_missing', 'market.signal_key_required', 'market.signal_fee_model_invalid']);
+    for (const code of new Set(codes)) if (!internal.has(code)) expect(KNOWN_ROOM_CODES, code).toContain(code);
+  });
   it('maps every copy and algo code the service throws', () => {
     const service = readFileSync(new URL('../../../../../../services/svc-trade/src/copy/errors.ts', import.meta.url), 'utf8');
     const copyCodes = [...service.matchAll(/'(trade\.copy_[a-z_]+)'/g)].map((m) => m[1]!);

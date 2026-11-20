@@ -6,7 +6,7 @@ import { LedgerError } from './types.js';
  *
  * The custodial layer stays built and is switched off at launch: a trader's money is in their own wallet and at the
  * outside market, bank and card money is at the partner, and our ledger records only what INTAFACED itself owes or is
- * owed (project-state research/system-design-2026-11-07/CUSTODY-DELTA.md §3). With the switch off, svc-ledger refuses
+ * owed (project-state product/CUSTODY-DELTA.md §3). With the switch off, svc-ledger refuses
  * every post that would move a customer's balance in our book. With it on (the TEST journey stack, which still runs
  * the custodial journeys marked Later), the custodial layer posts as it always has.
  *

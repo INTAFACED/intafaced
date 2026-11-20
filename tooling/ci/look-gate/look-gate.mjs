@@ -38,7 +38,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createDecipheriv } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, statSync } from 'node:fs';
 import http from 'node:http';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -49,7 +49,7 @@ import * as gpu from './gpu-budget.mjs';
 import { sweepRoutes } from '../../../apps/customer/tests/real-app/routes.mjs';
 import * as world from '../../../apps/customer/tests/real-app/look-fixtures.mjs';
 import { fixtureAnswer as answerAt } from './fixture-answer.mjs';
-import { adminRoutes, edgeAnswer, sealSession, startAdmin } from './admin.mjs';
+import { adminRoutes, edgeAnswer, isAddressInUse, sealSession, startAdmin } from './admin.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const VIEWPORTS = { phone: { width: 390, height: 844 }, computer: { width: 1440, height: 900 } };
@@ -304,8 +304,10 @@ async function settle(page) {
     const now = await page.evaluate(
       () => `${document.documentElement.scrollHeight}:${document.body.innerText.length}:${document.querySelectorAll('*').length}`,
     );
-    if (now !== last) ((last = now), (stableSince = Date.now()));
-    else if (Date.now() - stableSince >= 1_000) return true;
+    if (now !== last) {
+      last = now;
+      stableSince = Date.now();
+    } else if (Date.now() - stableSince >= 1_000) return true;
     await page.waitForTimeout(150);
   }
   return false;
@@ -402,7 +404,7 @@ async function prepare(page, target = {}) {
     await page.addInitScript(
       ([key, view]) => {
         try {
-          localStorage.getItem(key) ?? localStorage.setItem(key, JSON.stringify(view));
+          if (localStorage.getItem(key) === null) localStorage.setItem(key, JSON.stringify(view));
         } catch {
           // A frame with no storage (about:blank, sandboxed) keeps the app's own default.
         }
@@ -1364,6 +1366,15 @@ async function selfTest() {
   ok(['/', '/login', '/ledger'].every((r) => consoleRooms.includes(r)) && !consoleRooms.some((r) => /[[(]/.test(r)), 'console rooms');
   eq(edgeAnswer('/api/identity/trpc/accountControls.operatorStatus?input=%7B%7D').json.result.data.status, 'enabled', 'founder check');
   eq(edgeAnswer('/api/ops/trpc/consoleMode.get').status, 503, 'every other console call is refused');
+  eq(
+    [
+      '⨯ Failed to start server\nError: listen EADDRINUSE: address already in use 127.0.0.1:47310',
+      'Error: Could not find a production build',
+      '',
+    ].map(isAddressInUse),
+    [true, false, false],
+    'only a taken port starts the console again',
+  );
   const sealKey = Buffer.alloc(32, 7);
   const sealed = Buffer.from(sealSession({ a: 1 }, sealKey, 'http://127.0.0.1:1'), 'base64url');
   const opened = createDecipheriv('aes-256-gcm', sealKey, sealed.subarray(0, 12));

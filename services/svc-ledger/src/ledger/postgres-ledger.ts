@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   accountKey,
   accountPurpose,
@@ -34,6 +34,7 @@ import {
   allowedHistoryProduct,
   allowedHistoryRail,
   orderIdFromHoldPurpose,
+  allowedHistoryWithdrawalId,
   decodeHistoryCursor,
   encodeHistoryCursor,
   type HistoryEntry,
@@ -60,7 +61,7 @@ export interface PostgresLedgerOptions extends IdempotencyConflictOptions {
   readonly clockSkewBoundMs?: number | null;
   readonly now?: () => Date;
   /** Defaults to `clock_timestamp()`. Tests pass the service's reader. */
-  readonly readDatabaseNow?: (sql: Sql) => Promise<Date>;
+  readonly readDatabaseNow?: (sql: Queryable) => Promise<Date>;
 }
 
 /**
@@ -745,14 +746,16 @@ export class PostgresLedger implements LedgerClient {
           product: unknown;
           order_purpose: unknown;
           fill_fee: string | null;
+          withdrawal_id: unknown;
         }
       >
     >`
-      SELECT p.entry_id, p.tx_id, p.module, p.reason, p.direction, p.amount, p.asset_id, p.posted_at, p.rail, p.product,
+      SELECT p.entry_id, p.tx_id, p.module, p.reason, p.direction, p.amount, p.asset_id, p.posted_at, p.rail, p.product, p.withdrawal_id,
              o.purpose AS order_purpose, CASE WHEN p.fill_line THEN f.fee END AS fill_fee
         FROM (
           SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at,
-                 t.meta -> 'rail' AS rail, t.meta -> 'product' AS product, a.id AS account_id, a.owner_type, a.owner_id, a.kind,
+                 t.meta -> 'rail' AS rail, t.meta -> 'product' AS product,
+                 t.meta -> 'withdrawalId' AS withdrawal_id, a.id AS account_id, a.owner_type, a.owner_id, a.kind,
                  (t.module = 'trade' AND t.reason IN ('trade.fill', 'trade.fill.mm_maker', 'trade.fill.buyback') AND a.owner_type = 'user'
                    AND a.kind = 'available' AND x.direction = 'debit') AS fill_line
             FROM accounts a
@@ -833,6 +836,7 @@ export class PostgresLedger implements LedgerClient {
         product: allowedHistoryProduct(r.product),
         orderId: orderIdFromHoldPurpose(r.order_purpose),
         fee: r.fill_fee === null ? null : parseStoredAmount(r.fill_fee, 'ledger_entries.amount'),
+        withdrawalId: allowedHistoryWithdrawalId(r.module, r.reason, r.withdrawal_id),
       })),
       nextCursor: rows.length > limit && last ? encodeHistoryCursor({ entryId: last.entry_id }) : null,
     };
@@ -913,7 +917,7 @@ export class PostgresLedger implements LedgerClient {
    * New writes only. Caller has already missed both idempotency lookups.
    * A blank bound reads no clock and is not treated as 0.
    */
-  private async refuseNewWriteOnClockSkew(tx: Sql): Promise<void> {
+  private async refuseNewWriteOnClockSkew(tx: Queryable): Promise<void> {
     const bound = this.options.clockSkewBoundMs;
     if (bound === undefined || bound === null) return;
     const now = this.options.now ?? (() => new Date());
@@ -924,7 +928,7 @@ export class PostgresLedger implements LedgerClient {
     }
   }
 
-  private async upsertAccount(tx: Sql, ref: AccountRef): Promise<{ id: string; balance: bigint }> {
+  private async upsertAccount(tx: Queryable, ref: AccountRef): Promise<{ id: string; balance: bigint }> {
     // ON CONFLICT DO UPDATE (rather than DO NOTHING) so RETURNING always yields
     // a row, and so the row is locked for this transaction either way.
     const rows = await tx<Array<{ id: string; balance: string }>>`
@@ -970,7 +974,7 @@ export class PostgresLedger implements LedgerClient {
     return (await this.loadClaimedTxByKey(tx, key))?.tx ?? null;
   }
 
-  private async loadClaimedTxByKey(tx: Sql, key: string): Promise<{ tx: LedgerTx; fingerprint: string | null } | null> {
+  private async loadClaimedTxByKey(tx: Queryable, key: string): Promise<{ tx: LedgerTx; fingerprint: string | null } | null> {
     // One statement snapshot: separate claim/journal probes can straddle a
     // concurrent commit and falsely call the just-committed row unclaimed.
     const rows = await tx<ClaimRow[]>`
@@ -992,7 +996,7 @@ export class PostgresLedger implements LedgerClient {
     return { tx: await this.hydrate(tx, rows[0]!), fingerprint: rows[0]!.request_fingerprint ?? null };
   }
 
-  private async hydrate(sql: Sql, row: TxRow): Promise<LedgerTx> {
+  private async hydrate(sql: Queryable, row: TxRow): Promise<LedgerTx> {
     const entries = await sql<EntryRow[]>`
       SELECT id, tx_id, account_id, asset_id, direction, amount, balance_after
         FROM ledger_entries WHERE tx_id = ${row.id} ORDER BY id ASC

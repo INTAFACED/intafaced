@@ -6,7 +6,7 @@
  * 2. Break: studio.list with no page size dumps every saved strategy.
  * 3. Done bar: unset throws QuantError quant.studio_list_limit_unset; 50 is allowed
  * 4. Class N
- * 5. Paths: services/svc-quant/src/studio/list-limit.ts, router.ts
+ * 5. Paths: services/svc-quant/src/studio/list-limit.ts, routes/studio.ts
  *
  * Page size is unchanged. The book itself is keyed by account (see account.test.ts).
  */
@@ -81,10 +81,10 @@ describe('assertStudioListLimit', () => {
 
 describe('studio.list limit unset refuse', () => {
   it('router does not dump strategies when studio.list omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-quant/src/router.ts'), 'utf8');
+    const src = readFileSync(join(ROOT, 'services/svc-quant/src/routes/studio.ts'), 'utf8');
     const start = src.indexOf('list: publicJurisdictionProcedure');
-    const end = src.indexOf('backtest: router({', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
+    expect(start).toBeGreaterThan(-1);
+    const fn = src.slice(start);
     expect(fn).toContain('assertStudioListLimit(input?.limit)');
     expect(fn).toContain('limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional()');
     expect(fn).toContain('.slice(0, limit)');

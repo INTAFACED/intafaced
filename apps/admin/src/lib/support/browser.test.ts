@@ -23,7 +23,7 @@ describe('the browser’s strict reader for a desk write', () => {
     if (!reply.ok) expect(reply.refusal.changed).toBe('unknown');
   });
   it('keeps a refusal as the service-side console wrote it', () => {
-    const refusal = { title: 'Someone changed this article first', body: 'b', next: 'n', code: 'support.kb.revision_stale', changed: 'no' };
+    const refusal = { title: 'Someone changed this article first', body: 'b', next: 'n', code: 'support.kb_revision_stale', changed: 'no' };
     expect(readActionReply({ ok: false, refusal })).toEqual({ ok: false, refusal });
   });
 });

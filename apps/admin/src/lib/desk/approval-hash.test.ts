@@ -132,6 +132,30 @@ describe('payload hash equals the owning service’s own function', () => {
       payloadHashFor({ kind: 'academy.residency.decide', id, decision: 'rejected' }),
     );
   });
+  it('academy certificate revoke and exception (J-academy-17 #5 #6): the hash svc-academy consumes, the reason inside it', () => {
+    const publicId = '0123456789abcdef0123456789abcdef';
+    const userId = '9f8e7d6c-1111-4222-8333-444455556666';
+    const reason = 'TEST issued in error, revoke it';
+    expect(payloadHashFor({ kind: 'academy.cert.revoke', publicId, reason })).toBe(
+      academyActionPayloadHash('academy.cert.revoke', { publicId, reason }),
+    );
+    expect(payloadHashFor({ kind: 'academy.cert.revoke', publicId, reason })).not.toBe(
+      payloadHashFor({ kind: 'academy.cert.revoke', publicId, reason: `${reason}!` }),
+    );
+    expect(payloadHashFor({ kind: 'academy.cert.exception', userId, certId: 'foundations-v1', reason })).toBe(
+      academyActionPayloadHash('academy.cert.exception', { userId, certId: 'foundations-v1', reason }),
+    );
+    for (const kind of ['academy.cert.revoke', 'academy.cert.exception'] as const) {
+      const request = kind === 'academy.cert.revoke' ? { kind, publicId, reason } : { kind, userId, certId: 'foundations-v1', reason };
+      expect(proposeInputFor(request)).toMatchObject({
+        actionType: kind,
+        targetService: 'svc-academy',
+        targetId: kind,
+        expectedVersion: '1',
+        policyVersion: 'v1',
+      });
+    }
+  });
   it('the decision is part of the vendor hash: approve and reject never share one', () => {
     const base = {
       kind: 'market.vendor.vet',

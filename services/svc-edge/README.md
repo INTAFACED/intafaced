@@ -23,30 +23,31 @@ This service is the join between those two halves. It is the only place in the s
 
 Source of truth is `src/routes.ts` (`UPSTREAMS`). `/ready` returns the prefix list plus `upstreamConfiguration` (which env vars are set — `probe: unprobed`, no URLs, never `wired`). This table must stay in lockstep.
 
-| Prefix           | Upstream        | Env var           | Notes                                                 |
-| ---------------- | --------------- | ----------------- | ----------------------------------------------------- |
-| `/api/identity`  | svc-identity    | `IDENTITY_URL`    |                                                       |
-| `/api/trade`     | svc-trade       | `TRADE_URL`       | tRPC trade                                            |
-| `/api/v1`        | svc-trade       | `TRADE_URL`       | public CCXT REST; path preserved; module=`trade`      |
-| `/api/token`     | svc-token       | `TOKEN_URL`       |                                                       |
-| `/api/agents`    | svc-agents      | `AGENTS_URL`      |                                                       |
-| `/api/bank`      | svc-bank        | `BANK_URL`        |                                                       |
-| `/api/p2p`       | svc-p2p         | `P2P_URL`         |                                                       |
-| `/api/pay`       | svc-pay         | `PAY_URL`         |                                                       |
-| `/api/blueprint` | svc-blueprint   | `BLUEPRINT_URL`   |                                                       |
-| `/api/protocol`  | svc-protocol    | `PROTOCOL_URL`    |                                                       |
-| `/api/dex`       | svc-dex         | `DEX_URL`         |                                                       |
-| `/api/indexer`   | svc-indexer     | `INDEXER_URL`     |                                                       |
-| `/api/notify`    | svc-notify      | `NOTIFY_URL`      |                                                       |
-| `/api/academy`   | svc-academy     | `ACADEMY_URL`     |                                                       |
-| `/api/mining`    | svc-mining-pool | `MINING_POOL_URL` | PPLNS submitShare; payouts post through svc-ledger    |
-| `/api/support`   | svc-support     | `SUPPORT_URL`     |                                                       |
-| `/api/market`    | svc-market      | `MARKET_URL`      |                                                       |
-| `/api/execution` | svc-execution   | `EXECUTION_URL`   | house tenant mechanism; module=`execution`            |
-| `/api/tax`       | svc-tax         | `TAX_URL`         | lot export; module=`tax`                              |
-| `/api/quant`     | svc-quant       | `QUANT_URL`       | sandboxed strategy runtime; module=`quant`            |
-| `/api/campaigns` | svc-campaigns   | `CAMPAIGNS_URL`   | seasons, limited drops, TGE claim; module=`campaigns` |
-| `/api/ops`       | svc-ops         | `OPS_URL`         | CRM/team/revenue/projects; module=`core-ops`          |
+| Prefix                 | Upstream        | Env var           | Notes                                                                 |
+| ---------------------- | --------------- | ----------------- | --------------------------------------------------------------------- |
+| `/api/identity`        | svc-identity    | `IDENTITY_URL`    |                                                                       |
+| `/api/trade`           | svc-trade       | `TRADE_URL`       | tRPC trade                                                            |
+| `/api/v1`              | svc-trade       | `TRADE_URL`       | public CCXT REST; path preserved; module=`trade`                      |
+| `/api/v1/stream/token` | svc-identity    | `IDENTITY_URL`    | private-stream token cut from the key; path preserved; module=`trade` |
+| `/api/token`           | svc-token       | `TOKEN_URL`       |                                                                       |
+| `/api/agents`          | svc-agents      | `AGENTS_URL`      |                                                                       |
+| `/api/bank`            | svc-bank        | `BANK_URL`        |                                                                       |
+| `/api/p2p`             | svc-p2p         | `P2P_URL`         |                                                                       |
+| `/api/pay`             | svc-pay         | `PAY_URL`         |                                                                       |
+| `/api/blueprint`       | svc-blueprint   | `BLUEPRINT_URL`   |                                                                       |
+| `/api/protocol`        | svc-protocol    | `PROTOCOL_URL`    |                                                                       |
+| `/api/dex`             | svc-dex         | `DEX_URL`         |                                                                       |
+| `/api/indexer`         | svc-indexer     | `INDEXER_URL`     |                                                                       |
+| `/api/notify`          | svc-notify      | `NOTIFY_URL`      |                                                                       |
+| `/api/academy`         | svc-academy     | `ACADEMY_URL`     |                                                                       |
+| `/api/mining`          | svc-mining-pool | `MINING_POOL_URL` | PPLNS submitShare; payouts post through svc-ledger                    |
+| `/api/support`         | svc-support     | `SUPPORT_URL`     |                                                                       |
+| `/api/market`          | svc-market      | `MARKET_URL`      |                                                                       |
+| `/api/execution`       | svc-execution   | `EXECUTION_URL`   | house tenant mechanism; module=`execution`                            |
+| `/api/tax`             | svc-tax         | `TAX_URL`         | lot export; module=`tax`                                              |
+| `/api/quant`           | svc-quant       | `QUANT_URL`       | sandboxed strategy runtime; module=`quant`                            |
+| `/api/campaigns`       | svc-campaigns   | `CAMPAIGNS_URL`   | seasons, limited drops, TGE claim; module=`campaigns`                 |
+| `/api/ops`             | svc-ops         | `OPS_URL`         | CRM/team/revenue/projects; module=`core-ops`                          |
 
 **`svc-ledger` and `svc-matching` are deliberately absent.** Both serve service-to-service HTTP behind a shared secret (#50, #55). No browser has business reaching either — `ledger.post` moves value on a module's own authority, which is exactly why no user token carries `ledger:write`. The ledger's **operator** surface is the durable `posting_freeze` via `/admin/ledger/*`, not a proxied `/api/ledger`. There is a test asserting ledger/matching never appear in the table.
 
@@ -226,9 +227,10 @@ With `S2S_AUTH_MODE` set to `dual` or `keypair` (plus `S2S_KEYRING`, `S2S_SIGNIN
 | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
 | Current-authority read, API-key ownership, account status, session ownership, passkey read, API-key exchange attestation (`IDENTITY_OWNERSHIP_SECRET`) | `svc-identity` |
 | Operator controls and reads (`MATCHING_EDGE_SIGNING_SECRET`)                                                                                           | `svc-matching` |
-| The proxy forward, for the module behind each `/api/*` prefix                                                                                          | that service   |
 
-The signature binds the method, the path and query as sent, the exact body bytes and the content type. On the proxy forward the forwarded principal, its signature and the region are inside the signed context too. `dual` also sends the dedicated shared secret on the identity and matching calls; `keypair` sends the key only. The edge holds no shared secret for the other upstreams, so the proxy forward carries the key signature alone in both modes. The modules blueprint, dex, indexer and protocol have no service role and are forwarded unsigned. Unset `S2S_AUTH_MODE` leaves every call exactly as before (the shared secret). Browsers cannot supply these headers: every `x-intafaced-*` request header is stripped.
+The signature binds the method, the path and query as sent, the exact body bytes and the content type. `dual` also sends the dedicated shared secret on these calls; `keypair` sends the key only. Unset `S2S_AUTH_MODE` leaves every call exactly as before (the shared secret).
+
+The proxy forward to a module behind `/api/*` carries no service signature in any mode: its only authority is the edge-signed user principal, or none for an anonymous request. Signed as svc-edge, any caller on the internet would reach a door that accepts any service or svc-edge, and every door that needs a signed-in person would refuse the user the forward carries. `proxyForwardHeaders` in `s2s.ts` takes no signer; `proxy-s2s-keys.test.ts` replays an anonymous forward against real service doors. Browsers cannot supply service headers: every `x-intafaced-*` request header is stripped.
 
 One matching read is unsigned on purpose: the operator health door (`/admin/trade-ops/matching/health`, `admin:read`) reads svc-matching's public `GET /health` with a client that can send nothing else, so it needs `MATCHING_URL` only and answers while `MATCHING_EDGE_SIGNING_SECRET` is blank (the control routes then still refuse `matching_credential_unconfigured`).
 

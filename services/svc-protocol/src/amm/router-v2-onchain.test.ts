@@ -511,7 +511,9 @@ describe('router v2 and SovereignPermit onchain', () => {
         (err: { cause?: { code?: string } }) => err.cause?.code ?? String(err),
       );
     const pairsAt = async (): Promise<ProtocolSwapPairs> => {
-      const blockNumber = await c.publicClient.getBlockNumber();
+      // The node's head now, asked directly: viem's getBlockNumber shares one cached or in-flight answer per client, and a
+      // number from before the previous test's swap quotes the pools as they were then (#8085).
+      const blockNumber = BigInt(await c.publicClient.request({ method: 'eth_blockNumber' }));
       const list = await Promise.all(
         Object.values(pools).map(async (pool) => {
           const [token0, token1, [reserve0, reserve1]] = await Promise.all([

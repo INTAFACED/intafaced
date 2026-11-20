@@ -1,19 +1,22 @@
-// World: none
+// World: gates
+// Market: live
 import { test, expect } from './journey.mjs';
 import { journeyState } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
+import { tapeWindow } from './tape.mjs';
+import { criteriaDoor } from './quant-criteria.mjs';
 
 // J-algo-dev-15, in the running app (docs/roadmap/journeys.json): the three Algo dev Preview rooms (editor, tester,
 // optimiser). One test per step, titled "J-algo-dev-15 #<n>", run in order. Step 1 proves a signed-out visitor sees the
 // editor, then signs up one fresh TEST developer; the later steps sign it in again from the run file. Every row in these
 // rooms is TEST sample data; every engine action is refused with the platform's one typed Preview refusal
 // (packages/contracts/src/preview-refusal.ts: code `preview.engine_not_built`, kind `preview`, HTTP 412), and local
-// interactions store nothing on a server. No money moves.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #8: the promotion gate (AL-lifecycle-01) is not in this app yet.
+// interactions store nothing on a server. No money moves. Step 8 saves one TEST strategy, stores one real backtest of it,
+// sets the gate's two owner criteria to TEST values (put back as they were after the file) and runs the real promotion
+// gate (AL-lifecycle-01) on its own page: the gate judges, and the runs it read are exactly that stored backtest, so
+// nothing the Preview rooms showed in #1 to #7 reaches it.
 const J = 'J-algo-dev-15';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const UNBUILT = { timeout: 5_000 };
 const LABEL = 'Preview · sample data';
 const CODE = 'preview.engine_not_built';
 
@@ -192,6 +195,7 @@ test(`${J} #2 toggles a breakpoint and folds a block: the local state changes an
 
 test(`${J} #3 presses Compile: a typed Preview refusal in words and no sample build shown as a real result; the sandbox link opens /quant`, async ({
   page,
+  stepPicture,
 }) => {
   await signIn(page, who());
   await page.goto('/quant/editor');
@@ -203,6 +207,7 @@ test(`${J} #3 presses Compile: a typed Preview refusal in words and no sample bu
   await expect(compile).toContainText('Sample');
   await expect(compile).toContainText('TEST');
   await expect(page.getByTestId('compile-result')).toHaveCount(0);
+  await stepPicture();
   await page.getByRole('link', { name: 'Open the working sandbox' }).click();
   await expect(page).toHaveURL(/\/quant$/);
   await expect(page.getByRole('heading', { name: 'Algo dev', level: 1 })).toBeVisible();
@@ -263,6 +268,7 @@ test(`${J} #4 opens the tester, moves the speed slider and presses Pause: the lo
 
 test(`${J} #5 presses Start in the tester: the words say the tick engine is a preview in this build; the real backtest link opens`, async ({
   page,
+  stepPicture,
 }) => {
   await signIn(page, who());
   await page.goto('/quant/tester');
@@ -272,6 +278,7 @@ test(`${J} #5 presses Start in the tester: the words say the tick engine is a pr
     action: 'start',
     words: ['tick engine', 'preview in this build'],
   });
+  await stepPicture();
   await page.getByRole('link', { name: 'Run a real backtest' }).click();
   await expect(page).toHaveURL(/\/quant\/backtest$/);
 });
@@ -386,19 +393,170 @@ test(`${J} #7 opens walk-forward, changes the forward preset, then presses Stop,
   expect(await windows(page)).toEqual(relaid);
 });
 
-test(`${J} #8 runs the promotion gate afterwards: the gate reads no Preview value (AL-lifecycle-01, not built)`, async ({ page }) => {
-  await signIn(page, who());
-  await page.goto('/quant/strategies');
-  // Not built: the promotion gate (AL-lifecycle-01) is not in this app yet; this is where the spec puts it.
-  const gate = page.getByRole('region', { name: 'Promotion gate' });
-  await expect(gate).toBeVisible(UNBUILT);
-  await gate.getByRole('button', { name: /Run the promotion gate/ }).click();
-  const rows = gate.getByRole('row');
-  await expect.poll(() => rows.count()).toBeGreaterThan(0);
-  // No row of the gate reads a value from a Preview room.
-  for (const text of await rows.allInnerTexts()) {
-    expect(text).not.toContain(LABEL);
-    expect(text).not.toMatch(/preview|sample data/i);
+// The gate's two criteria, set to TEST values in #8 so the gate judges instead of refusing for a blank one.
+const GATE = { 'gate.paperMinutes': '1', 'gate.maxDrawdownPercent': '100' };
+let gateBefore = null;
+
+// The gate's criteria go back exactly as they were whatever happened, so no later file reads this journey's values.
+test.afterAll(async () => {
+  if (!gateBefore) return;
+  const door = await criteriaDoor(J);
+  for (const name of Object.keys(GATE)) {
+    const was = gateBefore.find((row) => row.name === name);
+    await door.set(name, was?.value ?? null, was?.source !== 'operator');
   }
-  await expect(gate.locator('[data-kind="preview"], [data-code="preview.engine_not_built"]')).toHaveCount(0);
+});
+
+/** Saves a signal-rules TEST strategy on 1 minute bars of BTC/USDT at version 1, with every risk limit set; returns its id. */
+async function saveStrategy(page, name) {
+  await page.goto('/quant/studio');
+  const fresh = page.getByRole('button', { name: 'Start a new strategy', exact: true });
+  if (await fresh.isVisible()) await fresh.click();
+  await page.getByLabel('Strategy name', { exact: true }).fill(name);
+  await page.getByLabel('Simulated starting cash', { exact: true }).fill('1000');
+  await page.getByLabel('Block 1 symbol', { exact: true }).fill('BTC/USDT');
+  await page.getByLabel('Block 1 quantity', { exact: true }).fill('0.01');
+  await page.getByLabel('Max drawdown (service unit unspecified)', { exact: true }).fill('100');
+  await page.getByLabel('Max notional (service unit unspecified)', { exact: true }).fill('500');
+  await page.getByLabel('Kill threshold (service unit unspecified)', { exact: true }).fill('50');
+  await page.getByRole('combobox', { name: /^How the strategy trades/ }).selectOption('signal');
+  const builder = page.getByTestId('quant-signal-builder');
+  await builder.getByLabel('Symbol', { exact: true }).fill('BTC/USDT');
+  await builder.getByRole('combobox', { name: /^Bar size/ }).selectOption('1m');
+  await builder.getByLabel('Fast average (bars)', { exact: true }).fill('1');
+  await builder.getByLabel('Slow average (bars)', { exact: true }).fill('2');
+  await builder.getByRole('combobox', { name: /^Size each entry by/ }).selectOption('quantity');
+  await builder.getByLabel('Size', { exact: true }).fill('0.01');
+  await page.getByRole('button', { name: 'Save to library', exact: true }).click();
+  await expect(page.getByTestId('quant-save-state')).toHaveText('Saved as version 1.');
+  await page.goto('/quant/strategies');
+  const row = page.getByTestId('quant-strategy-row').filter({ hasText: name });
+  await expect(row).toHaveCount(1);
+  const id = await row.getAttribute('data-id');
+  expect(id, 'the saved strategy has an id').toBeTruthy();
+  return id;
+}
+
+/** Runs one split backtest of version 1 of `name` on the latest TEST tape in the real backtest room; returns its stored run id. */
+async function backtest(page, name, window) {
+  await page.goto('/quant/backtest');
+  const room = page.getByTestId('quant-bar-backtest');
+  await room.getByRole('combobox', { name: /^Strategy/ }).selectOption({ label: name });
+  await expect(room.getByTestId('quant-backtest-rules')).toHaveText('Version 1: BTC/USDT, 1m bars.');
+  await room.getByLabel('From (UTC)', { exact: true }).fill(window.from);
+  await room.getByLabel('To (UTC)', { exact: true }).fill(window.to);
+  await room.getByRole('combobox', { name: /^Fill a signal at/ }).selectOption('next_open');
+  await room.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await room.getByLabel('Delay (bars)', { exact: true }).fill('0');
+  await room.getByLabel('Slippage (basis points)', { exact: true }).fill('5');
+  await room.getByRole('combobox', { name: /^Out-of-sample split/ }).selectOption('1/3');
+  await room.getByTestId('quant-backtest-run').click();
+  const result = room.getByTestId('quant-bar-result');
+  await expect(result).toBeVisible();
+  const runId = await result.getAttribute('data-run-id');
+  expect(runId, 'the backtest is stored as a run').toBeTruthy();
+  return runId;
+}
+
+/** Fails if `text` carries anything a Preview room shows: its label, the word preview, sample data or the Preview code. */
+function noPreview(text, what) {
+  expect(text, what).not.toContain(LABEL);
+  expect(text, what).not.toMatch(/preview|sample data/i);
+  expect(text, what).not.toContain(CODE);
+}
+
+/** The data a tRPC reply carries, from a plain or a batched reply, with or without a json envelope. */
+function trpcData(text) {
+  const body = JSON.parse(text);
+  const data = (Array.isArray(body) ? body[0] : body)?.result?.data;
+  return data?.json ?? data;
+}
+
+test(`${J} #8 runs the promotion gate afterwards: the gate reads no Preview value`, async ({ page }) => {
+  test.setTimeout(20 * 60_000);
+  await signIn(page, who());
+  // Afterwards: the Preview optimiser still shows its sample walk-forward windows and their gate line.
+  await page.goto('/quant/optimise');
+  await previewRoom(page, 'optimise');
+  await page.getByRole('button', { name: 'Walk-forward', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Walk-forward', exact: true }).getByTestId('wf-gate-line')).toBeVisible();
+  expect((await windows(page)).length, 'the Preview room shows sample windows').toBeGreaterThan(0);
+
+  // The person's own strategy, saved for real, with one real backtest stored as a run and no paper run.
+  const name = `TEST gate strategy ${Date.now().toString(36)}`;
+  const id = await saveStrategy(page, name);
+  const runId = await backtest(page, name, await tapeWindow(60));
+
+  // The owner's gate criteria are set (TEST), so the gate judges this version rather than refusing for a blank one.
+  const door = await criteriaDoor(J);
+  gateBefore = await door.read();
+  for (const [criterion, value] of Object.entries(GATE)) await door.set(criterion, value);
+
+  const lifecycleReads = [];
+  page.on('response', (res) => {
+    if (res.url().includes('/trpc/lifecycle.get')) lifecycleReads.push(res);
+  });
+  await page.goto(`/quant/strategies/${encodeURIComponent(id)}`);
+  const gate = page.getByRole('region', { name: 'Lifecycle and promotion', exact: true });
+  await expect(gate).toBeVisible();
+  const life = gate.getByTestId('quant-lifecycle-version');
+  await expect(life).toHaveAttribute('data-version', '1');
+  // The stage is read from this version's own stored runs: its backtest has moved it past draft.
+  const stage = await life.getAttribute('data-stage');
+  expect(stage, 'the stage this version reached on its own backtest').not.toBe('draft');
+
+  // The gate as it reads now: four checks, each reading this version's own stored backtest, its own limits or nothing.
+  const checks = life.getByTestId('quant-gate-check');
+  await expect(checks).toHaveCount(4);
+  const check = (n) => life.locator(`[data-testid="quant-gate-check"][data-check="${n}"]`);
+  await expect(check('outOfSample')).toHaveAttribute('data-run-id', runId);
+  await expect(check('riskLimits')).toHaveAttribute('data-status', 'met');
+  await expect(check('riskLimits')).toHaveAttribute('data-run-id', '');
+  // No paper run of this version exists, and the Preview tester's replay is not one: the paper check reads nothing.
+  await expect(check('paperDuration')).toHaveAttribute('data-status', 'not_met');
+  await expect(check('paperDuration')).toHaveAttribute('data-run-id', '');
+  await expect(check('paperDuration')).toHaveAttribute('data-criterion-value', GATE['gate.paperMinutes']);
+  await expect(check('paperDuration').locator('td').nth(3)).toHaveText('Nothing yet');
+  await expect(check('maxDrawdown')).toHaveAttribute('data-criterion-value', GATE['gate.maxDrawdownPercent']);
+  for (const row of await checks.all()) noPreview(await row.innerText(), 'a gate check row');
+
+  // What svc-quant sent: every run the gate read is this version's own stored backtest, and no field is a Preview value.
+  expect(lifecycleReads.length, 'the page read the gate from svc-quant').toBeGreaterThan(0);
+  const readText = await lifecycleReads.at(-1).text();
+  noPreview(readText, 'the gate reading svc-quant sent');
+  const reading = trpcData(readText);
+  expect(reading.gate.unset, 'the owner set every gate criterion').toEqual([]);
+  const readRuns = reading.gate.checks.flatMap((c) => (c.runId ? [c.runId] : []));
+  expect(readRuns.length, 'the gate read the stored backtest').toBeGreaterThan(0);
+  expect(new Set(readRuns), "the gate read no run but this version's own backtest").toEqual(new Set([runId]));
+
+  // Runs the gate: Promote asks svc-quant to judge this version. It judges, rejects (no paper run), and names as read
+  // exactly the stored backtest and the owner's criteria, nothing a Preview room showed.
+  const reply = page.waitForResponse((r) => r.url().includes('/trpc/lifecycle.promote') && r.request().method() === 'POST');
+  await life.getByRole('button', { name: 'Promote version 1', exact: true }).click();
+  const res = await reply;
+  const body = await res.text();
+  expect(res.status(), `the gate judges: ${body.slice(0, 300)}`).toBe(200);
+  noPreview(body, 'the gate answer');
+  const { decision } = trpcData(body);
+  expect(decision.decision, 'the gate does not approve a version with no paper run').toBe('rejected');
+  expect(decision.runIds, "the gate read only this version's stored backtest").toEqual([runId]);
+  expect(decision.criteria, "the gate read the owner's criteria as set").toEqual([
+    { name: 'paperMinutes', value: GATE['gate.paperMinutes'] },
+    { name: 'maxDrawdownPercent', value: GATE['gate.maxDrawdownPercent'] },
+  ]);
+  await expect(life.getByTestId('quant-promote-decision')).toHaveAttribute('data-decision', 'rejected');
+  await expect(page.locator('[data-kind="preview"], [data-code="preview.engine_not_built"]')).toHaveCount(0);
+  noPreview(await life.innerText(), 'the gate checks and its answer');
+
+  // Read back from the service: the decision is stored once, naming the backtest; the stage did not move.
+  await page.reload();
+  await expect(life).toHaveAttribute('data-stage', stage);
+  const decisions = life.getByTestId('quant-gate-decisions');
+  await expect(decisions).toHaveAttribute('data-count', '1');
+  await expect(decisions).toHaveAttribute('data-stages', '0');
+  const stored = decisions.getByTestId('quant-gate-decision');
+  await expect(stored).toHaveCount(1);
+  await expect(stored).toHaveAttribute('data-decision', 'rejected');
+  await expect(stored).toHaveAttribute('data-run-ids', runId);
 });

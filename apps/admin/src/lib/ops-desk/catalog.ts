@@ -1,4 +1,10 @@
-import type { Column, DeskPage, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
+import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
+import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
+import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+
+/** A read whose call has a record: its module and path are the record's, never typed again here. */
+const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
 
 /**
  * What each module desk reads, and what it admits it cannot read.
@@ -326,6 +332,50 @@ const bankSections: readonly DeskSection[] = [
         forbiddenText: FORBID_BANK_OPS,
       },
       {
+        id: 'bank.card-pay-from-reconciliation',
+        title: 'Pay-from reconciliation against the partner’s reports',
+        note: 'For each asset a card payment was taken from by a person’s pay-from order: the spend (captured less refunded) and the open holds the card partner reports for those payments, beside what this app recorded from its answers and showed the person. Each line reads "matches" or "break". A payment the partner has no record of, or reports differently, is its own break row below and is not added to these lines.',
+        module: 'bank',
+        plainName: 'card pay-from reconciliation',
+        procedure: 'ops.cardPayFromReconciliation',
+        shape: 'list',
+        rowsKey: 'lines',
+        anonymousRows: true,
+        columns: [
+          text('assetId', 'Asset'),
+          text('kind', 'Line', { words: { spend: 'Spend', open_holds: 'Open holds' } }),
+          amount('app', 'This app'),
+          amount('partner', 'Card partner'),
+          text('status', 'Reconciliation', { words: { matches: 'matches', break: 'break' } }),
+        ],
+        emptyText: 'No card payment has been taken by a pay-from order yet.',
+        forbiddenText: FORBID_BANK_OPS,
+      },
+      {
+        id: 'bank.card-pay-from-breaks',
+        title: 'Pay-from breaks',
+        note: 'Each pay-from payment whose figures the card partner does not report as this app recorded them: not reported (the partner has no record of the hold) or different. A break is named here once, never folded into a total.',
+        module: 'bank',
+        plainName: 'card pay-from breaks',
+        procedure: 'ops.cardPayFromReconciliation',
+        shape: 'list',
+        rowsKey: 'breaks',
+        idKey: 'authorizationRef',
+        columns: [
+          text('authorizationRef', 'Payment'),
+          text('assetId', 'Asset'),
+          text('reason', 'Break', {
+            words: { not_reported: 'not reported by the partner', differs: 'the partner reports it differently' },
+          }),
+          amount('app.spend', 'Spend (app)'),
+          amount('app.open', 'Open hold (app)'),
+          amount('partner.spend', 'Spend (partner)', { nullable: true, parentNullable: true }),
+          amount('partner.open', 'Open hold (partner)', { nullable: true, parentNullable: true }),
+        ],
+        emptyText: 'No break: every pay-from payment reads as the partner reports it.',
+        forbiddenText: FORBID_BANK_OPS,
+      },
+      {
         id: 'bank.card-funding-requests',
         title: 'Funding instructions sent to the partner',
         note: 'The last 20 fund, defund and auto reload instructions two founders sent, each with the partner’s reference. A record of what was asked, not a balance.',
@@ -369,6 +419,21 @@ const bankSections: readonly DeskSection[] = [
     ],
   },
   {
+    id: 'bank-rails',
+    title: 'Bank rails',
+    intro: 'Salary paid in by direct deposit: the payroll network’s own credits minus reversals against what the app showed, per currency.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [
+      {
+        href: '/bank-ops/rails',
+        label: 'Bank rails desk',
+        why: 'The reconciliation by currency is on its own page.',
+      },
+    ],
+  },
+  {
     id: 'card-disputes',
     title: 'Card disputes',
     intro:
@@ -381,6 +446,11 @@ const bankSections: readonly DeskSection[] = [
         href: '/bank-ops/cards/disputes',
         label: 'Card disputes',
         why: 'The dispute queue and each case are on their own pages.',
+      },
+      {
+        href: '/bank-ops/cards',
+        label: 'Card programme',
+        why: 'The set-up checklist, configuration, authorisation rules, 3DS, cardholders, the decision log, reports, staff roles and bulk issue are on their own page.',
       },
     ],
   },
@@ -1244,8 +1314,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.health',
         title: 'Service health',
         note: '"Moderation configured" means someone is on the moderator list. svc-p2p cannot tell whether that person is actually watching the queue.',
-        module: 'p2p',
-        procedure: 'health',
+        ...readOf(P2P_HEALTH),
         shape: 'record',
         columns: [
           bool('ok', 'Answering'),
@@ -1261,8 +1330,7 @@ const p2pSections: readonly DeskSection[] = [
         id: 'p2p.fiat',
         title: 'Fiat currencies enabled',
         note: 'Currencies P2P can trade against, from configuration. Not a volume.',
-        module: 'p2p',
-        procedure: 'fiat.list',
+        ...readOf(P2P_FIAT_LIST),
         shape: 'list',
         idKey: 'code',
         columns: [text('code', 'Code'), text('name', 'Name'), text('symbol', 'Symbol'), int('minorUnits', 'Minor units')],
@@ -1553,6 +1621,21 @@ const academySections: readonly DeskSection[] = [
         label: 'Learn hub',
         why: 'The featured article as staff chose it, and the topic list courses are filed under.',
       },
+      {
+        href: '/academy-ops/catalogue/analytics',
+        label: 'Academy numbers',
+        why: 'Lesson reads, completions and certificates by day, and a summary of each learner, as svc-academy counts them.',
+      },
+      {
+        href: '/academy-ops/catalogue/report-centre',
+        label: 'Reports centre',
+        why: 'Request a learners report, watch it run, abort it, download its file with its hash, and delete it.',
+      },
+      {
+        href: '/academy-ops/catalogue/moderation',
+        label: 'Moderation',
+        why: 'Discussion posts learners reported, deleting one with a reason, and every moderation action taken.',
+      },
     ],
   },
   {
@@ -1586,7 +1669,19 @@ const academySections: readonly DeskSection[] = [
     ],
     unavailable: [],
     disabledActions: [],
-    links: [{ href: '/academy-ops/grants', label: 'Grants', why: 'Who was granted which certificate, and when.' }],
+    links: [
+      {
+        href: '/academy-ops/certificates/designs',
+        label: 'Designs',
+        why: 'What each certificate prints: draft a design, activate it, and see which revision issued certificates keep.',
+      },
+      {
+        href: '/academy-ops/certificates/issued',
+        label: 'Issued',
+        why: 'Every issued certificate counted by status, with stored exports.',
+      },
+      { href: '/academy-ops/grants', label: 'Grants', why: 'Who was granted which certificate, and when.' },
+    ],
   },
   {
     id: 'programmes',
@@ -1692,7 +1787,13 @@ const academySections: readonly DeskSection[] = [
     unavailable: [],
     disabledActions: [],
     sectionAction: 'academy.ambassador.appoint',
-    links: [],
+    links: [
+      {
+        href: '/academy-ops/ambassadors/roles',
+        label: 'Course team roles',
+        why: 'Who holds which role on each course, role changes waiting for a second founder, and custom roles.',
+      },
+    ],
   },
   {
     id: 'grants',
@@ -1735,11 +1836,16 @@ const academySections: readonly DeskSection[] = [
               bundle: 'Part of a bundle',
               membership: 'Part of a membership',
               issue: 'Certificate',
+              exception: 'Certificate issued as an exception',
             },
           }),
           text('reference', 'Reference', { detail: true }),
         ],
         emptyText: 'svc-academy records no grants or revokes yet.',
+        filters: {
+          course: { label: 'Course', emptyText: 'svc-academy records no grants or revokes for this course.' },
+          certificate: { label: 'Certificate', emptyText: 'svc-academy records no grants or revokes for this certificate.' },
+        },
         forbiddenText: FORBID_ACADEMY_ADMIN,
         refusals: {
           'academy.grant_audit_list_limit_unset':
@@ -1790,28 +1896,10 @@ const moreSections: readonly DeskSection[] = [
   {
     id: 'agents',
     title: 'Agents',
-    intro: 'The AI agent service: which tasks it can run and at what price.',
-    reads: [
-      {
-        id: 'agents.routes',
-        title: 'Task routes and prices',
-        note: 'Each task the gateway serves, its output ceiling and its metered price per million tokens. A route table, not usage.',
-        module: 'agents',
-        procedure: 'routes.list',
-        shape: 'list',
-        idKey: 'task',
-        columns: [
-          text('task', 'Task'),
-          text('capability', 'Capability'),
-          int('maxOutputTokens', 'Output ceiling (tokens)'),
-          amount('inputPerMillion', 'Input per million'),
-          amount('outputPerMillion', 'Output per million'),
-          text('assetId', 'Billed in'),
-        ],
-        emptyText: 'svc-agents serves no task routes.',
-        forbiddenText: 'svc-agents did not accept your founder session for this read (it needs agents:read).',
-      },
-    ],
+    intro: 'The AI agent service: which tasks it can run, on which provider and model, and at what price.',
+    // The routing table is its own panel (J-agents-20): its rows carry the two-founder change, which a read cannot.
+    reads: [],
+    panel: 'agents.routes',
     unavailable: [
       un(
         'agents.sessions',
@@ -1887,9 +1975,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.terms',
         title: 'Pool terms',
         note: 'The fee and window size from the pool’s configuration. There is no default: an unset value is blank with its reason, not zero.',
-        module: 'mining',
+        ...readOf(MINING_TERMS),
         plainName: 'mining pool terms',
-        procedure: 'terms',
         shape: 'record',
         columns: [
           bps('feeBps', 'Pool fee', { nullable: true }),
@@ -1904,9 +1991,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.windows',
         title: 'Payout windows',
         note: 'Every window, newest first: its reward and fee as stored on the window, how many shares and how much weight it holds, and when it was paid. A blank reward or fee is blank, never zero.',
-        module: 'mining',
+        ...readOf(MINING_OPS_WINDOWS),
         plainName: 'mining windows',
-        procedure: 'ops.windows',
         shape: 'list',
         rowsKey: 'windows',
         idKey: 'windowId',
@@ -1927,9 +2013,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.shares',
         title: 'Shares by window',
         note: 'Shares accepted and refused in each window, and the accepted weight. Refusals are counted only where the miner could be identified.',
-        module: 'mining',
+        ...readOf(MINING_OPS_SHARES),
         plainName: 'mining shares',
-        procedure: 'ops.shares',
         sendEmptyInput: true,
         shape: 'list',
         rowsKey: 'windows',
@@ -1947,9 +2032,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'mining.workers',
         title: 'Workers',
         note: 'Registered workers across accounts, newest first. Registration is refused because no write permission is chosen for it, so this list is expected to be empty.',
-        module: 'mining',
+        ...readOf(MINING_OPS_WORKERS),
         plainName: 'mining workers',
-        procedure: 'ops.workers',
         input: { limit: 50 },
         shape: 'list',
         rowsKey: 'workers',
@@ -2225,16 +2309,24 @@ const moreSections: readonly DeskSection[] = [
     title: 'Campaigns',
     intro: 'Customer campaigns and who took part.',
     reads: [],
-    unavailable: [
-      un(
-        'campaigns.participation',
-        'Campaign participation',
-        'svc-campaigns has no operator read of who joined a campaign (its participations are read per customer). The campaigns desk shows every campaign, its state and its budget.',
-        26,
-      ),
-    ],
+    unavailable: [],
     disabledActions: [],
     links: [
+      {
+        href: '/more-ops/campaigns/watch',
+        label: 'Campaign watch',
+        why: 'Running campaigns counted from svc-campaigns: KPIs, trends, alerts, and each campaign’s participation, vouchers, redemptions, code batches and exports.',
+      },
+      {
+        href: '/more-ops/campaigns/risk',
+        label: 'Risk review',
+        why: 'Accounts with duplicate-account, device and anti-churn signals: held rewards, withholding, revoking and appeals decided by a second person.',
+      },
+      {
+        href: '/more-ops/campaigns/payouts',
+        label: 'Payout board',
+        why: 'Reward intents by state (owed, pending funding, sending, paid, failed) with their keys and ledger and chain references, and each airdrop’s plan and run.',
+      },
       {
         href: '/more-ops/campaigns',
         label: 'Campaigns desk and builder',
@@ -2267,9 +2359,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.chain',
         title: 'Chain status',
         note: 'A probe, not a heartbeat: it says whether a chain answered and whether the contracts hold code. The chain id below decides the network label in the blockers; it is never assumed to be INTACHAIN.',
-        module: 'protocol',
+        ...readOf(PROTOCOL_CHAIN_STATUS),
         plainName: 'chain status',
-        procedure: 'chainStatus',
         shape: 'record',
         columns: [
           bool('reachable', 'A chain answered'),
@@ -2309,9 +2400,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.audit',
         title: 'Audit status',
         note: 'The committed internal review package. "Audited by an outside firm" must be no: a service answer that says otherwise is refused as unreadable instead of shown.',
-        module: 'protocol',
+        ...readOf(PROTOCOL_AUDIT_STATUS),
         plainName: 'audit status',
-        procedure: 'auditStatus',
         shape: 'record',
         columns: [
           text('id', 'Package'),
@@ -2393,9 +2483,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.health',
         title: 'Protocol service health',
         note: 'Process-level facts from svc-protocol: whether relaying is switched on and whether the account factory is set. Says nothing about the chain.',
-        module: 'protocol',
+        ...readOf(PROTOCOL_HEALTH),
         plainName: 'protocol service health',
-        procedure: 'health',
         shape: 'record',
         columns: [bool('relayEnabled', 'Relaying switched on'), bool('factoryConfigured', 'Account factory configured')],
         emptyText: '',
@@ -2432,6 +2521,17 @@ const protocolSections: readonly DeskSection[] = [
         why: 'What is hidden now, and the two-founder request to hide, restore, delist or relist.',
       },
     ],
+  },
+  {
+    id: 'trust',
+    title: 'Trust and safety',
+    intro:
+      'Scam reports with who filed them, and the labels two reviewers publish from them; the trust criteria; and the audit and disclosure room, as svc-protocol reports them. A label is a record about an address, not a verdict.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [],
+    panel: 'protocol.trust',
   },
 ];
 
@@ -2528,6 +2628,30 @@ export function academySectionDesk(sectionId: string): DeskSpec {
 
 export function allReads(desk: DeskSpec): ReadSpec[] {
   return desk.sections.flatMap((s) => [...s.reads]);
+}
+
+/** A course slug or certificate id as the address may name one; anything else narrows nothing. */
+const FILTER_VALUE = /^[A-Za-z0-9:_-]{1,120}$/;
+
+/**
+ * The desk narrowed by the page's address (`?course=<slug>`): each read that names `filters` gets the first of them the
+ * address holds, in its input, with that filter's empty text. A key the read does not name, or a value of the wrong shape,
+ * narrows nothing. With nothing narrowed the desk is returned as it is.
+ */
+export function narrowDesk(desk: DeskSpec, params: Readonly<Record<string, string | string[] | undefined>>): DeskSpec {
+  const filter: Record<string, string> = {};
+  const sections = desk.sections.map((section) => ({
+    ...section,
+    reads: section.reads.map((spec) => {
+      const key = Object.keys(spec.filters ?? {}).find((k) => typeof params[k] === 'string' && FILTER_VALUE.test(params[k]));
+      if (key === undefined) return spec;
+      const value = params[key] as string;
+      const f = spec.filters![key]!;
+      filter[key] = value;
+      return { ...spec, input: { ...spec.input, [key]: value }, emptyText: f.emptyText, narrowed: { key, value, label: f.label } };
+    }),
+  }));
+  return Object.keys(filter).length === 0 ? desk : { ...desk, sections, filter };
 }
 
 export function readSpecFor(deskId: OpsDeskId, readId: string): ReadSpec | undefined {

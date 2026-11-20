@@ -2871,7 +2871,7 @@ describe('svc-p2p escrow', () => {
         () =>
           new P2pService(sql, ledger, bus, {
             ...options,
-            feeBps: 12.5 as unknown as number,
+            feeBps: 12.5 as number,
           }),
       ).toThrow(/fee_bps/);
     });

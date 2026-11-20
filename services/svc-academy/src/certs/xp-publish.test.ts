@@ -119,6 +119,39 @@ describe('BusCertXpPublisher — one award reaches the one XP graph', () => {
     expect(envelope?.producer).toBe('svc-academy');
   });
 
+  it('a revoke takes the award back: the same amount negative, its own key, once (J-academy-17 #6)', async () => {
+    const bus = new MemoryEventBus('svc-academy');
+    const store = new MemorySeenStore();
+    const awarded: number[] = [];
+    await bus.subscribe(
+      'xpEarned',
+      idempotent(async (payload) => void awarded.push(payload.xpDelta), store, 'svc-identity-xp'),
+      { durable: 'identity-xp-earned' },
+    );
+    const publisher = new BusCertXpPublisher(bus);
+    const grant = grantOf();
+    await publisher.publishCertXp(grant);
+    const reversed = await publisher.reverseCertXp(grant);
+    await publisher.publishCertXp(grant);
+    await publisher.reverseCertXp(grant);
+
+    expect(reversed).toEqual({ emitted: true, idempotencyKey: `academy.cert:reverse:cert:${USER}:foundations-v1`, xpDelta: -100 });
+    expect(bus.emitted('xpEarned').at(-1)?.payload).toMatchObject({ sourceModule: 'academy', action: 'cert.revoked', xpDelta: -100 });
+    // Award and reversal each land once at the writer, however often they are sent: the net is nothing.
+    expect(awarded).toEqual([100, -100]);
+    expect(awarded.reduce((a, b) => a + b, 0)).toBe(0);
+  });
+
+  it('a revoke of a certificate with no published XP takes nothing back', async () => {
+    const bus = new MemoryEventBus('svc-academy');
+    const store = new MemoryCertStore();
+    store.registerCert({ id: 'not-in-policy-v1', title: 'Unpriced', requiredItemSlugs: ['a'] });
+    store.markComplete(USER, 'a', NOW);
+    const result = await new BusCertXpPublisher(bus).reverseCertXp(store.grant(USER, 'not-in-policy-v1', NOW));
+    expect(result).toEqual({ emitted: false, reason: 'no_policy' });
+    expect(bus.emitted('xpEarned')).toHaveLength(0);
+  });
+
   it('re-granting awards the user ONCE — the identity-side dedupe, not a promise', async () => {
     const bus = new MemoryEventBus('svc-academy');
     const store = new MemorySeenStore();

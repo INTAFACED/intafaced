@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Failure, Loading } from '../../shared/ui';
 import { securityChecklistCopy as copy } from './security-checklist-copy';

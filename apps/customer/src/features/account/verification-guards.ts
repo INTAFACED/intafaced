@@ -29,16 +29,19 @@ export const verificationRecord = z.object({
 });
 export type VerificationRecord = z.infer<typeof verificationRecord>;
 export function verificationStatus(owner: string, limit: number) {
-  return z
-    .object({ tier: verificationTier, records: z.array(verificationRecord).max(limit) })
-    .refine(
-      (value) =>
-        new Set(value.records.map((row) => row.id)).size === value.records.length &&
-        value.records.every(
-          (row, index) =>
-            row.userId === owner && (index === 0 || Date.parse(value.records[index - 1]!.createdAt) >= Date.parse(row.createdAt)),
-        ),
-    );
+  return (
+    z
+      // `tradingOnly`: the level was cleared by the trading checks alone (J-cex-spot-01 #3), so it is for trading.
+      .object({ tier: verificationTier, tradingOnly: z.boolean().optional(), records: z.array(verificationRecord).max(limit) })
+      .refine(
+        (value) =>
+          new Set(value.records.map((row) => row.id)).size === value.records.length &&
+          value.records.every(
+            (row, index) =>
+              row.userId === owner && (index === 0 || Date.parse(value.records[index - 1]!.createdAt) >= Date.parse(row.createdAt)),
+          ),
+      )
+  );
 }
 /** submitKyc can return an existing record from ANY jurisdiction. */
 export function verificationReply(owner: string, tier: RequestedTier) {
@@ -113,4 +116,15 @@ export function verificationRefused(answer: ApiResult<unknown>) {
   if (answer.status === 429 && answer.code === 'kyc.attempts_exhausted') return true;
   if (answer.status === 409 && answer.code === 'kyc.capability_inactive') return true;
   return answer.status === 404 && answer.reason === 'not_mounted' && answer.code === 'auth.not_found' && !answer.messageCopy;
+}
+
+/**
+ * The bank's steps are open when the person asked for them, and also when they are already in them: a page opened from a
+ * selfie hand-off link (`/verification?handoff=…`, a used or cut one included), or a guided draft on the service not yet
+ * sent, so a person who leaves and returns resumes at the step they left (J-identity-08 #2, #3).
+ */
+export function bankStepsOpen(pressed: boolean, search: string, profile: { draft: { recordId?: string | null } | null } | null): boolean {
+  if (pressed) return true;
+  if (new URLSearchParams(search).has('handoff')) return true;
+  return Boolean(profile?.draft && !profile.draft.recordId);
 }

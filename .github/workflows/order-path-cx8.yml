@@ -47,7 +47,6 @@ env:
 jobs:
   assembled:
     name: CX-8 assembled smoke
-    # ubuntu-24.04, not ubuntu-latest: the Postgres service below is 16, and ubuntu-26.04 runners carry a newer pg_dump whose dumps start with SET transaction_timeout, which a 16 server refuses (svc-notify relay.pg, svc-ops restore tests; main CI run 42969066279, #7933).
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
@@ -66,7 +65,7 @@ jobs:
           --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
@@ -75,10 +74,16 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Get a nats-server binary
+        uses: ./.github/actions/nats-server
+        with:
+          path: ${{ runner.temp }}/nats-server
+
       - name: Start NATS JetStream
         run: |
-          docker run -d --name cx8-nats -p 4222:4222 -p 8222:8222 \
-            nats:2.10-alpine --jetstream --http_port=8222 --store_dir=/data
+          mkdir -p "$RUNNER_TEMP/nats-js"
+          nohup "$RUNNER_TEMP/nats-server" -p 4222 --jetstream --http_port=8222 --store_dir "$RUNNER_TEMP/nats-js" \
+            > "$RUNNER_TEMP/nats.log" 2>&1 &
           for i in $(seq 1 30); do
             wget -q -O- http://127.0.0.1:8222/healthz && break
             sleep 1
@@ -91,7 +96,10 @@ jobs:
           PGPASSWORD: intafaced
           PGHOST: 127.0.0.1
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          # The runner image ships psql (main CI's test-infra action uses it with no install). Installing it from apt
+          # every run turned an apt mirror DNS outage into a red main (#7992); apt is only the fallback now.
+          command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client; }
+          psql --version
           PGPASSWORD=intafaced psql -h 127.0.0.1 -U intafaced -d intafaced \
             -f tooling/infra/postgres-init/01-service-schemas.sql
           PGPASSWORD=intafaced psql -h 127.0.0.1 -U intafaced -d intafaced -c \
@@ -99,7 +107,11 @@ jobs:
           bash tooling/infra/postgres-init/02-intafaced-test-db.sh
 
       - name: Build packages used by money path
-        run: pnpm exec turbo run build --filter=@intafaced/svc-ledger --filter=@intafaced/svc-matching --filter=@intafaced/svc-trade --filter=@intafaced/svc-identity --filter=@intafaced/contracts --filter=@intafaced/ledger-client --filter=@intafaced/events --filter=@intafaced/config --filter=@intafaced/auth --filter=@intafaced/db --filter=@intafaced/exchange-contract --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/svc-tax --filter=@intafaced/ui --filter=@intafaced/i18n --filter=@intafaced/money-math
+        run: pnpm exec turbo run build --filter=@intafaced/svc-ledger --filter=@intafaced/svc-matching --filter=@intafaced/svc-trade --filter=@intafaced/svc-identity --filter=@intafaced/contracts --filter=@intafaced/ledger-client --filter=@intafaced/events --filter=@intafaced/config --filter=@intafaced/auth --filter=@intafaced/db --filter=@intafaced/exchange-contract --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/ui --filter=@intafaced/i18n --filter=@intafaced/money-math
+
+      # svc-tax is Rust (crates/svc-tax): the runner's rustup installs the toolchain rust-toolchain.toml pins.
+      - name: Build svc-tax (Rust)
+        run: rustup toolchain install && cargo build --release --locked -p svc-tax
 
       # The CX-8 smoke, then the customer trade journeys on the same stack (svc-pay boots for the withdrawal journeys, svc-bank for the wallet view).
       - name: CX-8 boot + STRICT smoke + trade journeys

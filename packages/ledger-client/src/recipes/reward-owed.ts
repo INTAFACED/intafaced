@@ -244,12 +244,48 @@ export function rewardPayOut(input: RewardPayOutInput): PostRequest {
   requirePositive('reward payment amount', input.amount);
   const place = ownFundsPlaceAccount(input.from, assetId);
   return {
-    idempotencyKey: requireKey(`campaigns:reward-paid:${input.rewardId}:${chainTx}`),
+    // Keyed by the chain transaction alone (the money model's "keyed by the chain transaction"): one transfer books one
+    // payment, so the same transaction can never be booked against a second reward (the ledger refuses the same key with
+    // another body). The reward is in the entries and the meta. A reward id with the transaction would pass the key's
+    // 200 characters for a campaign task reward (`campaign:<uuid>:task-<uuid>-<uuid>-once`).
+    idempotencyKey: requireKey(`campaigns:reward-paid:${chainTx}`),
     module: MODULE,
     reason: 'campaigns.reward.paid_out',
     meta: { rewardId: input.rewardId, from: place.ownerId, toWallet: input.toWallet, chainTx },
     // What we owe comes down; the paying place's balance comes back toward zero (less of ours there). Both are refused
     // by the ledger if they would show less than nothing.
     entries: [credit(owed, input.amount), debit(place, input.amount)],
+  };
+}
+
+export interface RewardReclaimInput {
+  readonly campaignId: string;
+  /** The owed reward's decision record key, as it was owed. */
+  readonly rewardId: string;
+  /** The risk case's decision to cancel it (no spaces or colons). */
+  readonly caseId: string;
+  readonly assetId: string;
+  /** What is still owed for this reward, never more: the owed pot is a `module` account and cannot go below zero. */
+  readonly amount: Amount;
+}
+
+/**
+ * Cancel a reward we owe and have not paid (J-campaigns-18 #4, a risk decision): `campaigns:owed:<rewardId>` → the rewards
+ * engine, where its budget came from, under `campaigns:reclaim:<rewardId>`, so one reward is reclaimed once. Our own
+ * accounts only: nothing is taken from a customer, and a reward already paid to the customer's own wallet is never pulled
+ * back (there is no recipe for it). More than is still owed is refused by the ledger (`ledger.insufficient_funds`).
+ */
+export function rewardReclaim(input: RewardReclaimInput): PostRequest {
+  const campaignId = requireCampaignId(input.campaignId);
+  const rewardId = requireRewardId(input.rewardId, campaignId);
+  const caseId = requireReference('caseId', input.caseId);
+  const assetId = requireUsdc(input.assetId);
+  requirePositive('reward reclaim amount', input.amount);
+  return {
+    idempotencyKey: requireKey(`campaigns:reclaim:${rewardId}`),
+    module: MODULE,
+    reason: 'campaigns.reward.reclaimed',
+    meta: { campaignId, rewardId, caseId },
+    entries: [credit(rewardOwedAccount(rewardId), input.amount), debit(rewardsEngine(assetId), input.amount)],
   };
 }

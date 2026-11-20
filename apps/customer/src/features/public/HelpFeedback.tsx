@@ -2,9 +2,8 @@ import { useRef, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { safeReturnTo } from '../../app/navigation';
-import { useSession } from '../session/session';
-import { sendArticleFeedback } from '../more/support-calls';
-import { supportRequestHref } from '../more/support-desk';
+import { useSession } from '../session';
+import { sendArticleFeedback, supportRequestHref } from '../more';
 import { helpFeedbackCopy as copy } from './help-feedback-copy';
 
 type Vote = { helpful: boolean; ticketId?: string; earlier?: true };

@@ -198,7 +198,7 @@ describe('Network label and copy honesty', () => {
 describe('Room sub-navigation', () => {
   it('offers the audited IA for each room', () => {
     expect(protocolSubnav('chain')).toEqual(['status', 'blocks', 'validators', 'audit']);
-    expect(protocolSubnav('dex')).toEqual(['swap', 'pools', 'positions', 'venue']);
+    expect(protocolSubnav('dex')).toEqual(['swap', 'pools', 'positions', 'venue', 'lend']);
     expect(protocolSubnav('protocol')).toEqual(['overview', 'contracts', 'audit', 'rails']);
   });
 

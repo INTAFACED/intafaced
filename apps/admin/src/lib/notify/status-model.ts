@@ -18,6 +18,7 @@ import {
   type StatusPageState,
 } from '@intafaced/contracts/status-page';
 import type { Part } from '@/lib/desk/part';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export interface StatusDefinition {
   readonly components: readonly StatusComponentDefinition[];
@@ -32,7 +33,6 @@ export interface StatusDefinition {
   readonly publicOrigin: string | null;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
 const intOrNull = (v: unknown): v is number | null => v === null || Number.isInteger(v);
 const strOrNull = (v: unknown): v is string | null => v === null || typeof v === 'string';
 

@@ -19,15 +19,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const NAME = 'RECONCILE_CRON_MINUTES';
 const EMPTY_PASS = `${NAME}: \${${NAME}:-}`;
 
 function ledgerServiceBlock(source: string): string {
-  const match = source.match(/^  svc-ledger:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('svc-ledger service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-ledger');
 }
 
 function countAssignments(source: string, name: string): number {

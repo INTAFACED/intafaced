@@ -20,6 +20,7 @@ import { NavigatorOnchainError, NavigatorOnchainStore, navigatorAskIsTrade, navi
 import { navigatorTrade, navigatorTrading, type NavigatorChain, type NavigatorMarket, type NavigatorSender } from './onchain-trade.js';
 import { navigatorAskMovesMoneyOut } from '@intafaced/contracts/agents-onchain';
 import type { LinkedWalletsPort } from '../own/payment-method.js';
+import { selfFreezeGate, type OwnSelfFreezeRead } from '../own/self-freeze.js';
 
 export interface NavigatorOnchainDeps {
   readonly sql: Sql | undefined;
@@ -35,6 +36,11 @@ export interface NavigatorOnchainDeps {
   readonly linkedWallets: LinkedWalletsPort | null;
   /** The session's owner and agent, or null when there is no such session. */
   readonly session: (sessionId: string) => Promise<{ userId: string; agentId: string; status: string } | null>;
+  /**
+   * Identity's read of the owner's own freeze (J-wallet-13): a new binding and a trade ask refuse FORBIDDEN
+   * agents.identity.owner_frozen_self while it is on, and agents.identity.owner_freeze_unread when it cannot be read.
+   */
+  readonly selfFreeze?: OwnSelfFreezeRead | null;
 }
 
 const HTTP: Record<NavigatorOnchainError['code'], TRPCError['code']> = {
@@ -109,6 +115,7 @@ export function navigatorOnchainRoutes(deps: NavigatorOnchainDeps) {
         .mutation(({ ctx, input }) =>
           guard(async () => {
             const { signer } = navigatorSigner(input.chainId, deps.signer);
+            await selfFreezeGate(ctx.principal.userId, deps.selfFreeze);
             const grant = preparedGrant(input);
             return storeOf(deps.sql).bind({
               userId: ctx.principal.userId,
@@ -161,6 +168,8 @@ export function navigatorOnchainRoutes(deps: NavigatorOnchainDeps) {
           const session = await navigatorSession(input.sessionId, ctx.principal.userId);
           if (session.status !== 'open') throw new TRPCError({ code: 'BAD_REQUEST', message: 'agents.refused.session_closed' });
           if (!navigatorAskIsTrade(input.text) && !navigatorAskMovesMoneyOut(input.text)) return { kind: 'none' };
+          // An order the Navigator would place for the person waits for the lift of their own freeze (J-wallet-13 #2).
+          await selfFreezeGate(ctx.principal.userId, deps.selfFreeze);
           const order = await navigatorTrade(
             {
               store: storeOf(deps.sql),

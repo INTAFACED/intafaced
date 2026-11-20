@@ -31,6 +31,27 @@ export function declaredWorld(src) {
   return new Set(words);
 }
 
+/**
+ * Whether a journey file needs a fresh stack: a `// Stack: fresh` line. Its steps read something every journey file
+ * shares and none puts back (the launch catalogue, a global list or count), as a fresh stack leaves it, so the shard plan
+ * runs it first in its shard, before any other file can have used the stack (tooling/scripts/journey-shards.mjs
+ * `planShards`; Playwright runs a shard's files in name order). Failure it prevents: J-more-catalogue-11 #1 read the open
+ * TEST launch J-more-catalogue-01 #6 had made earlier in its shard (#7994).
+ */
+export function stackFresh(src) {
+  return /^\/\/ Stack: fresh$/m.test(src);
+}
+
+/**
+ * Whether a journey file reads the TEST market moving on its own: a `// Market: live` line. Every other file runs on a
+ * still market (local-test-market.mjs `still`): the maker quotes the same ladder at the same TEST PRICE and nothing crosses
+ * it, so a price, mark, candle or total moves only when someone trades. A file that waits for the market's own trades
+ * (new candles, a last price that ticks, a walk that drifts into a resting order) carries the line.
+ */
+export function marketLive(src) {
+  return /^\/\/ Market: live$/m.test(src);
+}
+
 /** The `// World:` line a file with these parts needs, parts in WORLD's order. */
 export function worldLine(parts) {
   const ordered = Object.keys(WORLD).filter((p) => parts.has(p));

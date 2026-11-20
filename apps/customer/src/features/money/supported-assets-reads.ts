@@ -1,6 +1,6 @@
 // hand-declared-ok: svc-bank's `bank.assets.list` mirrors packages/contracts/src/asset-registry.ts, whose module also hashes edits with node:crypto, so it has no browser-safe export yet.
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiClient, ApiResult } from '../../shared/api';
 
@@ -13,7 +13,15 @@ export const supportedAssetSchema = z.object({
   assetId: z.string().regex(/^[A-Z0-9]{1,16}$/),
   kind: z.enum(['crypto', 'fiat', 'native', 'commodity']),
   precision: z.number().int().min(0).max(18),
-  networks: z.array(z.object({ networkId: z.string().min(1), label: z.string().min(1) })),
+  networks: z.array(
+    z.object({
+      networkId: z.string().min(1),
+      label: z.string().min(1),
+      /** The contract on this network, or null when the registry knows none (a native coin, or not published). */
+      contract: z.string().min(1).nullable().default(null),
+      links: z.array(z.object({ label: z.string().min(1), url: z.string().regex(/^https:\/\//) })).default([]),
+    }),
+  ),
   defaultNetworkId: z.string().min(1).nullable(),
   allowedActions: z.array(z.enum(SUPPORTED_ASSET_ACTIONS)),
   state: z.enum(SUPPORTED_ASSET_STATES),

@@ -34,7 +34,6 @@ import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import {
   MemoryLedger,
   formatAmount,
-  houseFees,
   parseAmount as amt,
   positionCollateralAccount,
   recipes,

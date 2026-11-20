@@ -7,9 +7,16 @@ import {
   academyLearnerTagsSchema,
 } from '@intafaced/contracts/academy-learner-desk';
 import { identityLearnerCardResultSchema } from '@intafaced/contracts/identity-learner-card';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+  type RefusalView,
+} from '@/lib/desk';
 import type { LearnerDeskReply, LearnersView, LearnerView } from './learners-model';
 import { isLearnerOp, learnerChange, type LearnerOp } from './learners-ops';
 

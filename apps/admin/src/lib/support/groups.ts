@@ -1,4 +1,5 @@
 import type { StaffMemberView } from './staff';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * Desk groups: which tickets a group of staff can see. A lead makes and renames groups and puts staff in them; everyone on
@@ -25,7 +26,6 @@ export const GROUP_NAME_MAX = 80;
 export const KEY_MIN = 8;
 export const KEY_MAX = 200;
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
 const isText = (v: unknown): v is string => typeof v === 'string' && v !== '';
 const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID.test(v);
 

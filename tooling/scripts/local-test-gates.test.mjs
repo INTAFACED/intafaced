@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createDecipheriv } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +26,8 @@ import {
   SET_FRAUD_LISTING_ACTION,
   TEST_FRAUD_LIST,
   founderSignIns,
+  founderSession,
+  tradeAudit,
   termsProposal,
   TEST_TRANSFER_TERMS,
   TEST_ASSET_ROWS,
@@ -55,7 +57,6 @@ import {
   operatorLogin,
   stepAfterRefusal,
   founderStepRefused,
-  signInOnceMore,
   TOTP_SKEW_STEPS,
   EDGE_AUTHORITY_CACHE_MAX_MS,
   POSTING_FREEZE_REASON,
@@ -68,8 +69,8 @@ import {
   isCancelOf,
   TRADE_CANCELS,
 } from './local-test-gates.mjs';
-import { draftFounderVault } from './local-test-founders.mjs';
-import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
+import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, draftFounderVault } from './local-test-founders.mjs';
+import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, UNTRADED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
 import { TEST_KYB_ENTITY_TYPES, TEST_KYB_UPLOAD_RULES } from './seed-pay-kyb-test-requirements.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -306,7 +307,15 @@ for (const row of TEST_ASSET_ROWS) {
   assert.ok(!assetRowMatches({ ...published, networks: [] }, row), `${row.id} blank row taken as published`);
   assert.ok(!assetRowMatches({ ...published, precision: null }, row));
   assert.ok(!assetRowMatches(null, row));
+  // A network whose contract or links changed is published again.
+  const bare = { ...published, networks: published.networks.map((n) => ({ networkId: n.networkId, label: n.label })) };
+  const known = row.networks.some((n) => n.contract || n.links?.length);
+  assert.equal(assetRowMatches(bare, row), !known, `${row.id} a row without its contract or links taken as published`);
 }
+// USDC on TEST Ethereum is the one network with a contract and a link; both are TEST and the link is on a reserved domain.
+const usdcEthereum = TEST_ASSET_ROWS.find((row) => row.id === 'USDC').networks.find((n) => n.networkId === 'ethereum');
+assert.match(usdcEthereum.contract, /^0x7e57[0-9a-f]{36}$/);
+assert.deepEqual(usdcEthereum.links, [{ label: 'TEST explorer', url: 'https://example.com/test-explorer/usdc' }]);
 
 // The retired TEST row: named TEST, allows nothing, lists a TEST network, and is not one of the active rows deposits use.
 assert.ok(TEST_RETIRED_ASSET_ROW.id.startsWith('TEST'));
@@ -425,10 +434,13 @@ const picked = openableMarkets([
   { ...base, symbol: 'EUR/USD', orderable: false, schedule: 'fx-global' },
   { ...base, symbol: 'PAPER/X', paper: true },
   { ...base, symbol: 'OFF/USDT', active: false },
+  // The TEST session schedule is opened only on a TEST listing.
+  { ...base, symbol: 'TSES/USD', schedule: 'test-sunday-minute', test: true },
+  { ...base, symbol: 'REAL/USD', schedule: 'test-sunday-minute' },
 ]);
 assert.deepEqual(
   picked.map((m) => m.symbol),
-  ['BTC/USDT'],
+  ['BTC/USDT', 'TSES/USD'],
 );
 
 // TEST spot listings: labelled TEST, no dollar side needed, quoted by the market maker unless named unquoted, and opened
@@ -453,10 +465,23 @@ assert.deepEqual(
       assert.match(marketSrc, new RegExp(`const DEFAULT_SYMBOLS = \\[[^\\]]*'${l.symbol}'`));
     }
     assert.deepEqual(
-      openableMarkets([{ ...base, symbol: l.symbol, test: true }]).map((m) => m.symbol),
+      openableMarkets([{ ...base, symbol: l.symbol, test: true, schedule: l.schedule ?? 'crypto-24x7' }]).map((m) => m.symbol),
       [l.symbol],
     );
   }
+  // The charts' market with no trades stays untraded: unquoted, open, and named by no journey but the charts' helper
+  // (J-charts-desk-04 #4 found every market traded once another journey traded IFC/USDC, #8509 run 43731598319).
+  assert.ok(UNQUOTED_TEST_SPOT.includes(UNTRADED_TEST_SPOT), `${UNTRADED_TEST_SPOT} stays unquoted`);
+  assert.equal(TEST_SPOT_LISTINGS.find((l) => l.symbol === UNTRADED_TEST_SPOT)?.status ?? 'active', 'active');
+  const realApp = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'apps', 'customer', 'tests', 'real-app');
+  const naming = readdirSync(realApp).filter(
+    (f) => f.endsWith('.mjs') && readFileSync(join(realApp, f), 'utf8').includes(`'${UNTRADED_TEST_SPOT}'`),
+  );
+  assert.deepEqual(
+    naming,
+    ['charts-desk-studies.mjs'],
+    `only the charts' helper names ${UNTRADED_TEST_SPOT}: a journey that trades it gives the charts' empty market a tape`,
+  );
   // The spot seed refuses production and any database that does not look local or test.
   const local = 'postgres://u:p@127.0.0.1:15460/intafaced_local_test';
   assert.equal(localTestDatabaseUrl(local, {}), local);
@@ -527,6 +552,56 @@ assert.equal(refusalText({ json: null, text: 'plain' }), 'plain');
   vault.founders[1].totpConfirmed = false;
   assert.deepEqual(founderSignIns(vault), [], 'a founder without a confirmed second factor cannot sign in');
 }
+// trade-audit reads as founder a alone: one login, one TOTP step, and founder b's step untouched, so a journey that has
+// founder b in the console (J-cex-spot-18 #5) never waits on the 30 s TOTP clock for b because of an audit read.
+{
+  const stateDir = mkdtempSync(join(tmpdir(), 'gates-audit-'));
+  const vault = draftFounderVault();
+  vault.founders.forEach((f, i) => Object.assign(f, { userId: `user-${i}`, totpSecret: `SECRET${i}`, totpConfirmed: true }));
+  writeFileSync(join(stateDir, FOUNDER_VAULT_NAME), JSON.stringify(vault));
+  writeFileSync(join(stateDir, FOUNDER_STEPS_NAME), JSON.stringify({ a: 10, b: 20 }));
+  const logins = [];
+  const queries = [];
+  const ctx = {
+    paths: { stateDir },
+    sessionCache: {},
+    clock: () => 20 * 30_000,
+    sleep: async () => assert.fail('a fresh step was free: nothing waits on the clock'),
+    log: () => {},
+    totp: { totp: (secret, { at }) => `${secret}@${at.getTime() / 30_000}` },
+    secrets: { jwt: 'jwt' },
+    tokens: { issueAccessToken: async (claims) => ({ token: `minted:${claims.userId}:${claims.scopes.join(',')}` }) },
+    edge: {
+      mutate: async (_svc, proc, input) => {
+        logins.push([proc, input.identifier, input.totpCode]);
+        const sid = Buffer.from(JSON.stringify({ sid: 'sess-a' })).toString('base64url');
+        return { status: 200, json: { result: { data: { userId: 'user-0', accessToken: `h.${sid}.s` } } } };
+      },
+      query: async (svc, proc, input, token) => {
+        queries.push([svc, proc, input.cursor, token]);
+        const page = input.cursor ? { rows: [{ id: 'r2' }], nextCursor: null } : { rows: [{ id: 'r1' }], nextCursor: 'c1' };
+        return { status: 200, json: { result: { data: page } } };
+      },
+    },
+  };
+  const rows = await tradeAudit(ctx, { kind: 'venue_orders.get', account: 'cust-1' });
+  assert.deepEqual(
+    rows.map((r) => r.id),
+    ['r1', 'r2'],
+    'every page, oldest first',
+  );
+  assert.deepEqual(logins, [['auth.login', vault.founders[0].email, 'SECRET0@20']], 'founder a alone signs in, once');
+  assert.ok(
+    queries.every(
+      ([svc, proc, , token]) => svc === 'trade' && proc === 'admin.audit.feed' && token === 'minted:user-0:admin:read,admin:write',
+    ),
+  );
+  assert.deepEqual(JSON.parse(readFileSync(join(stateDir, FOUNDER_STEPS_NAME), 'utf8')), { a: 20, b: 20 }, "founder b's step is untouched");
+  await tradeAudit(ctx, { kind: 'venue_orders.get', account: 'cust-1' });
+  assert.equal(logins.length, 1, 'within one command the sign-in is kept');
+  assert.equal(await founderSession(ctx, 'a'), await founderSession(ctx, 'a'));
+  rmSync(stateDir, { recursive: true, force: true });
+}
 // verify submits founders' requests; populate (which approves only its friend) does not.
 {
   const src = readFileSync(script, 'utf8');
@@ -553,6 +628,7 @@ assert.deepEqual(TEST_CHART_COUNTS, {
   drawingCap: 50,
   brushPointCap: 2000,
   delayedBoundarySeconds: 30,
+  staleAgeSeconds: 35,
   renderBudgetMs: 500,
   orderProtectionBps: 500,
   queueFillWindowSeconds: 300,
@@ -832,8 +908,8 @@ for (const [args, usage] of [
 
 console.log('local-test-gates: marker, builder, hash and planning checks passed');
 
-// The founder console's sign-in, tried once more after a refusal at a step after any identity can hold (J-cex-spot-18 #4,
-// main run 42427369496), as operatorLogin does for the gates' own sign-in.
+// The founder console's refused sign-in is recorded at a step after any identity can hold, so the next sign-in cannot
+// replay it (J-cex-spot-18 #4, main run 42427369496). The refused sign-in itself fails its test.
 {
   const STEP = 30_000;
   const state = mkdtempSync(join(tmpdir(), 'local-test-gates-founder-steps-'));
@@ -848,53 +924,9 @@ console.log('local-test-gates: marker, builder, hash and planning checks passed'
     writeFileSync(stepsFile, JSON.stringify({ a: 7, b: 99 }));
     assert.deepEqual(founderStepRefused(ctx, 'b'), { refused: 99, current: 100, next: 101 });
     assert.equal(JSON.parse(readFileSync(stepsFile, 'utf8')).b, 101, 'a refused step 99 at step 100 is recorded as 101');
-    assert.equal(nextTotpStep(101, 100), null, 'so the retry waits for the clock rather than resend a step identity may hold');
+    assert.equal(nextTotpStep(101, 100), null, 'so the next sign-in waits for the clock rather than resend a step identity may hold');
     assert.equal(nextTotpStep(101, 101), 102);
   } finally {
     rmSync(state, { recursive: true, force: true });
-  }
-
-  const run = async (answers) => {
-    const calls = { attempts: 0, refused: 0, log: [] };
-    const result = await signInOnceMore({
-      attempt: async () => answers[calls.attempts++],
-      onRefused: async () => {
-        calls.refused += 1;
-        return { refused: 100 + calls.refused * 2, current: 101 + calls.refused * 2, next: 102 + calls.refused * 2 };
-      },
-      log: (l) => calls.log.push(l),
-    });
-    return { result, calls };
-  };
-  // Signed in at once: no retry, nothing recorded.
-  {
-    const { result, calls } = await run(['in']);
-    assert.deepEqual(result, { retried: false });
-    assert.deepEqual([calls.attempts, calls.refused], [1, 0]);
-  }
-  // Refused once: the step is recorded as spent, then exactly one more sign-in, which succeeds; both steps are logged.
-  {
-    const { result, calls } = await run(['refused', 'in']);
-    assert.deepEqual(result, { retried: true, refused: 102 });
-    assert.deepEqual([calls.attempts, calls.refused], [2, 1]);
-    assert.match(calls.log.join('\n'), /refused TOTP step 102 at step 103; signing in once more after step 104/);
-  }
-  // Refused twice: it fails naming both steps, after recording the second as spent too, and never tries a third time.
-  {
-    const calls = { attempts: 0, refused: 0 };
-    await assert.rejects(
-      signInOnceMore({
-        attempt: async () => {
-          calls.attempts += 1;
-          return 'refused';
-        },
-        onRefused: async () => {
-          calls.refused += 1;
-          return { refused: 100 + calls.refused * 2, current: 101 + calls.refused * 2, next: 102 + calls.refused * 2 };
-        },
-      }),
-      /refused the sign-in twice: TOTP step 102 \(at step 103\), then step 104 \(at step 105\)/,
-    );
-    assert.deepEqual([calls.attempts, calls.refused], [2, 2]);
   }
 }

@@ -22,7 +22,8 @@ export interface SupportedAssetView {
   assetId: string;
   kind: RegistryAsset['kind'];
   precision: number;
-  networks: Array<{ networkId: string; label: string }>;
+  /** Each network with its contract and links as the registry publishes them: null and empty when none is known. */
+  networks: Array<{ networkId: string; label: string; contract: string | null; links: Array<{ label: string; url: string }> }>;
   defaultNetworkId: string | null;
   allowedActions: RegistryAsset['allowedActions'];
   state: RegistryAsset['state'];
@@ -61,7 +62,12 @@ export async function listSupportedAssets(source: AssetRegistryReads | null): Pr
     assetId: asset.id,
     kind: asset.kind,
     precision: asset.precision,
-    networks: asset.networks.map((n) => ({ networkId: n.networkId, label: n.label })),
+    networks: asset.networks.map((n) => ({
+      networkId: n.networkId,
+      label: n.label,
+      contract: n.contract ?? null,
+      links: (n.links ?? []).map((link) => ({ label: link.label, url: link.url })),
+    })),
     defaultNetworkId: asset.defaultNetworkId,
     allowedActions: [...asset.allowedActions],
     state: asset.state,

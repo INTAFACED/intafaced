@@ -71,7 +71,9 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
   const calls = Object.assign({}, ...tokens.map((token) => tokenAnswers(chainId, address, token)));
   const requests = [];
   const sends = [];
+  const added = [];
   let rejectNext = false;
+  let rejectNextSend = false;
   let otherKeyNext = false;
   /** Runs once before the next send it matches, then the send goes on: another trader's transaction landing first. */
   let beforeSend = null;
@@ -93,9 +95,18 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     const { EIP712Domain: _domain, ...rest } = types;
     return { signature: (entry.signature = await account.signTypedData({ domain, types: rest, primaryType, message })) };
   });
+  // A network the page asks the wallet to add is kept as asked, so a test can read exactly what was offered. Nothing is added.
+  await page.exposeFunction('__testWalletAdd', (params) => {
+    added.push(params);
+  });
   // A transaction the page asks to send is kept, so a test can read what was built. With no TEST chain it is never sent;
   // with one, an eth_sendTransaction on that chain is signed here (the key never enters the browser) and sent.
   await page.exposeFunction('__testWalletSend', async (onChain, method, params) => {
+    if (rejectNextSend) {
+      // Refused in the wallet before anything is signed or sent, so nothing is kept in `sends`.
+      rejectNextSend = false;
+      return { error: { code: 4001, message: 'User rejected the request.' } };
+    }
     const entry = { method, params };
     sends.push(entry);
     if (!node || onChain !== chainId || method !== 'eth_sendTransaction') return { unanswered: true };
@@ -172,6 +183,7 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
             if (answer.rejected) throw Object.assign(new Error('User rejected the request.'), { code: 4001 });
             return answer.signature;
           }
+          if (method === 'wallet_addEthereumChain') return (await window.__testWalletAdd(params), null);
           if (method === 'wallet_switchEthereumChain') {
             chain = Number.parseInt(params[0].chainId, 16);
             emit('chainChanged', hex(chain));
@@ -212,6 +224,8 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     address,
     /** Every signature the page asked for, in order: `{ method, params }`, and `signature` once the wallet signed it. */
     requests,
+    /** Every `wallet_addEthereumChain` the page asked for, in order: its params exactly as sent. */
+    added,
     /**
      * Every transaction or call batch the page asked the wallet to send, in order: `{ method, params }`, and `hash` once
      * sent. Only with `rpcUrl` does one reach a chain.
@@ -220,6 +234,10 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     /** The next signature request is refused the way a person pressing Reject in the wallet refuses it (code 4001). */
     rejectNext: () => {
       rejectNext = true;
+    },
+    /** The next transaction the page asks to send is refused the way a person pressing Reject in the wallet refuses it (code 4001). */
+    rejectNextSend: () => {
+      rejectNextSend = true;
     },
     /** The next message is signed by another, throwaway key while the wallet still names its own address. */
     signWithOtherKeyNext: () => {

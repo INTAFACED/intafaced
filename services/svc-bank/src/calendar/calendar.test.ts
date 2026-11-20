@@ -129,6 +129,7 @@ describe('the merged window', () => {
               status: 'failed',
               failureCode: 'bank.insufficient_funds',
               ledgerTxId: null,
+              partnerMoveId: null,
               presentedAt: '2026-11-01T00:00:00.000Z',
               settledAt: null,
               failureFee: null,
@@ -168,8 +169,7 @@ describe('the merged window', () => {
           ],
         },
         loans: {
-          loansOf: async () =>
-            [{ status: 'active' }, { status: 'repaid' }] as unknown as Awaited<ReturnType<CalendarDeps['loans']['loansOf']>>,
+          loansOf: async () => [{ status: 'active' }, { status: 'repaid' }] as Awaited<ReturnType<CalendarDeps['loans']['loansOf']>>,
         },
       }),
     );
@@ -224,6 +224,7 @@ describe('the merged window', () => {
               status: 'upcoming',
               failureCode: null,
               ledgerTxId: null,
+              partnerMoveId: null,
               presentedAt: '2026-11-01T00:00:00.000Z',
               settledAt: null,
               failureFee: null,

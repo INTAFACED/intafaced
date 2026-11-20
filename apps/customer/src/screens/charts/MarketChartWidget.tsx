@@ -5,7 +5,7 @@ import { CANDLE_POLL_MS, CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type 
 import { useDeviceSetting } from '../../features/trade/hooks';
 import { useSession } from '../../features/session/session';
 import { dataStatus as computeStatus, tradeRefusal } from './data-status';
-import { useBookHalt, useLastTrade, useMarketLifecycle, useServerClock } from './market-state';
+import { rememberLastTrade, useBookHalt, useLastTrade, useMarketLifecycle, useServerClock } from './market-state';
 import { ownerValue, useChartOwnerValues } from './owner-values';
 import { refusalText, StatusBanner, StatusChip, SourceLine, TestLabel } from './DataStatus';
 import { ChartSettingsDialog } from './ChartSettings';
@@ -56,6 +56,8 @@ export interface WidgetProps {
   openSocket?: OpenSocket;
   /** Add-ons drawn on the chart (studies, drawings). */
   addons?: (host: ChartHost | null, bars: readonly Candle[], view: AddonView) => ReactNode;
+  /** Add-ons shown under the empty state of a market with no trades (the studies bar, whose studies say what they lack). */
+  emptyAddons?: () => ReactNode;
   onHost?: (host: ChartHost | null) => void;
   /** The markets that can be compared on this chart; no compare tools without them. */
   markets?: readonly DeskMarket[];
@@ -88,6 +90,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   onScheme,
   openSocket,
   addons,
+  emptyAddons,
   onHost,
   command,
   markets,
@@ -103,6 +106,9 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const bookHalt = useBookHalt(market.symbol);
   const serverClock = useServerClock();
   const lastTrade = useLastTrade(market.symbol);
+  // The newest trade this tab has read for the market, kept once the tape stops answering, so a down feed names its last
+  // tick even on a chart opened during the outage. Module memory, not state: keeping it never causes a render of its own.
+  const lastTradeSeenMs = rememberLastTrade(market.symbol, lastTrade);
   const owner = useChartOwnerValues(market.symbol);
   // Order entry on the chart: the same one rule as the status chip and the trade link (C-ops-02).
   const orderRefusal = refusalText(tradeRefusal(lifecycle, bookHalt, now), t);
@@ -116,6 +122,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
     bookHalt,
     candles: polled,
     lastTrade,
+    lastTradeSeenMs,
     pollIntervalMs: CANDLE_POLL_MS,
   });
   // Settings and price lines are this device's own display choices.
@@ -249,7 +256,12 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   else if (polled.status === 'empty')
     // Volume is the sum of the market's trades, so a market with no trades has none: the chart says so, as the volume
     // study does on loaded bars with no volume.
-    body = <StateBlock kind="empty" title={t('No trades in this period')} body={t('No volume in this period')} />;
+    body = (
+      <>
+        <StateBlock kind="empty" title={t('No trades in this period')} body={t('No volume in this period')} />
+        {emptyAddons?.()}
+      </>
+    );
   else if (polled.status === 'error')
     body = <StateBlock kind="error" title={t('Couldn’t load the chart')} onRetry={polled.retry} retryLabel={t('Try again')} />;
   else if (polled.status === 'refused') {

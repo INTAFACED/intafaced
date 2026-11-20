@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { codedCancelReason, isCodedCancelText, resolvedByOf } from './cancel-reasons.js';
 import { p2pCancelReasonAllowed } from '@intafaced/contracts/p2p-cancel';
 import { checkOfferLimit, NO_OFFER_LIMITS, type OfferLimitPolicy } from './merchant-limits.js';
@@ -67,7 +68,7 @@ import {
   pairLimitRefusal,
   type TakeLimits,
 } from './take-limits.js';
-import { completionRates, toAppeal, type AppealRecord, type AppealRow, type CompletionRates } from './completion-rate.js';
+import { completionRates, toAppeal, type AppealRecord, type CompletionRates } from './completion-rate.js';
 import {
   ORDER_TABS,
   OrderListError,
@@ -87,6 +88,7 @@ import {
   requireSetting,
   startOfUtcDay,
   RECEIPT_QUOTA_LOCK_CLASS,
+  EXPORT_QUOTA_LOCK_CLASS,
   type ExportFormat,
   type ExportPolicy,
 } from './export-receipt.js';
@@ -148,6 +150,8 @@ import {
   type Deadlines,
   type TradeResolution,
   type TradeStatus,
+  TRADE_RESOLUTIONS,
+  TRADE_STATUSES,
 } from './state.js';
 import {
   DEFAULT_XP_POLICY,
@@ -180,11 +184,13 @@ import { nextReminderAt, type ReminderPolicy, type ReminderState } from './selle
 import {
   assertMismatchAmount,
   classifyMismatch,
-  type MismatchClassification,
+  MISMATCH_CLASSIFICATIONS,
+  MISMATCH_KINDS,
   type MismatchKind,
   type MismatchReport,
 } from './amount-mismatch.js';
 import { railMismatch, type PaymentRail, type RailMismatch } from './rail-validate.js';
+import { CounterpartyStateUnavailableError, type CounterpartyStatePort } from './counterparty-state.js';
 import {
   ADVERTISER_TERMS_SETTING,
   AdvertiserTermsError,
@@ -232,6 +238,11 @@ import {
  */
 
 export type P2pErrorCode =
+  // RC-p2p-02: the contract escrow.
+  | 'p2p.contract_escrow_unavailable'
+  | 'p2p.escrow_contract_held'
+  | 'p2p.escrow_deal_mismatch'
+  | 'p2p.escrow_kind_immutable'
   | 'p2p.non_instant_not_accepted'
   | 'p2p.floating_not_allowed_for_method'
   | 'p2p.content_rule_violation'
@@ -254,6 +265,9 @@ export type P2pErrorCode =
   // P-ads-merchant-08: a presence schedule that is not a valid week, and a bulk action naming no ads or too many.
   | 'p2p.schedule_invalid'
   | 'p2p.maker_offline'
+  // The ad's maker is frozen, closed or unknown to identity (one code for all three), or identity could not say.
+  | 'p2p.counterparty_unavailable'
+  | 'p2p.counterparty_unverifiable'
   | 'p2p.bulk_scope_invalid'
   | 'p2p.edit_quota_reached'
   | 'p2p.offer_unfunded'
@@ -376,6 +390,7 @@ export type P2pErrorCode =
   | 'p2p.export_format_unbuilt'
   | 'p2p.export_range_too_large'
   | 'p2p.export_too_many_rows'
+  | 'p2p.export_quota_reached'
   | 'p2p.receipt_quota_reached'
   | 'p2p.receipt_not_available'
   | 'p2p.user_not_found'
@@ -718,7 +733,7 @@ export interface TradeInstrumentAttacher {
   duringTake<T>(run: (sink: DenialSink) => Promise<T>): Promise<T>;
 
   attachToTrade(
-    tx: Sql,
+    tx: Queryable,
     input: { tradeId: string; sellerId: string; takerId: string; methodId: string; fiatCurrency: string; sink: DenialSink },
   ): Promise<{ instrumentId: string; fingerprint: string; settlement?: MethodSettlement; cashReleaseSeconds?: number | null }>;
 
@@ -745,14 +760,18 @@ export interface TradeInstrumentAttacher {
    * never advertised — closing the residual named on `TAKE_REFUSED_MESSAGE`.
    * Empty operator registry ⇒ empty set: a leftover destination is not a rail.
    */
-  liveMethodKeys(ownerId: string, fiatCurrency: string, opts?: { db?: Sql; exceptInstrumentId?: string }): Promise<ReadonlySet<string>>;
+  liveMethodKeys(
+    ownerId: string,
+    fiatCurrency: string,
+    opts?: { db?: Queryable; exceptInstrumentId?: string },
+  ): Promise<ReadonlySet<string>>;
 
   /**
    * P-ads-merchant-18: remove the owner's active instrument inside the caller's transaction, so the ads it was the last
    * destination for pause in the same commit. Optional so a test stub without instruments still builds; `removeMethod`
    * refuses without it.
    */
-  removeInstrument?(input: { instrumentId: string; ownerId: string }, db?: Sql): Promise<InstrumentHeader>;
+  removeInstrument?(input: { instrumentId: string; ownerId: string }, db?: Queryable): Promise<InstrumentHeader>;
 
   /**
    * Method ids an operator has registered and left enabled. Empty = no payable
@@ -770,13 +789,13 @@ export interface TradeInstrumentAttacher {
    * P-disputes-security-09: each non-instant method's board profile (absent = instant). Optional so a test stub without
    * a catalogue still builds (every method then reads instant).
    */
-  boardSettlements?(methodIds: readonly string[], db?: Sql): Promise<ReadonlyMap<string, MethodSettlement>>;
+  boardSettlements?(methodIds: readonly string[], db?: Queryable): Promise<ReadonlyMap<string, MethodSettlement>>;
 
   /**
    * P-ads-merchant-19: the methods any market's enabled row calls cash in person (a locked price). Optional so a test
    * stub without a catalogue still builds (no method is then cash).
    */
-  cashMethods?(methodIds: readonly string[], db?: Sql): Promise<ReadonlySet<string>>;
+  cashMethods?(methodIds: readonly string[], db?: Queryable): Promise<ReadonlySet<string>>;
 }
 
 export interface P2pServiceOptions {
@@ -894,6 +913,12 @@ export interface P2pServiceOptions {
    * in it `p2p.config_unset`.
    */
   postingThresholds?: PostingThresholds;
+  /**
+   * Whether the ad's maker may be the other side of a new order (svc-identity's account status). `index.ts`
+   * always passes it, where no IDENTITY_URL refuses every take `p2p.counterparty_unverifiable`; omitted is a service
+   * built without it (tests).
+   */
+  counterpartyState?: CounterpartyStatePort;
 }
 
 /**
@@ -972,13 +997,14 @@ export interface ShareLinkRecord {
   revokedAt: Date | null;
 }
 
-interface ShareLinkRow {
-  id: string;
-  offer_id: string;
-  created_at: Date;
-  expires_at: Date;
-  revoked_at: Date | null;
-}
+const ShareLinkRow = z.object({
+  id: z.string(),
+  offer_id: z.string(),
+  created_at: z.date(),
+  expires_at: z.date(),
+  revoked_at: z.date().nullable(),
+});
+type ShareLinkRow = z.infer<typeof ShareLinkRow>;
 
 function toShareLink(row: ShareLinkRow): ShareLinkRecord {
   return { id: row.id, offerId: row.offer_id, createdAt: row.created_at, expiresAt: row.expires_at, revokedAt: row.revoked_at };
@@ -1105,6 +1131,44 @@ export interface TradeRecord {
   cashReleaseSeconds?: number | null;
   /** P-trade-orders-15: the ad's own release window copied at take, or null when the ad kept the published clock. */
   releaseWindowSeconds?: number | null;
+  /** RC-p2p-02: who holds the coins, chosen at take and fixed after. */
+  escrowKind: EscrowKind;
+  /** The contract deal's terms and, once attached, the deal; null on a ledger order. */
+  contract: ContractEscrow | null;
+}
+
+/** RC-p2p-02: `ledger` (svc-ledger holds the coins) or `contract` (the SovereignEscrow contract does; no ledger entry). */
+export type EscrowKind = 'ledger' | 'contract';
+
+/** The terms a contract deal must carry, fixed at take (the chain, the token, base units, the buyer's wallet, the window). */
+export interface ContractEscrowTerms {
+  chainId: number;
+  token: string;
+  /** Base units of `token`, a decimal string. */
+  units: string;
+  buyerWallet: string;
+  disputeWindowSeconds: number;
+}
+
+export interface ContractEscrow extends ContractEscrowTerms {
+  /** The opened deal, once the seller attached it; null before. */
+  dealId: string | null;
+  sellerWallet: string | null;
+}
+
+/** The deal as svc-protocol reads it from the chain (contracts `ProtocolEscrowDeal`), the fields this service checks. */
+export interface ContractDealRead {
+  dealId: string;
+  chainId: number;
+  seller: string;
+  buyer: string;
+  token: string;
+  amount: string;
+  arbiter: string | null;
+  disputeWindowSeconds: number;
+  disputeDeadline: number | null;
+  timeout: 'refund_seller' | 'release_buyer';
+  state: 'open' | 'locked' | 'disputed' | 'released' | 'refunded';
 }
 
 export interface DisputeRecord {
@@ -1140,96 +1204,112 @@ export interface DisputeRecord {
   fourEyes: boolean | null;
 }
 
-interface TradeRow {
-  id: string;
-  offer_id: string;
-  shared_from?: boolean;
-  taker_id: string;
-  maker_id: string;
-  seller_id: string;
-  buyer_id: string;
-  asset: string;
-  fiat_currency: string;
-  amount: string;
-  price: string;
-  fiat_amount: string;
-  method: string;
-  fee_bps: string;
-  status: TradeStatus;
-  resolution: TradeResolution | null;
-  resolution_reason: string | null;
-  chat_thread_id: string | null;
-  deadlines: Deadlines;
-  deadline_at: Date | null;
-  created_at: Date;
-  escrowed_at: Date | null;
-  fiat_sent_at: Date | null;
-  resolved_at: Date | null;
-  settled_at: Date | null;
-  terms_snapshot: string | null;
-  non_instant?: boolean;
-  settlement_window_seconds?: number | null;
-  cash_release_seconds?: number | null;
-  release_window_seconds?: number | null;
-}
+const TradeRow = z.object({
+  id: z.string(),
+  offer_id: z.string(),
+  shared_from: z.boolean().optional(),
+  taker_id: z.string(),
+  maker_id: z.string(),
+  seller_id: z.string(),
+  buyer_id: z.string(),
+  asset: z.string(),
+  fiat_currency: z.string(),
+  amount: z.string(),
+  price: z.string(),
+  fiat_amount: z.string(),
+  method: z.string(),
+  // numeric in the table, so a string on the wire.
+  fee_bps: z.string(),
+  status: z.enum(TRADE_STATUSES),
+  resolution: z.enum(TRADE_RESOLUTIONS).nullable(),
+  resolution_reason: z.string().nullable(),
+  chat_thread_id: z.string().nullable(),
+  // jsonb; `toTrade` narrows it to `Deadlines` as it always has.
+  deadlines: z.unknown(),
+  deadline_at: z.date().nullable(),
+  created_at: z.date(),
+  escrowed_at: z.date().nullable(),
+  fiat_sent_at: z.date().nullable(),
+  resolved_at: z.date().nullable(),
+  settled_at: z.date().nullable(),
+  // Added by 0015; a database still before it (the upgrade test in immutable-terms.test.ts) has no such column.
+  terms_snapshot: z.string().nullable().optional(),
+  non_instant: z.boolean().optional(),
+  settlement_window_seconds: z.number().nullable().optional(),
+  cash_release_seconds: z.number().nullable().optional(),
+  release_window_seconds: z.number().nullable().optional(),
+  escrow_kind: z.enum(['ledger', 'contract']).optional(),
+  contract_chain_id: z.number().nullable().optional(),
+  contract_token: z.string().nullable().optional(),
+  contract_units: z.string().nullable().optional(),
+  contract_buyer_wallet: z.string().nullable().optional(),
+  contract_dispute_window_seconds: z.number().nullable().optional(),
+  contract_deal_id: z.string().nullable().optional(),
+  contract_seller_wallet: z.string().nullable().optional(),
+});
+type TradeRow = z.infer<typeof TradeRow>;
 
-interface OfferRow {
-  id: string;
-  maker_id: string;
-  side: 'buy' | 'sell';
-  asset: string;
-  fiat_currency: string;
-  price_type: PriceType;
-  price: string;
-  min_amt: string;
-  max_amt: string;
-  total_amt: string;
-  remaining_amt: string;
-  methods: unknown[];
-  terms: string;
-  maker_tier: string | null;
-  accepts_non_instant?: boolean;
-  release_window_seconds?: number | null;
-  status: 'active' | 'paused' | 'closed';
-  pause_reason?: OfferPauseReason | null;
-  close_reason?: OfferCloseReason | null;
-  visibility?: OfferVisibility;
-  status_since?: Date;
-  relisted_from?: string | null;
-  relisted_as?: string | null;
-  created_at: Date;
-}
+const OfferRow = z.object({
+  id: z.string(),
+  maker_id: z.string(),
+  side: z.enum(['buy', 'sell']),
+  asset: z.string(),
+  fiat_currency: z.string(),
+  price_type: z.enum(['fixed', 'float']),
+  price: z.string(),
+  min_amt: z.string(),
+  max_amt: z.string(),
+  total_amt: z.string(),
+  remaining_amt: z.string(),
+  // jsonb with no shape check in the table; every reader narrows with `Array.isArray`.
+  methods: z.unknown(),
+  terms: z.string(),
+  maker_tier: z.string().nullable(),
+  accepts_non_instant: z.boolean().optional(),
+  release_window_seconds: z.number().nullable().optional(),
+  status: z.enum(['active', 'paused', 'closed']),
+  pause_reason: z.enum(['method_removed']).nullable().optional(),
+  close_reason: z.enum(['by_you', 'sold_out']).nullable().optional(),
+  visibility: z.enum(['public', 'private']).optional(),
+  status_since: z.date().optional(),
+  relisted_from: z.string().nullable().optional(),
+  relisted_as: z.string().nullable().optional(),
+  created_at: z.date(),
+});
+type OfferRow = z.infer<typeof OfferRow>;
 
-interface DisputeRow {
-  id: string;
-  trade_id: string;
-  opened_by: string;
-  opened_via: 'party' | 'timeout';
-  reason: string;
-  chat_thread_id: string | null;
-  evidence: unknown;
-  moderator_id: string | null;
-  resolution: 'release' | 'refund' | null;
-  resolution_notes: string | null;
-  status: 'open' | 'resolved';
-  deadline_at: Date;
-  opened_at: Date;
-  resolved_at: Date | null;
-  last_seen_by_moderator_at: Date | null;
-  moderator_views: number;
-  escalated_at: Date | null;
-  escalations: number;
-  escalated_by: string | null;
-  escalation_reason: string | null;
-  four_eyes: boolean | null;
-}
+const DisputeRow = z.object({
+  id: z.string(),
+  trade_id: z.string(),
+  opened_by: z.string(),
+  opened_via: z.enum(['party', 'timeout']),
+  reason: z.string(),
+  chat_thread_id: z.string().nullable(),
+  // jsonb; `normaliseEvidence` reads it.
+  evidence: z.unknown(),
+  moderator_id: z.string().nullable(),
+  resolution: z.enum(['release', 'refund']).nullable(),
+  resolution_notes: z.string().nullable(),
+  status: z.enum(['open', 'resolved']),
+  deadline_at: z.date(),
+  opened_at: z.date(),
+  resolved_at: z.date().nullable(),
+  last_seen_by_moderator_at: z.date().nullable(),
+  moderator_views: z.number(),
+  escalated_at: z.date().nullable(),
+  escalations: z.number(),
+  escalated_by: z.string().nullable(),
+  escalation_reason: z.string().nullable(),
+  four_eyes: z.boolean().nullable(),
+});
+type DisputeRow = z.infer<typeof DisputeRow>;
 
 /**
  * WHY ONE TRADE THE SWEEP TOUCHED DID NOT MOVE.
  *
  * The sweeps deliberately keep going when one trade fails — one bad trade must
- * not stop the next from settling — and the price of that used to be a bare
- * `catch { failed++ }`: a counter, and the reason discarded. Which is how the
+ * not stop the next from settling — and the price of that must not be a bare
+ * `catch { failed++ }`: a counter, and the reason discarded. That is how the
  * escrow guard's refusal ("a disputed escrow terminates only on a human
  * ruling") reached a `catch`, was thrown away, and surfaced as an assertion
  * failure in another branch's test run that named nothing at all.
@@ -1292,24 +1372,27 @@ export interface LockedQuote {
   expiresInMs: number;
 }
 
-interface QuoteRow {
-  quote_id: string;
-  taker_id: string;
-  offer_id: string;
-  method: string;
-  offer_price: string;
-  amount: string;
-  price: string;
-  fiat_amount: string;
-  fee_bps: number;
-  expires_at: Date;
-  expires_in_ms: string;
-}
+const QuoteRow = z.object({
+  quote_id: z.string(),
+  taker_id: z.string(),
+  offer_id: z.string(),
+  method: z.string(),
+  offer_price: z.string(),
+  amount: z.string(),
+  price: z.string(),
+  fiat_amount: z.string(),
+  fee_bps: z.number(),
+  expires_at: z.date(),
+  expires_in_ms: z.string(),
+});
+type QuoteRow = z.infer<typeof QuoteRow>;
 
-async function readQuote(sql: Sql, quoteId: string): Promise<QuoteRow | null> {
-  const rows = await sql<QuoteRow[]>`
+async function readQuote(sql: Queryable, quoteId: string): Promise<QuoteRow | null> {
+  const rows = QuoteRow.array().parse(
+    await sql`
     SELECT *, GREATEST(0, floor(extract(epoch FROM (expires_at - now())) * 1000))::bigint AS expires_in_ms
-      FROM p2p.take_quotes WHERE quote_id = ${quoteId}`;
+      FROM p2p.take_quotes WHERE quote_id = ${quoteId}`,
+  );
   return rows[0] ?? null;
 }
 
@@ -1350,7 +1433,7 @@ function sameQuoteOrConflict(
  * placed. Read inside the reservation transaction, before pricing: a floating ad is placed at the quoted price.
  */
 async function heldQuote(
-  tx: Sql,
+  tx: Queryable,
   input: { quoteId: string; tradeId: string; takerId: string; offerId: string; method: string; amount: Amount },
 ): Promise<QuoteRow | null> {
   const placed = await tx`SELECT 1 FROM p2p.p2p_trades WHERE id = ${input.tradeId}`;
@@ -1373,27 +1456,43 @@ function assertQuoteTerms(row: QuoteRow, now: { offerPrice: Amount; price: Amoun
   }
 }
 
-type MismatchRow = {
-  trade_id: string;
-  kind: MismatchKind;
-  amount_received: string;
-  expected: string;
-  classification: MismatchClassification;
-  tolerance_bps: number | null;
-  reported_at: Date;
-};
+const MismatchRow = z.object({
+  trade_id: z.string(),
+  kind: z.enum(MISMATCH_KINDS),
+  amount_received: z.string(),
+  expected: z.string(),
+  classification: z.enum(MISMATCH_CLASSIFICATIONS),
+  tolerance_bps: z.number().nullable(),
+  reported_at: z.date(),
+});
+type MismatchRow = z.infer<typeof MismatchRow>;
 
-interface RemarkCaseRow {
-  id: string;
-  trade_id: string;
-  reporter_id: string;
-  reported_id: string;
-  reporter_role: 'buyer' | 'seller';
-  remark: string;
-  status: 'open';
-  opened_at: Date;
-  handed_at: Date | null;
-}
+const RemarkCaseRow = z.object({
+  id: z.string(),
+  trade_id: z.string(),
+  reporter_id: z.string(),
+  reported_id: z.string(),
+  reporter_role: z.enum(['buyer', 'seller']),
+  remark: z.string(),
+  status: z.literal('open'),
+  opened_at: z.date(),
+  handed_at: z.date().nullable(),
+});
+type RemarkCaseRow = z.infer<typeof RemarkCaseRow>;
+
+/** A `p2p.completion_appeals` row, the shape `toAppeal` reads. */
+const AppealRow = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  trade_id: z.string(),
+  reason: z.string(),
+  status: z.enum(['submitted', 'accepted', 'rejected']),
+  submitted_at: z.date(),
+  review_due_at: z.date(),
+  decided_by: z.string().nullable(),
+  decided_at: z.date().nullable(),
+  decision_reason: z.string().nullable(),
+});
 
 function toRemarkCase(row: RemarkCaseRow): RemarkCase {
   return {
@@ -1409,11 +1508,13 @@ function toRemarkCase(row: RemarkCaseRow): RemarkCase {
 }
 
 /** The order's amount report, read with `db` (the order's transaction, or the pool). */
-async function readMismatch(db: Sql, tradeId: string): Promise<MismatchReport | null> {
-  const [row] = await db<MismatchRow[]>`
+async function readMismatch(db: Queryable, tradeId: string): Promise<MismatchReport | null> {
+  const [row] = MismatchRow.array().parse(
+    await db`
     SELECT trade_id, kind, amount_received::text, expected::text, classification, tolerance_bps, reported_at
       FROM p2p.trade_mismatches WHERE trade_id = ${tradeId}
-  `;
+  `,
+  );
   return row ? toMismatch(row) : null;
 }
 
@@ -1465,8 +1566,11 @@ function toMismatch(row: MismatchRow): MismatchReport {
  * microseconds down to JS millisecond precision, so a value read here and bound
  * back into a column is always <= the true transaction timestamp, never past it.
  */
-async function txNow(tx: Sql): Promise<Date> {
-  const rows = await tx<Array<{ now: Date }>>`SELECT now() AS now`;
+async function txNow(tx: Queryable): Promise<Date> {
+  const rows = z
+    .object({ now: z.date() })
+    .array()
+    .parse(await tx`SELECT now() AS now`);
   return rows[0]!.now;
 }
 
@@ -1496,6 +1600,7 @@ export class P2pService {
   private readonly sellBalanceAtPost: boolean;
   private readonly adContentRules: AdContentRules;
   private readonly postingThresholds: PostingThresholds | undefined;
+  private readonly counterpartyState: CounterpartyStatePort | undefined;
   private tradingEnabled: boolean;
 
   /**
@@ -1542,6 +1647,7 @@ export class P2pService {
     this.sellBalanceAtPost = options.sellBalanceAtPost === true;
     this.adContentRules = options.adContentRules ?? { status: 'absent' };
     this.postingThresholds = options.postingThresholds;
+    this.counterpartyState = options.counterpartyState;
   }
 
   /**
@@ -1719,10 +1825,14 @@ export class P2pService {
   }
 
   private async buyerFiatUsed(
-    sql: Sql,
+    sql: Queryable,
     input: { buyerId: string; currency: string; excludeTradeId: string | null },
   ): Promise<{ daily: Amount; lifetime: Amount }> {
-    const [row] = await sql<{ daily: string; lifetime: string }[]>`
+    const [row] = z
+      .object({ daily: z.string(), lifetime: z.string() })
+      .array()
+      .parse(
+        await sql`
       SELECT COALESCE(SUM(fiat_amount) FILTER (
                WHERE created_at >= date_trunc('day', timezone('UTC', now())) AT TIME ZONE 'UTC'
              ), 0)::text AS daily,
@@ -1732,7 +1842,8 @@ export class P2pService {
          AND fiat_currency = ${input.currency}
          AND status IN ('created', 'escrowed', 'fiat_sent', 'released', 'disputed')
          AND (${input.excludeTradeId}::uuid IS NULL OR id <> ${input.excludeTradeId}::uuid)
-    `;
+    `,
+      );
     return {
       daily: parseAmount(row?.daily ?? '0'),
       lifetime: parseAmount(row?.lifetime ?? '0'),
@@ -1748,11 +1859,15 @@ export class P2pService {
    * themselves: an order not yet paid is cancelled when its window runs out. A paid or disputed order frees its place
    * only when someone acts, so it gives no end time, and with only those open the refusal has none.
    */
-  private async assertActiveOrderCap(sql: Sql, input: { takerId: string; excludeTradeId: string | null }): Promise<void> {
+  private async assertActiveOrderCap(sql: Queryable, input: { takerId: string; excludeTradeId: string | null }): Promise<void> {
     if (!this.takeLimits) return;
     const cap = this.takeLimits.activeOrderCap;
     if (cap === null) throw new P2pError('The most ongoing orders one person may hold is not set', 'p2p.config_unset');
-    const open = await sql<{ id: string; ends_at: Date | null; total: string }[]>`
+    const open = z
+      .object({ id: z.string(), ends_at: z.date().nullable(), total: z.string() })
+      .array()
+      .parse(
+        await sql`
       SELECT id,
              CASE WHEN status IN ('created', 'escrowed') AND deadline_at > now() THEN deadline_at END AS ends_at,
              count(*) OVER () AS total
@@ -1763,7 +1878,8 @@ export class P2pService {
          AND id IS DISTINCT FROM ${input.excludeTradeId}::uuid
        ORDER BY ends_at ASC NULLS LAST, created_at ASC, id ASC
        LIMIT 50
-    `;
+    `,
+      );
     if (Number(open[0]?.total ?? 0) < cap) return;
     const soonest = open[0]?.ends_at ?? null;
     throw new P2pError(`You already have ${cap} ongoing orders, the most one person may hold at once`, 'p2p.active_order_cap', {
@@ -1804,8 +1920,12 @@ export class P2pService {
    * they let run out), on the database clock, newest first, at most `limit` of them, each with when it stops counting.
    * A seller's cancel, an unfinished lock and a moderator's refund are not the buyer's doing.
    */
-  private async recentBuyerCancels(sql: Sql, buyerId: string, limit: number, windowHours: number): Promise<{ until: Date }[]> {
-    return sql<{ until: Date }[]>`
+  private async recentBuyerCancels(sql: Queryable, buyerId: string, limit: number, windowHours: number): Promise<{ until: Date }[]> {
+    return z
+      .object({ until: z.date() })
+      .array()
+      .parse(
+        await sql`
       SELECT resolved_at + make_interval(hours => ${windowHours}) AS until
         FROM p2p.p2p_trades
        WHERE buyer_id = ${buyerId}
@@ -1814,7 +1934,8 @@ export class P2pService {
          AND resolved_at > now() - make_interval(hours => ${windowHours})
        ORDER BY resolved_at DESC
        LIMIT ${limit}
-    `;
+    `,
+      );
   }
 
   /**
@@ -1847,7 +1968,7 @@ export class P2pService {
    * instrument-owner lock on a take.
    */
   private async assertBuyingNotRestricted(
-    sql: Sql,
+    sql: Queryable,
     input: { buyerId: string; tradeId: string | null; /** The buyer is the ad's maker, not the person asking. */ asMaker: boolean },
   ): Promise<void> {
     if (!this.takeLimits) return;
@@ -1902,7 +2023,7 @@ export class P2pService {
    * P-ads-merchant-19: cash in person has a locked price, so a floating ad may not list a method any market calls cash.
    * Checked at post, on an edit that changes the methods, and again at take (the operator may make a method cash later).
    */
-  private async assertFloatingAllowed(input: { priceType: PriceType; methods: readonly unknown[]; db?: Sql }): Promise<void> {
+  private async assertFloatingAllowed(input: { priceType: PriceType; methods: readonly unknown[]; db?: Queryable }): Promise<void> {
     if (input.priceType !== 'float' || !this.instruments.cashMethods) return;
     const ids = input.methods.map(methodIdFromOfferEntry).filter((id): id is string => id !== null);
     const cash = await this.instruments.cashMethods(ids, input.db);
@@ -1944,7 +2065,7 @@ export class P2pService {
   }
 
   private async assertBuyerVerificationLimit(
-    sql: Sql,
+    sql: Queryable,
     input: {
       buyerId: string;
       fiatCurrency: string;
@@ -1999,7 +2120,7 @@ export class P2pService {
    * lifetime and per-order bounds have no end time; a higher verification level is the way past them.
    */
   private async verificationLimitDetails(
-    sql: Sql,
+    sql: Queryable,
     code: string,
     tier: string | undefined,
     used: { daily: Amount; lifetime: Amount },
@@ -2014,9 +2135,14 @@ export class P2pService {
       return { until: null, remaining: formatAmount(remaining(caps.lifetimeMax, used.lifetime)), currency };
     }
     if (code !== 'p2p.verification_daily_limit') return undefined;
-    const [row] = await sql<{ until: Date }[]>`
+    const [row] = z
+      .object({ until: z.date() })
+      .array()
+      .parse(
+        await sql`
       SELECT (date_trunc('day', timezone('UTC', now())) + interval '1 day') AT TIME ZONE 'UTC' AS until
-    `;
+    `,
+      );
     return { until: row ? row.until.toISOString() : null, remaining: formatAmount(remaining(caps.dailyMax, used.daily)), currency };
   }
 
@@ -2068,13 +2194,23 @@ export class P2pService {
     const floatingFiat = content.floating ? content.posting?.fiatCurrency : undefined;
     if (!this.advertiserTerms && !checkBalance && !content.buyRange && !checkContent && !posting && !floatingFiat) return;
     if (retry.idempotencyKey) {
-      const published = await this.sql<{ subject_id: string | null }[]>`
+      const published = z
+        .object({ subject_id: z.string().nullable() })
+        .array()
+        .parse(
+          await this.sql`
         SELECT subject_id FROM p2p.write_keys
-         WHERE actor_id = ${makerId} AND scope = 'offer.create' AND idempotency_key = ${retry.idempotencyKey}`;
+         WHERE actor_id = ${makerId} AND scope = 'offer.create' AND idempotency_key = ${retry.idempotencyKey}`,
+        );
       if (published[0]?.subject_id) return;
     } else if (retry.offerId) {
-      const published = await this.sql<{ id: string }[]>`
-        SELECT id FROM p2p.offers WHERE id = ${retry.offerId} AND maker_id = ${makerId}`;
+      const published = z
+        .object({ id: z.string() })
+        .array()
+        .parse(
+          await this.sql`
+        SELECT id FROM p2p.offers WHERE id = ${retry.offerId} AND maker_id = ${makerId}`,
+        );
       if (published[0]) return;
     }
     this.assertAdContent(content.terms);
@@ -2173,7 +2309,7 @@ export class P2pService {
     // AN OFFER MUST DECLARE HOW IT CAN BE PAID.
     //
     // `methodAllowed` treats an offer with no declared methods as accepting
-    // ANYTHING, which used to be a reasonable "the terms text is the contract"
+    // ANYTHING, which looks like a reasonable "the terms text is the contract"
     // default. It is not reasonable next to the take refusal: on an offer that
     // declares nothing, the ONLY thing that can refuse a take is the seller's
     // instrument set, so every method id a caller cares to try is answered
@@ -2311,7 +2447,7 @@ export class P2pService {
             if (claim.kind === 'replay' && claim.subjectId) return { replayId: claim.subjectId };
             throwWriteClaim(claim);
           } else if (clientOfferId) {
-            const existing = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${clientOfferId}`;
+            const existing = OfferRow.array().parse(await tx`SELECT * FROM p2p.offers WHERE id = ${clientOfferId}`);
             if (existing[0]) {
               if (!sameCreate(toOffer(existing[0]), { ...input, releaseWindowSeconds }, fiatCurrency, totalAmt, makerTier)) {
                 throw new P2pError('p2p.idempotency_conflict', 'p2p.idempotency_conflict');
@@ -2320,7 +2456,8 @@ export class P2pService {
             }
           }
 
-          const rows = await tx<OfferRow[]>`
+          const rows = OfferRow.array().parse(
+            await tx`
             INSERT INTO p2p.offers (
               id, maker_id, side, asset, fiat_currency, price_type, price,
               min_amt, max_amt, total_amt, remaining_amt, methods, terms, status, maker_tier, accepts_non_instant,
@@ -2336,7 +2473,8 @@ export class P2pService {
               ${releaseWindowSeconds}
             )
             RETURNING *
-          `;
+          `,
+          );
           if (idempotencyKey) {
             await finishWriteKey(tx, {
               actorId: input.makerId,
@@ -2394,17 +2532,22 @@ export class P2pService {
    * figure write none; a blank figure writes none. An ad is posted once and an edit never comes here, so a follower is
    * told once per ad. Returns how many followers are owed a notice.
    */
-  private async writeFollowerNotices(tx: Sql, row: OfferRow): Promise<number> {
+  private async writeFollowerNotices(tx: Queryable, row: OfferRow): Promise<number> {
     const perDay = this.followerNoticesPerDay;
     if (perDay === undefined || !Number.isInteger(perDay) || perDay < 1) return 0;
     if ((row.visibility ?? 'public') !== 'public') return 0;
     // One trader's posts count against the daily figure one at a time, so posts at the same moment cannot pass it together.
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`p2p.follower_notices:${row.maker_id}`}, 0))`;
-    const today = await tx<Array<{ n: number }>>`
+    const today = z
+      .object({ n: z.number() })
+      .array()
+      .parse(
+        await tx`
       SELECT count(DISTINCT offer_id)::int AS n
         FROM p2p.follower_notices
        WHERE trader_id = ${row.maker_id} AND posted_at > now() - interval '1 day'
-    `;
+    `,
+      );
     if (Number(today[0]?.n ?? 0) >= perDay) return 0;
     const written = await tx`
       INSERT INTO p2p.follower_notices (offer_id, follower_id, trader_id, posted_at)
@@ -2429,12 +2572,17 @@ export class P2pService {
    * many people follow the trader; the sweep hands over the rest. The bus and svc-notify dedupe on the pair.
    */
   private async handOverFollowerNotices(offerId: string): Promise<number> {
-    const owed = await this.sql<Array<{ follower_id: string; posted_at: Date }>>`
+    const owed = z
+      .object({ follower_id: z.string(), posted_at: z.date() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT follower_id, posted_at FROM p2p.follower_notices
        WHERE offer_id = ${offerId} AND handed_at IS NULL AND dropped_at IS NULL
        ORDER BY posted_at ASC, follower_id ASC
        LIMIT ${FOLLOWER_FAST_PATH}
-    `;
+    `,
+      );
     if (owed.length === 0) return 0;
     const offer = await this.loadOfferRaw(offerId);
     let sent = 0;
@@ -2479,12 +2627,17 @@ export class P2pService {
   /** Hand over every followed-trader notice still owed, oldest first; each ad is read once per sweep. */
   async sweepFollowerNotices(limit?: number): Promise<{ sent: number; failures: FollowerNoticeSweepFailure[] }> {
     const lim = assertSweepSettlementsLimit(limit);
-    const owed = await this.sql<Array<{ offer_id: string; follower_id: string; posted_at: Date }>>`
+    const owed = z
+      .object({ offer_id: z.string(), follower_id: z.string(), posted_at: z.date() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT offer_id, follower_id, posted_at FROM p2p.follower_notices
        WHERE handed_at IS NULL AND dropped_at IS NULL
        ORDER BY posted_at ASC
        LIMIT ${lim}
-    `;
+    `,
+      );
     let sent = 0;
     const failures: FollowerNoticeSweepFailure[] = [];
     const offers = new Map<string, Promise<OfferRecord>>();
@@ -2519,7 +2672,8 @@ export class P2pService {
     } = {},
   ): Promise<OfferRecord[]> {
     const limit = assertOfferListLimit(filter.limit);
-    const rows = await this.sql<OfferRow[]>`
+    const rows = OfferRow.array().parse(
+      await this.sql`
       SELECT * FROM p2p.offers
        WHERE status = 'active'
          AND visibility = 'public'
@@ -2532,7 +2686,8 @@ export class P2pService {
          AND (${filter.makerId ?? null}::text IS NULL OR maker_id = ${filter.makerId ?? null})
        ORDER BY price ASC, created_at ASC
        LIMIT ${limit}
-    `;
+    `,
+    );
     const offers = rows.map(toOffer);
     return this.projectBoardMethods(offers);
   }
@@ -2559,13 +2714,15 @@ export class P2pService {
    */
   async listOwnOffers(makerId: string, status: 'active' | 'paused' | 'closed', limit?: number): Promise<OfferRecord[]> {
     const lim = assertOfferListLimit(limit);
-    const rows = await this.sql<OfferRow[]>`
+    const rows = OfferRow.array().parse(
+      await this.sql`
       SELECT o.*, (SELECT r.id FROM p2p.offers r WHERE r.relisted_from = o.id) AS relisted_as
         FROM p2p.offers o
        WHERE o.maker_id = ${makerId} AND o.status = ${status}
        ORDER BY o.status_since DESC, o.created_at DESC, o.id
        LIMIT ${lim}
-    `;
+    `,
+    );
     return rows.map(toOffer);
   }
 
@@ -2574,16 +2731,21 @@ export class P2pService {
    * next UTC midnight). A blank cap refuses `p2p.config_unset`, and so does a service built without one (tests), whose
    * edits are not counted.
    */
-  async offerEditQuota(makerId: string, db: Sql = this.sql): Promise<OfferEditQuota> {
+  async offerEditQuota(makerId: string, db: Queryable = this.sql): Promise<OfferEditQuota> {
     const limit = this.offerEditsPerDay;
     if (limit === null || limit === undefined) {
       throw new P2pError('P2P_OFFER_EDITS_PER_DAY is not published; ads cannot be edited', 'p2p.config_unset');
     }
-    const [row] = await db<Array<{ used: number; resets_at: Date }>>`
+    const [row] = z
+      .object({ used: z.number(), resets_at: z.date() })
+      .array()
+      .parse(
+        await db`
       SELECT (SELECT count(*)::int FROM p2p.offer_edits
                WHERE maker_id = ${makerId} AND edit_day = (now() AT TIME ZONE 'UTC')::date) AS used,
              (((now() AT TIME ZONE 'UTC')::date + 1)::timestamp AT TIME ZONE 'UTC') AS resets_at
-    `;
+    `,
+      );
     const used = row?.used ?? 0;
     return { limit, used, remaining: Math.max(0, limit - used), resetsAt: row!.resets_at };
   }
@@ -2593,7 +2755,7 @@ export class P2pService {
    * person's edits run one after another under a transaction lock on their id, so two cannot both take the last one.
    * The row is keyed by the edit's own key, so the edit's retry (a replay, answered before this) never counts twice.
    */
-  private async countOfferEdit(tx: Sql, makerId: string, idempotencyKey: string, offerId: string): Promise<void> {
+  private async countOfferEdit(tx: Queryable, makerId: string, idempotencyKey: string, offerId: string): Promise<void> {
     if (this.offerEditsPerDay === undefined) return;
     await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`p2p.offer_edits:${makerId}`}, 0))`;
     const quota = await this.offerEditQuota(makerId, tx);
@@ -2615,10 +2777,11 @@ export class P2pService {
    * never be taken again, so it closes as sold out. Run inside the write that left it so (a release, an edit), under the
    * ad's row lock, so it closes once and a take waiting on the lock reads it closed.
    */
-  private async closeIfSoldOut(tx: Sql, offerId: string, locked = false): Promise<OfferRow | null> {
+  private async closeIfSoldOut(tx: Queryable, offerId: string, locked = false): Promise<OfferRow | null> {
     // The row lock comes first, so the open-order check below reads after any take that held it has committed.
     if (!locked) await tx`SELECT 1 FROM p2p.offers WHERE id = ${offerId} FOR UPDATE`;
-    const [closed] = await tx<OfferRow[]>`
+    const [closed] = OfferRow.array().parse(
+      await tx`
       UPDATE p2p.offers SET status = 'closed', close_reason = 'sold_out', pause_reason = NULL, updated_at = now()
        WHERE id = ${offerId} AND status IN ('active', 'paused') AND remaining_amt < min_amt
          AND NOT EXISTS (
@@ -2626,7 +2789,8 @@ export class P2pService {
             WHERE offer_id = ${offerId} AND status IN ('created', 'escrowed', 'fiat_sent', 'disputed')
          )
       RETURNING *
-    `;
+    `,
+    );
     return closed ?? null;
   }
 
@@ -2645,13 +2809,21 @@ export class P2pService {
       throw new P2pError(`Offer ${closed.id} is ${closed.status}; only a closed ad is relisted`, 'p2p.offer_not_active');
     }
     // Relisted already: that ad is the answer, whatever it has done since (an ad is relisted once).
-    const [already] = await this.sql<Array<{ id: string }>>`
+    const [already] = z
+      .object({ id: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT id FROM p2p.offers WHERE relisted_from = ${closed.id}
-    `;
+    `,
+      );
     if (already) return this.loadOfferRaw(already.id);
     // Anyone can work out the derived id and post an ad under it first. If it is taken by an ad that is not this relist,
     // use a fresh id; the key `relist:<closedId>` and the one-relist index keep the relist single either way.
-    const [taken] = await this.sql<Array<{ id: string }>>`SELECT id FROM p2p.offers WHERE id = ${newOfferId}`;
+    const [taken] = z
+      .object({ id: z.string() })
+      .array()
+      .parse(await this.sql`SELECT id FROM p2p.offers WHERE id = ${newOfferId}`);
     return this.createOffer({
       makerId: input.makerId,
       side: closed.side,
@@ -2679,13 +2851,37 @@ export class P2pService {
   }
 
   /**
+   * The ad's maker is the other side of the order and is not the caller, so the edge's frozen/closed check on
+   * the caller never covers them. A frozen, closed or unknown maker refuses `p2p.counterparty_unavailable`, one code
+   * for all three; an unanswered check refuses `p2p.counterparty_unverifiable`. Either way nothing is reserved.
+   */
+  private async assertCounterpartyMayTrade(makerId: string, takerId: string): Promise<void> {
+    if (!this.counterpartyState || makerId === takerId) return;
+    let status;
+    try {
+      status = await this.counterpartyState.statusOf(makerId);
+    } catch (err) {
+      if (err instanceof CounterpartyStateUnavailableError) {
+        throw new P2pError('This ad cannot be checked right now; nothing was held. Try again shortly', 'p2p.counterparty_unverifiable');
+      }
+      throw err;
+    }
+    if (status !== 'active') {
+      throw new P2pError('This ad cannot take orders; nothing was held', 'p2p.counterparty_unavailable');
+    }
+  }
+
+  /**
    * P-ads-merchant-08: an ad whose maker is offline, or on a schedule outside every window, takes no order; it is off
    * the board for the same reason. Refuses `p2p.maker_offline` with when the maker's hours open again (null when
    * offline with no schedule). Orders already open are not touched.
    */
-  private async assertMakerPresent(db: Sql, makerId: string, takerId: string | null): Promise<void> {
+  private async assertMakerPresent(db: Queryable, makerId: string, takerId: string | null): Promise<void> {
     if (takerId !== null && takerId === makerId) return;
-    const [row] = await db<Array<{ on_board: boolean }>>`SELECT p2p.maker_on_board(${makerId}, now()) AS on_board`;
+    const [row] = z
+      .object({ on_board: z.boolean() })
+      .array()
+      .parse(await db`SELECT p2p.maker_on_board(${makerId}, now()) AS on_board`);
     if (row?.on_board !== false) return;
     const presence = await readPresence(db, makerId);
     throw new P2pError('This ad’s maker is away; it takes orders again in their hours', 'p2p.maker_offline', {
@@ -2700,7 +2896,7 @@ export class P2pService {
    * a private ad it is refused by why (an unknown token says no more than private).
    */
   private async assertOfferAccess(
-    db: Sql,
+    db: Queryable,
     offer: Pick<OfferRecord, 'id' | 'makerId' | 'visibility'>,
     viewerId: string | null,
     shareToken: string | undefined,
@@ -2710,10 +2906,15 @@ export class P2pService {
       if (open) return { sharedFrom: false };
       throw new P2pError('This ad is private: it opens only from a link its maker shared', 'p2p.offer_private');
     }
-    const [link] = await db<Array<{ expired: boolean; revoked_at: Date | null }>>`
+    const [link] = z
+      .object({ expired: z.boolean(), revoked_at: z.date().nullable() })
+      .array()
+      .parse(
+        await db`
       SELECT expires_at <= now() AS expired, revoked_at FROM p2p.offer_share_links
        WHERE token_hash = ${shareTokenHash(shareToken)} AND offer_id = ${offer.id}
-    `;
+    `,
+      );
     if (link && !link.revoked_at && !link.expired) return { sharedFrom: true };
     if (open) return { sharedFrom: false };
     if (!link) throw new P2pError('This ad is private: it opens only from a link its maker shared', 'p2p.offer_private');
@@ -2760,11 +2961,13 @@ export class P2pService {
 
   /** P-ads-merchant-07: make an ad public (on the board) or private (by its links only). Open orders are unaffected. */
   async setOfferVisibility(offerId: string, makerId: string, visibility: OfferVisibility): Promise<OfferRecord> {
-    const [row] = await this.sql<OfferRow[]>`
+    const [row] = OfferRow.array().parse(
+      await this.sql`
       UPDATE p2p.offers SET visibility = ${visibility}, updated_at = now()
        WHERE id = ${offerId} AND maker_id = ${makerId} AND status <> 'closed'
       RETURNING *
-    `;
+    `,
+    );
     if (row) return toOffer(row);
     const existing = await this.loadOfferRaw(offerId);
     if (existing.makerId !== makerId) throw new P2pError('Only the maker can change who sees an offer', 'p2p.not_a_party');
@@ -2789,12 +2992,14 @@ export class P2pService {
     if (offer.status === 'closed') throw new P2pError(`Offer ${offer.id} is closed`, 'p2p.offer_not_active');
     const seconds = Math.min(input.seconds ?? max, max);
     const token = randomBytes(24).toString('base64url');
-    const [row] = await this.sql<ShareLinkRow[]>`
+    const [row] = ShareLinkRow.array().parse(
+      await this.sql`
       INSERT INTO p2p.offer_share_links (id, offer_id, maker_id, token_hash, expires_at)
       VALUES (${input.linkId}, ${offer.id}, ${input.makerId}, ${shareTokenHash(token)}, now() + make_interval(secs => ${seconds}))
       ON CONFLICT (id) DO NOTHING
       RETURNING id, offer_id, created_at, expires_at, revoked_at
-    `;
+    `,
+    );
     // The same link id again: the token was shown once and is not kept, so a retry cannot give it back.
     if (!row) throw new P2pError('p2p.idempotency_conflict', 'p2p.idempotency_conflict');
     return { ...toShareLink(row), token };
@@ -2804,29 +3009,33 @@ export class P2pService {
   async listShareLinks(offerId: string, makerId: string): Promise<ShareLinkRecord[]> {
     const offer = await this.loadOfferRaw(offerId);
     if (offer.makerId !== makerId) throw new P2pError('Only the maker can read an offer’s links', 'p2p.not_a_party');
-    const rows = await this.sql<ShareLinkRow[]>`
+    const rows = ShareLinkRow.array().parse(
+      await this.sql`
       SELECT id, offer_id, created_at, expires_at, revoked_at FROM p2p.offer_share_links
        WHERE offer_id = ${offerId} AND maker_id = ${makerId}
        ORDER BY created_at DESC, id
        LIMIT 50
-    `;
+    `,
+    );
     return rows.map(toShareLink);
   }
 
   /** P-ads-merchant-07: withdraw a link at once. Revoking twice is the same revoke. */
   async revokeShareLink(linkId: string, makerId: string): Promise<ShareLinkRecord> {
-    const [row] = await this.sql<ShareLinkRow[]>`
+    const [row] = ShareLinkRow.array().parse(
+      await this.sql`
       UPDATE p2p.offer_share_links SET revoked_at = COALESCE(revoked_at, now())
        WHERE id = ${linkId} AND maker_id = ${makerId}
       RETURNING id, offer_id, created_at, expires_at, revoked_at
-    `;
+    `,
+    );
     if (!row) throw new P2pError(`Share link ${linkId} not found`, 'p2p.offer_not_found');
     return toShareLink(row);
   }
 
   /** Maker management / take path — unfiltered methods as stored. */
   private async loadOfferRaw(offerId: string): Promise<OfferRecord> {
-    const rows = await this.sql<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${offerId}`;
+    const rows = OfferRow.array().parse(await this.sql`SELECT * FROM p2p.offers WHERE id = ${offerId}`);
     const row = rows[0];
     if (!row) throw new P2pError(`Offer ${offerId} not found`, 'p2p.offer_not_found');
     return toOffer(row);
@@ -2883,16 +3092,21 @@ export class P2pService {
     const row = await transaction(
       this.sql,
       async (tx) => {
-        const [locked] = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${offerId} FOR UPDATE`;
+        const [locked] = OfferRow.array().parse(await tx`SELECT * FROM p2p.offers WHERE id = ${offerId} FOR UPDATE`);
         if (!locked) throw new P2pError(`Offer ${offerId} not found`, 'p2p.offer_not_found');
         if (locked.maker_id !== makerId) throw new P2pError('Only the maker can close an offer', 'p2p.not_a_party');
         if (locked.status === 'closed') return locked;
-        const open = await tx<Array<{ id: string; total: number }>>`
+        const open = z
+          .object({ id: z.string(), total: z.number() })
+          .array()
+          .parse(
+            await tx`
           SELECT id, count(*) OVER ()::int AS total FROM p2p.p2p_trades
            WHERE offer_id = ${offerId} AND status IN ('created', 'escrowed', 'fiat_sent', 'disputed')
            ORDER BY created_at, id
            LIMIT 50
-        `;
+        `,
+          );
         if (open.length > 0) {
           const count = open[0]!.total;
           throw new P2pError(
@@ -2901,11 +3115,13 @@ export class P2pService {
             { until: null, openTrades: String(count), openTradeIds: open.map((trade) => trade.id) },
           );
         }
-        const [closed] = await tx<OfferRow[]>`
+        const [closed] = OfferRow.array().parse(
+          await tx`
           UPDATE p2p.offers SET status = 'closed', close_reason = 'by_you', pause_reason = NULL, updated_at = now()
            WHERE id = ${offerId}
           RETURNING *
-        `;
+        `,
+        );
         return closed!;
       },
       { isolation: 'read committed', maxAttempts: 5 },
@@ -2923,11 +3139,13 @@ export class P2pService {
    * API never exposed.
    */
   async pauseOffer(offerId: string, makerId: string): Promise<OfferRecord> {
-    const rows = await this.sql<OfferRow[]>`
+    const rows = OfferRow.array().parse(
+      await this.sql`
       UPDATE p2p.offers SET status = 'paused', updated_at = now()
        WHERE id = ${offerId} AND maker_id = ${makerId} AND status = 'active'
       RETURNING *
-    `;
+    `,
+    );
     if (!rows[0]) {
       const existing = await this.loadOfferRaw(offerId);
       if (existing.makerId !== makerId) throw new P2pError('Only the maker can pause an offer', 'p2p.not_a_party');
@@ -2966,9 +3184,11 @@ export class P2pService {
       async (tx) => {
         if (preview.side === 'sell') {
           await lockInstrumentOwners(tx, makerId);
-          const [locked] = await tx<OfferRow[]>`
+          const [locked] = OfferRow.array().parse(
+            await tx`
             SELECT * FROM p2p.offers WHERE id = ${offerId} AND maker_id = ${makerId} AND status = 'paused' FOR UPDATE
-          `;
+          `,
+          );
           if (locked) {
             const live = await this.instruments.liveMethodKeys(makerId, locked.fiat_currency, { db: tx });
             if (!sellOfferBoardable(Array.isArray(locked.methods) ? locked.methods : [], live)) {
@@ -2976,11 +3196,13 @@ export class P2pService {
             }
           }
         }
-        return tx<OfferRow[]>`
+        return OfferRow.array().parse(
+          await tx`
           UPDATE p2p.offers SET status = 'active', pause_reason = NULL, updated_at = now()
            WHERE id = ${offerId} AND maker_id = ${makerId} AND status = 'paused'
           RETURNING *
-        `;
+        `,
+        );
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
@@ -3021,28 +3243,35 @@ export class P2pService {
    * why resuming needs a method first.
    */
   private async readRemovalImpact(
-    db: Sql,
+    db: Queryable,
     instrumentId: string,
     ownerId: string,
     lock: boolean,
   ): Promise<{ impact: MethodRemovalImpact; stranded: string[] }> {
-    const [instrument] = await db<Array<{ method_id: string; fiat_currency: string }>>`
+    const [instrument] = z
+      .object({ method_id: z.string(), fiat_currency: z.string() })
+      .array()
+      .parse(
+        await db`
       SELECT method_id, fiat_currency FROM p2p.payment_instruments
        WHERE id = ${instrumentId} AND owner_id = ${ownerId} AND status = 'active'
        ${lock ? db`FOR UPDATE` : db``}
-    `;
+    `,
+      );
     if (!instrument) {
       throw new InstrumentError(`No payment instrument is available for ${instrumentId}`, 'p2p.instrument_not_found');
     }
     // One active destination per method and currency (`instrument_slot_taken`), so without this one the method is not
     // payable; the ads it leaves with no payable method at all are the ones that pause.
     const after = await this.instruments.liveMethodKeys(ownerId, instrument.fiat_currency, { db, exceptInstrumentId: instrumentId });
-    const offers = await db<OfferRow[]>`
+    const offers = OfferRow.array().parse(
+      await db`
       SELECT * FROM p2p.offers
        WHERE maker_id = ${ownerId} AND side = 'sell' AND status IN ('active', 'paused') AND fiat_currency = ${instrument.fiat_currency}
        ORDER BY created_at, id
        ${lock ? db`FOR UPDATE` : db``}
-    `;
+    `,
+    );
     const ads: MethodRemovalAd[] = [];
     const stranded: string[] = [];
     for (const row of offers) {
@@ -3080,11 +3309,16 @@ export class P2pService {
             `;
           }
           if (pausing.length === 0) return { header, notice: null };
-          const paused = await tx<Array<{ id: string }>>`
+          const paused = z
+            .object({ id: z.string() })
+            .array()
+            .parse(
+              await tx`
             UPDATE p2p.offers SET status = 'paused', pause_reason = 'method_removed', updated_at = now()
              WHERE id = ANY(${pausing}::uuid[]) AND maker_id = ${input.ownerId} AND status = 'active'
             RETURNING id
-          `;
+          `,
+            );
           const offerIds = paused.map((r) => r.id).sort();
           const pausedAt = await txNow(tx);
           await tx`
@@ -3137,15 +3371,24 @@ export class P2pService {
   /** Hand over every removal notice still owed, oldest first. The maker was told on the ad itself either way. */
   async sweepOfferPauses(limit?: number): Promise<{ sent: number; failures: OfferPauseSweepFailure[] }> {
     const lim = assertSweepSettlementsLimit(limit);
-    const owed = await this.sql<
-      Array<{ instrument_id: string; maker_id: string; method_id: string; offer_ids: string[]; removed_at: Date }>
-    >`
+    const owed = z
+      .object({
+        instrument_id: z.string(),
+        maker_id: z.string(),
+        method_id: z.string(),
+        offer_ids: z.array(z.string()),
+        removed_at: z.date(),
+      })
+      .array()
+      .parse(
+        await this.sql`
       SELECT instrument_id, maker_id, method_id, offer_ids, removed_at
         FROM p2p.method_removal_pauses
        WHERE handed_at IS NULL
        ORDER BY removed_at ASC
        LIMIT ${lim}
-    `;
+    `,
+      );
     let sent = 0;
     const failures: OfferPauseSweepFailure[] = [];
     for (const row of owed) {
@@ -3220,6 +3463,12 @@ export class P2pService {
     quoteId?: string;
     /** P-ads-merchant-07: the share link the taker came by. Required for a private ad; marks the order shared. */
     shareToken?: string;
+    /**
+     * RC-p2p-02: a contract-escrow order. The caller (the router) has already checked the contract is deployed and the
+     * asset has a token on its chain; this names that chain and token, the buyer's wallet and the dispute window.
+     * Absent: a ledger order, exactly as before.
+     */
+    contract?: { chainId: number; token: string; decimals: number; buyerWallet: string; disputeWindowSeconds: number };
   }): Promise<TradeRecord> {
     this.assertTradingEnabled();
 
@@ -3236,6 +3485,9 @@ export class P2pService {
         span.setAttribute('intafaced.sellerId', reserved.sellerId);
         span.setAttribute('intafaced.buyerId', reserved.buyerId);
         span.setAttribute('intafaced.fiatAmount', formatAmount(reserved.fiatAmount));
+        // A contract order locks nothing here: it waits in `created` for the seller to open and fund the deal from their
+        // own wallet (`attachContractDeal`). No ledger recipe is called for it, now or later.
+        if (reserved.escrowKind === 'contract') return reserved;
 
         try {
           return await this.ensureEscrowed(reserved.id);
@@ -3264,6 +3516,7 @@ export class P2pService {
     tier?: string;
     quoteId?: string;
     shareToken?: string;
+    contract?: { chainId: number; token: string; decimals: number; buyerWallet: string; disputeWindowSeconds: number };
   }): Promise<TradeRecord> {
     // Read the offer once, unlocked, purely to decide whether a reference price
     // is needed. Fetching a mark price is a network call; holding the offer's
@@ -3272,6 +3525,8 @@ export class P2pService {
     // missing offer mid-take. Take still refuses with the uniform message when
     // the destination is gone; get/list stay honest for strangers.
     const preview = await this.loadOfferRaw(input.offerId);
+    // Before anything is reserved, and outside the transaction (a network call must not hold the offer lock).
+    await this.assertCounterpartyMayTrade(preview.makerId, input.takerId);
     const referencePrice =
       preview.priceType === 'float' ? ((await this.referencePrices?.price(preview.asset, preview.fiatCurrency)) ?? null) : null;
 
@@ -3312,7 +3567,7 @@ export class P2pService {
             // once and never updated. See `instrument-lock.ts`.
             await lockInstrumentOwners(tx, preview.makerId, input.takerId);
 
-            const rows = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${input.offerId} FOR UPDATE`;
+            const rows = OfferRow.array().parse(await tx`SELECT * FROM p2p.offers WHERE id = ${input.offerId} FOR UPDATE`);
             const row = rows[0];
             if (!row) throw new P2pError(`Offer ${input.offerId} not found`, 'p2p.offer_not_found');
 
@@ -3337,6 +3592,13 @@ export class P2pService {
             // has to name the seller in the access log.
             const { sellerId, buyerId } = partiesFor(offer.side, offer.makerId, input.takerId);
             this.assertSellNotLocked(input.takerId === sellerId);
+            // RC-p2p-02: the contract escrow is the buyer's choice on a sell ad: the buyer names the wallet the deal pays.
+            if (input.contract && input.takerId !== buyerId) {
+              throw new P2pError(
+                'A contract escrow is chosen by the buyer when taking a sell ad; on a buy ad the escrow is the ledger',
+                'p2p.contract_escrow_unavailable',
+              );
+            }
 
             if (!methodAllowed(offer.methods, input.method)) {
               // NOT a distinct error any more. "The offer does not accept that
@@ -3378,8 +3640,10 @@ export class P2pService {
             const deadlines = withDeadline({}, 'created', deadlineAt);
             // Fee is constructor/`P2P_FEE_BPS` only — never a take-time argument.
             // Unset refuses rather than inventing 30 (or 0).
-            const feeBps = publishedFeeBps(this.feeBps);
-            if (held) assertQuoteTerms(held, { offerPrice: offer.price, price: priced.price, feeBps });
+            const publishedFee = publishedFeeBps(this.feeBps);
+            if (held) assertQuoteTerms(held, { offerPrice: offer.price, price: priced.price, feeBps: publishedFee });
+            // RC-p2p-02: the contract deal is opened with no fee and no fee recipient, so a contract order records none.
+            const feeBps = input.contract ? 0 : publishedFee;
             this.assertPairLimit({ asset: offer.asset, fiatCurrency: offer.fiatCurrency, fiatAmount: priced.fiatAmount });
             // Before inventory moves: a dust take that cannot post a release would
             // lock value into a trade that can never settle.
@@ -3401,6 +3665,9 @@ export class P2pService {
               });
             }
 
+            // RC-p2p-02: the deal's amount in the token's base units. An order finer than the token can hold refuses.
+            const contractUnits = input.contract ? contractUnitsOf(priced.amount, input.contract.decimals) : null;
+
             await tx`
             UPDATE p2p.offers
                SET remaining_amt = remaining_amt - ${formatAmount(input.amount)}::numeric,
@@ -3408,11 +3675,14 @@ export class P2pService {
              WHERE id = ${offer.id}
           `;
 
-            const inserted = await tx<TradeRow[]>`
+            const inserted = TradeRow.array().parse(
+              await tx`
             INSERT INTO p2p.p2p_trades (
               id, offer_id, taker_id, maker_id, seller_id, buyer_id, asset, fiat_currency,
               amount, price, fiat_amount, method, fee_bps, status, deadlines, deadline_at, created_at,
-              terms_snapshot, shared_from, release_window_seconds
+              terms_snapshot, shared_from, release_window_seconds,
+              escrow_kind, contract_chain_id, contract_token, contract_units, contract_buyer_wallet,
+              contract_dispute_window_seconds
             )
             VALUES (
               ${input.tradeId}, ${offer.id}, ${input.takerId}, ${offer.makerId}, ${sellerId}, ${buyerId},
@@ -3420,11 +3690,14 @@ export class P2pService {
               ${formatAmount(priced.amount)}::numeric, ${formatAmount(priced.price)}::numeric,
               ${formatAmount(priced.fiatAmount)}::numeric, ${input.method}, ${feeBps},
               'created', ${tx.json(deadlines as never)}, ${deadlineAt}, ${now},
-              ${offer.terms}, ${sharedFrom}, ${offer.releaseWindowSeconds ?? null}
+              ${offer.terms}, ${sharedFrom}, ${offer.releaseWindowSeconds ?? null},
+              ${input.contract ? 'contract' : 'ledger'}, ${input.contract?.chainId ?? null}, ${input.contract?.token ?? null},
+              ${contractUnits}, ${input.contract?.buyerWallet ?? null}, ${input.contract?.disputeWindowSeconds ?? null}
             )
             ON CONFLICT (id) DO NOTHING
             RETURNING *
-          `;
+          `,
+            );
 
             if (!inserted[0]) {
               // A retry of the same take. The inventory was already reserved by the
@@ -3478,14 +3751,16 @@ export class P2pService {
             if (!settlement.instant && offer.side === 'sell' && !offer.acceptsNonInstant) {
               throw new P2pError('This ad does not accept payment methods that are not instant', 'p2p.non_instant_not_accepted');
             }
-            const [profiled] = await tx<TradeRow[]>`
+            const [profiled] = TradeRow.array().parse(
+              await tx`
               UPDATE p2p.p2p_trades
                  SET non_instant = ${!settlement.instant},
                      settlement_window_seconds = ${settlement.instant ? null : settlement.windowSeconds},
                      cash_release_seconds = ${cashRelease}
                WHERE id = ${input.tradeId}
               RETURNING *
-            `;
+            `,
+            );
             return toTrade(profiled!);
           },
           { isolation: 'read committed', maxAttempts: 5 },
@@ -3510,6 +3785,8 @@ export class P2pService {
    * it, and calling it on an already-escrowed trade is a no-op read.
    */
   private async ensureEscrowed(tradeId: string): Promise<TradeRecord> {
+    // RC-p2p-02: never a ledger lock for a contract order, whoever calls (a take, a sweep, a retry).
+    assertLedgerEscrow(await this.getTrade(tradeId));
     // Commit the possible remote attempt BEFORE dispatch. HTTP abort cannot
     // cancel a request already accepted by the ledger, nor prove it had no effect.
     const ordinal = await this.claimEscrowLockAttempt(tradeId);
@@ -3538,9 +3815,14 @@ export class P2pService {
             // immutable claim remains, so a sweep can replay the same recipe.
             throw err;
           }
-          const [history] = await tx<{ attempts: string | null }[]>`
+          const [history] = z
+            .object({ attempts: z.string().nullable() })
+            .array()
+            .parse(
+              await tx`
             SELECT escrow_lock_attempts::text AS attempts FROM p2p.p2p_trades WHERE id = ${trade.id}
-          `;
+          `,
+            );
           if (ordinal !== '1' || history?.attempts !== '1') {
             // This refusal describes only this invocation. Earlier accepted
             // handlers may still post even after our await timed out or died.
@@ -3596,10 +3878,15 @@ export class P2pService {
         const trade = await this.lockTrade(tx, tradeId);
         if (trade.status !== 'created') return null;
         await this.requireOriginalTermsClaim(trade.id, tx);
-        const [row] = await tx<{ attempts: string | null }[]>`
+        const [row] = z
+          .object({ attempts: z.string().nullable() })
+          .array()
+          .parse(
+            await tx`
         UPDATE p2p.p2p_trades SET escrow_lock_attempts = escrow_lock_attempts + 1
          WHERE id = ${trade.id} RETURNING escrow_lock_attempts::text AS attempts
-      `;
+      `,
+          );
         // NULL remains unknown; upgrading must never bless untracked history.
         return row?.attempts ?? null;
       },
@@ -3608,25 +3895,167 @@ export class P2pService {
   }
 
   /** Stamp an acknowledged lock while the caller still holds the trade row. */
-  private async advanceToEscrowed(tx: Sql, trade: TradeRecord): Promise<TradeRecord> {
+  private async advanceToEscrowed(tx: Queryable, trade: TradeRecord): Promise<TradeRecord> {
     const now = await txNow(tx);
     // P-disputes-security-09: a non-instant order's payment window is its method's settlement window; a blank window
     // keeps the published payment deadline.
     const window = trade.settlement.instant ? null : trade.settlement.windowSeconds;
     const deadlineAt = deadlineFor('escrowed', now, window === null ? this.deadlines : { ...this.deadlines, paymentSeconds: window });
     const deadlines = withDeadline(trade.deadlines, 'escrowed', deadlineAt);
-    const next = await tx<TradeRow[]>`
+    const next = TradeRow.array().parse(
+      await tx`
       UPDATE p2p.p2p_trades
          SET status = 'escrowed', escrowed_at = ${now}, deadline_at = ${deadlineAt},
              deadlines = ${tx.json(deadlines as never)}
        WHERE id = ${trade.id} AND status = 'created'
       RETURNING *
-    `;
+    `,
+    );
     if (!next[0]) throw new P2pError(`Trade ${trade.id} moved before its lock acknowledgement`, 'p2p.trade_moved');
     // Count reputation only after an acknowledged lock, in the same commit.
     await this.bumpReputation(tx, trade.sellerId, 'escrowed');
     await this.bumpReputation(tx, trade.buyerId, 'escrowed');
     return toTrade(next[0]);
+  }
+
+  // ── RC-p2p-02: the contract escrow ─────────────────────────────────────────
+
+  /**
+   * The seller attaches the deal they opened and funded from their own wallet. `deal` is the chain's own answer
+   * (svc-protocol `escrow.deal`, read by the router for this request), never the caller's word: it must carry exactly the
+   * order's terms (chain, token, base units, the buyer's wallet, no arbiter, the dispute window, refund on timeout) and be
+   * locked. The order then moves to `escrowed` with the deal id written once. One deal backs one order (unique index).
+   * Retrying with the same deal returns the order; a different deal refuses `p2p.escrow_deal_mismatch`. No ledger call.
+   */
+  async attachContractDeal(input: { tradeId: string; actorId: string; deal: ContractDealRead }): Promise<TradeRecord> {
+    return withSpan('p2p.attachContractDeal', async () =>
+      transaction(
+        this.sql,
+        async (tx) => {
+          const trade = await this.lockTrade(tx, input.tradeId);
+          if (trade.sellerId !== input.actorId && trade.buyerId !== input.actorId) throw unknownTrade(input.tradeId);
+          if (trade.escrowKind !== 'contract' || !trade.contract) {
+            throw new P2pError('This order is held by the ledger escrow; its escrow kind is fixed at take', 'p2p.escrow_kind_immutable');
+          }
+          if (trade.sellerId !== input.actorId) throw new P2pError('Only the seller opens and funds the deal', 'p2p.not_the_seller');
+          const terms = trade.contract;
+          if (terms.dealId !== null) {
+            if (terms.dealId === input.deal.dealId) return trade;
+            throw new P2pError(`This order is already held by deal ${terms.dealId}`, 'p2p.escrow_deal_mismatch');
+          }
+          assertTransition(trade.status, 'escrowed');
+          const deal = input.deal;
+          const wrong = [
+            deal.chainId !== terms.chainId && 'network',
+            !sameAddress(deal.token, terms.token) && 'token',
+            deal.amount !== terms.units && 'amount',
+            !sameAddress(deal.buyer, terms.buyerWallet) && "buyer's wallet",
+            deal.arbiter !== null && 'arbiter',
+            deal.disputeWindowSeconds !== terms.disputeWindowSeconds && 'dispute window',
+            deal.timeout !== 'refund_seller' && 'timeout disposition',
+          ].filter((x): x is string => typeof x === 'string');
+          if (wrong.length > 0) {
+            throw new P2pError(`Deal ${deal.dealId} does not match this order: ${wrong.join(', ')}`, 'p2p.escrow_deal_mismatch');
+          }
+          if (deal.state !== 'locked') {
+            throw new P2pError(
+              `Deal ${deal.dealId} is ${deal.state}; the seller's coins must be locked in it before it can hold this order`,
+              'p2p.escrow_deal_mismatch',
+            );
+          }
+          const [taken] = z
+            .object({ id: z.string() })
+            .array()
+            .parse(
+              await tx`
+            SELECT id FROM p2p.p2p_trades
+             WHERE contract_chain_id = ${terms.chainId} AND contract_deal_id = ${deal.dealId}::numeric AND id <> ${trade.id}
+          `,
+            );
+          if (taken) throw new P2pError(`Deal ${deal.dealId} already holds another order`, 'p2p.escrow_deal_mismatch');
+          await tx`
+            UPDATE p2p.p2p_trades
+               SET contract_deal_id = ${deal.dealId}::numeric, contract_seller_wallet = ${deal.seller}
+             WHERE id = ${trade.id} AND contract_deal_id IS NULL
+          `;
+          return this.advanceToEscrowed(tx, trade);
+        },
+        { isolation: 'read committed', maxAttempts: 5 },
+      ),
+    );
+  }
+
+  /**
+   * Either party brings the order to what its deal says on the chain (`deal`, read by the router): released pays the
+   * buyer, so the order completes; refunded returns the coins to the seller, so it is cancelled; disputed is the
+   * contract's own dispute, settled by the refund both agreed after its window. Locked changes nothing. The decision
+   * is written and stamped settled in one transaction, since the contract already moved the coins: no ledger recipe is
+   * called. Running it twice for one chain state changes the order once.
+   */
+  async syncContractDeal(input: { tradeId: string; actorId: string; deal: ContractDealRead }): Promise<TradeRecord> {
+    return withSpan('p2p.syncContractDeal', async () =>
+      transaction(
+        this.sql,
+        async (tx) => {
+          const trade = await this.lockTrade(tx, input.tradeId);
+          if (trade.sellerId !== input.actorId && trade.buyerId !== input.actorId) throw unknownTrade(input.tradeId);
+          if (trade.escrowKind !== 'contract' || !trade.contract?.dealId) {
+            throw new P2pError('This order is not held by a contract deal', 'p2p.escrow_deal_mismatch');
+          }
+          if (trade.contract.dealId !== input.deal.dealId || trade.contract.chainId !== input.deal.chainId) {
+            throw new P2pError(`Deal ${input.deal.dealId} does not hold this order`, 'p2p.escrow_deal_mismatch');
+          }
+          const state = input.deal.state;
+          if (isTerminal(trade.status) || state === 'locked' || state === 'open') return trade;
+          const now = await txNow(tx);
+          if (state === 'disputed') {
+            if (trade.status === 'disputed') return trade;
+            assertTransition(trade.status, 'disputed');
+            // The contract's own deadline: after it, anyone may settle the deal by the refund agreed at open.
+            const deadlineAt = new Date((input.deal.disputeDeadline ?? Math.floor(now.getTime() / 1000)) * 1000);
+            const [row] = TradeRow.array().parse(
+              await tx`
+              UPDATE p2p.p2p_trades
+                 SET status = 'disputed', deadline_at = ${deadlineAt},
+                     deadlines = ${tx.json(withDeadline(trade.deadlines, 'disputed', deadlineAt) as never)}
+               WHERE id = ${trade.id} AND status = ${trade.status}
+              RETURNING *
+            `,
+            );
+            if (!row) throw new P2pError(`Trade ${trade.id} moved while its deal was read`, 'p2p.trade_moved');
+            return toTrade(row);
+          }
+          const to: TradeStatus = state === 'released' ? 'released' : 'cancelled';
+          const resolution: TradeResolution = state === 'released' ? 'released' : 'refunded';
+          assertTransition(trade.status, to);
+          await this.writeDecision(tx, { trade, to, resolution, reason: `contract.${state}`, now });
+          const [row] = TradeRow.array().parse(
+            await tx`
+            UPDATE p2p.p2p_trades SET settled_at = ${now} WHERE id = ${trade.id} AND settled_at IS NULL RETURNING *
+          `,
+          );
+          return row ? toTrade(row) : this.lockTrade(tx, trade.id);
+        },
+        { isolation: 'read committed', maxAttempts: 5 },
+      ),
+    );
+  }
+
+  /** A contract order still in `created` with no deal attached: voided and stamped settled, nothing to post. */
+  private async voidUnfundedContractOrder(tradeId: string): Promise<void> {
+    await transaction(
+      this.sql,
+      async (tx) => {
+        const trade = await this.lockTrade(tx, tradeId);
+        if (trade.escrowKind !== 'contract' || trade.status !== 'created' || trade.contract?.dealId) {
+          throw new P2pError(`Trade ${tradeId} moved before its funding window closed`, 'p2p.trade_moved');
+        }
+        const now = await txNow(tx);
+        await this.writeDecision(tx, { trade, to: 'cancelled', resolution: 'voided', reason: 'timeout.contract_unfunded', now });
+        await tx`UPDATE p2p.p2p_trades SET settled_at = ${now} WHERE id = ${tradeId} AND settled_at IS NULL`;
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   // ── Buyer marks the fiat sent ──────────────────────────────────────────────
@@ -3658,13 +4087,15 @@ export class P2pService {
           const deadlineAt = settledBy && settledBy > released ? settledBy : released;
           const deadlines = withDeadline(trade.deadlines, 'fiat_sent', deadlineAt);
 
-          const rows = await tx<TradeRow[]>`
+          const rows = TradeRow.array().parse(
+            await tx`
             UPDATE p2p.p2p_trades
                SET status = 'fiat_sent', fiat_sent_at = ${now}, deadline_at = ${deadlineAt},
                    deadlines = ${tx.json(deadlines as never)}
              WHERE id = ${tradeId} AND status = ${trade.status}
             RETURNING *
-          `;
+          `,
+          );
           // The outbox row: the seller's notice is owed from this commit, whatever happens to the process next.
           await tx`
             INSERT INTO p2p.fiat_sent_notices (trade_id, buyer_id, seller_id, marked_at)
@@ -3721,13 +4152,18 @@ export class P2pService {
         FROM p2p.p2p_trades t
        WHERE t.id = n.trade_id AND n.handed_at IS NULL AND n.dropped_at IS NULL AND t.status <> 'fiat_sent'
     `;
-    const owed = await this.sql<Array<{ trade_id: string; buyer_id: string; seller_id: string; marked_at: Date }>>`
+    const owed = z
+      .object({ trade_id: z.string(), buyer_id: z.string(), seller_id: z.string(), marked_at: z.date() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT n.trade_id, n.buyer_id, n.seller_id, n.marked_at
         FROM p2p.fiat_sent_notices n
        WHERE n.handed_at IS NULL AND n.dropped_at IS NULL
        ORDER BY n.marked_at ASC
        LIMIT ${lim}
-    `;
+    `,
+      );
     let sent = 0;
     const failures: SweepFailure[] = [];
     for (const row of owed) {
@@ -3774,9 +4210,14 @@ export class P2pService {
           if (waitSeconds === null || max === null) {
             throw new P2pError('P2P_REMIND_WAIT_SECONDS and P2P_REMIND_MAX are not published; no reminder was sent', 'p2p.config_unset');
           }
-          const [last] = await tx<Array<{ n: number; reminded_at: Date }>>`
+          const [last] = z
+            .object({ n: z.number(), reminded_at: z.date() })
+            .array()
+            .parse(
+              await tx`
             SELECT n, reminded_at FROM p2p.trade_reminders WHERE trade_id = ${tradeId} ORDER BY n DESC LIMIT 1
-          `;
+          `,
+            );
           const count = last?.n ?? 0;
           if (count >= max) {
             throw new P2pError(
@@ -3816,9 +4257,14 @@ export class P2pService {
 
   /** An order's reminders as its parties see them. Reads only; a stranger never reaches it (callers filter parties first). */
   async reminderState(trade: TradeRecord): Promise<ReminderState> {
-    const [row] = await this.sql<Array<{ count: number; last_at: Date | null }>>`
+    const [row] = z
+      .object({ count: z.number(), last_at: z.date().nullable() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT count(*)::int AS count, max(reminded_at) AS last_at FROM p2p.trade_reminders WHERE trade_id = ${trade.id}
-    `;
+    `,
+      );
     const count = row?.count ?? 0;
     const lastAt = row?.last_at ? new Date(row.last_at) : null;
     const { max } = this.reminders;
@@ -3854,14 +4300,19 @@ export class P2pService {
     `;
     // Only orders still waiting on release: one released between the drop above and this read is left for the next
     // tick's drop, never handed over as "please release".
-    const owed = await this.sql<Array<{ trade_id: string; n: number; buyer_id: string; seller_id: string; reminded_at: Date }>>`
+    const owed = z
+      .object({ trade_id: z.string(), n: z.number(), buyer_id: z.string(), seller_id: z.string(), reminded_at: z.date() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT r.trade_id, r.n, r.buyer_id, r.seller_id, r.reminded_at
         FROM p2p.trade_reminders r
         JOIN p2p.p2p_trades t ON t.id = r.trade_id AND t.status = 'fiat_sent'
        WHERE r.handed_at IS NULL AND r.dropped_at IS NULL
        ORDER BY r.reminded_at ASC
        LIMIT ${lim}
-    `;
+    `,
+      );
     let sent = 0;
     const failures: SweepFailure[] = [];
     for (const row of owed) {
@@ -3974,9 +4425,11 @@ export class P2pService {
               'escrowed',
             );
           }
-          const [existing] = await tx<RemarkCaseRow[]>`
+          const [existing] = RemarkCaseRow.array().parse(
+            await tx`
             SELECT * FROM p2p.remark_cases WHERE trade_id = ${input.tradeId} AND reporter_id = ${input.reporterId}
-          `;
+          `,
+          );
           if (existing) {
             if (existing.id === input.caseId && existing.remark === remark) return { report: toRemarkCase(existing), fresh: false };
             throw new P2pError('You already reported a remark on this order; open a dispute to add to it', 'p2p.remark_case_exists');
@@ -3984,12 +4437,14 @@ export class P2pService {
           const reporterRole = trade.sellerId === input.reporterId ? 'seller' : 'buyer';
           const reportedId = reporterRole === 'seller' ? trade.buyerId : trade.sellerId;
           const openedAt = await txNow(tx);
-          const [row] = await tx<RemarkCaseRow[]>`
+          const [row] = RemarkCaseRow.array().parse(
+            await tx`
             INSERT INTO p2p.remark_cases (id, trade_id, reporter_id, reported_id, reporter_role, remark, opened_at)
             VALUES (${input.caseId}, ${input.tradeId}, ${input.reporterId}, ${reportedId}, ${reporterRole}, ${remark}, ${openedAt})
             ON CONFLICT DO NOTHING
             RETURNING *
-          `;
+          `,
+          );
           // The case id is already another report's (another order, or another person): never theirs to replay.
           if (!row) throw new P2pError('That report id is already in use; start the report again', 'p2p.remark_case_exists');
           return { report: toRemarkCase(row), fresh: true };
@@ -4016,13 +4471,20 @@ export class P2pService {
     tradeId: string,
     userId: string,
   ): Promise<{ mine: RemarkCase | null; againstMe: { caseId: string; openedAt: Date } | null }> {
-    const [trade] = await this.sql<{ buyer_id: string; seller_id: string }[]>`
+    const [trade] = z
+      .object({ buyer_id: z.string(), seller_id: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT buyer_id, seller_id FROM p2p.p2p_trades WHERE id = ${tradeId}
-    `;
+    `,
+      );
     if (!trade || (trade.buyer_id !== userId && trade.seller_id !== userId)) throw unknownTrade(tradeId);
-    const rows = await this.sql<RemarkCaseRow[]>`
+    const rows = RemarkCaseRow.array().parse(
+      await this.sql`
       SELECT * FROM p2p.remark_cases WHERE trade_id = ${tradeId} AND (reporter_id = ${userId} OR reported_id = ${userId})
-    `;
+    `,
+    );
     const mine = rows.find((row) => row.reporter_id === userId);
     const against = rows.find((row) => row.reported_id === userId);
     return {
@@ -4034,9 +4496,11 @@ export class P2pService {
   /** The open remark cases, oldest first: the queue staff read. Callers gate on the moderator check first. */
   async listRemarkCases(limit: number): Promise<RemarkCase[]> {
     const lim = assertSweepSettlementsLimit(limit);
-    const rows = await this.sql<RemarkCaseRow[]>`
+    const rows = RemarkCaseRow.array().parse(
+      await this.sql`
       SELECT * FROM p2p.remark_cases WHERE status = 'open' ORDER BY opened_at ASC, id ASC LIMIT ${lim}
-    `;
+    `,
+    );
     return rows.map(toRemarkCase);
   }
 
@@ -4058,9 +4522,11 @@ export class P2pService {
   /** Hand over every remark-case notice still owed, oldest first. */
   async sweepRemarkCases(limit?: number): Promise<{ sent: number; failures: RemarkCaseSweepFailure[] }> {
     const lim = assertSweepSettlementsLimit(limit);
-    const owed = await this.sql<RemarkCaseRow[]>`
+    const owed = RemarkCaseRow.array().parse(
+      await this.sql`
       SELECT * FROM p2p.remark_cases WHERE handed_at IS NULL ORDER BY opened_at ASC LIMIT ${lim}
-    `;
+    `,
+    );
     let sent = 0;
     const failures: RemarkCaseSweepFailure[] = [];
     for (const row of owed) {
@@ -4353,6 +4819,8 @@ export class P2pService {
         if (origin === 'party' && trade.sellerId !== input.openedBy && trade.buyerId !== input.openedBy) {
           throw unknownTrade(input.tradeId);
         }
+        // RC-p2p-02: a contract order is disputed on the contract (its own window and pre-agreed timeout), never here.
+        assertLedgerEscrow(trade);
         assertTransition(trade.status, 'disputed');
 
         const now = await txNow(tx);
@@ -4377,7 +4845,8 @@ export class P2pService {
         // API call happened to carry them.
         const opening = envelopesFor(supplied, input.openedBy, now, 0);
 
-        const rows = await tx<DisputeRow[]>`
+        const rows = DisputeRow.array().parse(
+          await tx`
           INSERT INTO p2p.p2p_disputes (id, trade_id, opened_by, opened_via, reason, evidence, status, deadline_at, opened_at, chat_thread_id)
           VALUES (
             ${disputeId}, ${input.tradeId}, ${input.openedBy}, ${origin}, ${input.reason ?? ''},
@@ -4385,7 +4854,8 @@ export class P2pService {
           )
           ON CONFLICT (trade_id) DO NOTHING
           RETURNING *
-        `;
+        `,
+        );
 
         if (!rows[0]) throw new P2pError(`Trade ${input.tradeId} already has a dispute`, 'p2p.dispute_already_open');
         if (!rows[0].chat_thread_id) {
@@ -4452,9 +4922,11 @@ export class P2pService {
           const trade = await this.lockTrade(tx, input.tradeId);
           if (trade.sellerId !== input.actorId && trade.buyerId !== input.actorId) throw unknownTrade(input.tradeId);
 
-          const rows = await tx<DisputeRow[]>`
+          const rows = DisputeRow.array().parse(
+            await tx`
             SELECT * FROM p2p.p2p_disputes WHERE trade_id = ${input.tradeId} FOR UPDATE
-          `;
+          `,
+          );
           const row = rows[0];
           if (!row) throw new P2pError(`Trade ${input.tradeId} has no dispute`, 'p2p.dispute_not_found');
           if (row.status === 'resolved') {
@@ -4469,12 +4941,14 @@ export class P2pService {
           const now = await txNow(tx);
           const added = envelopesFor(supplied, input.actorId, now, existing.length);
 
-          const updated = await tx<DisputeRow[]>`
+          const updated = DisputeRow.array().parse(
+            await tx`
             UPDATE p2p.p2p_disputes
                SET evidence = evidence || ${tx.json(added as never)}::jsonb
              WHERE id = ${row.id} AND status = 'open'
             RETURNING *
-          `;
+          `,
+          );
           return toDispute(updated[0] ?? row);
         },
         { isolation: 'read committed', maxAttempts: 5 },
@@ -4519,7 +4993,8 @@ export class P2pService {
     const limit = assertDisputeListLimit(input.limit);
     const after = assertDisputeCursor(input.cursor ?? null);
 
-    const rows = await this.sql<DisputeRow[]>`
+    const rows = DisputeRow.array().parse(
+      await this.sql`
       WITH page AS (
         SELECT id FROM p2p.p2p_disputes
          WHERE status = ${status}
@@ -4541,7 +5016,8 @@ export class P2pService {
         RETURNING d.*
       )
       SELECT * FROM seen ORDER BY deadline_at ASC, id ASC
-    `;
+    `,
+    );
 
     const disputes = rows.map(toDispute);
     const last = disputes[disputes.length - 1];
@@ -4560,12 +5036,14 @@ export class P2pService {
    */
   async getDisputeAsModerator(tradeId: string, moderatorId: string): Promise<DisputeRecord> {
     void moderatorId;
-    const rows = await this.sql<DisputeRow[]>`
+    const rows = DisputeRow.array().parse(
+      await this.sql`
       UPDATE p2p.p2p_disputes
          SET last_seen_by_moderator_at = now(), moderator_views = moderator_views + 1
        WHERE trade_id = ${tradeId}
       RETURNING *
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) throw new P2pError(`Trade ${tradeId} has no dispute`, 'p2p.dispute_not_found');
     return toDispute(row);
@@ -4581,14 +5059,19 @@ export class P2pService {
    * it.
    */
   async moderationBacklog(): Promise<{ open: number; overdue: number; escalated: number; neverSeen: number }> {
-    const rows = await this.sql<Array<{ open: string; overdue: string; escalated: string; never_seen: string }>>`
+    const rows = z
+      .object({ open: z.string(), overdue: z.string(), escalated: z.string(), never_seen: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT
         count(*) AS open,
         count(*) FILTER (WHERE deadline_at <= now()) AS overdue,
         count(*) FILTER (WHERE escalated_at IS NOT NULL) AS escalated,
         count(*) FILTER (WHERE last_seen_by_moderator_at IS NULL) AS never_seen
       FROM p2p.p2p_disputes WHERE status = 'open'
-    `;
+    `,
+      );
     const row = rows[0]!;
     return {
       open: Number(row.open),
@@ -4680,9 +5163,11 @@ export class P2pService {
           this.sql,
           async (tx) => {
             const trade = await this.lockTrade(tx, input.tradeId);
-            const disputes = await tx<DisputeRow[]>`
+            const disputes = DisputeRow.array().parse(
+              await tx`
               SELECT * FROM p2p.p2p_disputes WHERE trade_id = ${input.tradeId} FOR UPDATE
-            `;
+            `,
+            );
             const dispute = disputes[0];
             if (!dispute) throw new P2pError(`Trade ${input.tradeId} has no dispute`, 'p2p.dispute_not_found');
             if (dispute.status === 'resolved') {
@@ -4781,6 +5266,8 @@ export class P2pService {
       this.sql,
       async (tx) => {
         const trade = await this.lockTrade(tx, input.tradeId);
+        // RC-p2p-02: a contract order's release and refund are the contract's; this service only reads them (`syncContractDeal`).
+        assertLedgerEscrow(trade);
         assertTransition(trade.status, input.to);
 
         if (input.expectStatus && trade.status !== input.expectStatus) {
@@ -4826,7 +5313,7 @@ export class P2pService {
    * reopens the skew this service cannot tolerate.
    */
   private async writeDecision(
-    tx: Sql,
+    tx: Queryable,
     args: { trade: TradeRecord; to: TradeStatus; resolution: TradeResolution; reason: string; now: Date },
   ): Promise<void> {
     const { trade, to, resolution, reason, now } = args;
@@ -4865,10 +5352,15 @@ export class P2pService {
   }
 
   /** Initial server-validated terms, not a receipt or a guess that escrow posted. */
-  private async requireOriginalTermsClaim(tradeId: string, sql: Sql = this.sql): Promise<void> {
-    const [row] = await sql<{ original_terms_claimed_at: Date | null }[]>`
+  private async requireOriginalTermsClaim(tradeId: string, sql: Queryable = this.sql): Promise<void> {
+    const [row] = z
+      .object({ original_terms_claimed_at: z.date().nullable() })
+      .array()
+      .parse(
+        await sql`
       SELECT original_terms_claimed_at FROM p2p.p2p_trades WHERE id = ${tradeId}
-    `;
+    `,
+      );
     if (!row?.original_terms_claimed_at) {
       throw new P2pError(
         'Original escrow terms are unproven; legacy rows are preserved without fabricated backfill',
@@ -4901,6 +5393,8 @@ export class P2pService {
 
     if (!trade.resolution) throw new P2pError(`Trade ${tradeId} has no recorded resolution to settle`, 'p2p.escrow_missing');
     if (trade.settledAt) return trade;
+    // A contract order is stamped settled in the same transaction as its decision; nothing here may post for it.
+    assertLedgerEscrow(trade);
     await this.requireOriginalTermsClaim(trade.id);
 
     let fee: Amount = 0n;
@@ -4951,14 +5445,16 @@ export class P2pService {
     // finds the original award. A lost one has nowhere to be found.
     await this.announceSettlement(trade, fee);
 
-    const rows = await this.sql<TradeRow[]>`
+    const rows = TradeRow.array().parse(
+      await this.sql`
       UPDATE p2p.p2p_trades
          SET settled_at = now(),
              last_settle_error = NULL,
              last_settle_error_at = NULL
        WHERE id = ${tradeId} AND settled_at IS NULL
       RETURNING *
-    `;
+    `,
+    );
     return rows[0] ? toTrade(rows[0]) : await this.getTrade(tradeId);
   }
 
@@ -5103,12 +5599,19 @@ export class P2pService {
     // the default must not reintroduce this process' clock.
     const at = now ?? (await txNow(this.sql));
 
-    const due = await this.sql<Array<{ id: string; status: TradeStatus }>>`
+    const due = z
+      .object({ id: z.string(), status: z.enum(TRADE_STATUSES) })
+      .array()
+      .parse(
+        await this.sql`
       SELECT id, status FROM p2p.p2p_trades
        WHERE deadline_at IS NOT NULL AND deadline_at <= ${at} AND resolution IS NULL
+         -- RC-p2p-02: past \`created\` a contract order's clock is the contract's; the sweep never touches it.
+         AND (escrow_kind = 'ledger' OR status = 'created')
        ORDER BY deadline_at ASC
        LIMIT ${lim}
-    `;
+    `,
+      );
 
     let swept = 0;
     let escalated = 0;
@@ -5123,9 +5626,8 @@ export class P2pService {
         // Left with its deadline in the past, so the next sweep retries it. A
         // trade that cannot be resolved must keep asking, not go quiet.
         //
-        // AND IT SAYS WHY. This `catch` used to be bare — `catch { failed++ }`
-        // — so the sweep counted a number and threw the reason away. The cost
-        // of that is not theoretical: the escrow guard's refusal ("a disputed
+        // AND IT SAYS WHY. A bare `catch { failed++ }` here would count a number
+        // and throw the reason away. The cost of that is not theoretical: the escrow guard's refusal ("a disputed
         // escrow terminates only on a human ruling") reached this line, was
         // discarded, and surfaced three files away as an assertion failure that
         // named nothing. A refusal a human never sees is most of the way back
@@ -5143,6 +5645,13 @@ export class P2pService {
 
     switch (action) {
       case 'settle_or_void': {
+        // RC-p2p-02: a contract order the seller never funded holds nothing anywhere this service can see; it is voided
+        // with no ledger call. Coins the seller locked in a deal they never attached stay theirs to refund on the contract.
+        if ((await this.getTrade(tradeId)).escrowKind === 'contract') {
+          await this.voidUnfundedContractOrder(tradeId);
+          await this.publishExpired(tradeId, status, 'voided');
+          return 'acted';
+        }
         // `created` — the take never finished. Re-drive the lock so we KNOW
         // whether anything is in escrow, then unwind whatever we find.
         const result = await this.unwind(tradeId, 'timeout.escrow_incomplete', status);
@@ -5234,9 +5743,11 @@ export class P2pService {
       return await transaction(
         this.sql,
         async (tx) => {
-          const disputes = await tx<DisputeRow[]>`
+          const disputes = DisputeRow.array().parse(
+            await tx`
             SELECT * FROM p2p.p2p_disputes WHERE id = ${input.disputeId} FOR UPDATE
-          `;
+          `,
+          );
           const dispute = disputes[0];
           if (!dispute) throw new P2pError(`Dispute ${input.disputeId} not found`, 'p2p.dispute_not_found');
           if (dispute.status === 'resolved') {
@@ -5254,7 +5765,7 @@ export class P2pService {
             requestHash: request,
           });
           if (claim.kind === 'replay') {
-            const current = await tx<DisputeRow[]>`SELECT * FROM p2p.p2p_disputes WHERE id = ${dispute.id}`;
+            const current = DisputeRow.array().parse(await tx`SELECT * FROM p2p.p2p_disputes WHERE id = ${dispute.id}`);
             const row = current[0]!;
             if (!row.escalated_at || !trade.deadlineAt) {
               throw new P2pError('p2p.idempotency_in_progress', 'p2p.idempotency_in_progress');
@@ -5309,13 +5820,14 @@ export class P2pService {
    * (`p2p_disputes.deadline_at`) is not moved. The trade deadline is.
    */
   private async writeEscalation(
-    tx: Sql,
+    tx: Queryable,
     tradeId: string,
     actor?: { actorId: string; reason: string },
   ): Promise<{ tradeId: string; escalatedAt: Date; escalations: number; deadlineAt: Date }> {
     const now = await txNow(tx);
     const nextCheck = escalationDeadline(now, this.deadlines);
-    const disputes = await tx<DisputeRow[]>`
+    const disputes = DisputeRow.array().parse(
+      await tx`
       UPDATE p2p.p2p_disputes
          SET escalated_at = COALESCE(escalated_at, ${now}),
              escalations = escalations + 1,
@@ -5323,13 +5835,19 @@ export class P2pService {
              escalation_reason = COALESCE(escalation_reason, ${actor?.reason ?? null})
        WHERE trade_id = ${tradeId} AND status = 'open'
       RETURNING *
-    `;
+    `,
+    );
     const dispute = disputes[0];
-    const trades = await tx<Array<{ deadline_at: Date }>>`
+    const trades = z
+      .object({ deadline_at: z.date() })
+      .array()
+      .parse(
+        await tx`
       UPDATE p2p.p2p_trades SET deadline_at = ${nextCheck}
        WHERE id = ${tradeId} AND resolution IS NULL
       RETURNING deadline_at
-    `;
+    `,
+      );
     const deadlineAt = trades[0]?.deadline_at;
     if (actor && (!dispute?.escalated_at || !deadlineAt)) {
       throw new P2pError(`Trade ${tradeId} has no open dispute`, 'p2p.dispute_not_found');
@@ -5360,12 +5878,17 @@ export class P2pService {
    */
   async sweepSettlements(limit?: number): Promise<{ settled: number; failed: number; failures: SweepFailure[] }> {
     const lim = assertSweepSettlementsLimit(limit);
-    const pending = await this.sql<Array<{ id: string; status: TradeStatus }>>`
+    const pending = z
+      .object({ id: z.string(), status: z.enum(TRADE_STATUSES) })
+      .array()
+      .parse(
+        await this.sql`
       SELECT id, status FROM p2p.p2p_trades
        WHERE resolved_at IS NOT NULL AND settled_at IS NULL
        ORDER BY resolved_at ASC
        LIMIT ${lim}
-    `;
+    `,
+      );
 
     let settled = 0;
     const failures: SweepFailure[] = [];
@@ -5415,24 +5938,27 @@ export class P2pService {
     }>
   > {
     const lim = assertLateSettlementsListLimit(limit);
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        status: TradeStatus;
-        resolution: TradeResolution | null;
-        resolution_reason: string | null;
-        resolved_at: Date;
-        last_settle_error: string | null;
-        last_settle_error_at: Date | null;
-      }>
-    >`
+    const rows = z
+      .object({
+        id: z.string(),
+        status: z.enum(TRADE_STATUSES),
+        resolution: z.enum(TRADE_RESOLUTIONS).nullable(),
+        resolution_reason: z.string().nullable(),
+        resolved_at: z.date(),
+        last_settle_error: z.string().nullable(),
+        last_settle_error_at: z.date().nullable(),
+      })
+      .array()
+      .parse(
+        await this.sql`
       SELECT id, status, resolution, resolution_reason, resolved_at,
              last_settle_error, last_settle_error_at
         FROM p2p.p2p_trades
        WHERE resolved_at IS NOT NULL AND settled_at IS NULL
        ORDER BY resolved_at ASC
        LIMIT ${lim}
-    `;
+    `,
+      );
     const nowMs = now.getTime();
     return rows.map((r) => {
       const resolvedAt = r.resolved_at instanceof Date ? r.resolved_at : new Date(r.resolved_at);
@@ -5458,7 +5984,7 @@ export class P2pService {
   // ── Reads ──────────────────────────────────────────────────────────────────
 
   async getTrade(tradeId: string): Promise<TradeRecord> {
-    const rows = await this.sql<TradeRow[]>`SELECT * FROM p2p.p2p_trades WHERE id = ${tradeId}`;
+    const rows = TradeRow.array().parse(await this.sql`SELECT * FROM p2p.p2p_trades WHERE id = ${tradeId}`);
     const row = rows[0];
     if (!row) throw unknownTrade(tradeId);
     return toTrade(row);
@@ -5466,12 +5992,14 @@ export class P2pService {
 
   async listTrades(userId: string, limit?: number): Promise<TradeRecord[]> {
     const lim = assertTradeListLimit(limit);
-    const rows = await this.sql<TradeRow[]>`
+    const rows = TradeRow.array().parse(
+      await this.sql`
       SELECT * FROM p2p.p2p_trades
        WHERE seller_id = ${userId} OR buyer_id = ${userId}
        ORDER BY created_at DESC
        LIMIT ${lim}
-    `;
+    `,
+    );
     return rows.map(toTrade);
   }
 
@@ -5511,7 +6039,10 @@ export class P2pService {
       }
     `;
     const tabStatuses = filter.tab ? [...TAB_STATUSES[filter.tab]] : null;
-    const rows = await sql<Array<TradeRow & { created_us: string }>>`
+    const rows = TradeRow.extend({ created_us: z.string() })
+      .array()
+      .parse(
+        await sql`
       SELECT *, (floor(extract(epoch FROM created_at) * 1000000))::bigint::text AS created_us
         FROM p2p.p2p_trades
        WHERE ${common}
@@ -5525,13 +6056,19 @@ export class P2pService {
          }
        ORDER BY created_at DESC, id DESC
        LIMIT ${lim + 1}
-    `;
+    `,
+      );
     const page = rows.slice(0, lim);
     const last = page[page.length - 1];
     const nextCursor = rows.length > lim && last ? encodeTradeCursor(last.created_us, last.id) : null;
-    const countRows = await sql<Array<{ status: string; n: number }>>`
+    const countRows = z
+      .object({ status: z.string(), n: z.number() })
+      .array()
+      .parse(
+        await sql`
       SELECT status::text AS status, count(*)::int AS n FROM p2p.p2p_trades WHERE ${common} GROUP BY status
-    `;
+    `,
+      );
     const counts = Object.fromEntries(ORDER_TABS.map((t) => [t, 0])) as Record<OrderTab, number>;
     for (const r of countRows) {
       for (const t of ORDER_TABS) if ((TAB_STATUSES[t] as readonly string[]).includes(r.status)) counts[t] += Number(r.n);
@@ -5540,27 +6077,30 @@ export class P2pService {
   }
 
   async getDispute(tradeId: string): Promise<DisputeRecord> {
-    const rows = await this.sql<DisputeRow[]>`SELECT * FROM p2p.p2p_disputes WHERE trade_id = ${tradeId}`;
+    const rows = DisputeRow.array().parse(await this.sql`SELECT * FROM p2p.p2p_disputes WHERE trade_id = ${tradeId}`);
     const row = rows[0];
     if (!row) throw new P2pError(`Trade ${tradeId} has no dispute`, 'p2p.dispute_not_found');
     return toDispute(row);
   }
 
   async reputationOf(userId: string): Promise<ReputationSnapshot> {
-    const rows = await this.sql<
-      Array<{
-        trades_total: number;
-        completed: number;
-        cancelled: number;
-        disputed: number;
-        disputes_lost: number;
-        total_release_secs: number;
-        release_samples: number;
-      }>
-    >`
+    const rows = z
+      .object({
+        trades_total: z.number(),
+        completed: z.number(),
+        cancelled: z.number(),
+        disputed: z.number(),
+        disputes_lost: z.number(),
+        total_release_secs: z.string(),
+        release_samples: z.number(),
+      })
+      .array()
+      .parse(
+        await this.sql`
       SELECT trades_total, completed, cancelled, disputed, disputes_lost, total_release_secs, release_samples
         FROM p2p.p2p_reputation WHERE user_id = ${userId}
-    `;
+    `,
+      );
 
     const row = rows[0];
     // No history is an empty record, not a perfect one. Rendering an unknown
@@ -5597,12 +6137,17 @@ export class P2pService {
         drift: Array<{ tradeId: string; sellerId: string; asset: string; expected: string; actual: string }>;
       }
   > {
-    const rows = await this.sql<Array<{ id: string; seller_id: string; asset: string; amount: string }>>`
+    const rows = z
+      .object({ id: z.string(), seller_id: z.string(), asset: z.string(), amount: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT id, seller_id, asset, amount
         FROM p2p.p2p_trades
        WHERE status IN ('escrowed', 'fiat_sent', 'disputed')
           OR (resolution IN ('released', 'refunded') AND settled_at IS NULL)
-    `;
+    `,
+      );
 
     const drift: Array<{ tradeId: string; sellerId: string; asset: string; expected: string; actual: string }> = [];
     for (const row of rows) {
@@ -5703,7 +6248,7 @@ export class P2pService {
         if (claim.kind === 'replay' && claim.subjectId) return { replayId: claim.subjectId };
         throwWriteClaim(claim);
 
-        const locked = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${input.offerId} FOR UPDATE`;
+        const locked = OfferRow.array().parse(await tx`SELECT * FROM p2p.offers WHERE id = ${input.offerId} FOR UPDATE`);
         const current = locked[0];
         if (!current) throw new P2pError(`Offer ${input.offerId} not found`, 'p2p.offer_not_found');
         const offer = toOffer(current);
@@ -5764,7 +6309,8 @@ export class P2pService {
           throw new PricingError(resolveP2pCopy(P2P_COPY.offerMethodsRequired), 'p2p.offer_methods_required');
         }
 
-        const rows = await tx<OfferRow[]>`
+        const rows = OfferRow.array().parse(
+          await tx`
           UPDATE p2p.offers
              SET price = ${formatAmount(price)}::numeric,
                  min_amt = ${formatAmount(minAmt)}::numeric,
@@ -5776,7 +6322,8 @@ export class P2pService {
                  updated_at = now()
            WHERE id = ${offer.id}
           RETURNING *
-        `;
+        `,
+        );
         // An edit that leaves less than one order's minimum, with no order open, closes the ad as sold out.
         const soldOut = await this.closeIfSoldOut(tx, offer.id, true);
         if (soldOut) rows[0] = soldOut;
@@ -6001,7 +6548,7 @@ export class P2pService {
 
   /** P-trade-orders-21: the caller's appeal, or null while it is still available. */
   async myCompletionAppeal(userId: string): Promise<AppealRecord | null> {
-    const rows = await this.sql<AppealRow[]>`SELECT * FROM p2p.completion_appeals WHERE user_id = ${userId}`;
+    const rows = AppealRow.array().parse(await this.sql`SELECT * FROM p2p.completion_appeals WHERE user_id = ${userId}`);
     return rows[0] ? toAppeal(rows[0]) : null;
   }
 
@@ -6029,12 +6576,14 @@ export class P2pService {
     if (trade.escrowedAt === null || (trade.status !== 'cancelled' && trade.status !== 'disputed')) {
       throw new P2pError('p2p.appeal_not_eligible: only an escrowed order that was cancelled or disputed', 'p2p.appeal_not_eligible');
     }
-    const inserted = await this.sql<AppealRow[]>`
+    const inserted = AppealRow.array().parse(
+      await this.sql`
       INSERT INTO p2p.completion_appeals (user_id, trade_id, reason, review_due_at)
       VALUES (${input.userId}, ${trade.id}, ${reason}, now() + make_interval(hours => ${hours}))
       ON CONFLICT (user_id) DO NOTHING
       RETURNING *
-    `;
+    `,
+    );
     if (!inserted[0]) {
       // Lost a race to a concurrent submit: an identical one is a replay.
       const winner = await this.myCompletionAppeal(input.userId);
@@ -6058,14 +6607,16 @@ export class P2pService {
   }): Promise<AppealRecord> {
     const reason = input.reason.trim();
     if (!reason) throw new P2pError('p2p.reason_required', 'p2p.reason_required');
-    const updated = await this.sql<AppealRow[]>`
+    const updated = AppealRow.array().parse(
+      await this.sql`
       UPDATE p2p.completion_appeals
          SET status = ${input.decision}, decided_by = ${input.actorId}, decided_at = now(), decision_reason = ${reason}
        WHERE id = ${input.appealId} AND status = 'submitted' AND user_id <> ${input.actorId}
       RETURNING *
-    `;
+    `,
+    );
     if (updated[0]) return toAppeal(updated[0]);
-    const rows = await this.sql<AppealRow[]>`SELECT * FROM p2p.completion_appeals WHERE id = ${input.appealId}`;
+    const rows = AppealRow.array().parse(await this.sql`SELECT * FROM p2p.completion_appeals WHERE id = ${input.appealId}`);
     const current = rows[0];
     if (!current) throw new P2pError('p2p.appeal_not_found', 'p2p.appeal_not_found');
     if (current.user_id === input.actorId) throw new P2pError('p2p.appeal_self_decision', 'p2p.appeal_self_decision');
@@ -6243,7 +6794,8 @@ export class P2pService {
   }): Promise<{ disputes: DisputeRecord[]; nextCursor: string | null }> {
     const limit = assertDisputeListLimit(input.limit);
     const cursor = input.cursor ?? null;
-    const rows = await this.sql<DisputeRow[]>`
+    const rows = DisputeRow.array().parse(
+      await this.sql`
       SELECT d.*
         FROM p2p.p2p_disputes d
         JOIN p2p.p2p_trades t ON t.id = d.trade_id
@@ -6258,7 +6810,8 @@ export class P2pService {
          )
        ORDER BY d.opened_at DESC, d.id DESC
        LIMIT ${limit}
-    `;
+    `,
+    );
     const disputes = rows.map(toDispute);
     const last = disputes[disputes.length - 1];
     return { disputes, nextCursor: disputes.length === limit && last ? last.id : null };
@@ -6266,7 +6819,9 @@ export class P2pService {
 
   /**
    * P-trade-orders-14: `trades.export` under owner caps, with an audit row.
-   * Only CSV is built; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+   * Only CSV is built; xlsx/pdf refuse `p2p.export_format_unbuilt`. The audit
+   * rows are the daily quota's counter: past it the export refuses
+   * `p2p.export_quota_reached` with the next UTC midnight.
    */
   async exportTrades(input: {
     userId: string;
@@ -6274,6 +6829,7 @@ export class P2pService {
     to: string;
     /** Omitted means csv, the format this endpoint has always served. */
     format?: ExportFormat;
+    now?: Date;
   }): Promise<{
     csv: string;
     rows: number;
@@ -6284,32 +6840,63 @@ export class P2pService {
       const format = assertFormatBuilt(input.format ?? 'csv');
       const maxRangeDays = requireSetting(this.exportPolicy.maxRangeDays, 'P2P_EXPORT_MAX_RANGE_DAYS');
       const maxRows = requireSetting(this.exportPolicy.maxRows, 'P2P_EXPORT_MAX_ROWS');
+      const daily = requireSetting(this.exportPolicy.exportDailyQuota, 'P2P_EXPORT_DAILY_QUOTA');
+      const now = input.now ?? new Date();
       const from = new Date(input.from);
       const to = new Date(input.to);
       if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from.getTime() > to.getTime()) {
         throw new P2pError('p2p.export_range_invalid', 'p2p.export_range_invalid');
       }
       assertRangeWithinCap(from, to, maxRangeDays);
-      const counted = await this.sql<Array<{ n: number }>>`
+      const counted = z
+        .object({ n: z.number() })
+        .array()
+        .parse(
+          await this.sql`
         SELECT count(*)::int AS n FROM p2p.p2p_trades
          WHERE (seller_id = ${input.userId} OR buyer_id = ${input.userId})
            AND created_at >= ${from} AND created_at <= ${to}
-      `;
+      `,
+        );
       assertRowsWithinCap(Number(counted[0]?.n ?? 0), maxRows);
       const file = await this.renderTradesCsv({ userId: input.userId, from: input.from, to: input.to });
       // Rows can land between the count and the file query; the cap holds on what is served.
       assertRowsWithinCap(file.rows, maxRows);
-      const totals = await this.sql<Array<{ asset: string; fiat_currency: string; amount: string; fiat_amount: string }>>`
+      const totals = z
+        .object({ asset: z.string(), fiat_currency: z.string(), amount: z.string(), fiat_amount: z.string() })
+        .array()
+        .parse(
+          await this.sql`
         SELECT asset, fiat_currency, sum(amount)::text AS amount, sum(fiat_amount)::text AS fiat_amount
           FROM p2p.p2p_trades
          WHERE (seller_id = ${input.userId} OR buyer_id = ${input.userId})
            AND created_at >= ${from} AND created_at <= ${to}
          GROUP BY asset, fiat_currency ORDER BY asset, fiat_currency
-      `;
-      await this.sql`
-        INSERT INTO p2p.export_audit (user_id, kind, format, range_from, range_to, row_count)
-        VALUES (${input.userId}, 'export', ${format}, ${from}, ${to}, ${file.rows})
-      `;
+      `,
+        );
+      await transaction(this.sql, async (tx) => {
+        // One user's exports serialise, so two parallel clicks cannot both take the last export of the day.
+        await tx`SELECT pg_advisory_xact_lock(${EXPORT_QUOTA_LOCK_CLASS}, hashtext(${input.userId}))`;
+        const used = z
+          .object({ today: z.number() })
+          .array()
+          .parse(
+            await tx`
+          SELECT count(*)::int AS today FROM p2p.export_audit
+           WHERE user_id = ${input.userId} AND kind = 'export' AND created_at >= ${startOfUtcDay(now)}
+        `,
+          );
+        if (Number(used[0]?.today ?? 0) >= daily) {
+          throw new P2pError(
+            `p2p.export_quota_reached: daily quota ${daily} used; resets at ${nextUtcMidnight(now).toISOString()}`,
+            'p2p.export_quota_reached',
+          );
+        }
+        await tx`
+          INSERT INTO p2p.export_audit (user_id, kind, format, range_from, range_to, row_count, created_at)
+          VALUES (${input.userId}, 'export', ${format}, ${from}, ${to}, ${file.rows}, ${now})
+        `;
+      });
       return {
         ...file,
         format,
@@ -6364,11 +6951,16 @@ export class P2pService {
         // One user's downloads serialise, so two parallel clicks cannot both
         // take the last unit of quota.
         await tx`SELECT pg_advisory_xact_lock(${RECEIPT_QUOTA_LOCK_CLASS}, hashtext(${input.userId}))`;
-        const used = await tx<Array<{ today: number; this_trade: number }>>`
+        const used = z
+          .object({ today: z.number(), this_trade: z.number() })
+          .array()
+          .parse(
+            await tx`
           SELECT count(*) FILTER (WHERE created_at >= ${startOfUtcDay(now)})::int AS today,
                  count(*) FILTER (WHERE trade_id = ${trade.id})::int AS this_trade
             FROM p2p.export_audit WHERE user_id = ${input.userId} AND kind = 'receipt'
-        `;
+        `,
+          );
         const today = Number(used[0]?.today ?? 0);
         const thisTrade = Number(used[0]?.this_trade ?? 0);
         if (today >= daily) {
@@ -6421,13 +7013,15 @@ export class P2pService {
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from.getTime() > to.getTime()) {
       throw new P2pError('p2p.export_range_invalid', 'p2p.export_range_invalid');
     }
-    const rows = await this.sql<TradeRow[]>`
+    const rows = TradeRow.array().parse(
+      await this.sql`
       SELECT * FROM p2p.p2p_trades
        WHERE (seller_id = ${input.userId} OR buyer_id = ${input.userId})
          AND created_at >= ${from}
          AND created_at <= ${to}
        ORDER BY created_at ASC, id ASC
-    `;
+    `,
+    );
     const trades = rows.map(toTrade);
     const csv = tradesCsv(
       input.userId,
@@ -6465,8 +7059,8 @@ export class P2pService {
     }
   }
 
-  private async lockTrade(tx: Sql, tradeId: string): Promise<TradeRecord> {
-    const rows = await tx<TradeRow[]>`SELECT * FROM p2p.p2p_trades WHERE id = ${tradeId} FOR UPDATE`;
+  private async lockTrade(tx: Queryable, tradeId: string): Promise<TradeRecord> {
+    const rows = TradeRow.array().parse(await tx`SELECT * FROM p2p.p2p_trades WHERE id = ${tradeId} FOR UPDATE`);
     const row = rows[0];
     if (!row) throw unknownTrade(tradeId);
     return toTrade(row);
@@ -6480,21 +7074,24 @@ export class P2pService {
    * from the whole row and must be recomputed from the post-increment values,
    * not from whatever a second statement would read back.
    */
-  private async bumpReputation(tx: Sql, userId: string, outcome: TradeOutcome, releaseSecs?: number): Promise<void> {
-    const rows = await tx<
-      Array<{
-        trades_total: number;
-        completed: number;
-        cancelled: number;
-        disputed: number;
-        disputes_lost: number;
-        total_release_secs: number;
-        release_samples: number;
-      }>
-    >`
+  private async bumpReputation(tx: Queryable, userId: string, outcome: TradeOutcome, releaseSecs?: number): Promise<void> {
+    const rows = z
+      .object({
+        trades_total: z.number(),
+        completed: z.number(),
+        cancelled: z.number(),
+        disputed: z.number(),
+        disputes_lost: z.number(),
+        total_release_secs: z.string(),
+        release_samples: z.number(),
+      })
+      .array()
+      .parse(
+        await tx`
       SELECT trades_total, completed, cancelled, disputed, disputes_lost, total_release_secs, release_samples
         FROM p2p.p2p_reputation WHERE user_id = ${userId} FOR UPDATE
-    `;
+    `,
+      );
 
     const current: ReputationCounters = rows[0]
       ? {
@@ -6594,12 +7191,45 @@ function toTrade(row: TradeRow): TradeRecord {
     fiatSentAt: row.fiat_sent_at,
     resolvedAt: row.resolved_at,
     settledAt: row.settled_at,
-    termsSnapshot: row.terms_snapshot,
+    termsSnapshot: row.terms_snapshot ?? null,
     settlement: row.non_instant ? { instant: false, windowSeconds: row.settlement_window_seconds ?? null } : { instant: true },
     cashReleaseSeconds: row.cash_release_seconds ?? null,
     releaseWindowSeconds: row.release_window_seconds ?? null,
+    escrowKind: row.escrow_kind === 'contract' ? 'contract' : 'ledger',
+    contract:
+      row.escrow_kind === 'contract'
+        ? {
+            chainId: Number(row.contract_chain_id),
+            token: row.contract_token!,
+            units: String(row.contract_units),
+            buyerWallet: row.contract_buyer_wallet!,
+            disputeWindowSeconds: Number(row.contract_dispute_window_seconds),
+            dealId: row.contract_deal_id === null || row.contract_deal_id === undefined ? null : String(row.contract_deal_id),
+            sellerWallet: row.contract_seller_wallet ?? null,
+          }
+        : null,
   };
 }
+
+/** The refusal every ledger path gives a contract-escrow order: its coins are in the contract, never the ledger. */
+function assertLedgerEscrow(trade: Pick<TradeRecord, 'id' | 'escrowKind'>): void {
+  if (trade.escrowKind === 'contract')
+    throw new P2pError(
+      `Trade ${trade.id} is held by the escrow contract; its parties act on the contract from their own wallets`,
+      'p2p.escrow_contract_held',
+    );
+}
+
+/** An order's coin amount (18-place scaled) in a token's base units; refuses when the token cannot hold it exactly. */
+export function contractUnitsOf(amount: Amount, decimals: number): string {
+  const drop = 10n ** BigInt(18 - decimals);
+  if (decimals < 0 || decimals > 18 || amount <= 0n || amount % drop !== 0n)
+    throw new P2pError(`The order amount has more decimal places than the escrow token's ${decimals}`, 'p2p.contract_escrow_unavailable');
+  return (amount / drop).toString();
+}
+
+const sameAddress = (a: string | null | undefined, b: string | null | undefined) =>
+  typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
 
 function toDispute(row: DisputeRow): DisputeRecord {
   return {
@@ -6829,7 +7459,7 @@ function assertPausesConfirmed(impact: MethodRemovalImpact, confirmed: readonly 
 
 /** A sell ad's methods each have a live destination, read under the maker's instrument key (taken first, per its rules). */
 async function assertSellDestinations(
-  tx: Sql,
+  tx: Queryable,
   instruments: Pick<TradeInstrumentAttacher, 'liveMethodKeys'>,
   makerId: string,
   fiatCurrency: string,

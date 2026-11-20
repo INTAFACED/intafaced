@@ -7,7 +7,10 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: 'u1', api: {} }),
+}));
 import { SupportedAssetsView } from './SupportedAssets';
 import type { SupportedAsset } from './supported-assets-reads';
 
@@ -39,8 +42,8 @@ const asset = (over: Partial<SupportedAsset>): SupportedAsset => ({
   kind: 'crypto',
   precision: 6,
   networks: [
-    { networkId: 'ethereum', label: 'TEST Ethereum' },
-    { networkId: 'base', label: 'TEST Base' },
+    { networkId: 'ethereum', label: 'TEST Ethereum', contract: null, links: [] },
+    { networkId: 'base', label: 'TEST Base', contract: null, links: [] },
   ],
   defaultNetworkId: 'ethereum',
   allowedActions: ['deposit', 'withdraw'],

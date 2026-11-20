@@ -1,6 +1,7 @@
 // World: none
 import { test, expect } from './journey.mjs';
 import { codeOf, keyHolder, makeKey, withKey } from './developer.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-identity-06 #6, in the running app (docs/roadmap/journeys.json): I open Connected apps and API access and revoke a
 // key. Tests titled "J-identity-06 #<n>" prove a whole step. A verified TEST account with a passkey (only such an account
@@ -31,8 +32,11 @@ test(`J-identity-06 #6 Connected apps and API access lists both keys with prefix
     // full and its state, cell by cell (cells after the name: prefix, mode, permissions, IPs, created, ends, last used,
     // state, action).
     const stored = async () => {
-      const listed = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/api/identity/trpc/developerKeys.list'));
-      await page.goto('/uc/safe/api-keys');
+      const listed = await answerAfterNavigation(
+        page,
+        (r) => new URL(r.url()).pathname.endsWith('/api/identity/trpc/developerKeys.list'),
+        () => page.goto('/uc/safe/api-keys'),
+      );
       const res = await listed;
       expect(res.status()).toBe(200);
       const text = await res.text();

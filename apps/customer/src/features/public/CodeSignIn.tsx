@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button, Failure, Field } from '../../shared/ui';
 import type { ApiResult, DeviceAuthorisation } from '../../shared/api';
 import { singleFlight } from '../../shared/password';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { navigate } from '../../app/location';
 import { publicAuthContext } from './auth-context';
 import { validAuthSession } from './public-auth-guards';
@@ -11,7 +11,7 @@ import { codeSignInCode, loginCodeAcceptedSchema } from './code-sign-in';
 import { codeSignInCopy } from './code-sign-in-copy';
 import { DeviceApproval } from './DeviceApproval';
 import { RecoveryCodeUsed, signInAnswerSchema } from './RecoveryCodeUsed';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Pending = { flowId: string; name: string; resendAt: number };

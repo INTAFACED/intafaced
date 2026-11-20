@@ -53,7 +53,7 @@ export interface EscrowView {
   actions: OrderAction[];
 }
 
-type TradeFacts = Pick<Trade, 'status' | 'resolution' | 'buyerId' | 'sellerId' | 'escrowedAt'>;
+type TradeFacts = Pick<Trade, 'status' | 'resolution' | 'buyerId' | 'sellerId' | 'escrowedAt'> & Partial<Pick<Trade, 'escrowKind'>>;
 
 export function roleIn(trade: Pick<Trade, 'buyerId' | 'sellerId'>, userId: string | null): Role {
   if (!userId) return 'observer';
@@ -75,8 +75,11 @@ export function escrowView(trade: TradeFacts, userId: string | null): EscrowView
   if (role === 'buyer' && trade.status === 'escrowed') actions.push('markPaid');
   if (role === 'seller' && trade.status === 'fiat_sent') actions.push('release');
   // No cancel once the buyer has marked paid: the way out for either side is release or a dispute.
-  if (role !== 'observer' && (trade.status === 'created' || trade.status === 'escrowed')) actions.push('cancel');
-  if (role !== 'observer' && (trade.status === 'escrowed' || trade.status === 'fiat_sent')) actions.push('dispute');
+  // RC-p2p-02: a contract order is never cancelled here (the seller refunds on the contract before payment), and its
+  // dispute is opened on the contract once the buyer has marked paid.
+  const contract = trade.escrowKind === 'contract';
+  if (role !== 'observer' && !contract && (trade.status === 'created' || trade.status === 'escrowed')) actions.push('cancel');
+  if (role !== 'observer' && (trade.status === 'fiat_sent' || (!contract && trade.status === 'escrowed'))) actions.push('dispute');
   switch (trade.status) {
     case 'created':
       return {
@@ -404,6 +407,9 @@ export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
   'p2p.share_link_revoked',
   // P-ads-merchant-08: the ad's maker is away; refused before anything is reserved.
   'p2p.maker_offline',
+  // #4689: the ad's maker may not trade, or identity could not say; refused before anything is reserved.
+  'p2p.counterparty_unavailable',
+  'p2p.counterparty_unverifiable',
   'p2p.self_trade',
   'p2p.blocked',
   'p2p.take_refused',
@@ -501,6 +507,8 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
     case 'p2p.share_link_revoked':
     // P-ads-merchant-08: the maker went offline, or out of their hours, while the order was being placed.
     case 'p2p.maker_offline':
+    // #4689: the ad's maker may not trade (frozen, closed or unknown).
+    case 'p2p.counterparty_unavailable':
       return 'unavailable';
     case 'p2p.blocked':
       return 'blocked';

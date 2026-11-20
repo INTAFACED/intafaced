@@ -54,6 +54,9 @@ async function boxes(browser, { width, height, look, frame }) {
     await page.goto('/home');
     await expect(page.getByTestId('home-total')).toBeVisible();
     await expect(page.locator('.home-work__row').first()).toBeVisible();
+    // Home's text swaps to Inter when it arrives (font-display: swap), and at 390 the label row wraps to its settled
+    // height only in Inter; measured on the fallback face the row is 18 px shorter (#7896)
+    await page.evaluate(() => document.fonts.load('400 1rem Inter'));
   }
   const found = await page.evaluate(
     ([blocks, frame]) =>

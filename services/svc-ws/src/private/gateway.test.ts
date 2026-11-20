@@ -1052,7 +1052,7 @@ function openSinkSocket(): {
       socket.readyState = WebSocket.CLOSED;
     },
   };
-  return { socket: socket as unknown as WebSocket, sent, closes };
+  return { socket: socket as WebSocket, sent, closes };
 }
 
 async function drainMicrotasks(): Promise<void> {

@@ -49,7 +49,7 @@ async function mount(asked: { feeRevenue: unknown[]; other: number }) {
         };
       },
     },
-  ) as unknown as LedgerService;
+  ) as LedgerService;
   const app = Fastify({ logger: false });
   registerS2sHttp(app, ledger, SHARED, {
     bodyBind: 'require',

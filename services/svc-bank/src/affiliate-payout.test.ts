@@ -9,6 +9,7 @@ import {
   fireAffiliatePayout,
   NoopAffiliatePayout,
 } from './affiliate-payout.js';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const BORROWER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SECRET = 'test-internal-service-secret-32ch!!';
@@ -93,9 +94,7 @@ describe('compose fleet IDENTITY_URL for svc-bank', () => {
   it('names fleet identity, does not bake loan rates, does not restamp JWT or #2194 keys', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const compose = readFileSync(join(here, '../../../docker-compose.apps.yml'), 'utf8');
-    const match = compose.match(/^  svc-bank:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-    if (!match) throw new Error('svc-bank service block missing from docker-compose.apps.yml');
-    const block = match[0];
+    const block = composeServiceBlock(compose, 'svc-bank');
     expect(block).toMatch(/SERVICE_NAME:\s*svc-bank/);
     expect(block).toMatch(/IDENTITY_URL:\s*http:\/\/svc-identity:4002/);
     expect(block).not.toMatch(/IDENTITY_URL:\s*http:\/\/localhost/);

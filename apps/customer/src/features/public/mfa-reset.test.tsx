@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { AuthForm } from './AuthForm';
 
 // "I lost my authenticator" on /login (I-signin-sessions-12, J-identity-05 #2): offered with the second step, it asks for
@@ -108,7 +108,12 @@ describe('I lost my authenticator', () => {
     const completesAt = new Date(Date.now() + 86_400_000).toISOString();
     answer({
       'mfaReset.start': ok({ state: 'code_sent', resetId: RESET, email: 's•••@example.invalid', codeExpiresAt }),
-      'mfaReset.confirm': ok({ state: 'waiting', resetId: RESET, completesAt, told: { email: 's•••@example.invalid', sms: 'vendor.sms' } }),
+      'mfaReset.confirm': ok({
+        state: 'waiting',
+        resetId: RESET,
+        completesAt,
+        told: { email: 's•••@example.invalid', also: ['o•••@example.invalid', 't•••@example.invalid'], sms: 'vendor.sms' },
+      }),
     });
     await lostAuthenticator();
     await act(async () => set('mfaResetPassword', 'a long enough password'));
@@ -128,6 +133,9 @@ describe('I lost my authenticator', () => {
     });
     expect(sent[1]!.body).toMatchObject({ resetId: RESET, code: '123456' });
     expect(host.textContent).toContain('an email went to s•••@example.invalid');
+    expect(host.textContent).toContain(
+      'An email also went to every other address you proved on Receive: o•••@example.invalid, t•••@example.invalid.',
+    );
     expect(host.textContent).toContain('your phone number was not texted');
     expect(host.querySelector('input[type=password]')).toBeNull();
     expect(JSON.stringify(localStorage)).not.toContain('a long enough password');

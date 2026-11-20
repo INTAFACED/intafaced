@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import {
   InsufficientFundsError,
@@ -12,6 +13,8 @@ import { withSessionAdvisoryLock } from '../session-lock.js';
 import type { SpaceService } from '../spaces/space-service.js';
 import { forwardKey, postToRail } from '../personal-pay/post.js';
 import type { DirectDebitScheme } from './scheme.js';
+import { partnerAccountFor, partnerPayoutsAccount, type PartnerBank, type PartnerMove } from '../partner/partner-bank.js';
+import { noPartnerDirectDebits, type PartnerDirectDebits, type PartnerDirectDebitsCustody } from '../partner/partner-direct-debits.js';
 
 /**
  * Direct Debit mandates and their collections (BK-xfer-11, J-bank-06 #4).
@@ -35,6 +38,12 @@ import type { DirectDebitScheme } from './scheme.js';
  * leaves the row `processing`, and the next run finds the entry by its key and records it instead of posting again. A
  * fault that will not pass (an entry the ledger refuses as invalid, a space that can never be debited) ends the
  * collection `failed` with nothing posted; an outage leaves it `processing` for the next run.
+ *
+ * When the partner bank holds the person's money (OWNER 226), the partner is the bank the scheme collects from: a block
+ * is sent to the partner first and only then recorded here, a collection on a mandate the partner reports blocked is
+ * rejected with the partner's own reason code, and a collection is ONE partner move from the main balance to the
+ * partner's outbound-payments account under `bank.dd.collection:<mandate>:<collection>`. The ledger posts nothing. A
+ * crash after the partner moved leaves the row `processing`, and the next run finds the move by its key and records it.
  */
 
 /** How far ahead "upcoming" looks: the next month, as the person reads it. */
@@ -72,6 +81,7 @@ type CollectionRow = {
   status: CollectionStatus;
   failure_code: string | null;
   ledger_tx_id: string | null;
+  partner_move_id: string | null;
   presented_at: Date;
   settled_at: Date | null;
   creditor_name: string;
@@ -98,6 +108,8 @@ export interface CollectionView {
   readonly status: CollectionStatus;
   readonly failureCode: string | null;
   readonly ledgerTxId: string | null;
+  /** The partner's reference for the move that collected it, when the partner bank holds the money; null otherwise. */
+  readonly partnerMoveId: string | null;
   readonly presentedAt: string;
   readonly settledAt: string | null;
   /** Never a number nobody set: a failed collection's fee is null with its blocker. */
@@ -156,13 +168,38 @@ export function collectionTransferId(mandateId: string, collectionId: string): s
   return `dd:${mandateId}:${collectionId}`;
 }
 
+/** The business key of one collection's partner move: one key is one move at the partner, however often it is sent. */
+export function collectionPartnerKey(mandateId: string, collectionId: string): string {
+  return `bank.dd.collection:${mandateId}:${collectionId}`;
+}
+
+function partnerPathNotBuilt(): BankError {
+  return new BankError(
+    'This direct debit is not yet run through the partner bank that holds this money, so nothing was changed.',
+    'bank.partner_path_not_built',
+  );
+}
+
 export class DirectDebitService {
   constructor(
     private readonly sql: Sql,
     private readonly ledger: LedgerClient,
     private readonly spaces: SpaceService,
     private readonly scheme: DirectDebitScheme,
+    private readonly partners: PartnerDirectDebitsCustody = noPartnerDirectDebits,
   ) {}
+
+  /**
+   * The partner that answers for this person's direct debits, or null on the custodial layer. Partner-held money with no
+   * partner side wired refuses by name: a block is never kept here alone for money the partner holds.
+   */
+  private partnerFor(userId: string): { bank: PartnerBank; dd: PartnerDirectDebits } | null {
+    const bank = this.spaces.custody.bankFor(userId);
+    if (!bank) return null;
+    const dd = this.partners.directDebitsFor(userId);
+    if (!dd) throw partnerPathNotBuilt();
+    return { bank, dd };
+  }
 
   /** Every control refuses `rail.bank` while no scheme is wired. */
   private requireScheme(): void {
@@ -198,6 +235,7 @@ export class DirectDebitService {
       status: row.status,
       failureCode: row.failure_code,
       ledgerTxId: row.ledger_tx_id,
+      partnerMoveId: row.partner_move_id,
       presentedAt: row.presented_at.toISOString(),
       settledAt: iso(row.settled_at),
       failureFee: null,
@@ -235,7 +273,8 @@ export class DirectDebitService {
     const due = where.due ?? null;
     return db<CollectionRow[]>`
       SELECT c.id, c.mandate_id, c.collection_id, c.user_id, c.asset_id, c.amount::text AS amount, c.due_at, c.status,
-             c.failure_code, c.ledger_tx_id, c.presented_at, c.settled_at, c.guarantee_ends_at, m.creditor_name,
+             c.failure_code, c.ledger_tx_id, c.partner_move_id, c.presented_at, c.settled_at, c.guarantee_ends_at,
+             m.creditor_name,
              r.requested_at AS refund_requested_at, r.reason AS refund_reason
         FROM bank.dd_collections c
         JOIN bank.dd_mandates m ON m.id = c.mandate_id
@@ -289,7 +328,7 @@ export class DirectDebitService {
     };
   }
 
-  private async ownedMandate(db: Sql, userId: string, mandateId: string, lock: boolean): Promise<MandateRow> {
+  private async ownedMandate(db: Queryable, userId: string, mandateId: string, lock: boolean): Promise<MandateRow> {
     const rows = lock
       ? await db<MandateRow[]>`SELECT ${db.unsafe(MANDATE_COLUMNS)} FROM bank.dd_mandates WHERE id = ${mandateId} FOR UPDATE`
       : await db<MandateRow[]>`SELECT ${db.unsafe(MANDATE_COLUMNS)} FROM bank.dd_mandates WHERE id = ${mandateId}`;
@@ -308,16 +347,23 @@ export class DirectDebitService {
     mandate: MandateView;
     rejected: string[];
     tooLate: Array<{ collectionId: string; code: 'bank.dd_too_late' }>;
+    /** The partner the block was sent to, when it holds the money; null on the custodial layer. */
+    sentTo: string | null;
   }> {
     this.requireScheme();
     const now = input.now ?? new Date();
+    // Partner-held money: the block is the partner's first. If the partner refuses or is down, nothing is recorded here.
+    await this.ownedMandate(this.sql, input.userId, input.mandateId, false);
+    const partner = this.partnerFor(input.userId);
+    const atPartner = partner ? await partner.dd.block(input.userId, input.mandateId) : null;
+    const code = atPartner?.refusalCode ?? 'bank.dd_mandate_blocked';
     const result = await this.sql.begin(async (tx) => {
-      const mandate = await this.ownedMandate(tx as unknown as Sql, input.userId, input.mandateId, true);
+      const mandate = await this.ownedMandate(tx, input.userId, input.mandateId, true);
       if (mandate.status === 'active') {
         await tx`UPDATE bank.dd_mandates SET status = 'blocked', blocked_at = ${now}, updated_at = now() WHERE id = ${mandate.id}`;
       }
       const rejected = await tx<{ collection_id: string }[]>`
-        UPDATE bank.dd_collections SET status = 'rejected', failure_code = 'bank.dd_mandate_blocked', settled_at = ${now}
+        UPDATE bank.dd_collections SET status = 'rejected', failure_code = ${code}, settled_at = ${now}
          WHERE mandate_id = ${mandate.id} AND status = 'upcoming'
         RETURNING collection_id
       `;
@@ -331,14 +377,18 @@ export class DirectDebitService {
       mandate: this.mandateView(mandate, []),
       rejected: result.rejected,
       tooLate: result.tooLate.map((collectionId) => ({ collectionId, code: 'bank.dd_too_late' as const })),
+      sentTo: atPartner?.label ?? null,
     };
   }
 
   /** Unblock a mandate: collections the creditor presents from now on are collected again. Rejected ones stay rejected. */
   async unblock(input: { userId: string; mandateId: string }): Promise<{ mandate: MandateView }> {
     this.requireScheme();
+    await this.ownedMandate(this.sql, input.userId, input.mandateId, false);
+    const partner = this.partnerFor(input.userId);
+    if (partner) await partner.dd.unblock(input.userId, input.mandateId);
     await this.sql.begin(async (tx) => {
-      const mandate = await this.ownedMandate(tx as unknown as Sql, input.userId, input.mandateId, true);
+      const mandate = await this.ownedMandate(tx, input.userId, input.mandateId, true);
       if (mandate.status === 'blocked') {
         await tx`UPDATE bank.dd_mandates SET status = 'active', blocked_at = NULL, updated_at = now() WHERE id = ${mandate.id}`;
       }
@@ -392,7 +442,8 @@ export class DirectDebitService {
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
     const rows = await this.sql<CollectionRow[]>`
       SELECT c.id, c.mandate_id, c.collection_id, c.user_id, c.asset_id, c.amount::text AS amount, c.due_at, c.status,
-             c.failure_code, c.ledger_tx_id, c.presented_at, c.settled_at, c.guarantee_ends_at, m.creditor_name,
+             c.failure_code, c.ledger_tx_id, c.partner_move_id, c.presented_at, c.settled_at, c.guarantee_ends_at,
+             m.creditor_name,
              r.requested_at AS refund_requested_at, r.reason AS refund_reason
         FROM bank.dd_refund_requests r
         JOIN bank.dd_collections c ON c.id = r.collection_row_id
@@ -401,6 +452,19 @@ export class DirectDebitService {
        LIMIT ${limit}
     `;
     return rows.map((row) => ({ ...this.collectionView(row, now), userId: row.user_id, reason: row.refund_reason ?? '' }));
+  }
+
+  /** The mandates by id, with whose they are and their creditor, for the finance desk's partner read (J-bank-28 #4). */
+  async opsMandateDetails(
+    ids: readonly string[],
+  ): Promise<Map<string, { userId: string; creditorName: string; reference: string; assetId: string }>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.sql<MandateRow[]>`
+      SELECT ${this.sql.unsafe(MANDATE_COLUMNS)} FROM bank.dd_mandates WHERE id = ANY(${ids as string[]}::text[])
+    `;
+    return new Map(
+      rows.map((r) => [r.id, { userId: r.user_id, creditorName: r.creditor_name, reference: r.reference, assetId: r.asset_id }]),
+    );
   }
 
   // ── The scheme's side: signed job doors, never a customer ─────────────────────────────────────────────────────────
@@ -437,6 +501,8 @@ export class DirectDebitService {
     ) {
       throw new BankError('That mandate id is already set up with other terms.', 'bank.dd_mandate_conflict');
     }
+    // Partner-held money: the scheme sets the mandate up against the person's account at the partner, so it knows it.
+    await this.partnerFor(row.user_id)?.dd.setUp?.(row.user_id, row.id);
     return { ...this.mandateView(row, []), userId: row.user_id };
   }
 
@@ -462,6 +528,10 @@ export class DirectDebitService {
     if (amount <= 0n) invalid('The collection amount must be more than zero.');
     const dueAt = new Date(input.dueAt);
     if (Number.isNaN(dueAt.getTime())) invalid('The collection needs a due date.');
+    // Partner-held money: whether this mandate refuses collections is the partner's answer, with its reason.
+    const owner = (await this.sql<{ user_id: string }[]>`SELECT user_id FROM bank.dd_mandates WHERE id = ${input.mandateId}`)[0];
+    const partner = owner ? this.partnerFor(owner.user_id) : null;
+    const atPartner = partner && owner ? await partner.dd.mandate(owner.user_id, input.mandateId, input.collectionId) : null;
     const rowId = await this.sql.begin(async (tx) => {
       // FOR SHARE orders this with a block, which takes the row FOR UPDATE.
       const mandate = (
@@ -470,11 +540,12 @@ export class DirectDebitService {
       `
       )[0];
       if (!mandate) throw new BankError('No such direct debit mandate.', 'bank.dd_mandate_not_found');
-      const blocked = mandate.status === 'blocked';
+      const blocked = mandate.status === 'blocked' || atPartner?.blocked === true;
+      const code = atPartner?.refusalCode ?? 'bank.dd_mandate_blocked';
       await tx`
         INSERT INTO bank.dd_collections (mandate_id, collection_id, user_id, asset_id, amount, due_at, status, failure_code, settled_at)
         VALUES (${mandate.id}, ${input.collectionId}, ${mandate.user_id}, ${mandate.asset_id}, ${formatAmount(amount)}, ${dueAt},
-                ${blocked ? 'rejected' : 'upcoming'}, ${blocked ? 'bank.dd_mandate_blocked' : null}, ${blocked ? now : null})
+                ${blocked ? 'rejected' : 'upcoming'}, ${blocked ? code : null}, ${blocked ? now : null})
         ON CONFLICT (mandate_id, collection_id) DO NOTHING
       `;
       const kept = (
@@ -519,7 +590,7 @@ export class DirectDebitService {
   private async finish(id: string, status: 'failed' | 'rejected', code: string, now: Date): Promise<typeof status> {
     const done = await this.sql`
       UPDATE bank.dd_collections SET status = ${status}, failure_code = ${code}, settled_at = ${now}
-       WHERE id = ${id} AND status IN ('upcoming', 'processing') AND ledger_tx_id IS NULL
+       WHERE id = ${id} AND status IN ('upcoming', 'processing') AND ledger_tx_id IS NULL AND partner_move_id IS NULL
     `;
     if (done.count !== 1) throw new BankError('The collection changed while it was being decided.', 'bank.dd_collection_conflict');
     return status;
@@ -557,6 +628,9 @@ export class DirectDebitService {
         `;
         if (claimed.count !== 1) return null;
       }
+
+      const partner = this.partnerFor(row.user_id);
+      if (partner) return this.collectAtPartner(row, partner, now);
 
       const transferId = collectionTransferId(row.mandate_id, row.collection_id);
       // An entry that posted before a crash is recorded, never posted again.
@@ -607,5 +681,62 @@ export class DirectDebitService {
       if (done.count !== 1) throw new BankError('The collection changed while it was being collected.', 'bank.dd_collection_conflict');
       return 'collected';
     });
+  }
+
+  /**
+   * One collection when the partner bank holds the person's money: the partner says whether the mandate refuses it, and
+   * if not, ONE partner move under the collection's key takes it from the main balance. Too little at the partner fails
+   * it with the partner's reason, nothing moved; anything else (the partner down, its reply lost, a posting freeze)
+   * rethrows and leaves the row `processing`, and the next run sends the same key, which the partner answers once.
+   */
+  private async collectAtPartner(
+    row: { id: string; mandate_id: string; collection_id: string; user_id: string; asset_id: string; amount: string },
+    partner: { bank: PartnerBank; dd: PartnerDirectDebits },
+    now: Date,
+  ): Promise<'collected' | 'failed' | 'rejected'> {
+    const key = collectionPartnerKey(row.mandate_id, row.collection_id);
+    let moved: PartnerMove | null = await partner.bank.moveByKey(key);
+    if (!moved) {
+      const mandate = await partner.dd.mandate(row.user_id, row.mandate_id, row.collection_id);
+      if (mandate.blocked) return this.finish(row.id, 'rejected', mandate.refusalCode ?? 'bank.dd_mandate_blocked', now);
+      try {
+        await this.spaces.assertCanReceive(row.user_id);
+      } catch (err) {
+        if (err instanceof BankError && err.code === 'bank.recipient_cannot_receive') {
+          return this.finish(row.id, 'rejected', 'bank.dd_account_unavailable', now);
+        }
+        throw err;
+      }
+      // The main balance at the partner. With no space row for it yet, it is still the partner's main account.
+      const primary = await this.spaces.findPrimary(row.user_id, row.asset_id);
+      if (primary) {
+        try {
+          await this.spaces.resolveForDebit(primary.id, now);
+        } catch (err) {
+          if (err instanceof BankError) return this.finish(row.id, 'failed', err.code, now);
+          throw err;
+        }
+      }
+      try {
+        moved = await partner.bank.move({
+          key,
+          from: primary ? partnerAccountFor(primary) : { userId: row.user_id, assetId: row.asset_id, spaceId: null },
+          to: partnerPayoutsAccount(row.asset_id),
+          amount: parseAmount(row.amount),
+        });
+      } catch (err) {
+        if (err instanceof BankError && err.code === 'bank.partner_insufficient_funds') return this.finish(row.id, 'failed', err.code, now);
+        throw err;
+      }
+    }
+    const days = this.scheme.guaranteeDays;
+    const ends = days === null ? null : new Date(now.getTime() + days * DAY_MS);
+    const done = await this.sql`
+      UPDATE bank.dd_collections SET status = 'collected', partner_move_id = ${moved.id}, settled_at = ${now}, failure_code = NULL,
+             guarantee_ends_at = ${ends}
+       WHERE id = ${row.id} AND status = 'processing'
+    `;
+    if (done.count !== 1) throw new BankError('The collection changed while it was being collected.', 'bank.dd_collection_conflict');
+    return 'collected';
   }
 }

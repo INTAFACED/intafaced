@@ -8,10 +8,11 @@
  * owner's size limit. Post length and image size are owner values with no default (`ACADEMY_POST_MAX_CHARS`,
  * `ACADEMY_POST_IMAGE_MAX_BYTES`): a post while the length is blank refuses `academy.post_limit_unset`, and an image while
  * the size is blank refuses `academy.attachment_limit_unset`. A retry with the same client request id answers with the
- * stored post (`post:<account>:<request>`). No money moves here.
+ * stored post (`post:<account>:<request>`). A post or reply a moderator deleted (AC-rooms-02, `moderation.ts`) keeps its
+ * row and leaves every learner read here; a deleted post takes its replies with it. No money moves here.
  */
 import { createHash } from 'node:crypto';
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 import {
   ACADEMY_DISCUSSION_GENERAL_TOPIC,
   ACADEMY_DISCUSSION_IMAGE_TYPES,
@@ -29,11 +30,9 @@ import {
   type AcademySaveDiscussionTopicInput,
   type AcademyStaffDiscussionThread,
 } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { AcademyError } from '../errors.js';
 import { FILE_SIGNATURES, signatureMatches } from './media.js';
-
-type Db = Sql | TransactionSql;
 
 export type DiscussionLimits = { postMaxChars: number | null; imageMaxBytes: number | null };
 
@@ -133,14 +132,14 @@ export class CourseDiscussion {
   ) {}
 
   /** The published course at that address, or `academy.course_not_found`. */
-  private async course(db: Db, slug: string): Promise<CourseRow> {
+  private async course(db: Queryable, slug: string): Promise<CourseRow> {
     const [row] = await db<CourseRow[]>`SELECT id, slug, title FROM academy.courses WHERE slug = ${slug} AND state = 'published'`;
     if (!row) throw new AcademyError(`academy.course_not_found slug=${slug}`, 'academy.course_not_found');
     return row;
   }
 
   /** Refuses `academy.enrolment_required` unless the reader holds an open enrolment in the course. */
-  private async assertEnrolled(db: Db, courseId: string, userId: string): Promise<void> {
+  private async assertEnrolled(db: Queryable, courseId: string, userId: string): Promise<void> {
     const [row] = await db<{ enrolled: boolean }[]>`
       SELECT EXISTS (SELECT 1 FROM academy.course_enrolments
         WHERE course_id = ${courseId} AND user_id = ${userId} AND left_at IS NULL) AS enrolled
@@ -149,20 +148,20 @@ export class CourseDiscussion {
       throw new AcademyError('academy.enrolment_required enrol in this course to join its discussion', 'academy.enrolment_required');
   }
 
-  private async enrolledCourse(db: Db, slug: string, userId: string): Promise<CourseRow> {
+  private async enrolledCourse(db: Queryable, slug: string, userId: string): Promise<CourseRow> {
     const course = await this.course(db, slug);
     await this.assertEnrolled(db, course.id, userId);
     return course;
   }
 
-  private async assertTopic(db: Db, courseId: string, topicSlug: string): Promise<void> {
+  private async assertTopic(db: Queryable, courseId: string, topicSlug: string): Promise<void> {
     if (topicSlug === ACADEMY_DISCUSSION_GENERAL_TOPIC) return;
     const [row] = await db`SELECT 1 FROM academy.discussion_topics WHERE course_id = ${courseId} AND slug = ${topicSlug}`;
     if (!row) throw new AcademyError(`academy.topic_not_found topic=${topicSlug}`, 'academy.topic_not_found');
   }
 
   private rows(
-    db: Db,
+    db: Queryable,
     readerId: string,
     where: {
       id?: string;
@@ -173,12 +172,12 @@ export class CourseDiscussion {
     return db<PostRow[]>`
       SELECT p.id, p.course_id, p.topic_slug, p.parent_id, p.kind, p.title, p.body, p.author_id, p.anonymous, p.image_type,
              p.accepted_reply_id, p.created_at,
-             (SELECT count(*)::int FROM academy.discussion_posts r WHERE r.parent_id = p.id) AS replies,
+             (SELECT count(*)::int FROM academy.discussion_posts r WHERE r.parent_id = p.id AND r.removed_at IS NULL) AS replies,
              (SELECT count(*)::int FROM academy.discussion_likes l WHERE l.post_id = p.id) AS likes,
              EXISTS (SELECT 1 FROM academy.discussion_likes l WHERE l.post_id = p.id AND l.user_id = ${readerId}) AS liked,
              EXISTS (SELECT 1 FROM academy.discussion_follows f WHERE f.post_id = p.id AND f.user_id = ${readerId}) AS following
         FROM academy.discussion_posts p
-       WHERE ${
+       WHERE p.removed_at IS NULL AND ${
          where.id !== undefined
            ? db`p.id = ${where.id}`
            : where.parent !== undefined
@@ -195,9 +194,13 @@ export class CourseDiscussion {
   }
 
   /** The post or reply with that id in a course the reader is enrolled in, or `academy.post_not_found`. */
-  private async entry(db: Db, postId: string, readerId: string): Promise<PostRow> {
+  private async entry(db: Queryable, postId: string, readerId: string): Promise<PostRow> {
     const [row] = await this.rows(db, readerId, { id: postId });
     if (!row) throw new AcademyError(`academy.post_not_found post=${postId}`, 'academy.post_not_found');
+    if (row.parent_id !== null) {
+      const [parent] = await db`SELECT 1 FROM academy.discussion_posts WHERE id = ${row.parent_id} AND removed_at IS NULL`;
+      if (!parent) throw new AcademyError(`academy.post_not_found post=${postId}`, 'academy.post_not_found');
+    }
     const [published] = await db`SELECT 1 FROM academy.courses WHERE id = ${row.course_id} AND state = 'published'`;
     if (!published) throw new AcademyError(`academy.post_not_found post=${postId}`, 'academy.post_not_found');
     await this.assertEnrolled(db, row.course_id, readerId);
@@ -224,7 +227,7 @@ export class CourseDiscussion {
     `;
     const counts = await this.sql<{ topic_slug: string; posts: number }[]>`
       SELECT topic_slug, count(*)::int AS posts FROM academy.discussion_posts
-       WHERE course_id = ${course.id} AND parent_id IS NULL GROUP BY topic_slug
+       WHERE course_id = ${course.id} AND parent_id IS NULL AND removed_at IS NULL GROUP BY topic_slug
     `;
     const postsIn = (slug: string) => counts.find((c) => c.topic_slug === slug)?.posts ?? 0;
     const topics: (AcademyDiscussionTopic & { at: number })[] = [
@@ -307,7 +310,9 @@ export class CourseDiscussion {
     if (!found.same)
       throw new AcademyError(`academy.request_reused request=${clientRequestId} answers another post`, 'academy.request_reused');
     const [row] = await this.rows(this.sql, userId, { id: found.id });
-    return row!;
+    // The stored post was deleted by a moderator: the retry answers what a read would.
+    if (!row) throw new AcademyError(`academy.post_not_found post=${found.id}`, 'academy.post_not_found');
+    return row;
   }
 
   /** A new question or discussion. A retry with the same client request id answers with the stored post. */
@@ -369,7 +374,8 @@ export class CourseDiscussion {
       if (post.parent_id !== null) throw new AcademyError(`academy.post_not_found post=${input.postId}`, 'academy.post_not_found');
       if (post.kind !== 'question' || post.author_id !== input.userId)
         throw new AcademyError('academy.permission_denied only the asker marks the accepted answer', 'academy.permission_denied');
-      const [reply] = await tx`SELECT 1 FROM academy.discussion_posts WHERE id = ${input.replyId} AND parent_id = ${post.id}`;
+      const [reply] =
+        await tx`SELECT 1 FROM academy.discussion_posts WHERE id = ${input.replyId} AND parent_id = ${post.id} AND removed_at IS NULL`;
       if (!reply) throw new AcademyError(`academy.post_not_found reply=${input.replyId}`, 'academy.post_not_found');
       await tx`UPDATE academy.discussion_posts SET accepted_reply_id = ${input.replyId} WHERE id = ${post.id}`;
       return { postId: post.id, acceptedReplyId: input.replyId };
@@ -417,7 +423,7 @@ export class CourseDiscussion {
       `;
       const [posts] = await tx<{ posts: number }[]>`
         SELECT count(*)::int AS posts FROM academy.discussion_posts
-         WHERE course_id = ${input.courseId} AND topic_slug = ${input.slug} AND parent_id IS NULL
+         WHERE course_id = ${input.courseId} AND topic_slug = ${input.slug} AND parent_id IS NULL AND removed_at IS NULL
       `;
       return { slug: input.slug, title: input.title, pinned: input.pinned, position: input.position, general: false, posts: posts!.posts };
     });

@@ -7,14 +7,15 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-vi.mock('../session/session', () => {
+vi.mock('../session/session', async (original) => {
+  const real = await original<typeof import('../session/session')>();
   const api = {
     query: async () => ({ ok: false, reason: 'unavailable', message: 'TEST off' }),
     mutate: async () => ({ ok: false }),
     canWrite: () => true,
   };
   const held = { api, userId: 'user-1', session: { accessToken: 'token' } };
-  return { useApi: () => api, useSession: () => held };
+  return { ...real, useApi: () => api, useSession: () => held };
 });
 
 import { Support } from './Support';

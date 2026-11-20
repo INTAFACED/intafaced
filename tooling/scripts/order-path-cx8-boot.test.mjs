@@ -29,3 +29,10 @@ test('matching boots after founder enrolment and is given exactly the two smoke 
   assert.ok(enrol > 0 && matching > enrol, 'matching must start after the founders are enrolled');
   assert.match(src, /MATCHING_OPERATOR_IDS: founders\.map\(\(f\) => f\.userId\)\.join\(','\)/);
 });
+
+test('svc-bank is given the custody switch once, so an edit to it cannot be silently overridden (project-state#2520)', () => {
+  const src = readFileSync(new URL('./order-path-cx8-boot.mjs', import.meta.url), 'utf8');
+  const bank = src.slice(src.indexOf("start('bank'"), src.indexOf("start('tax'"));
+  assert.ok(bank.length > 0, 'the bank start block must come before the tax one');
+  assert.equal(bank.match(/^\s*LEDGER_CUSTODY_LAYER:/gm)?.length, 1);
+});

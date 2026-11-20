@@ -66,11 +66,14 @@ describe('createActivityFeed', () => {
     const feed = createActivityFeed(api, { assetId: 'BTC' });
     const first = ready(await settled(feed, stops));
     expect(first.hasMore).toBe(true);
+    expect(first.pageStarts).toEqual([0]);
     first.loadMore();
     expect(ready(feed.getSnapshot()).loadingMore).toBe(true);
     await vi.waitFor(() => expect(ready(feed.getSnapshot()).items.length).toBe(3));
     const second = ready(feed.getSnapshot());
     expect(second.items.map((row) => row.id)).toEqual(['a', 'b', 'c']);
+    // The second page starts after the first page's two rows; the row it repeated is not counted twice.
+    expect(second.pageStarts).toEqual([0, 2]);
     expect(second.hasMore).toBe(false);
     expect(second.loadingMore).toBe(false);
     expect(calls.map((call) => call.input)).toEqual([

@@ -56,7 +56,7 @@ higher-timeframe bars itself, only while a study reads them.
 - `catalogue.ts`: the studies (kind, name, category, search words, inputs and their shown defaults).
 - `compute.ts`: one study on the bars to series, facts, notes, a table or a typed refusal. `compute.test.ts`.
 - `model.ts`: a study instance, the per-workbench store (device storage), last-settings memory, validation.
-- `data.ts`: the public tape (`GET /api/v1/trades/:symbol` with an explicit limit).
+- `data.ts`: the public tape (`GET /api/v1/trades/:symbol` with an explicit limit) and the venue's funding history.
 - `useStudyDraw.ts`: the hook that draws the series on the host.
 - `StudiesBar.tsx`: the component (toolbar, chips, legend, data window, feeds). `StudyDialogs.tsx`: the Add dialog and
   the settings dialog. `studies.render.test.tsx`: the render tests, against a fake host.
@@ -71,7 +71,12 @@ higher-timeframe bars itself, only while a study reads them.
   (a percentage point). The drawn value is the shown text read back as a number.
 - Ichimoku span B needs 52 bars: with fewer, span B and the cloud are absent and the legend says `Needs 52 bars`.
 - Volume delta and the profile read the public tape (the last 500 prints). A bar the tape does not fully cover is absent.
-- Open interest, funding and on-chain series are refused by name (`X is not published for <market>`); nothing is drawn.
+- Funding is drawn where the venue publishes it: the funding the venue published on our listed perpetual on the chart's
+  base asset (`GET /api/v1/venue/funding-history?base=&since=`, public), in percent per interval, in its own pane. Each
+  bar draws the newest rate settled by its close; a bar before the first is a gap. A TEST venue's line is named TEST.
+  With no listed perpetual on the asset, or a venue that publishes no funding history, it is refused by name.
+- Open interest and on-chain series are refused by name (`X is not published for <market>`): no venue or source we read
+  publishes their history. Nothing is drawn.
 - The higher-timeframe study reads only the higher bars that had closed by the end of the chart bar (no look-ahead).
 
 ## Not in this build (say so if asked)

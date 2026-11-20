@@ -33,12 +33,22 @@ const market = (symbol: string, cap: string | null, kind: 'spot' | 'perpetual' =
   status: null,
   maxOrderQty: null,
   maxOrderNotional: null,
+  minOrderNotional: null,
+  priceBandBps: null,
+  maxOpenOrders: null,
   builderFeeCapBps: cap === null ? { known: false } : { known: true, value: a(cap) },
   listedBy: { known: false },
   oracleRule: { known: false },
   markRule: { known: false },
   tradingHours: { known: false },
   feed: { known: false },
+  session: { known: false },
+  marginAccount: { known: false },
+  openInterest: { known: false },
+  lastEvent: { known: false },
+  contractSize: { known: false },
+  mark: { known: false },
+  funding: { known: false },
 });
 const venue = { venueId: VENUE, markets: [market('BTC-USDC', '100'), market('BTC-PERP', '10', 'perpetual')] };
 
@@ -93,7 +103,7 @@ describe('builder-fee versions by venue and market group', () => {
     expect(codeOf(() => assertWithinVenueCaps(book({ 'all-markets': '0' }), uncapped))).toBe('trade.builder_fee_cap_unknown');
     // A venue that sends no cap field at all publishes none.
     const { builderFeeCapBps: _gone, ...bare } = market('BTC-USDC', '100');
-    const silent = { venueId: VENUE, markets: [bare as unknown as UserVenueMarket] };
+    const silent = { venueId: VENUE, markets: [bare as UserVenueMarket] };
     expect(codeOf(() => assertWithinVenueCaps(book({ 'all-markets': '0' }), silent))).toBe('trade.builder_fee_cap_unknown');
     expect(codeOf(() => assertWithinVenueCaps(book({ 'all-markets': '1' }), { ...venue, venueId: 'other' }))).toBe(
       'trade.builder_fee_venue_unknown',

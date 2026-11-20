@@ -2,7 +2,7 @@
  * Saved strategies are per account. On main, studio.list() is one shared book,
  * so user B receives user A's source. These assertions fail there.
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -156,7 +156,9 @@ describe('saved strategies are per account', () => {
     expect(STUDIO_SERVICE_ALLOWLIST).toEqual([]);
     const index = readFileSync(join(HERE, '../index.ts'), 'utf8');
     expect(index).not.toContain('studioServiceAllowlist');
-    const routerSrc = readFileSync(join(HERE, '../router.ts'), 'utf8');
+    const routerSrc = ['../router.ts', ...readdirSync(join(HERE, '../routes')).map((name) => join('../routes', name))]
+      .map((rel) => readFileSync(join(HERE, rel), 'utf8'))
+      .join('\n');
     expect(routerSrc).not.toMatch(/studio\.list\(\)/);
     const metaSchema = routerSrc.slice(routerSrc.indexOf('const strategyMetadata'), routerSrc.indexOf('const accountField'));
     expect(metaSchema).not.toMatch(/\bsource\b/);

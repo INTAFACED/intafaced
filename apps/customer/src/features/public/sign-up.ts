@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
-import { sessionSchema } from '../session/session';
+import { sessionSchema } from '../session';
 
 // hand-declared-ok: svc-identity's sign-up answers (auth.signUpStart, auth.signUpConfirm) have no browser-safe schema in packages/contracts yet
 
@@ -62,6 +62,8 @@ export const SIGN_UP_CODES = [
   'identity.country_invalid',
   'identity.region_blocked',
   'identity.subdivision_required',
+  'identity.us_person_blocked',
+  'identity.us_person_unanswered',
   'identity.screening_unset',
   'identity.signup_expired',
   'identity.signup_code_invalid',

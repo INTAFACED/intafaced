@@ -16,7 +16,6 @@ export type {
   ToggleInput,
   ToggleResult,
 } from './control-plane-contract';
-import type { ModuleId } from '@intafaced/config';
 import { describeUnconfigured, readConsoleStatus, type Authority } from '@/lib/console-status';
 
 /**

@@ -30,6 +30,11 @@ export interface SettingRow {
     | AcademyErrorCode
     | 'academy.prize_pool_unset'
     | 'academy.report_limit_unset'
+    | 'academy.learner_summaries_list_limit_unset'
+    | 'academy.report_tasks_list_limit_unset'
+    | 'academy.report_sweep_unset'
+    | 'academy.inactivity_period_unset'
+    | 'academy.report_retention_unset'
     | 'academy.ambassador_pay.rates_unset'
     | 'academy.ambassador_revenue_share.rates_unset'
     | null;
@@ -46,10 +51,20 @@ export interface SettingsEnv {
   readonly ACADEMY_GRANT_AUDIT_PAGE_SIZE?: number | undefined;
   readonly ACADEMY_GRADER_LEASE_SECONDS?: number | undefined;
   readonly ACADEMY_GRADE_REPORT_ROWS?: number | undefined;
+  readonly ACADEMY_CERT_ISSUED_ROWS?: number | undefined;
+  readonly ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE?: number | undefined;
+  readonly ACADEMY_REPORT_TASKS_PAGE_SIZE?: number | undefined;
+  readonly ACADEMY_REPORT_CENTRE_RETENTION_MINUTES?: number | undefined;
+  readonly ACADEMY_REPORT_SWEEP_SECONDS?: number | undefined;
   readonly ACADEMY_BULK_FILE_MAX_BYTES?: number | undefined;
+  readonly ACADEMY_BULK_ENROL_ROWS?: number | undefined;
+  readonly ACADEMY_BULK_EMAIL_INACTIVE_DAYS?: number | undefined;
+  readonly ACADEMY_REPORT_RETENTION_HOURS?: number | undefined;
+  readonly ACADEMY_LEARNER_EXPORT_ROWS?: number | undefined;
   readonly ACADEMY_CERT_ISSUE_SWEEP_SECONDS?: number | undefined;
   readonly ACADEMY_PROGRAMME_MAX_COURSES?: number | undefined;
   readonly ACADEMY_POST_MAX_CHARS?: number | undefined;
+  readonly ACADEMY_CUSTOM_ROLE_LIMIT?: number | undefined;
   readonly ACADEMY_POST_IMAGE_MAX_BYTES?: number | undefined;
   readonly ACADEMY_MESSAGE_MAX_CHARS?: number | undefined;
   readonly ACADEMY_UPLOAD_VIDEO_TYPES?: readonly string[] | undefined;
@@ -69,6 +84,15 @@ export interface SettingsEnv {
   readonly ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS?: number | undefined;
   readonly ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON?: string | undefined;
   readonly ACADEMY_AMBASSADOR_REVENUE_SHARE_LAW_JSON?: string | undefined;
+  readonly ACADEMY_PAYMENT_RPC_URL?: string | undefined;
+  readonly ACADEMY_PAYMENT_CHAIN_ID?: number | undefined;
+  readonly ACADEMY_PAYMENT_TOKEN_ADDRESS?: string | undefined;
+  readonly ACADEMY_PAYMENT_TOKEN_DECIMALS?: number | undefined;
+  readonly ACADEMY_PAYMENT_ASSET?: string | undefined;
+  readonly ACADEMY_PAYMENT_RECEIVER?: string | undefined;
+  readonly ACADEMY_PAYMENT_CONFIRMATIONS?: number | undefined;
+  readonly ACADEMY_REFUND_SIGNER_URL?: string | undefined;
+  readonly LEDGER_URL?: string | undefined;
 }
 
 const filled = (v: string | undefined): boolean => typeof v === 'string' && v.trim() !== '';
@@ -94,6 +118,30 @@ export const PENDING_OWNER_SETTINGS: readonly string[] = [
 
 export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
   const rows: SettingRow[] = [
+    {
+      // J-academy-07: the payment network, token, asset, INTAFACED's receiving address and confirmations, and the ledger.
+      key: 'course_payments',
+      state: state(
+        filled(env.ACADEMY_PAYMENT_RPC_URL) &&
+          positiveInt(env.ACADEMY_PAYMENT_CHAIN_ID) &&
+          filled(env.ACADEMY_PAYMENT_TOKEN_ADDRESS) &&
+          typeof env.ACADEMY_PAYMENT_TOKEN_DECIMALS === 'number' &&
+          filled(env.ACADEMY_PAYMENT_ASSET) &&
+          filled(env.ACADEMY_PAYMENT_RECEIVER) &&
+          positiveInt(env.ACADEMY_PAYMENT_CONFIRMATIONS) &&
+          filled(env.LEDGER_URL),
+      ),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.payments_off',
+    },
+    {
+      key: 'course_refund_signer',
+      state: state(filled(env.ACADEMY_REFUND_SIGNER_URL)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.refund_sender_unset',
+    },
     {
       key: 'room_capacity',
       state: state(positiveInt(env.ACADEMY_MAX_ROOM_CAPACITY)),
@@ -236,11 +284,75 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       refusalCode: 'academy.report_limit_unset',
     },
     {
+      key: 'cert_issued_rows',
+      state: state(positiveInt(env.ACADEMY_CERT_ISSUED_ROWS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_limit_unset',
+    },
+    {
+      key: 'learner_summaries_page_size',
+      state: state(positiveInt(env.ACADEMY_LEARNER_SUMMARIES_PAGE_SIZE)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.learner_summaries_list_limit_unset',
+    },
+    {
+      key: 'report_tasks_page_size',
+      state: state(positiveInt(env.ACADEMY_REPORT_TASKS_PAGE_SIZE)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_tasks_list_limit_unset',
+    },
+    {
+      key: 'report_centre_retention',
+      state: state(positiveInt(env.ACADEMY_REPORT_CENTRE_RETENTION_MINUTES)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_retention_unset',
+    },
+    {
+      // Blank runs no sweep, so a requested report would never run: requests refuse.
+      key: 'report_sweep',
+      state: state(positiveInt(env.ACADEMY_REPORT_SWEEP_SECONDS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_sweep_unset',
+    },
+    {
       key: 'bulk_file_max_bytes',
       state: state(positiveInt(env.ACADEMY_BULK_FILE_MAX_BYTES)),
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.bulk_limit_unset',
+    },
+    {
+      key: 'bulk_enrol_rows',
+      state: state(positiveInt(env.ACADEMY_BULK_ENROL_ROWS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.bulk_limit_unset',
+    },
+    {
+      key: 'bulk_email_inactive_days',
+      state: state(positiveInt(env.ACADEMY_BULK_EMAIL_INACTIVE_DAYS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.inactivity_period_unset',
+    },
+    {
+      key: 'report_retention_hours',
+      state: state(positiveInt(env.ACADEMY_REPORT_RETENTION_HOURS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_retention_unset',
+    },
+    {
+      key: 'learner_export_rows',
+      state: state(positiveInt(env.ACADEMY_LEARNER_EXPORT_ROWS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.report_limit_unset',
     },
     {
       // Blank runs no sweep, so a delayed certificate would wait for its learner to come back: delayed rules refuse.
@@ -257,6 +369,14 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.programme_limit_unset',
+    },
+    {
+      // Blank: creating a custom role refuses; the built-in roles are not affected.
+      key: 'custom_role_limit',
+      state: state(positiveInt(env.ACADEMY_CUSTOM_ROLE_LIMIT)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.role_limit_unset',
     },
     {
       // Blank: every discussion post and reply refuses.

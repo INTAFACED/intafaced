@@ -1,38 +1,25 @@
 import { t as copyText } from './copy';
+import { BANK_SPACES_LIST, type BankSpace } from '@intafaced/contracts/bank-spaces-list';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import { transferDepthCopy } from './transfer-depth-copy';
 import { cleanText, messageEchoed, noteProblem, referenceProblem } from './transfer-message';
 
-export const spaceSchema = z
-  .object({
-    id: z.string(),
-    assetId: z.string(),
-    kind: z.enum(['primary', 'named']),
-    name: z.string(),
-    goalTarget: decimalSchema.nullable(),
-    lockedUntil: z.string().datetime({ offset: true }).nullable(),
-    /** An early unlock still waiting (BK-pots-02): when the space opens. Absent from a bank that predates it. */
-    unlocksAt: z.string().datetime({ offset: true }).nullable().optional(),
-    /** Set when this pot pays the person's bills (BK-pots-03). Absent from a bank that predates it. */
-    billsPot: z.object({ fallback: z.boolean() }).nullable().optional(),
-    balance: decimalSchema,
-    /** Null when the partner bank holds this money: no ledger account does, and `heldAt` says whose figure it is. */
-    ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: z.string(), kind: z.string() }).nullable(),
-    heldAt: z
-      .object({ label: z.string(), asOf: z.string().datetime({ offset: true }) })
-      .nullable()
-      .optional(),
-  })
-  .refine(
-    (space) =>
-      space.ledgerAccount
-        ? space.assetId === space.ledgerAccount.assetId && space.ledgerAccount.kind === 'available'
-        : Boolean(space.heldAt),
-    copyText('client.space.account.must.match.its.asset.and'),
-  );
-export type Space = z.infer<typeof spaceSchema>;
+/**
+ * Money's check over each row of `bank` `spaces.list` (the record in `@intafaced/contracts/bank-spaces-list`): a ledger
+ * space is a view of its own available account in its own asset; a space with no ledger account is one the partner holds.
+ */
+function spaceAccepted(space: BankSpace): boolean {
+  return space.ledgerAccount
+    ? space.assetId === space.ledgerAccount.assetId && space.ledgerAccount.kind === 'available'
+    : Boolean(space.heldAt);
+}
+/** Every space of the person, read by the record and checked row by row. */
+export function readSpaces(api: ApiClient, limit: number, signal?: AbortSignal) {
+  return api.call(BANK_SPACES_LIST, { limit }, { signal, accept: (rows) => rows.every(spaceAccepted) });
+}
+export type Space = BankSpace;
 export type Holding = { assetId: string; available: string; held: string | null; quantity: string | null };
 const balanceEntry = z
   .object({ free: decimalSchema, used: decimalSchema, total: decimalSchema })
@@ -95,7 +82,7 @@ export function validateTransfer(
 export function createMoneyClient(api: ApiClient) {
   return {
     spaces(limit: number, signal?: AbortSignal) {
-      return api.query('bank', 'spaces.list', { limit }, z.array(spaceSchema), { signal });
+      return readSpaces(api, limit, signal);
     },
     balances(signal?: AbortSignal) {
       return api.rest('/account/balance', balancesSchema, { signal });
@@ -136,7 +123,7 @@ export function createMoneyClient(api: ApiClient) {
             .map(([assetId, available]) => ({ assetId, available, held: null, quantity: null }));
       return { coverage: 'partial' as const, balances, spaces, unnamed, holdings, conflicts: [...conflicts] };
     },
-    transfer(spaces: Space[], input: TransferDraft): Promise<ApiResult<{ ledgerTxId: string; amount: string }>> {
+    transfer(spaces: Space[], input: TransferDraft): Promise<ApiResult<TransferOutcome>> {
       const message = validateTransfer(spaces, input);
       if (message) return Promise.resolve({ ok: false, reason: 'error', code: 'money.invalid_transfer', message });
       // Only a field the customer wrote goes on the wire, trimmed exactly as the service trims it.
@@ -153,7 +140,14 @@ export function createMoneyClient(api: ApiClient) {
         body,
         z
           .object({
-            ledgerTxId: z.string().min(1),
+            // A move the partner bank holds the money for (OWNER 226), between the person's own spaces or to another
+            // person (J-bank-04 #4), is one partner move and posts nothing to the ledger: its reply names the partner's
+            // move and no ledger transaction.
+            ledgerTxId: z.string().min(1).nullable(),
+            partnerMove: z
+              .object({ id: z.string().min(1), label: z.string().min(1), movedAt: z.string().optional() })
+              .nullable()
+              .optional(),
             amount: decimalSchema.refine(
               (amount) => parseAmount(amount) === parseAmount(input.amount),
               copyText('client.the.settled.amount.must.match.the.review'),
@@ -161,12 +155,30 @@ export function createMoneyClient(api: ApiClient) {
             note: z.string().nullable().optional(),
             reference: z.string().nullable().optional(),
           })
+          // Exactly one book made the move: the ledger's transaction, or the partner's move.
+          .refine((data) => (data.ledgerTxId === null) === (data.partnerMove != null), {
+            message: copyText('client.transfer.names.one.book'),
+          })
           // A send to a person echoes what it stored. The reply must be the note and reference that were reviewed.
           .refine((data) => !toPerson || (data.note !== undefined && data.reference !== undefined && messageEchoed(data, body)), {
             message: transferDepthCopy.t('echoMismatch'),
-          }),
+          })
+          .transform(({ ledgerTxId, partnerMove, ...rest }): TransferOutcome =>
+            ledgerTxId !== null
+              ? { ledgerTxId, ...rest }
+              : {
+                  ...rest,
+                  partnerMoveId: partnerMove!.id,
+                  heldBy: partnerMove!.label,
+                  ledgerPosting: copyText('client.partner.move.posts.nothing'),
+                },
+          ),
       );
     },
   };
 }
+/** What a confirmed transfer settled to: the ledger's transaction, or the partner bank's one move with nothing posted. */
+export type TransferOutcome = { amount: string; note?: string | null; reference?: string | null } & (
+  { ledgerTxId: string } | { partnerMoveId: string; heldBy: string; ledgerPosting: string }
+);
 export type MoneyOverview = Awaited<ReturnType<ReturnType<typeof createMoneyClient>['overview']>>;

@@ -1,7 +1,7 @@
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal } from '@/lib/refusal-copy';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { isReviewStatus, readReviewRequest, statusAfter } from '@/lib/oauth-ops/model';
 import { explainOAuthFailure } from '@/lib/oauth-ops/refusal';

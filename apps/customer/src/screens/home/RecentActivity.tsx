@@ -16,9 +16,8 @@ import {
 import { HOME_LINKS } from './links';
 import { STATE_IN_COLUMN } from './panel';
 import { usePreferences } from '../../shared/preferences';
-
-/** How many movements Home lists: a glance, not the history (J-home-ia-01 #5). The Activity room has the rest. */
-const SHOWN = 3;
+import { RECENT_ACTIVITY_LIMIT_UNSET } from '@intafaced/contracts/home-work-items';
+import type { ActivityLimit } from './recent-activity-limit';
 
 const LABEL = {
   deposit: 'Activity deposit',
@@ -40,18 +39,22 @@ const LABEL = {
 } as const satisfies Record<ActivityItem['kind'], string>;
 
 /**
- * The last few money movements, newest first, grouped as the Activity room groups them (one trade is one row), each
+ * The newest money movements, as many as the owner's `recentActivityLimit` (J-home-ia-01 #5; blank says "not set"),
+ * newest first, grouped as the Activity room groups them (one trade is one row), each
  * opening its own record. Amounts are the service's decimal strings
  * to their last digit, never rounded for the list. An account with none gets one honest line, not a blank box: nothing is invented to
  * fill it. The full history is the Activity screen under Money.
  */
 export function RecentActivity({
   activity,
+  limit,
   hidden,
   className = 'home-section',
   testId,
 }: {
   activity: Loadable<ActivityFeed>;
+  /** The owner's count of rows (`useRecentActivityLimit`). */
+  limit: ActivityLimit;
   hidden: boolean;
   className?: string;
   testId?: string;
@@ -64,13 +67,29 @@ export function RecentActivity({
         <h2 className="home-h2" id="home-activity-title">
           {t('Recent activity')}
         </h2>
-        {activity.status === 'ready' ? (
+        {activity.status === 'ready' && limit.state !== 'loading' ? (
           <a className="home-link" href={HOME_LINKS.activity}>
             {t('See all')}
           </a>
         ) : null}
       </div>
-      {activity.status === 'loading' ? (
+      {limit.state === 'unset' ? (
+        <StateBlock
+          kind="refused"
+          className={STATE_IN_COLUMN}
+          title={t('Activity limit unset')}
+          body={t('Activity limit unset body')}
+          code={RECENT_ACTIVITY_LIMIT_UNSET}
+        />
+      ) : limit.state === 'failed' ? (
+        <StateBlock
+          kind="error"
+          className={STATE_IN_COLUMN}
+          title={t('Couldn’t load your activity')}
+          onRetry={limit.retry}
+          retryLabel={t('Try again')}
+        />
+      ) : activity.status === 'loading' || limit.state === 'loading' ? (
         <div data-testid="home-activity" className="home-activity" aria-hidden="true">
           {[0, 1, 2].map((index) => (
             <div data-testid="home-activity__row" className="home-activity__row" key={index}>
@@ -84,7 +103,7 @@ export function RecentActivity({
       ) : activity.status === 'ready' ? (
         <ul data-testid="home-activity" className="home-activity">
           {groupActivity(activity.data.items)
-            .groups.slice(0, SHOWN)
+            .groups.slice(0, limit.count)
             .map((group) => {
               const item = group.main;
               const when = dayTime(item.postedAt, timeZone);

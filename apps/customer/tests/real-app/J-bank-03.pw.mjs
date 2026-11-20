@@ -6,6 +6,8 @@ import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, journeyState, restartWith, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { venueBalance, venueRecord } from './venue.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-bank-03, in the running app (docs/roadmap/journeys.json): I turn my balance into money in my bank account, with the
 // adapted words (OWNER 226, CUSTODY-DELTA): the partner bank holds the person's money and the ledger posts nothing. One test
@@ -14,8 +16,11 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // authenticator app and a saved TEST bank destination that the TEST payout stand-in (BANK_PAYOUT_PARTNER=payout-sim, which
 // pays nobody) verified and that the stack's TEST fixture moved past its 24-hour cooling-off, as the journey starts. The
 // stand-in's signed calls say paid, failed, cancelled or came back, as a partner would. Balances are the partner's figures,
-// read through the person's own bank API. #2 restarts svc-bank with the cooling-off blank, which empties the TEST partner's
-// in-process book, so the person is put back at the partner with TEST 50 USDT after it.
+// read through the person's own bank API. #2 restarts svc-bank with the cooling-off blank; the TEST partner's start comes
+// back after each restart (partner-start.mjs), and the person is put back under the same fund id, which pays in once.
+// #4 and #5 compare what the app says with the partner's own book: the TEST partner bank's record of the person's balance
+// and moves, read on loopback straight from the stand-in (svc-bank src/partner/test-partner-record.ts) through the outside
+// record read (venue.mjs venueRecord and venueBalance), never through the person's bank API.
 const J = 'J-bank-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 // TEST: the standard example IBANs, not a customer's accounts.
@@ -24,6 +29,10 @@ const NEW_IBAN = 'DE89 3704 0044 0532 0130 00';
 const SAVED = 'TEST salary account (GB82 •••• 5432)';
 const NEW = 'TEST new account (DE89 •••• 3000)';
 const PARTNER_BANK = 'TEST partner bank';
+/** The TEST partner bank's own record, on loopback (svc-bank src/partner/test-partner-record.ts). */
+const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
+/** The partner's own outbound-payments account a payout leaves into and an amount given back comes out of. */
+const PAYOUTS = 'partner:outbound-payments';
 
 test.describe.configure({ mode: 'default' });
 
@@ -73,6 +82,8 @@ async function bank() {
   }).then((r) => r.json());
   const token = login?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused`);
+  const userId = login.result.data.userId;
+  if (!userId) throw new Error(`sign-in for ${who.email} named no user id`);
   const headers = { origin: ORIGIN, authorization: `Bearer ${token}` };
   const answer = async (res) => {
     const body = await res.json();
@@ -86,6 +97,7 @@ async function bank() {
     return { ok: true, data: body.result.data };
   };
   return {
+    userId,
     query: (procedure, input) =>
       fetch(`${EDGE}/api/bank/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`, {
         headers,
@@ -128,6 +140,24 @@ async function usdt(api) {
   expect(main?.heldAt?.label).toBe(PARTNER_BANK);
   return main.balance;
 }
+
+/** What the partner's own book says the person holds in USDT at the partner. */
+async function partnerHolds(api) {
+  return (await venueBalance(api.userId, 'USDT', PARTNER_RECORD)).total;
+}
+
+/** Every move on the person's record at the partner, oldest first, as the partner's own book lists it. */
+async function partnerMoves(api) {
+  return (await venueRecord(api.userId, '/moves', {}, PARTNER_RECORD, null)).value;
+}
+
+/** The partner's moves between the person's USDT main balance and its outbound-payments account, one way. */
+const payoutMoves = (moves, api, way) =>
+  moves.filter((m) =>
+    way === 'out'
+      ? m.from.owner === api.userId && m.from.spaceId === null && m.to.owner === PAYOUTS
+      : m.from.owner === PAYOUTS && m.to.owner === api.userId && m.to.spaceId === null,
+  );
 
 /** The person's money at the TEST partner bank, funded there once per `fundId` with TEST 50 USDT. */
 async function atPartner(api, fundId) {
@@ -290,7 +320,7 @@ test(`${J} #2 chooses a saved destination: one inside its cooling window is refu
   restartWith('bank', 'LOCAL_STACK_BANK_OFFRAMP_COOLING', false);
   try {
     const blank = await bank();
-    await atPartner(blank, `jb3-blank-${who.email}`);
+    await atPartner(blank, `jb3-start-${who.email}`);
     expect(await blank.query('cashOut.quote', { assetId: 'USDT', amount: '20', linkedAccountId: saved.accountId })).toMatchObject({
       ok: true,
       data: { blocker: 'bank.offramp_cooling_unset', fee: null, receiveAmount: null, account: { coolingOffEndsAt: null } },
@@ -317,9 +347,9 @@ test(`${J} #2 chooses a saved destination: one inside its cooling window is refu
   } finally {
     restartWith('bank', 'LOCAL_STACK_BANK_OFFRAMP_COOLING', true);
   }
-  // Back on the stack's TEST 24 hours; the restart emptied the TEST partner's book, so the person is put back there.
+  // Back on the stack's TEST 24 hours, the person is put back at the partner under the same fund id, which pays in once.
   const after = await bank();
-  await atPartner(after, `jb3-after-${who.email}`);
+  await atPartner(after, `jb3-start-${who.email}`);
   expect(await usdt(after)).toBe('50');
   expect((await after.query('cashOut.quote', { assetId: 'USDT', amount: '20', linkedAccountId: saved.accountId })).data.blocker).toBeNull();
 });
@@ -388,12 +418,21 @@ test(`${J} #4 watches the transfer tracker: processing to completed as the partn
   });
   expect(taken.partnerMoveId).toMatch(/^test-partner-move-[0-9a-f]{12}-\d{12}$/);
   expect(await usdt(api)).toBe('30');
+  // The partner's own book: 30 held, and the 20 left the main balance in one move, the one the app names.
+  expect(await partnerHolds(api)).toBe('30');
+  const tookOut = payoutMoves(await partnerMoves(api), api, 'out');
+  expect(tookOut).toHaveLength(1);
+  expect(tookOut[0]).toMatchObject({ id: taken.partnerMoveId, amount: '20', from: { assetId: 'USDT' } });
+  const beforePaid = (await partnerMoves(api)).length;
 
   // The partner says it was paid: completed, once, with nothing posted to the ledger.
   const paid = await partner('paid', { cashOutId: taken.requestId });
   expect(paid).toMatchObject({ status: 'completed', ledgerTxId: null, partnerMoveId: taken.partnerMoveId, remainsPaidOut: '20' });
   expect(await partner('paid', { cashOutId: taken.requestId })).toEqual(paid);
   expect(await usdt(api)).toBe('30');
+  // Paid, twice over, moves nothing more at the partner: the 20 left once.
+  expect(await partnerHolds(api)).toBe('30');
+  expect(await partnerMoves(api)).toHaveLength(beforePaid);
   await page.reload();
   const done = page.locator(`[data-testid="cash-out-request"][data-status="completed"]`).first();
   await expect(done.getByTestId('cash-out-steps')).toHaveAttribute('aria-label', 'Completed (2/2)');
@@ -412,7 +451,7 @@ test(`${J} #4 watches the transfer tracker: processing to completed as the partn
   expect(file).toContain('Sent: 20 USDT');
   expect(file).toContain('Arrives: 16.5 EUR');
   expect(file).toContain('To: TEST Holder · GB82 •••• 5432');
-  await expect(receipt.getByTestId('cash-out-receipt-partner')).toHaveText(`Partner record: ${taken.partnerMoveId}`);
+  await expect(receipt.getByTestId('cash-out-receipt-partner')).toHaveText(`Partner record: ${tookOut[0].id}`);
   await expect(receipt.getByTestId('cash-out-receipt-hash')).toHaveText(`SHA-256: ${createHash('sha256').update(file).digest('hex')}`);
   await expect(receipt).toContainText(`Signed: ${await expectedSignature(file)}`);
   const signed = (await api.query('cashOut.receipt', { requestId: taken.requestId })).data;
@@ -428,10 +467,16 @@ test(`${J} #4 watches the transfer tracker: processing to completed as the partn
   await expect(page.getByTestId('cash-out-sent')).toBeVisible();
   const cancelling = (await api.query('cashOut.requests', { limit: 10 })).data.find((r) => r.amount === '5' && r.status === 'processing');
   expect(await usdt(api)).toBe('25');
+  expect(await partnerHolds(api)).toBe('25');
   const cancelled = await partner('cancelled', { cashOutId: cancelling.requestId, reason: 'bank.payout_cancelled_by_bank' });
   expect(cancelled).toMatchObject({ status: 'cancelled', failureCode: 'bank.payout_cancelled_by_bank', ledgerTxId: null });
   expect(await partner('cancelled', { cashOutId: cancelling.requestId, reason: 'bank.payout_cancelled_by_bank' })).toEqual(cancelled);
   expect(await usdt(api)).toBe('30');
+  // The partner's own book: the 5 left once and came back once, however often the partner said cancelled.
+  expect(await partnerHolds(api)).toBe('30');
+  const afterCancel = await partnerMoves(api);
+  expect(payoutMoves(afterCancel, api, 'out').filter((m) => m.amount === '5')).toHaveLength(1);
+  expect(payoutMoves(afterCancel, api, 'back').filter((m) => m.amount === '5')).toHaveLength(1);
   await page.reload();
   const off = page.locator(`[data-testid="cash-out-request"][data-status="cancelled"]`).first();
   await expect(off).toContainText('Cancelled');
@@ -465,6 +510,7 @@ test(`${J} #5 sees a failed and a returned payout: the partner's reason in plain
   const completed = requests.find((r) => r.status === 'completed');
   expect(failing && completed).toBeTruthy();
   expect(await usdt(api)).toBe('20');
+  expect(await partnerHolds(api)).toBe('20');
 
   // The partner could not pay it: the account is closed. The 10 comes back to the partner balance once, however often
   // it says so, and the ledger posts nothing.
@@ -477,6 +523,10 @@ test(`${J} #5 sees a failed and a returned payout: the partner's reason in plain
     status: 'failed',
   });
   expect(await usdt(api)).toBe('30');
+  // The partner's own book: the 10 came back to the main balance once, as the app says.
+  expect(await partnerHolds(api)).toBe('30');
+  const afterFail = await partnerMoves(api);
+  expect(payoutMoves(afterFail, api, 'back').filter((m) => m.amount === '10')).toHaveLength(1);
   await page.reload();
   const failed = page.locator(`[data-testid="cash-out-request"][data-status="failed"]`).first();
   await expect(failed.getByTestId('cash-out-why')).toContainText('The receiving bank says this account is closed.');
@@ -499,6 +549,12 @@ test(`${J} #5 sees a failed and a returned payout: the partner's reason in plain
     returnedAmount: '5',
   });
   expect(await usdt(api)).toBe('35');
+  // The partner's own book: 5 of the paid-out 20 came back once; nothing else of it moved.
+  expect(await partnerHolds(api)).toBe('35');
+  const afterReturn = await partnerMoves(api);
+  const returnedBack = payoutMoves(afterReturn, api, 'back').filter((m) => !afterFail.some((f) => f.id === m.id));
+  expect(returnedBack).toHaveLength(1);
+  expect(returnedBack[0]).toMatchObject({ amount: '5', to: { assetId: 'USDT' } });
   await page.reload();
   const back = page.locator(`[data-testid="cash-out-request"][data-status="returned"]`).first();
   await expect(back).toContainText('Came back');
@@ -510,6 +566,6 @@ test(`${J} #5 sees a failed and a returned payout: the partner's reason in plain
   const receipt = (await api.query('cashOut.receipt', { requestId: completed.requestId })).data;
   expect(receipt.text).toContain('Came back: 5 USDT (bank.payout_returned_by_bank)');
   expect(receipt.text).toContain('Stays paid out: 15 USDT');
-  expect(receipt.text).toMatch(/Partner return: test-partner-move-[0-9a-f]{12}-\d{12}\b/);
+  expect(receipt.text).toContain(`Partner return: ${returnedBack[0].id}`);
   expect(receipt.signature).toBe(await expectedSignature(receipt.text));
 });

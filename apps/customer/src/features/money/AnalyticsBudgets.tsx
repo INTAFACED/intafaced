@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Button, Field } from '../../shared/ui';
 import { defineCopy } from '../../shared/i18n';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useBankRead } from './components';
 import { bankWrites } from './contracts';
 import { DepthPanel } from './DepthParts';

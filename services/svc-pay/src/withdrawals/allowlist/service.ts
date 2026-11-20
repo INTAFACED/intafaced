@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { BankApproverEligibilityPort } from '@intafaced/contracts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AllowlistError } from './errors.js';
@@ -115,7 +115,7 @@ interface OneTimeRow {
   set_at: Date;
 }
 
-export async function latestModeRow(q: Sql, userId: string): Promise<ModeRow | null> {
+export async function latestModeRow(q: Queryable, userId: string): Promise<ModeRow | null> {
   const [row] = await q<ModeRow[]>`
     SELECT enabled, set_at FROM pay.allowlist_mode_events WHERE user_id = ${userId} ORDER BY seq DESC LIMIT 1`;
   return row ?? null;
@@ -459,7 +459,7 @@ export class AllowlistService {
 
   /** Refuse at submit what could never apply, so a change is not left waiting for nothing. Reads under the user lock. */
   private async assertApplicable(
-    tx: Sql,
+    tx: Queryable,
     userId: string,
     op: ChangeOp,
     entryId: string | null,
@@ -482,7 +482,7 @@ export class AllowlistService {
   }
 
   /** Apply an approved change inside the transaction that counted its last approval. Returns a failure code, or null. */
-  private async apply(tx: Sql, row: ChangeRow): Promise<string | null> {
+  private async apply(tx: Queryable, row: ChangeRow): Promise<string | null> {
     const now = this.now();
     if (row.op === 'add') {
       const s = row.payload as { group: string; assetId: string; address: string; label: string };
@@ -568,7 +568,7 @@ export class AllowlistService {
     return row ?? null;
   }
 
-  private async lockUser(tx: Sql, userId: string): Promise<void> {
+  private async lockUser(tx: Queryable, userId: string): Promise<void> {
     await tx`SELECT pg_advisory_xact_lock(hashtext(${allowlistLockKey(userId)}))`;
   }
 
@@ -589,14 +589,14 @@ export class AllowlistService {
     return row ?? null;
   }
 
-  private async lock(tx: Sql, id: string): Promise<ChangeRow> {
+  private async lock(tx: Queryable, id: string): Promise<ChangeRow> {
     const [row] = await tx<ChangeRow[]>`SELECT ${tx.unsafe(CHANGE_COLUMNS)} FROM pay.allowlist_changes WHERE id = ${id} FOR UPDATE`;
     if (!row) throw notFound();
     return row;
   }
 
   private async event(
-    q: Sql,
+    q: Queryable,
     userId: string,
     changeId: string | null,
     entryId: string | null,

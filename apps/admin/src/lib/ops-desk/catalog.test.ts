@@ -1,3 +1,4 @@
+import { CONTRACT_PROCEDURES } from '@intafaced/contracts/procedure-registry';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +11,7 @@ import {
   BANK_CUSTOMER_ENTRIES,
   BANK_CUSTOMER_ENTRIES_CHECK,
   DESKS,
+  narrowDesk,
   DESK_IDS,
   PAY_TRANSFER_DETAIL,
   academySectionDesk,
@@ -38,16 +40,18 @@ const ROUTER: Record<ReadSpec['module'], string | null> = {
 };
 const personalPayRouter = () =>
   readFileSync(fileURLToPath(new URL('../../../../../services/svc-bank/src/personal-pay/router.ts', import.meta.url)), 'utf8');
-// svc-bank's router.ts composes one router file per area from src/router/; those files are read with it.
+// svc-bank's router.ts composes one router file per area from src/router/, and svc-quant's one `<area>Routes` factory
+// per area from src/routes/ (`health: healthRoutes(core)`); those files are read with it.
 const source = (service: string) => {
   const src = fileURLToPath(new URL(`../../../../../services/${service}/src`, import.meta.url));
-  const areas = existsSync(join(src, 'router'))
-    ? readdirSync(join(src, 'router'))
-        .filter((name) => name.endsWith('.router.ts'))
-        .sort()
-        .map((name) => readFileSync(join(src, 'router', name), 'utf8'))
-    : [];
-  return [...areas, readFileSync(join(src, 'router.ts'), 'utf8')].join('\n');
+  const filesOf = (dir: string, suffix: string) =>
+    existsSync(join(src, dir))
+      ? readdirSync(join(src, dir))
+          .filter((name) => name.endsWith(suffix) && !name.includes('.test.'))
+          .sort()
+          .map((name) => readFileSync(join(src, dir, name), 'utf8'))
+      : [];
+  return [...filesOf('router', '.router.ts'), ...filesOf('routes', '.ts'), readFileSync(join(src, 'router.ts'), 'utf8')].join('\n');
 };
 
 // The transfer record is read on request, so it sits in no section; it is held to the same rules as every other read.
@@ -345,6 +349,26 @@ describe('the desks cover what the product order asks for', () => {
     }
     expect(() => academySectionDesk('nope')).toThrow();
   });
+
+  it('academy: the grant audit narrows to the one course or certificate the address names, and nothing else does', () => {
+    const desk = academySectionDesk('grants');
+    const audit = (d: typeof desk) => d.sections[0]!.reads.find((r) => r.id === 'academy.grant-audit')!;
+    const enrolments = (d: typeof desk) => d.sections[0]!.reads.find((r) => r.id === 'academy.enrolments')!;
+    const course = narrowDesk(desk, { course: 'foundations' });
+    expect(audit(course).input).toEqual({ course: 'foundations' });
+    expect(audit(course).emptyText).toBe('svc-academy records no grants or revokes for this course.');
+    expect(audit(course).narrowed).toEqual({ key: 'course', value: 'foundations', label: 'Course' });
+    expect(course.filter).toEqual({ course: 'foundations' });
+    expect(enrolments(course)).toBe(enrolments(desk));
+    expect(audit(narrowDesk(desk, { certificate: 'foundations-v1' })).input).toEqual({ certificate: 'foundations-v1' });
+    // Both named: only the first the read lists goes on, so the service is never asked for both.
+    expect(audit(narrowDesk(desk, { certificate: 'c', course: 'a' })).input).toEqual({ course: 'a' });
+    // A key no read names, a value of the wrong shape, or a repeated key narrows nothing: the desk is the same object.
+    for (const params of [{}, { section: 'grants' }, { learner: 'x' }, { course: 'a b' }, { course: '' }, { course: ['a', 'b'] }]) {
+      expect(narrowDesk(desk, params)).toBe(desk);
+    }
+    expect(narrowDesk(desk, { course: 'x'.repeat(121) })).toBe(desk);
+  });
   it('more: agents, quant, mining, launch, market, token, campaigns', () => {
     expect(sections('more')).toEqual(expect.arrayContaining(['agents', 'quant', 'mining', 'launch', 'market', 'token', 'campaigns']));
   });
@@ -365,7 +389,9 @@ describe('the desks cover what the product order asks for', () => {
     expect(token.unavailable.map((u) => u.id)).toEqual(['token.supply']);
   });
   it('protocol: chain, audit, indexer finality, DEX health the blockers panel and the listing control link, never INTACHAIN or audited', () => {
-    expect(sections('protocol')).toEqual(['chain', 'audit', 'indexer', 'dex', 'blockers', 'listing']);
+    expect(sections('protocol')).toEqual(['chain', 'audit', 'indexer', 'dex', 'blockers', 'listing', 'trust']);
+    // J-dex-protocol-30: the trust desk is its own panel, read from svc-protocol as the founder.
+    expect(DESKS.protocol.sections.find((s) => s.id === 'trust')).toMatchObject({ title: 'Trust and safety', panel: 'protocol.trust' });
     expect(allReads(DESKS.protocol).map((r) => `${r.module}.${r.procedure}`)).toEqual([
       'protocol.chainStatus',
       'protocol.auditStatus',
@@ -407,8 +433,18 @@ function serviceSources(service: string): string[] {
   return out;
 }
 
+describe('a read whose call has a record takes its module and path from the record', () => {
+  it.each(all.filter((a) => a.read.recordName !== undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+    const record = CONTRACT_PROCEDURES.find((r) => r.name === read.recordName);
+    expect(record, `${read.recordName} is a record`).toBeDefined();
+    expect(record!.transport === 'trpc' && record!.kind).toBe('query');
+    expect([read.module, read.procedure]).toEqual([record!.module, record!.transport === 'trpc' ? record!.path : null]);
+  });
+});
+
+// A read with a record is mounted from that record (`mountRecords`), so its query is checked there, not in router text.
 describe('every read names a QUERY that exists in the owning router (drift guard)', () => {
-  it.each(all.map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+  it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
     const service = ROUTER[read.module];
     expect(service, `${read.module} has a router mapping`).not.toBeNull();
     // svc-bank mounts the bill and global send routers from personal-pay/router.ts (`bills.ops.*`, `global.ops.*`).
@@ -425,19 +461,24 @@ describe('every read names a QUERY that exists in the owning router (drift guard
       from = start + ops!.index;
     } else if (parts.length === 2) {
       const group = new RegExp(
-        `(\\b${parts[0]}: router\\(|const ${parts[0]} = router\\(|export function create${parts[0]![0]!.toUpperCase()}${parts[0]!.slice(1)}Router\\()`,
+        `(\\b${parts[0]}: router\\(|const ${parts[0]} = router\\(|export function create${parts[0]![0]!.toUpperCase()}${parts[0]!.slice(1)}Router\\(|export function ${parts[0]}Routes\\()`,
       ).exec(text);
       expect(group, `${service} has a ${parts[0]} group`).not.toBeNull();
       from = group!.index;
     }
     const name = parts[parts.length - 1]!;
-    // `operator` is svc-mining-pool's local alias for its admin:read procedure builder.
-    const proc = new RegExp(`\\b${name}: (\\w*Procedure|operator)\\b`).exec(text.slice(from));
+    // A top-level procedure built by its area's factory (svc-quant `health: healthRoutes(core)`) is read from that factory.
+    const area = parts.length === 1 ? new RegExp(`\\b${name}: (\\w+Routes)\\(`).exec(text)?.[1] : undefined;
+    if (area) from = text.indexOf(`export function ${area}(`);
+    const proc = area
+      ? new RegExp(`export function ${area}\\(`).exec(text.slice(from))
+      : new RegExp(`\\b${name}: (\\w*Procedure)\\b`).exec(text.slice(from));
     expect(proc, `${service} has ${read.procedure}`).not.toBeNull();
     // From the procedure up to the next procedure definition, the call kind must be a query.
     const rest = text.slice(from + proc!.index + 1);
-    const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure|operator|customer)\b/);
+    const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure)\b/);
     let body = next === -1 ? rest : rest.slice(0, next);
+    if (area) body = rest.slice(0, rest.search(/\nexport function /) >>> 0);
     // A procedure built in its own file (`poolTotals: poolTotalsProcedure(...)`) is judged by that factory's body.
     if (!body.includes('.query(') && !body.includes('.mutation(')) {
       const factory = new RegExp(`\\b${name}: (\\w+Procedure)\\(`).exec(text.slice(from))?.[1];

@@ -1,44 +1,40 @@
-import { useEffect, useState } from 'react';
-import { z } from 'zod';
+import { serviceHealthSchema } from '@intafaced/contracts/service-health';
 import { useApi } from '../../features/session/session';
+import { useResource } from '../../shared/resource';
 
 /**
- * The real state of the six More rooms (J-more-catalogue-01 #1, MC-order-01): each tile on /more says whether the service
- * behind its room answers right now, read from that service's own `/health` through the edge, never assumed. A room whose
- * service does not answer says so; nothing is hidden for it. Predict also names the blocker that keeps its catalogue empty
- * whatever its service says: publishing a question waits on the owner's decision of who determines a result
- * (`owner.decision`, ENGINE E-1; the room shows the same notice).
+ * The real state of the six More rooms (J-more-catalogue-01 #1, MC-order-01). Market, Launch and Token are open rooms: each
+ * tile says whether the service behind it answers right now, read from that service's own `/health` through the edge, never
+ * assumed. Predict, Mining and Blueprint are parked (the owner's scope decision of 6 Nov 2026): each tile says so and names
+ * what it waits on. Nothing is hidden for either.
  */
-export type RoomState = 'checking' | 'open' | 'not_answering';
+export type LiveState = 'checking' | 'open' | 'not_answering';
+export type RoomState = { kind: 'live'; state: LiveState } | { kind: 'parked'; blocker: ParkedBlocker };
 
-/** Each More room tile and the edge module of the service its room reads. Launch's catalogue is served by svc-token. */
-export const ROOM_SERVICES: Readonly<Record<string, string>> = {
-  predict: 'trade',
-  market: 'market',
-  launch: 'token',
-  token: 'token',
-  mining: 'mining',
-  blueprint: 'blueprint',
+/** What a parked room waits on: how Predict settles is the owner's decision; the pool and Blueprint's extras come after launch. */
+export type ParkedBlocker = 'owner.decision' | 'after.launch';
+
+/** Each open room tile and the edge module of the service its room reads. Launch's catalogue is served by svc-token. */
+export const LIVE_ROOMS = { market: 'market', launch: 'token', token: 'token' } as const;
+
+/** Each parked room tile and what it waits on. */
+export const PARKED_ROOMS: Readonly<Record<'predict' | 'mining' | 'blueprint', ParkedBlocker>> = {
+  predict: 'owner.decision',
+  mining: 'after.launch',
+  blueprint: 'after.launch',
 };
 
-/** A room's named blocker, shown beside its state; only Predict has one today. */
-export const ROOM_BLOCKERS: Readonly<Record<string, 'owner.decision'>> = { predict: 'owner.decision' };
-
-const health = z.object({ ok: z.literal(true) }).passthrough();
-
-/** The state of each room tile, keyed by tile id: `checking` until its service's `/health` answers or fails. */
+/** The state of each of the six room tiles, keyed by tile id. */
 export function useRoomStates(): Record<string, RoomState> {
   const api = useApi();
-  const [byModule, setByModule] = useState<Record<string, RoomState>>({});
-  useEffect(() => {
-    const controller = new AbortController();
-    for (const module of new Set(Object.values(ROOM_SERVICES))) {
-      void api.plain(module, '/health', health, { signal: controller.signal }).then((result) => {
-        if (controller.signal.aborted) return;
-        setByModule((now) => ({ ...now, [module]: result.ok ? 'open' : 'not_answering' }));
-      });
-    }
-    return () => controller.abort();
-  }, [api]);
-  return Object.fromEntries(Object.entries(ROOM_SERVICES).map(([tile, module]) => [tile, byModule[module] ?? 'checking']));
+  const market = useResource((signal) => api.plain('market', '/health', serviceHealthSchema, { signal }), 'more-room-market');
+  const token = useResource((signal) => api.plain('token', '/health', serviceHealthSchema, { signal }), 'more-room-token');
+  const live = { market: liveState(market.resource.status), token: liveState(token.resource.status) };
+  return {
+    ...Object.fromEntries(Object.entries(LIVE_ROOMS).map(([tile, module]) => [tile, { kind: 'live', state: live[module] }])),
+    ...Object.fromEntries(Object.entries(PARKED_ROOMS).map(([tile, blocker]) => [tile, { kind: 'parked', blocker }])),
+  };
 }
+
+const liveState = (status: 'loading' | 'ready' | 'failed'): LiveState =>
+  status === 'loading' ? 'checking' : status === 'ready' ? 'open' : 'not_answering';

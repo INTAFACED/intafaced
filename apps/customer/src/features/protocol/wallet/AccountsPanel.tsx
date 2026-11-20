@@ -1,17 +1,21 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Button, DataTable, EmptyState, Failure, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { useApi } from '../../session/session';
+import { useApi, useSession } from '../../session';
+import { AsOfLine, TestMark, useVenueMode, venueApi } from '../../trade';
 import { createProtocolApi } from '../api';
 import { safetyCopy } from './safety-copy';
 import { walletCopy } from './copy';
 import { useWallet } from './WalletProvider';
+import { AccountModePanel } from './AccountModePanel';
+import { isFactoryUnset } from './wallet-text';
 
 /**
  * /wallet/accounts (D-portfolio-wallet-02): the accounts the connected wallet controls on this network, read from the
- * service (its smart account by CREATE2 and whether it has code), and the multi-signature control, visible and disabled
- * with its real blocker until the multi-signature contract exists. Nothing here is a custodial balance.
+ * service (its smart account by CREATE2 and whether it has code); the wallet's own sub-accounts on the trading venue,
+ * as the venue lists them (J-dex-protocol-08 #4); and the multi-signature control, visible and disabled with its real
+ * blocker until the multi-signature contract exists. Nothing here is a custodial balance: INTAFACED holds no sub-account.
  */
 export function AccountsPanel() {
   const { language } = usePreferences();
@@ -25,6 +29,7 @@ export function AccountsPanel() {
   const headers = [t('hdr_account'), t('hdr_address'), t('hdr_status')];
   return (
     <>
+      <AccountModePanel />
       <Panel title={t('subAccountsTitle')}>
         <p className="muted">{t('subAccountsNote')}</p>
         {owner ? (
@@ -38,6 +43,7 @@ export function AccountsPanel() {
             </tr>
           </DataTable>
         )}
+        <VenueSubAccounts owner={owner} />
         <p className="muted">{t('custodialNote')}</p>
       </Panel>
       <Panel title={t('multisigTitle')}>
@@ -90,10 +96,72 @@ function OwnedAccounts({ owner, headers }: { owner: string; headers: string[] })
 }
 
 /**
- * svc-protocol's `requireAccountFactoryConfigured` refusal (PRECONDITION_FAILED, no typed code on the wire): named as the
- * factory not being deployed. Every other failure, a region refusal or a network that did not answer included, is shown
- * by the shared Failure, which reads its code.
+ * The wallet's own sub-accounts on the trading venue, read on its main venue account through svc-trade's user-venue door
+ * (`/venue/sub-accounts`): each with the name and address the venue gives it, the venue named, with the venue's as-of
+ * time. Signed out, with the door off, or with the venue down, it says which, and lists nothing.
  */
-export function isFactoryUnset(message: string): boolean {
-  return /factory\/implementation is not configured/i.test(message);
+function VenueSubAccounts({ owner }: { owner: string | null }) {
+  const { language } = usePreferences();
+  const { t } = safetyCopy.forLocale(language);
+  const { userId } = useSession();
+  const mode = useVenueMode();
+  let body: ReactNode;
+  if (!userId) body = <p className="muted">{t('venueSubsSignIn')}</p>;
+  else if (mode.mode === 'checking') body = <p role="status">{t('venueSubsChecking')}</p>;
+  else if (mode.mode === 'off') body = <p className="muted">{t('venueSubsOff')}</p>;
+  else if (!mode.status.available)
+    body = (
+      <p role="alert" data-code={mode.status.refusal.code}>
+        {t('venueSubsDown', { detail: mode.status.refusal.detail })}
+      </p>
+    );
+  else if (!owner) body = null;
+  else body = <VenueSubAccountList owner={owner} venueName={mode.status.venue.displayName} test={mode.status.test} />;
+  return (
+    <section data-section="venue-sub-accounts">
+      <h3>{t('venueSubsTitle')}</h3>
+      {body}
+    </section>
+  );
+}
+
+function VenueSubAccountList({ owner, venueName, test }: { owner: string; venueName: string; test: boolean }) {
+  const { language } = usePreferences();
+  const { t } = safetyCopy.forLocale(language);
+  const { api } = useSession();
+  const venue = useMemo(() => venueApi(api), [api]);
+  const { resource, reload } = useResource((signal) => venue.subAccounts(owner, signal), `wallet:venue-subs:${owner.toLowerCase()}`);
+  const headers = [t('hdr_name'), t('hdr_address')];
+  return (
+    <>
+      <p data-testid="venue-subs-venue">
+        {t('venueSubsOn', { venue: venueName })} <TestMark test={test} />
+      </p>
+      {resource.status === 'loading' ? (
+        <p role="status">{t('accountReading')}</p>
+      ) : resource.status === 'failed' ? (
+        <Failure result={resource.failure} retry={reload} />
+      ) : (
+        <>
+          <DataTable label={t('venueSubsTitle')} headers={headers}>
+            {resource.data.value.length === 0 ? (
+              <tr>
+                <td colSpan={headers.length}>
+                  <EmptyState title={t('venueSubsNone', { venue: venueName })} />
+                </td>
+              </tr>
+            ) : (
+              resource.data.value.map((sub) => (
+                <tr key={sub.subAccount} data-sub-account={sub.subAccount}>
+                  <td>{sub.name}</td>
+                  <td className="numeric">{sub.subAccount}</td>
+                </tr>
+              ))
+            )}
+          </DataTable>
+          <AsOfLine asOf={resource.data.asOf} />
+        </>
+      )}
+    </>
+  );
 }

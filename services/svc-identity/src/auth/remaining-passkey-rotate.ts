@@ -3,7 +3,7 @@
  * Refuse if none remain. Reuses requireVerifiedPasskey and rotateApiKeyAfterPasskey.
  * No invented challenge.
  */
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
 import { requireVerifiedPasskey } from './mint-api-key-passkey.js';
 import { rotateApiKeyAfterPasskey } from './rotate-api-key-passkey.js';
@@ -15,7 +15,7 @@ export function remainingPasskeyRotates(raw: unknown): void {
 
 export async function rotateApiKeyAfterRemainingPasskey(
   minter: ApiKeyMinter,
-  sql: Sql,
+  sql: Queryable,
   input: { userId: string; keyId: string; grantorScopes: readonly string[]; grantorKid?: string | null },
 ): Promise<RotatedApiKey> {
   return rotateApiKeyAfterPasskey(minter, sql, input);

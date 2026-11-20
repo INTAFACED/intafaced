@@ -128,6 +128,47 @@ describe('exchange routes accept request material only from svc-edge', () => {
     }
   });
 
+  it("names svc-edge on a key call's report only when the edge authority key signs it, alone (J-developer-08)", async () => {
+    const createContext = createIdentityRequestContext(contextConfig());
+    const routes = router({
+      developerKeys: router({
+        recordCall: publicProcedure.mutation(({ ctx }) => ({ service: ctx.service })),
+        holdAgentAction: publicProcedure.mutation(({ ctx }) => ({ service: ctx.service })),
+      }),
+    });
+    const app = Fastify();
+    retainRawBody(app);
+    await app.register(fastifyTRPCPlugin, {
+      prefix: '/trpc',
+      trpcOptions: { router: routes, createContext: ({ req }: { req: FastifyRequest }) => createContext(req) },
+    });
+    try {
+      const payload = JSON.stringify({ json: {} });
+      const call = (headers: Record<string, string>, url = '/trpc/developerKeys.recordCall', body = payload) =>
+        app.inject({ method: 'POST', url, payload: body, headers: { 'content-type': 'application/json', ...headers } });
+      expect((await call(serviceAuthHeadersForBody('svc-edge', EDGE, payload))).json()).toMatchObject({
+        result: { data: { service: 'svc-edge' } },
+      });
+      expect((await call({})).json()).toMatchObject({ result: { data: { service: null } } });
+      expect((await call(serviceAuthHeadersForBody('svc-edge', INTERNAL, payload))).json()).toMatchObject({
+        result: { data: { service: null } },
+      });
+      expect((await call(serviceAuthHeadersForBody('svc-pay', EDGE, payload))).json()).toMatchObject({
+        result: { data: { service: null } },
+      });
+      // Not even beside the other edge door.
+      const mixed = JSON.stringify({ 0: { json: {} }, 1: { json: {} } });
+      const batch = await call(
+        serviceAuthHeadersForBody('svc-edge', EDGE, mixed),
+        '/trpc/developerKeys.recordCall,developerKeys.holdAgentAction?batch=1',
+        mixed,
+      );
+      expect(JSON.stringify(batch.json())).not.toContain('"service":"svc-edge"');
+    } finally {
+      await app.close();
+    }
+  });
+
   it('refuses a public request field and returns signing flags on the product and account exchanges', async () => {
     let calls = 0;
     const minter = {

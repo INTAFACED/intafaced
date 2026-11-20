@@ -1,6 +1,9 @@
 import { z } from 'zod';
+import { contractEscrowOffer, contractTermsFor, type ContractEscrowSetting } from './contract-escrow.js';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
-import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { mergeRouters, router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
+import { mountRecords, type RefusalOf } from '@intafaced/contracts/procedure-mount';
+import { P2P_MODERATION, P2P_PROCEDURES } from '@intafaced/contracts/p2p-procedures';
 import { enabledFiat } from '@intafaced/config';
 import { formatAmount, mulBps, parseAmount, sub, type Amount } from '@intafaced/ledger-client';
 import {
@@ -40,7 +43,7 @@ import {
 } from './instruments.js';
 import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
 import { BULK_ACTIONS, MAX_BULK_OFFERS, MAX_PRESENCE_WINDOWS, PRESENCE_MODES, TODO_KINDS, type Presence } from './merchant-console.js';
-import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
+import { TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
 import { POSTING_CHECK_IDS, POSTING_CHECK_STATES, POSTING_POLICIES } from './posting-eligibility.js';
 import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
@@ -50,7 +53,7 @@ import { unwiredInstrumentStepUp, type InstrumentStepUp } from './instrument-ste
 import type { PublicProfileLookup } from './public-profile.js';
 import type { ReminderState } from './seller-reminders.js';
 import { MISMATCH_CLASSIFICATIONS, MISMATCH_KINDS, type MismatchReport } from './amount-mismatch.js';
-import { moderationHonestySchema, moderationOnPublicDoor } from './moderation-honesty.js';
+import { moderationOnPublicDoor } from './moderation-honesty.js';
 import {
   ceilingOnWire,
   limitsConfigured,
@@ -125,6 +128,8 @@ export type P2pRouterOptions = {
   releaseStepUp?: ReleaseStepUp;
   /** P-ads-merchant-18: the person's fresh confirmation of a payment-method change. Unset refuses every change. */
   instrumentStepUp?: InstrumentStepUp;
+  /** RC-p2p-02: the contract escrow's owner values and svc-protocol reader. Unset: every contract order refuses by name. */
+  contractEscrow?: ContractEscrowSetting;
 };
 
 /**
@@ -304,6 +309,24 @@ const tradeOutput = z.object({
   escrowedAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
+  /** RC-p2p-02: who holds the coins: the ledger, or the escrow contract (no ledger entry at all). Fixed at take. */
+  escrowKind: z.enum(['ledger', 'contract']),
+  /**
+   * The contract deal's terms (fixed at take) and, once the seller attached it, the deal. Null on a ledger order.
+   * Amounts are the token's base units.
+   */
+  contract: z
+    .object({
+      chainId: z.number().int().positive(),
+      token: z.string(),
+      units: z.string().regex(/^[1-9][0-9]*$/),
+      buyerWallet: z.string(),
+      disputeWindowSeconds: z.number().int().positive(),
+      timeout: z.literal('refund_seller'),
+      dealId: z.string().nullable(),
+      sellerWallet: z.string().nullable(),
+    })
+    .nullable(),
 });
 /**
  * P-trade-orders-15: how many reminders the buyer sent, when the last went, and when the next may go (null when none can:
@@ -716,6 +739,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.method_not_rail_validated':
       // P-trade-orders-19: the seller's cancellation request waits for the founders' decision.
       case 'p2p.owner_decision_pending':
+      // #4689: identity could not say whether the ad's maker may trade; nothing was reserved, and a retry may pass.
+      case 'p2p.counterparty_unverifiable':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'p2p.merchant_not_found':
       // P-ads-merchant-07: a private ad without a link to it reads as not there to everyone but its maker.
@@ -758,6 +783,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.offer_has_open_trades':
       // P-ads-merchant-08: the ad's maker is away; it takes orders again in their hours (the error data says when).
       case 'p2p.maker_offline':
+      // #4689: the ad's maker may not trade (frozen, closed or unknown); nothing was reserved.
+      case 'p2p.counterparty_unavailable':
       // P-ads-merchant-07: a share link that ended or was withdrawn; the person asks the maker for a new one.
       case 'p2p.share_link_expired':
       case 'p2p.share_link_revoked':
@@ -791,6 +818,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.remark_case_exists':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.receipt_quota_reached':
+      // P-trade-orders-14: the daily export quota; the message says when it resets.
+      case 'p2p.export_quota_reached':
       // P-ads-merchant-06: the daily edit cap; the error data says when editing opens again.
       case 'p2p.edit_quota_reached':
         return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
@@ -848,6 +877,14 @@ export function toTrpcError(err: unknown): TRPCError {
         // than deleted so a future caller that raises it does not fall through
         // to INTERNAL_SERVER_ERROR.
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+      // RC-p2p-02: the contract escrow is not offered here (blocker named), a ledger path was asked of a contract order,
+      // or a deal does not match its order.
+      case 'p2p.contract_escrow_unavailable':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'p2p.escrow_contract_held':
+      case 'p2p.escrow_deal_mismatch':
+      case 'p2p.escrow_kind_immutable':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.escrow_missing':
         // Not a client error: the caller asked for something reasonable and the
         // trade was not in a state that could honour it.
@@ -862,6 +899,16 @@ export function toTrpcError(err: unknown): TRPCError {
 
   return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Request failed', cause: err });
 }
+
+/**
+ * svc-p2p's one refusal reader for its record-mounted calls, in the wire form `toTrpcError` gives. A TRPCError a handler
+ * already shaped passes as it is.
+ */
+const p2pRefusal: RefusalOf = (err) => {
+  if (err instanceof TRPCError) return undefined;
+  const code = err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : 'p2p.request_failed';
+  return { code, error: toTrpcError(err) };
+};
 
 async function guard<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -1032,6 +1079,7 @@ export function createP2pRouter(
   const takeStepUp = options.takeStepUp ?? unwiredTakeStepUp();
   const releaseStepUp = options.releaseStepUp ?? unwiredReleaseStepUp();
   const instrumentStepUp = options.instrumentStepUp ?? unwiredInstrumentStepUp();
+  const contractEscrow: ContractEscrowSetting = options.contractEscrow ?? { tokens: null, disputeWindowSeconds: null, reader: null };
   const stepUpCaller = (principal: Principal): TakeStepUpCaller => ({
     userId: principal.userId,
     sessionId: principal.sid,
@@ -1284,65 +1332,7 @@ export function createP2pRouter(
     removedAt: i.removedAt?.toISOString() ?? null,
   });
 
-  return router({
-    health: publicProcedure
-      .output(
-        z.object({
-          ok: z.boolean(),
-          service: z.literal('svc-p2p'),
-          /** True when `P2P_MODERATOR_USER_IDS` names at least one person. Config, not a live probe. */
-          moderationConfigured: z.boolean(),
-          /** Absent or configured+unprobed. Never `reachable` from env. */
-          moderation: moderationHonestySchema,
-          /**
-           * False until `P2P_OFFER_MAX_STANDARD` / `P2P_OFFER_MAX_MERCHANT` arms
-           * a ceiling. Same honesty pattern as moderationConfigured: clients must
-           * not imply the merchant badge buys a higher limit when none is set.
-           */
-          offerLimitsConfigured: z.boolean(),
-          /** Public three-way posture so probes never need a scoped refuse-first read. */
-          offerLimitsPosture: z.enum(['unset', 'unlimited', 'configured']),
-          /**
-           * Always false until OWNER KMS envelope encryption is wired.
-           * A boolean env that unblocked plaintext would be the appearance of
-           * protection without the substance.
-           */
-          instrumentKmsConfigured: z.literal(false),
-          /** `local-test` is a test seal, not a configured KMS. */
-          instrumentKeyProvider: z.enum(['none', 'local-test']),
-        }),
-      )
-      .query(() => ({
-        ok: true,
-        service: 'svc-p2p' as const,
-        ...moderationPublic,
-        offerLimitsConfigured,
-        offerLimitsPosture: offerLimitsPostureValue,
-        ...instrumentKeyHealth(options.instrumentKeyProvider),
-      })),
-
-    /**
-     * §6.2: "100+ fiat currencies = config, not code."
-     *
-     * Served straight out of `packages/config` — svc-p2p has no currency table
-     * and adding a currency touches no service.
-     */
-    fiat: router({
-      list: publicProcedure
-        .output(z.array(z.object({ code: z.string(), name: z.string(), symbol: z.string(), minorUnits: z.number().int() })))
-        .query(() => enabledFiat().map((f) => ({ code: f.code, name: f.name, symbol: f.symbol, minorUnits: f.minorUnits }))),
-    }),
-
-    /**
-     * P-trade-orders-22, read only: the published house fee. Charged once, when an order is released, off the released
-     * amount; an order keeps the rate it was taken under. Signed-out callers can read it, as the fee page does.
-     */
-    fees: router({
-      schedule: publicProcedure
-        .output(z.object({ feeBps: z.number().int().nonnegative(), chargedOn: z.literal('release'), basis: z.literal('released_amount') }))
-        .query(() => guard(async () => ({ ...p2p.publishedFee(), chargedOn: 'release' as const, basis: 'released_amount' as const }))),
-    }),
-
+  const handWritten = router({
     offers: router({
       create: merchantApiProcedure('p2p:write')
         .input(
@@ -1669,96 +1659,6 @@ export function createP2pRouter(
      * unverified person must be able to read that verification is the step
      * they are missing, which the jurisdiction gate would refuse to say.
      */
-    access: router({
-      eligibility: scopedProcedure('p2p:read')
-        .output(
-          z.object({
-            checks: z.array(
-              z.object({
-                id: z.enum(ELIGIBILITY_CHECK_IDS),
-                state: z.enum(ELIGIBILITY_STATES),
-                reason: z.string(),
-                fix: z.string().nullable(),
-              }),
-            ),
-            canTake: z.boolean(),
-          }),
-        )
-        .query(async ({ ctx }) =>
-          guard(async () => {
-            const { checks } = await takeGate.eligibility(ctx);
-            return { checks: [...checks], canTake: checks.every((check) => check.state === 'met') };
-          }),
-        ),
-
-      /**
-       * P-trade-orders-05. How many of the caller's cancels count now (within the owner's window), out of how many
-       * pause buying, when the earliest of them stops counting (null when none counts), and until when buying is
-       * paused (null when it is not). A blank limit refuses `p2p.config_unset`, as a take does. An API key reads it too: it is the
-       * caller's own standing.
-       */
-      limits: merchantApiProcedure('p2p:read')
-        .output(
-          z.object({
-            cancels: z.object({
-              used: z.number().int().nonnegative(),
-              cap: z.number().int().positive(),
-              windowHours: z.number().int().positive(),
-              nextDropAt: z.string().datetime().nullable(),
-              restrictedUntil: z.string().datetime().nullable(),
-            }),
-          }),
-        )
-        .query(async ({ ctx }) =>
-          guard(async () => {
-            const c = await p2p.buyerCancelCount(ctx.principal.userId);
-            return {
-              cancels: {
-                used: c.used,
-                cap: c.cap,
-                windowHours: c.windowHours,
-                nextDropAt: c.nextDropAt?.toISOString() ?? null,
-                restrictedUntil: c.restrictedUntil?.toISOString() ?? null,
-              },
-            };
-          }),
-        ),
-    }),
-
-    /**
-     * P-disputes-security-15. The caller's own verification cap, and whether a
-     * security-change sell lock is published. Neither invents a number.
-     */
-    limits: router({
-      verification: merchantApiProcedure('p2p:read')
-        .output(
-          z.object({
-            tier: z.enum(['none', 'basic', 'full', 'institutional']),
-            currency: z.string().length(3),
-            orderMin: amountString,
-            orderMax: amountString,
-            dailyMax: amountString,
-            lifetimeMax: amountString,
-            dailyUsed: amountString,
-            lifetimeUsed: amountString,
-            dailyRemaining: amountString,
-            lifetimeRemaining: amountString,
-          }),
-        )
-        .query(async ({ ctx }) =>
-          guard(async () => p2p.verificationAllowance({ buyerId: ctx.principal.userId, tier: ctx.principal.tier })),
-        ),
-
-      /**
-       * Unpublished → `p2p.security_change_lock_unset`. Published → the same
-       * unwired refusal as a sell, because the change time is not on this
-       * principal. There is no `locked: false`.
-       */
-      securityChange: merchantApiProcedure('p2p:read')
-        .output(z.object({ seconds: z.number().int().positive() }))
-        .query(async () => guard(async () => p2p.securityChangeLock())),
-    }),
-
     trades: router({
       /**
        * Until when this session's takes need no new confirmation (P-trade-orders-07), or null when the next take does.
@@ -1800,6 +1700,15 @@ export function createP2pRouter(
             stepUpApprovalId: z.string().min(1).max(128).optional(),
             /** P-ads-merchant-07: the share link the taker came by; required for a private ad, and marks the order shared. */
             shareToken: shareTokenInput.optional(),
+            /**
+             * RC-p2p-02: who holds the coins. `ledger` (the default) as before; `contract`, chosen by the buyer of a sell
+             * ad, opens a SovereignEscrow deal paying `buyerWallet`, the buyer's own wallet.
+             */
+            escrowKind: z.enum(['ledger', 'contract']).default('ledger'),
+            buyerWallet: z
+              .string()
+              .regex(/^0x[0-9a-fA-F]{40}$/)
+              .optional(),
           }),
         )
         .output(tradeOutput)
@@ -1807,6 +1716,20 @@ export function createP2pRouter(
           guard(async () => {
             // Before anything is reserved or locked: the same checks the eligibility panel shows.
             await takeGate.assertCanTake(ctx);
+            // RC-p2p-02: a contract order is offered only when its chain, contract, token and window are all there.
+            let contract:
+              { chainId: number; token: string; decimals: number; buyerWallet: string; disputeWindowSeconds: number } | undefined;
+            if (input.escrowKind === 'contract') {
+              if (!input.buyerWallet) {
+                throw new P2pError(
+                  'A contract escrow pays your own wallet: connect it and send its address',
+                  'p2p.contract_escrow_unavailable',
+                );
+              }
+              const offer = await p2p.getOffer(input.offerId, ctx.principal.userId, input.shareToken);
+              const terms = await contractTermsFor(contractEscrow, ctx, offer.asset);
+              contract = { ...terms, buyerWallet: input.buyerWallet };
+            }
             // Then the fresh confirmation, over the strings this take carries.
             await takeStepUp.assertConfirmed(
               stepUpCaller(ctx.principal),
@@ -1829,8 +1752,70 @@ export function createP2pRouter(
                 ...(input.quoteId ? { quoteId: input.quoteId } : {}),
                 ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
                 ...(input.shareToken ? { shareToken: input.shareToken } : {}),
+                ...(contract ? { contract } : {}),
               }),
             );
+          }),
+        ),
+
+      /**
+       * RC-p2p-02: the contract escrow as a person choosing it sees it for one asset: offered, or not with the blocker
+       * named (owner value blank, contract not deployed, svc-protocol unreachable); the testnet's plain label; and
+       * mainnet, always off in this build (`audit.external`). Reads only.
+       */
+      contractEscrow: merchantApiProcedure('p2p:read')
+        .input(z.object({ asset: z.string().min(1).max(32) }))
+        .output(
+          z.object({
+            available: z.boolean(),
+            blocker: z.string().nullable(),
+            reason: z.string().nullable(),
+            network: z.object({ chainId: z.number().int().positive(), label: z.string(), escrow: z.string() }).nullable(),
+            token: z.object({ address: z.string(), decimals: z.number().int() }).nullable(),
+            disputeWindowSeconds: z.number().int().positive().nullable(),
+            timeout: z.literal('refund_seller'),
+            mainnet: z.object({ available: z.literal(false), blocker: z.literal('audit.external') }),
+            audited: z.literal(false),
+          }),
+        )
+        .query(async ({ ctx, input }) => guard(async () => contractEscrowOffer(contractEscrow, ctx, input.asset))),
+
+      /**
+       * RC-p2p-02: the seller attaches the deal they opened and funded from their own wallet. The deal is read from the
+       * chain through svc-protocol, never taken from the caller, and must match the order exactly and be locked; the
+       * order is then escrowed. The same deal again returns the order. No ledger call.
+       */
+      attachContractDeal: merchantApiProcedure('p2p:write')
+        .input(z.object({ tradeId: z.string().guid(), dealId: z.string().regex(/^[1-9][0-9]{0,77}$/) }))
+        .output(tradeOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const current = await p2p.getTrade(input.tradeId);
+            if (current.buyerId !== ctx.principal.userId && current.sellerId !== ctx.principal.userId) throw unknownTrade(input.tradeId);
+            if (!contractEscrow.reader)
+              throw new P2pError('svc-protocol is not connected (PROTOCOL_URL is unset)', 'p2p.contract_escrow_unavailable');
+            const deal = await contractEscrow.reader.deal(ctx, input.dealId);
+            return toTradeOut(await p2p.attachContractDeal({ tradeId: input.tradeId, actorId: ctx.principal.userId, deal }));
+          }),
+        ),
+
+      /**
+       * RC-p2p-02: either party brings a contract order to its deal's chain state (released, refunded, disputed). Read
+       * from the chain through svc-protocol; the same state twice changes the order once. No ledger call.
+       */
+      syncContractDeal: merchantApiProcedure('p2p:write')
+        .input(z.object({ tradeId: z.string().guid() }))
+        .output(tradeOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const current = await p2p.getTrade(input.tradeId);
+            if (current.buyerId !== ctx.principal.userId && current.sellerId !== ctx.principal.userId) throw unknownTrade(input.tradeId);
+            const dealId = current.contract?.dealId;
+            if (!dealId) throw new P2pError('This order is not held by a contract deal yet', 'p2p.escrow_deal_mismatch');
+            if (!contractEscrow.reader)
+              throw new P2pError('svc-protocol is not connected (PROTOCOL_URL is unset)', 'p2p.contract_escrow_unavailable');
+            const deal = await contractEscrow.reader.deal(ctx, dealId);
+            return toTradeOut(await p2p.syncContractDeal({ tradeId: input.tradeId, actorId: ctx.principal.userId, deal }));
           }),
         ),
 
@@ -2036,7 +2021,9 @@ export function createP2pRouter(
               ...releaseSplit(trade),
               settlement: trade.settlement,
               releasePreview: releasePreview(trade),
-              escrowHeld: escrowHeld(trade),
+              // RC-p2p-02: what the ledger holds for the order. A contract order: nothing, ever; the deal's own holding is
+              // read from the chain (svc-protocol `escrow.deal`).
+              escrowHeld: trade.escrowKind === 'contract' ? '0' : escrowHeld(trade),
               ...(await Promise.all([p2p.reminderState(trade), p2p.mismatchReport(trade.id)]).then(([reminders, mismatch]) => ({
                 reminders: toReminderOut(reminders),
                 mismatch: mismatch ? toMismatchOut(mismatch) : null,
@@ -2196,8 +2183,9 @@ export function createP2pRouter(
       /**
        * P-trade-orders-14: export under owner range and row caps
        * (`P2P_EXPORT_MAX_RANGE_DAYS`, `P2P_EXPORT_MAX_ROWS`; blank refuses
-       * `p2p.config_unset`), one audit row per export, totals as decimal
-       * strings. CSV only; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+       * `p2p.config_unset`), and a daily quota per person (`P2P_EXPORT_DAILY_QUOTA`;
+       * past it `p2p.export_quota_reached`, TOO_MANY_REQUESTS, naming the next UTC
+       * midnight), one audit row per export, totals as decimal strings. CSV only; xlsx/pdf refuse `p2p.export_format_unbuilt`.
        */
       export: merchantApiProcedure('p2p:read')
         .input(z.object({ from: z.string().min(1), to: z.string().min(1), format: z.enum(EXPORT_FORMATS).optional() }))
@@ -2853,7 +2841,7 @@ export function createP2pRouter(
              * configured, not a live probe of a person on shift.
              */
             moderationConfigured: z.boolean(),
-            moderation: moderationHonestySchema,
+            moderation: P2P_MODERATION,
           }),
         )
         .mutation(async ({ ctx, input }) =>
@@ -3174,7 +3162,7 @@ export function createP2pRouter(
             escalated: z.number().int().nonnegative(),
             neverSeen: z.number().int().nonnegative(),
             moderationConfigured: z.boolean(),
-            moderation: moderationHonestySchema,
+            moderation: P2P_MODERATION,
           }),
         )
         .query(async ({ ctx }) =>
@@ -3577,72 +3565,6 @@ export function createP2pRouter(
               asModerator: isModerator(ctx.principal, moderatorUserIds),
             }),
           })),
-        ),
-    }),
-
-    contacts: router({
-      list: merchantApiProcedure('p2p:read')
-        .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
-        .query(async ({ ctx }) => guard(async () => p2p.listContacts(ctx.principal.userId))),
-
-      follow: merchantApiProcedure('p2p:write')
-        .input(z.object({ peerId: z.string().guid(), idempotencyKey: z.string().min(8).max(128) }))
-        .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
-        .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            p2p.setContact({
-              ownerId: ctx.principal.userId,
-              peerId: input.peerId,
-              kind: 'follow',
-              present: true,
-              idempotencyKey: input.idempotencyKey,
-            }),
-          ),
-        ),
-
-      unfollow: merchantApiProcedure('p2p:write')
-        .input(z.object({ peerId: z.string().guid(), idempotencyKey: z.string().min(8).max(128) }))
-        .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
-        .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            p2p.setContact({
-              ownerId: ctx.principal.userId,
-              peerId: input.peerId,
-              kind: 'follow',
-              present: false,
-              idempotencyKey: input.idempotencyKey,
-            }),
-          ),
-        ),
-
-      block: merchantApiProcedure('p2p:write')
-        .input(z.object({ peerId: z.string().guid(), idempotencyKey: z.string().min(8).max(128) }))
-        .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
-        .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            p2p.setContact({
-              ownerId: ctx.principal.userId,
-              peerId: input.peerId,
-              kind: 'block',
-              present: true,
-              idempotencyKey: input.idempotencyKey,
-            }),
-          ),
-        ),
-
-      unblock: merchantApiProcedure('p2p:write')
-        .input(z.object({ peerId: z.string().guid(), idempotencyKey: z.string().min(8).max(128) }))
-        .output(z.object({ following: z.array(z.string()), blocking: z.array(z.string()) }))
-        .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            p2p.setContact({
-              ownerId: ctx.principal.userId,
-              peerId: input.peerId,
-              kind: 'block',
-              present: false,
-              idempotencyKey: input.idempotencyKey,
-            }),
-          ),
         ),
     }),
 
@@ -4195,6 +4117,94 @@ export function createP2pRouter(
         ),
     }),
   });
+
+  /**
+   * An API key reaches a `merchantApi` call only while its account is an approved merchant. Standing is read on every
+   * key request, so a suspension removes access at once. An interactive session passes. A failed standing read is sent
+   * as tRPC sends an unknown error, as the hand-written middleware sent it.
+   */
+  const merchantApi = async ({ principal }: Context): Promise<void> => {
+    if (!principal?.kid) return;
+    let record: MerchantRecord | null;
+    try {
+      record = await requireMerchants().get(principal.userId);
+    } catch (err) {
+      if (err instanceof TRPCError) throw err;
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', cause: err });
+    }
+    if (!record || !isActiveMerchant(record.status)) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'P2P API-key access requires current approved merchant standing. Use an interactive session to review or apply.',
+      });
+    }
+  };
+  /** The signed caller of a scope-guarded record: the guard has already refused a call without one. */
+  const signed = (ctx: Context): Context & { principal: Principal } => {
+    if (!ctx.principal) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not signed in' });
+    return { ...ctx, principal: ctx.principal };
+  };
+  const userOf = (ctx: Context): string => signed(ctx).principal.userId;
+  const setContact = async (
+    ctx: Context,
+    change: { peerId: string; idempotencyKey: string; kind: 'follow' | 'block'; present: boolean },
+  ) => {
+    await merchantApi(ctx);
+    return p2p.setContact({ ownerId: userOf(ctx), ...change });
+  };
+
+  const fromRecords = mountRecords(
+    P2P_PROCEDURES,
+    {
+      'p2p.health': () => ({
+        ok: true,
+        service: 'svc-p2p' as const,
+        ...moderationPublic,
+        offerLimitsConfigured,
+        offerLimitsPosture: offerLimitsPostureValue,
+        ...instrumentKeyHealth(options.instrumentKeyProvider),
+      }),
+      /** "100+ fiat currencies = config, not code": served from `packages/config`; adding one touches no service. */
+      'p2p.fiat.list': () => enabledFiat().map((f) => ({ code: f.code, name: f.name, symbol: f.symbol, minorUnits: f.minorUnits })),
+      'p2p.fees.schedule': () => ({ ...p2p.publishedFee(), chargedOn: 'release' as const, basis: 'released_amount' as const }),
+      'p2p.access.eligibility': async ({ ctx }) => {
+        const { checks } = await takeGate.eligibility(signed(ctx));
+        return { checks: [...checks], canTake: checks.every((check) => check.state === 'met') };
+      },
+      'p2p.access.limits': async ({ ctx }) => {
+        await merchantApi(ctx);
+        const c = await p2p.buyerCancelCount(userOf(ctx));
+        return {
+          cancels: {
+            used: c.used,
+            cap: c.cap,
+            windowHours: c.windowHours,
+            nextDropAt: c.nextDropAt?.toISOString() ?? null,
+            restrictedUntil: c.restrictedUntil?.toISOString() ?? null,
+          },
+        };
+      },
+      'p2p.limits.verification': async ({ ctx }) => {
+        await merchantApi(ctx);
+        return p2p.verificationAllowance({ buyerId: userOf(ctx), tier: ctx.principal?.tier });
+      },
+      'p2p.limits.securityChange': async ({ ctx }) => {
+        await merchantApi(ctx);
+        return p2p.securityChangeLock();
+      },
+      'p2p.contacts.list': async ({ ctx }) => {
+        await merchantApi(ctx);
+        return p2p.listContacts(userOf(ctx));
+      },
+      'p2p.contacts.follow': ({ ctx, input }) => setContact(ctx, { ...input, kind: 'follow', present: true }),
+      'p2p.contacts.unfollow': ({ ctx, input }) => setContact(ctx, { ...input, kind: 'follow', present: false }),
+      'p2p.contacts.block': ({ ctx, input }) => setContact(ctx, { ...input, kind: 'block', present: true }),
+      'p2p.contacts.unblock': ({ ctx, input }) => setContact(ctx, { ...input, kind: 'block', present: false }),
+    },
+    p2pRefusal,
+  );
+
+  return mergeRouters(fromRecords, handWritten);
 }
 
 export type P2pRouter = ReturnType<typeof createP2pRouter>;
@@ -4369,5 +4379,7 @@ function toTradeOut(trade: Awaited<ReturnType<P2pService['getTrade']>>): TradeOu
     escrowedAt: trade.escrowedAt?.toISOString() ?? null,
     resolvedAt: trade.resolvedAt?.toISOString() ?? null,
     settledAt: trade.settledAt?.toISOString() ?? null,
+    escrowKind: trade.escrowKind ?? 'ledger',
+    contract: trade.contract ? { ...trade.contract, timeout: 'refund_seller' } : null,
   };
 }

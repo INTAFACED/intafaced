@@ -13,7 +13,7 @@ vi.mock('./work-list-data', () => ({ useWorkList: () => ({ list: state.list, ret
 
 import { WorkList } from './WorkList';
 
-const empty: List = { state: 'ready', items: [], more: 0, ordered: true, missing: [] } as unknown as List;
+const empty: List = { state: 'ready', items: [], more: 0, ordered: true, missing: [] } as List;
 // The sentence's own span: <span lang=".." dir=".." data-i18n="home.<key>">.
 const span = (html: string, key: string) => new RegExp(`<span [^>]*data-i18n="[^"]*\\.${key}"[^>]*>`).exec(html)?.[0] ?? '';
 
@@ -37,7 +37,7 @@ describe('"Needs you" empty state on a right-to-left page', () => {
   });
 
   it('does the same for "nothing so far" and the note naming an owner that has not answered', () => {
-    state.list = { ...empty, missing: [{ source: 'pay', state: 'unwired' }] } as unknown as List;
+    state.list = { ...empty, missing: [{ source: 'pay', state: 'unwired' }] } as List;
     state.language = 'ar';
     const html = renderToString(<WorkList hidden={false} />);
     for (const key of ['Work nothing so far', 'Work sources unwired']) {

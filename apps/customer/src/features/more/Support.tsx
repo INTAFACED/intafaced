@@ -5,7 +5,7 @@ import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Field, Tabs } from '../../shared/ui';
 import { isHiddenPath } from '../../app/feature-registry';
 import { stamp } from '../../screens/money/time';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { t as copyText } from './copy';
 import { categoryLabel, topicFromAddress } from './support-category';
 import { Details, Read, Select, useAction } from './common';
@@ -35,7 +35,7 @@ import { supportRequestFormsSchema, type SupportField, type SupportFieldValue } 
 import { SUPPORT_MESSAGE_HEADERS_MAX, supportCategoriesSchema } from '@intafaced/contracts/support-categories';
 import { formAnswers, formReady, RequestTypeFields, type FormAnswers } from './SupportRequestForm';
 
-import './support-desk.css';
+import '../../shared/support-desk.css';
 
 /** An answer as the review step reads it: a choice by its label, a box as yes or no, text as typed. */
 function answerText(field: SupportField | undefined, value: SupportFieldValue): string {

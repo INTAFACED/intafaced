@@ -7,7 +7,7 @@
  * bound moves with the book. The table gives the bound at today's depth on each side, and the share itself, which is
  * what the owner published.
  */
-import { formatAmount, mul, mulBps, SCALE, type Amount } from '@intafaced/ledger-client';
+import { mul, mulBps, SCALE, type Amount } from '@intafaced/ledger-client';
 import { initialMargin } from './initial-margin.js';
 import { liquidationPriceFor } from './liquidation-price.js';
 import { depthRatioBps, maintenanceBpsFor, type FuturesLadderPolicy } from './maintenance-ladder.js';

@@ -3,7 +3,7 @@ import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, EmptyState, Failure, Loading, Page } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { amount, date, Section } from './components';
 import { approvalCopy } from './withdrawal-approval-copy';
 import { createApprovalReads, requestedApproval, type ApprovalRequest } from './withdrawal-approval-reads';

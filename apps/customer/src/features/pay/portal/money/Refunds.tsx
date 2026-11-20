@@ -3,7 +3,7 @@ import { PaymentCell } from '../payments/PaymentCell';
 import { RefundsIssuedValue } from '../payments/RefundsIssued';
 import { Button } from '@intafaced/ui';
 import { EmptyState, Field } from '../../ui-kit';
-import { useSession } from '../../../session/session';
+import { useSession } from '../../../session';
 import { useResource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
 import { createBusinessPayApi, type PayBusinessAuthority } from '../../pay-api';
@@ -32,7 +32,7 @@ import { ExportButton, LinkButton, ListBody, localRefusal, shortDay, TestBanner,
 import { mc } from './copy';
 import { MoneyAction, useMoneyReason } from '../access/MoneyAction';
 import { refundableAmount, refundRate } from './model';
-import { refundStatuses, type RefundItem } from './schemas';
+import { type PayRefundItem as RefundItem, payRefundStatusSchema } from '@intafaced/contracts/pay-portal-reads';
 import type { z } from 'zod';
 
 type Payment = z.infer<typeof paymentSchema>;
@@ -151,7 +151,7 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
       <FilterRow
         filters={filters}
         label={t('rfFilters')}
-        statuses={refundStatuses.map((s) => [s, t(`rfStatus_${s}` as 'rfStatus_posted')] as const)}
+        statuses={payRefundStatusSchema.options.map((s) => [s, t(`rfStatus_${s}` as 'rfStatus_posted')] as const)}
         assets={assets}
         shown={rows.length}
         hasMore={list.state.status === 'ready' && list.state.hasMore}

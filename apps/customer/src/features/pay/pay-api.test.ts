@@ -51,6 +51,10 @@ describe('Personal Pay network boundary', () => {
               name: 'Main',
               goalTarget: null,
               lockedUntil: null,
+              unlocksAt: null,
+              unlockRequestedAt: null,
+              billsPot: null,
+              heldAt: null,
               balance: '100.000000000000000001',
               ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
             },
@@ -80,6 +84,10 @@ describe('Personal Pay network boundary', () => {
             name: 'Main',
             goalTarget: null,
             lockedUntil: null,
+            unlocksAt: null,
+            unlockRequestedAt: null,
+            billsPot: null,
+            heldAt: null,
             balance: 0.1,
             ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
           },
@@ -106,12 +114,60 @@ describe('Personal Pay network boundary', () => {
             name: 'Savings',
             goalTarget: null,
             lockedUntil: null,
+            unlocksAt: null,
+            unlockRequestedAt: null,
+            billsPot: null,
+            heldAt: null,
             balance: '1',
             ledgerAccount: { ownerType: 'subaccount', ownerId: spaceId, assetId: 'USDT', kind: 'available' },
           },
         ]),
     });
     expect(await createPersonalPayApi(api, userId, createPayMutationGuard()).spaces()).toMatchObject({ ok: true, data: [{ id: spaceId }] });
+  });
+  it('a space the partner bank holds is read, and not offered as a source to pay from (#8841)', async () => {
+    const heldId = '55555555-5555-4555-8555-555555555555';
+    const row = { goalTarget: null, lockedUntil: null, unlocksAt: null, unlockRequestedAt: null, billsPot: null };
+    const api = createApiClient({
+      fetch: async () =>
+        response([
+          {
+            ...row,
+            id: spaceId,
+            assetId: 'USDT',
+            kind: 'primary',
+            name: 'Main',
+            balance: '5',
+            ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'available' },
+            heldAt: null,
+          },
+          {
+            ...row,
+            id: heldId,
+            assetId: 'EUR',
+            kind: 'primary',
+            name: 'TEST partner account',
+            balance: '12.5',
+            ledgerAccount: null,
+            heldAt: {
+              label: 'TEST partner',
+              asOf: '2026-11-18T00:00:00.000Z',
+              figure: {
+                state: 'known',
+                source: 'TEST partner',
+                amount: '12.5',
+                asOf: '2026-11-18T00:00:00.000Z',
+                staleAfterMs: 60_000,
+                reason: null,
+              },
+            },
+          },
+        ]),
+    });
+    const read = await createPersonalPayApi(api, userId, createPayMutationGuard()).spaces();
+    expect(read.ok, JSON.stringify(read)).toBe(true);
+    if (!read.ok) return;
+    expect(read.data.map((space) => space.id)).toEqual([spaceId]);
   });
 });
 
@@ -693,6 +749,10 @@ describe('Send original context admission and settlement', () => {
       name: 'Main',
       goalTarget: null,
       lockedUntil: null,
+      unlocksAt: null,
+      unlockRequestedAt: null,
+      billsPot: null,
+      heldAt: null,
       balance: '9999999999999999999.000000000000000001',
       ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
     },

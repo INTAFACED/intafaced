@@ -34,7 +34,7 @@ async function mount(asked: unknown[], fault?: Error) {
       if (fault) throw fault;
       return ANSWER;
     },
-  } as unknown as LedgerService;
+  } as LedgerService;
   const app = Fastify({ logger: false });
   registerS2sHttp(app, ledger, SHARED, {
     bodyBind: 'require',

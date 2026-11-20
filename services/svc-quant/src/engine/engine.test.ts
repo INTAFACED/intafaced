@@ -299,3 +299,64 @@ describe('margin account (AL-backtest-02, ENGINE RK-5)', () => {
     expect(out.equity.every((point) => !('marginLevelPercent' in point))).toBe(true);
   });
 });
+
+describe('equity stop (AL-risk-01)', () => {
+  // Entry at 110 on the fifth bar: its 0.11 fee alone takes equity under a floor a cent below the 1000 of cash.
+  const CLOSES = ['100', '100', '100', '110', '120', '130', '115', '100', '100', '110', '120'];
+
+  it('turns the run reduce-only at the first bar whose low is below the floor, records it once, and fills no entry after', () => {
+    const free = run(CLOSES);
+    expect(free.trades.filter((t) => t.side === 'buy').length).toBeGreaterThan(1);
+    expect(free.riskEvents).toEqual([]);
+    expect(free.assumptions).not.toContain('equity_stop_at_bar_low');
+
+    const out = run(CLOSES, { equityStop: { floor: parseAmount('999.99'), policy: 'reduce_only' } });
+    expect(out.riskEvents).toHaveLength(1);
+    const [event] = out.riskEvents;
+    expect(event).toMatchObject({ kind: 'equity_stop', mode: 'reduce_only', floor: '999.99', ts: new Date(T0 + 4 * HOUR).toISOString() });
+    expect(Number(event!.equity)).toBeLessThan(999.99);
+    expect(out.trades.filter((t) => t.side === 'buy' && t.ts > event!.ts)).toEqual([]);
+    // The position is left to its own exit: the cross down still sells it; the next cross up is refused, not filled.
+    expect(out.trades.map((t) => [t.side, t.reason])).toEqual([
+      ['buy', 'signal'],
+      ['sell', 'signal'],
+    ]);
+    expect(out.rejected.some((r) => r.side === 'buy' && r.reason === 'reduce_only')).toBe(true);
+    expect(out.trades.some((t) => t.reason === 'close_out')).toBe(false);
+    expect(out.assumptions).toContain('equity_stop_at_bar_low');
+  });
+
+  it('under close-out places one close-out order on that bar, at the open when equity opened below the floor', () => {
+    const out = run(CLOSES, { equityStop: { floor: parseAmount('999.99'), policy: 'close_out' } });
+    expect(out.riskEvents).toHaveLength(1);
+    const closeOuts = out.trades.filter((t) => t.reason === 'close_out');
+    expect(closeOuts).toHaveLength(1);
+    expect(closeOuts[0]).toMatchObject({ side: 'sell', ts: out.riskEvents[0]!.ts, barPrice: '110' });
+    expect(out.trades.filter((t) => t.side === 'buy')).toHaveLength(1);
+    expect(out.totals.openQty).toBe('0');
+  });
+
+  it('closes at the price where equity reached the floor when the bar opened above it', () => {
+    // Entry at 110 with 1000 cash; the floor at 990 is reached at 100.11 (1000 - 0.11 - 110 + q*p = 990).
+    const bars = barsOf(['100', '100', '100', '110', '111']);
+    bars.push({
+      openTimeMs: T0 + 5 * HOUR,
+      open: parseAmount('111'),
+      high: parseAmount('112'),
+      low: parseAmount('95'),
+      close: parseAmount('96'),
+    });
+    const out = run([], { bars, equityStop: { floor: parseAmount('990'), policy: 'close_out' } });
+    const closeOut = out.trades.find((t) => t.reason === 'close_out')!;
+    expect(closeOut.barPrice).toBe('100.11');
+    expect(out.riskEvents[0]!.equity).toBe('984.89');
+  });
+
+  it('records nothing while equity stays at or above the floor', () => {
+    const out = run(CLOSES, { equityStop: { floor: parseAmount('500'), policy: 'close_out' } });
+    expect(out.riskEvents).toEqual([]);
+    expect(out.trades).toEqual(run(CLOSES).trades);
+    // The run still says the floor was checked, so a result with no event reads as a floor never reached, not as none set.
+    expect(out.assumptions).toContain('equity_stop_at_bar_low');
+  });
+});

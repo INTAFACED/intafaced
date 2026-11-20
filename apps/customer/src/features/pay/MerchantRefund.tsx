@@ -4,7 +4,7 @@ import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
 import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
 import { Field } from './ui-kit';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { PayAmount } from './components';
 import { DateTime } from './portal/ui/DateTime';
 import type { BusinessPayApi } from './pay-api';

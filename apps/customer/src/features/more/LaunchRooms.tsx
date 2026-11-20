@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { Button, DataTable, EmptyState, Field, Panel } from '../../shared/ui';
 import { Select } from './common';
 import { DisabledAction, Journey, StatRow, StatusPill, type JourneyStep } from './depth-kit';

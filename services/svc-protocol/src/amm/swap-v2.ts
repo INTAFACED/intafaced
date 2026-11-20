@@ -23,15 +23,6 @@ import {
   ROUTE_NO_PATH,
   ROUTE_OVER_MAX_HOPS,
   ROUTER_V2_UNSET,
-  protocolApprovalRouteOutputSchema,
-  protocolBuildPermitInputSchema,
-  protocolBuildPermitOutputSchema,
-  protocolBuildSwapV2InputSchema,
-  protocolBuildSwapV2OutputSchema,
-  protocolPathOutputSchema,
-  protocolPathsInputSchema,
-  protocolSwapV2SettingsSchema,
-  publicJurisdictionProcedure,
   type ProtocolApprovalRoute,
   type ProtocolApprovalRouteOutput,
   type ProtocolBuildPermitInput,
@@ -44,7 +35,14 @@ import {
   type ProtocolTypedData,
   TRPCError,
 } from '@intafaced/contracts';
-import { z } from 'zod';
+import {
+  PROTOCOL_AMM_V2_SETTINGS,
+  PROTOCOL_AMM_APPROVAL_ROUTE,
+  PROTOCOL_AMM_BUILD_PERMIT,
+  PROTOCOL_AMM_PATHS,
+  PROTOCOL_AMM_BUILD_SWAP_V2,
+} from '@intafaced/contracts/protocol-amm-procedures';
+import { mountProtocolRecord } from '../record-mount.js';
 import { isZeroAddress } from '../chain/availability.js';
 import { feeRefusal } from './fee-relay.js';
 
@@ -631,46 +629,33 @@ export function createSwapV2Procedures(deps: SwapV2Deps) {
       throw deps.toTrpcError(err);
     }
   };
-  const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
   return {
     /** Router v2's deployment on this network and the owner's permit lifetime cap. */
-    v2Settings: publicJurisdictionProcedure('protocol', 'protocol')
-      .output(protocolSwapV2SettingsSchema)
-      .query(() =>
-        run(async () => {
-          const setting = requireSetting(deps);
-          const client = deps.client();
-          const at = { address: setting.wrappedNative, abi: TOKEN_ABI } as const;
-          const [name, symbol, decimals] = await Promise.all([
-            client.readContract({ ...at, functionName: 'name' }),
-            client.readContract({ ...at, functionName: 'symbol' }),
-            client.readContract({ ...at, functionName: 'decimals' }),
-          ]);
-          return {
-            router: getAddress(setting.router),
-            sovereignPermit: getAddress(setting.sovereignPermit),
-            wrappedNative: { address: getAddress(setting.wrappedNative), name, symbol, decimals },
-            permitLifetimeCapSeconds: deps.permitLifetimeCapSeconds(),
-            maxPathHops: MAX_PATH_HOPS,
-          };
-        }),
-      ),
+    v2Settings: mountProtocolRecord(PROTOCOL_AMM_V2_SETTINGS, () =>
+      run(async () => {
+        const setting = requireSetting(deps);
+        const client = deps.client();
+        const at = { address: setting.wrappedNative, abi: TOKEN_ABI } as const;
+        const [name, symbol, decimals] = await Promise.all([
+          client.readContract({ ...at, functionName: 'name' }),
+          client.readContract({ ...at, functionName: 'symbol' }),
+          client.readContract({ ...at, functionName: 'decimals' }),
+        ]);
+        return {
+          router: getAddress(setting.router),
+          sovereignPermit: getAddress(setting.sovereignPermit),
+          wrappedNative: { address: getAddress(setting.wrappedNative), name, symbol, decimals },
+          permitLifetimeCapSeconds: deps.permitLifetimeCapSeconds(),
+          maxPathHops: MAX_PATH_HOPS,
+        };
+      }),
+    ),
     /** Whether the token has its own permit, works through SovereignPermit, or needs an approve transaction. */
-    approvalRoute: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(z.object({ owner: address, token: address }).strict())
-      .output(protocolApprovalRouteOutputSchema)
-      .query(({ input }) => run(() => readApprovalRoute(deps, getAddress(input.owner), getAddress(input.token)))),
-    buildPermit: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolBuildPermitInputSchema)
-      .output(protocolBuildPermitOutputSchema)
-      .query(({ input }) => run(() => buildPermit(deps, input))),
-    paths: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolPathsInputSchema)
-      .output(protocolPathOutputSchema)
-      .query(({ input }) => run(() => bestPath(deps, input))),
-    buildSwapV2: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolBuildSwapV2InputSchema)
-      .output(protocolBuildSwapV2OutputSchema)
-      .query(({ input }) => run(() => buildSwapV2(deps, input))),
+    approvalRoute: mountProtocolRecord(PROTOCOL_AMM_APPROVAL_ROUTE, ({ input }) =>
+      run(() => readApprovalRoute(deps, getAddress(input.owner), getAddress(input.token))),
+    ),
+    buildPermit: mountProtocolRecord(PROTOCOL_AMM_BUILD_PERMIT, ({ input }) => run(() => buildPermit(deps, input))),
+    paths: mountProtocolRecord(PROTOCOL_AMM_PATHS, ({ input }) => run(() => bestPath(deps, input))),
+    buildSwapV2: mountProtocolRecord(PROTOCOL_AMM_BUILD_SWAP_V2, ({ input }) => run(() => buildSwapV2(deps, input))),
   };
 }

@@ -1,11 +1,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { navigate } from '../../../app/location';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import type { ApiResult } from '../../../shared/api';
 import { Button, DataTable, EmptyState, Loading, Panel } from '../../../shared/ui';
-import { isServiceNotConnected, networkLabel } from '../blockers';
+import { networkLabel } from '../blockers';
 import { createProtocolApi } from '../api';
 import type { ChainRef } from '../NetworkPanels';
 import { TabList } from '../tokens/TabList';

@@ -1,4 +1,5 @@
 import type { SupportAttachmentKey } from '@intafaced/contracts';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * The attachment limits and the state of the five pieces an attach needs, as svc-support returns them
@@ -68,10 +69,6 @@ export interface AttachmentPiece {
 export interface AttachmentStatus {
   readonly pieces: readonly AttachmentPiece[];
   readonly limits: AttachmentLimits;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 const isKey = (v: unknown): v is SupportAttachmentKey => typeof v === 'string' && (ATTACHMENT_KEYS as readonly string[]).includes(v);

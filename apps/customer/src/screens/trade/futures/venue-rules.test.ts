@@ -25,6 +25,29 @@ const market = {
   markRule: { known: false },
   tradingHours: { known: true, value: '24/7, no close' },
   feed: { known: true, value: { state: 'stale', lastOracleUpdateAt: '2026-11-09T10:00:00.000Z', staleRule: { known: false } } },
+  session: { known: false },
+  contractSize: { known: true, value: '1' },
+  mark: { known: true, value: '2650' },
+  funding: { known: false },
+};
+
+/** J-derivatives-27: a TEST stock perpetual with its home market closed. */
+const stock = {
+  ...market,
+  symbol: 'XSTK-PERP',
+  baseAsset: 'XSTK',
+  session: {
+    known: true,
+    value: {
+      state: 'off_hours',
+      homeMarket: 'TEST home exchange',
+      offHoursMode: { known: true, value: 'TEST mode' },
+      offHoursBand: { known: false },
+      offHoursMaxLeverageBps: 20000,
+      reopensAt: '2026-11-11T14:30:00.000Z',
+      offHoursRule: { known: true, value: 'TEST rule' },
+    },
+  },
 };
 
 describe('the futures desk: a market’s published rules (J-derivatives-21)', () => {
@@ -39,15 +62,54 @@ describe('the futures desk: a market’s published rules (J-derivatives-21)', ()
     expect(venueMarketSchema.safeParse({ ...market, feed: { known: true, value: { state: 'paused' } } }).success).toBe(false);
   });
 
+  it('reads a stock perpetual’s home-market session from the venue, and refuses a session without its parts (J-derivatives-27)', () => {
+    const parsed = venueMarketSchema.parse(stock);
+    expect(parsed.session).toEqual(stock.session);
+    expect(
+      venueMarketSchema.parse({
+        ...stock,
+        session: { known: true, value: { ...stock.session.value, reopensAt: null, offHoursMaxLeverageBps: null } },
+      }).session,
+    ).toMatchObject({
+      value: { reopensAt: null, offHoursMaxLeverageBps: null },
+    });
+    const { session: _s, ...missing } = stock;
+    expect(venueMarketSchema.safeParse(missing).success).toBe(false);
+    expect(
+      venueMarketSchema.safeParse({ ...stock, session: { known: true, value: { ...stock.session.value, state: 'paused' } } }).success,
+    ).toBe(false);
+    const { offHoursRule: _r, ...noRule } = stock.session.value;
+    expect(venueMarketSchema.safeParse({ ...stock, session: { known: true, value: noRule } }).success).toBe(false);
+  });
+
   it('claims no protection of its own in the words around the venue’s rules', () => {
     const { t } = futuresVenueCopy.forLocale('en');
     for (const key of Object.keys(MARKET_RULE_WORDS) as Array<keyof typeof MARKET_RULE_WORDS>) {
-      const words = t(key, { symbol: 'XAU-PERP', name: 'TEST', venue: 'TEST venue', rule: '' });
+      const words = t(key, {
+        symbol: 'XAU-PERP',
+        name: 'TEST',
+        venue: 'TEST venue',
+        rule: '',
+        home: 'TEST home',
+        times: '2',
+        size: '3',
+        cap: '500',
+        base: 'XSTD',
+        at: '2026-11-12T09:00:00.000Z',
+        price: '101',
+        ratio: '2',
+        reopened: '2026-11-12T09:00:00.000Z',
+      });
       expect(words, key).not.toMatch(PROTECTION);
     }
     expect(t('Not published')).toBe('not published by this venue');
     expect(t('Feed stale notice', { venue: 'V', symbol: 'XAU-PERP', rule: 'R' })).toBe(
       'V reports the XAU-PERP price feed stale. The venue’s own rule: R',
     );
+    expect(t('Off-hours notice', { venue: 'V', home: 'H', symbol: 'XSTK-PERP', rule: 'R' })).toBe(
+      'V reports H closed: XSTK-PERP is in the venue’s off-hours mode. The venue’s own rule: R',
+    ); // J-derivatives-27 #7 #8: the deployer's margin account and open-interest cap are the venue's, and claim nothing of ours.
+    expect(t('Open interest cap value', { cap: '500', base: 'XSTD' })).toBe('At most 500 XSTD open, set by its deployer');
+    expect(t('Market margin note', { name: 'M', symbol: 'XSTD-PERP' })).not.toMatch(PROTECTION);
   });
 });

@@ -1,9 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { checkAccess } from '@intafaced/config';
 import {
   createEdgeContext,
@@ -28,6 +28,14 @@ import {
 } from './errors.js';
 import type { BacktestLake } from './backtest/lake.js';
 import { createQuantRouter, type QuantRouter } from './router.js';
+import { createMemoryQuota } from './quota/memory.js';
+
+/** A plan with every sandbox limit set, so a run here meets the limits a stack run meets (J-algo-dev-12). */
+const testQuota = () =>
+  createMemoryQuota({
+    defaultProfile: 'TEST plan',
+    sandbox: { wall_clock_ms: 5_000n, memory_bytes: 1_000_000n, output_bytes: 1_000_000n },
+  }).repository;
 import { createMemoryStrategyRepository } from './studio/memory-repository.js';
 
 // This file proves the blank-list refusal. Since OWNER 258 (1) a dev or test process with no env list screens with
@@ -80,9 +88,19 @@ async function mountQuant(router: QuantRouter): Promise<FastifyInstance> {
   return app;
 }
 
+/** router.ts and every area file under routes/, as one text: the procedures moved there from router.ts (project-state#2731). */
+function routerSources(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  return ['router.ts', ...readdirSync(join(here, 'routes')).map((name) => join('routes', name))]
+    .map((rel) => readFileSync(join(here, rel), 'utf8'))
+    .join('\n');
+}
+
 describe('svc-quant mount — sandbox.run', () => {
   it('serves a five-line javascript run over the wire with decimal-string pnl', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     const ran = await caller.sandbox.run({
       language: 'javascript',
       source: SAMPLE_JS,
@@ -104,7 +122,9 @@ describe('svc-quant mount — sandbox.run', () => {
   });
 
   it('serves python the same way', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     const ran = await caller.sandbox.run({
       language: 'python',
       source: 'oms.buy("BTC-USD", "0.01")\nprint(book.pnl())',
@@ -117,7 +137,9 @@ describe('svc-quant mount — sandbox.run', () => {
   });
 
   it('refuses unwired isolate by name, and does not invent pnl', async () => {
-    const caller = createQuantRouter({ wired: false, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: false, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     await expect(
       caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', environment: 'paper', idempotencyKey: 'idem-mount' }),
     ).rejects.toMatchObject({
@@ -129,6 +151,8 @@ describe('svc-quant mount — sandbox.run', () => {
     const caller = createQuantRouter({
       wired: true,
       venueVaultSet: false,
+      paperFeeBps: '0',
+      quota: testQuota(),
       limits: { maxOps: undefined, maxSource: 8_000 },
     }).createCaller(anonymous());
     await expect(
@@ -142,6 +166,8 @@ describe('svc-quant mount — sandbox.run', () => {
     const caller = createQuantRouter({
       wired: true,
       venueVaultSet: false,
+      paperFeeBps: '0',
+      quota: testQuota(),
       limits: { maxOps: 5_000, maxSource: undefined },
     }).createCaller(anonymous());
     await expect(
@@ -152,7 +178,9 @@ describe('svc-quant mount — sandbox.run', () => {
   });
 
   it('refuses a network escape rather than running it', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     await expect(
       caller.sandbox.run({
         language: 'javascript',
@@ -167,7 +195,9 @@ describe('svc-quant mount — sandbox.run', () => {
   });
 
   it('refuses venue OMS when the vault pin is unset', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     await expect(
       caller.sandbox.run({
         language: 'javascript',
@@ -182,7 +212,9 @@ describe('svc-quant mount — sandbox.run', () => {
   });
 
   it('refuses sandbox.run when cash is omitted — never invents 10000', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     await expect(
       caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, environment: 'paper', idempotencyKey: 'idem-cash' }),
     ).rejects.toMatchObject({
@@ -191,7 +223,9 @@ describe('svc-quant mount — sandbox.run', () => {
   });
 
   it('refuses sandbox.run when cash is null — never invents 10000', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     await expect(
       caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: null, environment: 'paper', idempotencyKey: 'idem-cash-null' }),
     ).rejects.toMatchObject({
@@ -200,7 +234,9 @@ describe('svc-quant mount — sandbox.run', () => {
   });
 
   it('accepts explicit cash 10000 (owner-published, not invented)', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     const ran = await caller.sandbox.run({
       language: 'javascript',
       source: SAMPLE_JS,
@@ -218,7 +254,9 @@ describe('svc-quant mount — sandbox.run', () => {
   });
 
   it('reports capabilities without fabricating a vault', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     const caps = await caller.sandbox.capabilities();
     expect(caps.isolate).toBe('wired');
     expect(caps.venueVault).toBe('unset');
@@ -234,6 +272,8 @@ describe('svc-quant mount — studio.save', () => {
     const caller = createQuantRouter({
       wired: true,
       venueVaultSet: false,
+      paperFeeBps: '0',
+      quota: testQuota(),
       limits,
       strategies: createMemoryStrategyRepository(),
     }).createCaller(signed());
@@ -248,6 +288,8 @@ describe('svc-quant mount — studio.save', () => {
     const caller = createQuantRouter({
       wired: true,
       venueVaultSet: false,
+      paperFeeBps: '0',
+      quota: testQuota(),
       limits,
       strategies: createMemoryStrategyRepository(),
     }).createCaller(signed());
@@ -262,6 +304,8 @@ describe('svc-quant mount — studio.save', () => {
     const caller = createQuantRouter({
       wired: true,
       venueVaultSet: false,
+      paperFeeBps: '0',
+      quota: testQuota(),
       limits,
       strategies: createMemoryStrategyRepository(),
     }).createCaller(signed());
@@ -317,6 +361,8 @@ describe('svc-quant mount — backtest.run', () => {
     const caller = createQuantRouter({
       wired: true,
       venueVaultSet: false,
+      paperFeeBps: '0',
+      quota: testQuota(),
       limits,
       strategies: createMemoryStrategyRepository(),
       ...(lakeOverride ? { lake: lakeOverride } : {}),
@@ -419,7 +465,9 @@ describe('svc-quant mount — backtest.run', () => {
 });
 describe('svc-quant mount — simulated is never live', () => {
   it('refuses sandbox.run without environment', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     await expect(
       caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', idempotencyKey: 'idem-env' }),
     ).rejects.toMatchObject({
@@ -428,7 +476,9 @@ describe('svc-quant mount — simulated is never live', () => {
   });
 
   it('refuses sandbox.run when environment is live', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     await expect(
       caller.sandbox.run({ language: 'javascript', source: SAMPLE_JS, cash: '10000', environment: 'live', idempotencyKey: 'idem-live' }),
     ).rejects.toMatchObject({
@@ -437,7 +487,9 @@ describe('svc-quant mount — simulated is never live', () => {
   });
 
   it('refuses marketplace.claim that presents a run as live', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     await expect(
       caller.marketplace.claim({ runId: 'run_missing', environment: 'paper', presentedAs: 'live', idempotencyKey: 'idem-live-claim' }),
     ).rejects.toMatchObject({
@@ -446,7 +498,9 @@ describe('svc-quant mount — simulated is never live', () => {
   });
 
   it('rejects a client-supplied pnl in the claim schema', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(signed());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      signed(),
+    );
     await expect(
       caller.marketplace.claim({
         runId: 'run_missing',
@@ -475,7 +529,7 @@ describe('svc-quant mounted request screening', () => {
         ];
       },
     };
-    const router = createQuantRouter({ wired: true, venueVaultSet: false, limits, lake });
+    const router = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits, lake });
     const app = await mountQuant(router);
     const principal = {
       sub: '11111111-1111-4111-8111-111111111111',
@@ -531,7 +585,7 @@ describe('svc-quant mounted request screening', () => {
 
 describe('svc-quant router — cash is never invented', () => {
   it('has no decimal.default(10000) on studio.save or sandbox.run', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'router.ts'), 'utf8');
+    const src = routerSources();
     expect(src).not.toMatch(/decimal\.default\(['"]10000['"]\)/);
     expect(src).toMatch(/cash:\s*decimal\.optional\(\)\.nullable\(\)/);
   });
@@ -539,14 +593,16 @@ describe('svc-quant router — cash is never invented', () => {
 
 describe('svc-quant health — liveness is not a custodial stamp', () => {
   it('answers ok + service and does not stamp custodial:false', async () => {
-    const caller = createQuantRouter({ wired: true, venueVaultSet: false, limits }).createCaller(anonymous());
+    const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
+      anonymous(),
+    );
     const health = await caller.health();
     expect(health).toEqual({ ok: true, service: 'svc-quant' });
     expect(health).not.toHaveProperty('custodial');
   });
 
-  it('router.ts health does not literal-stamp custodial:false', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'router.ts'), 'utf8');
+  it('the router and its area files do not literal-stamp custodial:false', () => {
+    const src = routerSources();
     expect(src).not.toMatch(/custodial:\s*z\.literal\(false\)/);
     expect(src).not.toMatch(/custodial:\s*false\s+as const/);
   });

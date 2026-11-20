@@ -12,7 +12,8 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
  * `typedData` is passed through untouched on both sides: it is the exact payload
  * the wallet signs, and the venue rebuilds and checks it at submit. A market's
  * published words (`listedBy`, `oracleRule`, `markRule`, `tradingHours`,
- * `staleRule`) are passed through too: their `value` is text.
+ * `staleRule`, and a session's `offHoursMode`, `offHoursBand`, `offHoursRule`)
+ * are passed through too: their `value` is text.
  */
 
 const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
@@ -49,9 +50,55 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'ask',
   'maxOrderQty',
   'maxOrderNotional',
+  // UserVenueMarket's smallest order value and price band (J-cex-spot-04), null where the venue publishes none
+  'minOrderNotional',
+  'priceBandBps',
+  // UserVenueOpenInterest (J-derivatives-27 #8): the deployer's cap, null where it sets none
+  'capSize',
+  // UserVenueMarketEvent (J-derivatives-27 #9 #10)
+  'settlementPrice',
   // VenueBuilderTotal (OWNER 288 1e)
   'earned',
   'unclaimed',
+  // VenueCandle (J-cex-spot-01 #5)
+  'openPrice',
+  'highPrice',
+  'lowPrice',
+  'closePrice',
+  'baseVolume',
+  // UserVenueFunding (J-derivatives-01 #4): the signed funding rate, a scaled fraction
+  'rate',
+  // UserVenueFundingInputs, UserVenueFundingPayment and VenueFundingRow.premium (J-derivatives-08)
+  'premium',
+  'interestRate',
+  'rateCap',
+  'indexPrice',
+  'annualisedRate',
+  // UserVenueMarginTier (J-derivatives-02 #2): the notional a tier starts at and its maintenance rate
+  'fromNotional',
+  'maintenanceRate',
+  // UserVenuePosition.maintenanceMargin and UserVenueLeverageChange (J-derivatives-05 #2 #4)
+  'maintenanceMargin',
+  'positionSize',
+  'marginNow',
+  'marginAfter',
+  'difference',
+  // UserVenueIsolatedMargin and UserVenueAccountSummary (J-derivatives-06 #1 #2 #3)
+  'minimumMargin',
+  'removable',
+  'equity',
+  'usedMargin',
+  'marginRatio',
+  // UserVenueCrossMargin (J-derivatives-26 #1 #3)
+  'liquidationEquity',
+  // UserVenueInsuranceFund (J-derivatives-07 #4)
+  'balance',
+  // VenueFeeTier and VenueAccountFees (J-cex-spot-10 #2 #6)
+  'fromVolume',
+  'volume',
+  // UserVenueLockSplit (J-portfolio-01 #4); `margin` is above
+  'inOrders',
+  'staked',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -72,6 +119,11 @@ const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
   'builderFeeCapBps',
   'makerFeeBps',
   'takerFeeBps',
+  'maintenanceMargin',
+  'marginRatio',
+  // An agent desk's balance is a known-or-not object on the wire (svc-trade agent-desk.ts), never decoded as money here.
+  'balance',
+  'volume',
   'value',
 ]);
 
@@ -86,6 +138,12 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'ask',
   'maxOrderQty',
   'maxOrderNotional',
+  'minOrderNotional',
+  'priceBandBps',
+  'capSize',
+  // VenueFundingRow.premium (J-derivatives-08 #6): null where the venue publishes none, and its annualised rate
+  'premium',
+  'annualisedRate',
 ]);
 
 const DATE_FIELDS: ReadonlySet<string> = new Set([
@@ -93,16 +151,67 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   'reportedAt',
   'preparedAt',
   'filledAt',
+  'settledAt',
   'validUntil',
   'since',
   'lastOracleUpdateAt',
+  'reopensAt',
+  // UserVenueMarketEvent and UserVenueSettlement (J-derivatives-27 #9 #10)
+  'eventAt',
+  'reopenedAt',
+  'settledAt',
+  'nextFundingAt',
+  // VenueFundingRow (J-charts-desk-04 #6)
+  'fundingAt',
+  // UserVenueDeposit (J-dex-protocol-05 #2)
+  'seenAt',
+  // UserVenueOrderTrigger (J-derivatives-03 #6 #7)
+  'triggeredAt',
+  // UserVenueArrival (J-portfolio-02 #6)
+  'arrivedAt',
+  // UserVenueBuilderClaim (J-derivatives-17)
+  'claimedAt',
+  // VenuePrint and VenueCandle (J-cex-spot-01 #5)
+  'tradedAt',
+  'openAt',
+  // UserVenueOrderRecord (J-cex-spot-06 #1)
+  'placedAt',
+  // UserVenueScheduledCancel (J-cex-spot-07)
+  'cancelsAt',
+  'firedAt',
+  // UserVenueWithdrawal (J-cex-spot-07 #5)
+  'requestedAt',
+  // VenueAccountFees (J-cex-spot-10 #6)
+  'tierUpdatedAt',
+  // UserVenueLiquidation, UserVenueDeleverage and VenueLiquidationAlert (J-derivatives-07)
+  'liquidatedAt',
+  'startedAt',
+  'deleveragedAt',
+  'alertedAt',
+  // UserVenueFundingPayment and VenuePriceSample (J-derivatives-08)
+  'periodAt',
+  'sampledAt',
 ]);
 
 /**
  * Passed through untouched: the wallet's payload, and the venue's published words (a market's listing and rules, each a
  * `MaybeKnown` of text), whose `value` is text, never money, even when it happens to read like a number.
  */
-const OPAQUE_FIELDS: ReadonlySet<string> = new Set(['typedData', 'listedBy', 'oracleRule', 'markRule', 'tradingHours', 'staleRule']);
+const OPAQUE_FIELDS: ReadonlySet<string> = new Set([
+  'typedData',
+  'listedBy',
+  'oracleRule',
+  'markRule',
+  'tradingHours',
+  'staleRule',
+  'offHoursMode',
+  'offHoursBand',
+  'offHoursRule',
+  // A market's deployer margin account rule (J-derivatives-27 #7): its name, collateral asset and margin mode are text.
+  'marginAccount',
+  // A funding rate's published rule (J-derivatives-08 #1): text.
+  'rule',
+]);
 
 export class VenueWireError extends Error {
   constructor(message: string) {

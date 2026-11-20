@@ -1,5 +1,6 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
-import type { Sql, TransactionSql } from 'postgres';
+import type { Sql } from 'postgres';
 import { PRODUCT_IMPORT_MAX_PROBLEMS, type ProductImport, type ProductImportProblem } from '@intafaced/contracts';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { iso } from '../merchant-ops/money.js';
@@ -26,7 +27,6 @@ interface ImportRow {
   imported_at: Date;
 }
 
-type Db = Sql | TransactionSql;
 type Mode = 'live' | 'test';
 
 /** A uuid-shaped key from a hash: the create key of the product on one line of one imported file. */
@@ -113,7 +113,7 @@ export class ProductImports {
   }
 
   /** The import this file already made, with the products it made that still exist, in file order. */
-  private async earlier(db: Db, caller: MerchantCaller, mode: Mode, fileSha256: string): Promise<ProductImport | null> {
+  private async earlier(db: Queryable, caller: MerchantCaller, mode: Mode, fileSha256: string): Promise<ProductImport | null> {
     const [record] = await db<ImportRow[]>`
       SELECT row_count, product_ids::text[] AS product_ids, imported_at FROM pay.catalog_product_imports
        WHERE merchant_id = ${caller.merchantId} AND mode = ${mode} AND file_sha256 = ${fileSha256}`;
@@ -136,7 +136,7 @@ export class ProductImports {
   }
 
   /** The file's own problems and, for its good lines, every chosen id this business already uses. */
-  private async withTaken(db: Db, caller: MerchantCaller, mode: Mode, file: CheckedFile): Promise<ProductImportProblem[]> {
+  private async withTaken(db: Queryable, caller: MerchantCaller, mode: Mode, file: CheckedFile): Promise<ProductImportProblem[]> {
     const chosen = file.products.flatMap(({ line, input }) => (input.productKey ? [{ line, key: input.productKey }] : []));
     if (!chosen.length) return file.problems;
     const taken = await db<Array<{ product_key: string }>>`

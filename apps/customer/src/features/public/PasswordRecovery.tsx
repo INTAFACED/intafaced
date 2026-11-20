@@ -1,6 +1,6 @@
 import { useEffect, useId, useReducer, useRef, useState, type FormEvent } from 'react';
 import { Button, Field } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { navigate } from '../../app/location';
 import { MAX_INPUT_LENGTH, passwordIssue, passwordProblem, singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
@@ -22,7 +22,7 @@ import {
   type ResetLimits,
 } from './password-recovery';
 import { recoveryCopy } from './password-recovery-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 const TITLE = { request: 'step1', reset: 'step2', done: 'step3' } as const;
 const BODY = { request: 'step1Body', reset: 'step2Body', done: 'step3Body' } as const;

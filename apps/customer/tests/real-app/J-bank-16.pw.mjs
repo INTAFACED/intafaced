@@ -2,9 +2,11 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
+import { DAY, utcDay } from './clock.mjs';
 import { api, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { setPartner } from './partner.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-bank-16, in the running app (docs/roadmap/journeys.json): I see where my money goes: statements, insights, limits
 // and fees. One TEST account, signed up and verified, whose money the stack's TEST partner bank holds, paid in there in
@@ -32,7 +34,6 @@ function person() {
   return who;
 }
 
-const utcDay = (at) => at.toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const monthStart = (now = new Date()) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 const nextMonthStart = (now = new Date()) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
@@ -148,7 +149,7 @@ test(`${J} #1 exports a month as PDF: every line the partner reports, a hash pro
     .check();
   await centre(page)
     .getByLabel('From (UTC)', { exact: true })
-    .fill(utcDay(new Date(monthStart().getTime() - 86_400_000)));
+    .fill(utcDay(monthStart().getTime() - DAY));
   await centre(page).getByLabel('To (UTC)', { exact: true }).fill(today);
   await centre(page).getByRole('combobox', { name: 'Format' }).selectOption('pdf');
   let saved = false;
@@ -194,8 +195,11 @@ test(`${J} #2 searches transactions and asks for a letter: search results, and a
 test(`${J} #3 opens tax statements: "needs the tax vendor" with vendor.tax`, async ({ page }) => {
   const who = person();
   await signIn(page, who);
-  const read = page.waitForResponse((res) => res.url().includes('statements.tax.list'));
-  await page.goto('/bank/statements');
+  const read = await answerAfterNavigation(
+    page,
+    (res) => res.url().includes('statements.tax.list'),
+    () => page.goto('/bank/statements'),
+  );
   // The page's own read reached the bank and was refused.
   expect((await read).ok()).toBe(false);
   const tax = page.getByTestId('tax-statements');
@@ -386,7 +390,6 @@ async function job(procedure, input) {
   expect(res.status, `${procedure}: ${JSON.stringify(parsed).slice(0, 300)}`).toBe(200);
   return parsed.result.data;
 }
-const DAY = 86_400_000;
 
 test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee after a full withdrawal`, async ({ page }) => {
   test.setTimeout(240_000);
@@ -408,7 +411,7 @@ test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee afte
   // is run for this one account, so no other account on the stack is touched.
   const asOf = new Date(Date.now() + (rule.inactiveDays + 1) * DAY);
   const first = await job('ops.runDormancy', { at: asOf.toISOString(), userIds: [userId] });
-  const debitDate = new Date(asOf.getTime() + rule.noticeLeadDays * DAY).toISOString().slice(0, 10);
+  const debitDate = utcDay(asOf.getTime() + rule.noticeLeadDays * DAY);
   expect(first.noticed).toEqual([{ userId, assetId: 'USDT', fee: '5', debitDate }]);
   // Run again: the same notice, not a second one.
   expect((await job('ops.runDormancy', { at: asOf.toISOString(), userIds: [userId] })).noticed).toEqual([]);

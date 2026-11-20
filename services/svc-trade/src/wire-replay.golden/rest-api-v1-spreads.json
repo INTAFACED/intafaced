@@ -1,0 +1,26 @@
+{
+  "inputs": {},
+  "bodies": [
+    "{\"code\":\"BadRequest\",\"message\":\"spreads limit is unset — refuse to invent one\",\"intafacedCode\":\"trade.spreads_limit_unset\"}"
+  ],
+  "answers": {
+    "GET /api/v1/spreads": {
+      "absent anon": [400, 0],
+      "absent no-scope": [400, 0],
+      "absent trader": [400, 0],
+      "absent all": [400, 0],
+      "absent all-US": [400, 0],
+      "absent svc-trade": [400, 0],
+      "absent svc-ops": [400, 0],
+      "absent svc-identity": [400, 0],
+      "absent svc-campaigns": [400, 0],
+      "absent svc-bank": [400, 0],
+      "absent svc-token": [400, 0],
+      "absent svc-support": [400, 0],
+      "absent svc-market": [400, 0],
+      "absent svc-fix": [400, 0],
+      "absent svc-agents": [400, 0],
+      "absent svc-tax": [400, 0]
+    }
+  }
+}

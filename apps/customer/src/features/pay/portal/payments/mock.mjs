@@ -1,5 +1,5 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
-import { NOT_MINE, DAY, MERCHANT_ID, USER_ID, hex, iso, ok, page, refuse } from '../mock/shared.mjs';
+import { NOT_MINE, DAY, USER_ID, hex, iso, ok, page, refuse } from '../mock/shared.mjs';
 import { fromU, isTaken, toU } from '../mock/world.mjs';
 
 /** Payments, disputes and customers. */

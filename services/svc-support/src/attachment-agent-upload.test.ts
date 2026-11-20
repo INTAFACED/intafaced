@@ -215,4 +215,27 @@ describe('local test adapters', () => {
     expect(await scanner.scan(eicar)).toBe('infected');
     expect(await scanner.scan(new TextEncoder().encode('hello'))).toBe('clean');
   });
+
+  it('a scan delay is only for the LOCAL-TEST scanner, a whole number of milliseconds, and slows each check by that much', async () => {
+    for (const bad of ['0', '-5', '1.5', '60001', 'abc', '100000'])
+      expect(() =>
+        openLocalTestAttachments({ appEnv: 'test', store: 'local-test-memory', scanner: 'local-test-eicar', scanDelayMs: bad }),
+      ).toThrow(ATTACHMENT_ADAPTER_REFUSED);
+    expect(() => openLocalTestAttachments({ appEnv: 'test', store: 'local-test-memory', scanner: undefined, scanDelayMs: '50' })).toThrow(
+      ATTACHMENT_ADAPTER_REFUSED,
+    );
+    expect(() => openLocalTestAttachments({ appEnv: 'production', store: undefined, scanner: undefined, scanDelayMs: '50' })).toThrow(
+      ATTACHMENT_ADAPTER_REFUSED,
+    );
+    const { scanner } = openLocalTestAttachments({
+      appEnv: 'test',
+      store: 'local-test-memory',
+      scanner: 'local-test-eicar',
+      scanDelayMs: '60',
+    });
+    const started = Date.now();
+    expect(await scanner!.scan(new TextEncoder().encode('hello'))).toBe('clean');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(55);
+    expect(await scanner!.scan(eicar)).toBe('infected');
+  });
 });

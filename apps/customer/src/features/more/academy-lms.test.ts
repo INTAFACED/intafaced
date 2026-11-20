@@ -256,7 +256,21 @@ describe('certificates', () => {
       reference: grant.idempotencyKey,
       code: null,
       requirements: 2,
+      design: null,
     });
+    // AC-certificates-03: a certificate issued under a design prints that revision, as the grant carries it.
+    const design = {
+      revision: 3,
+      title: 'TEST Foundations',
+      body: 'TEST body',
+      signatories: [{ name: 'TEST Signer', role: 'TEST Director' }],
+      disclaimer: 'TEST disclaimer',
+      language: 'en',
+      size: 'a4' as const,
+      effortHours: null,
+    };
+    const designed = certificateCards(buildTracking([definition], [progress([])], [{ ...grant, design }]))[0]!;
+    expect(certificateDocument(designed, owner)?.design).toEqual(design);
     const coded = certificateCards(buildTracking([definition], [progress([])], [{ ...grant, publicId: 'a'.repeat(32) }]))[0]!;
     expect(certificateDocument(coded, owner)?.code).toBe('a'.repeat(32));
     const ready = certificateCards(buildTracking([definition], [progress([])], []))[0]!;

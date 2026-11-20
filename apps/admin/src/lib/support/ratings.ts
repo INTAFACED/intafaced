@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * Satisfaction ratings for the requests solved in a stated window: the strict reader for svc-support's `ratingSummary`
  * and the plain-words figures the card shows.
@@ -26,10 +27,6 @@ const DAY_MS = 86_400_000;
 
 export function ratingWindow(days: WindowDays, now: Date): { readonly from: string; readonly to: string } {
   return { from: new Date(now.getTime() - days * DAY_MS).toISOString(), to: now.toISOString() };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 const count = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0;

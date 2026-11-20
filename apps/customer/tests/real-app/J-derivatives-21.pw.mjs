@@ -21,8 +21,8 @@ import {
 // titled "J-derivatives-21 #<n>". Every figure the desk shows is compared with the venue's own record, never typed here.
 // World: the door switched on for this file (restart), and #4's stale feed on the shared TEST venue (a runtime fault,
 // gates). The venue's own books are not the stack's shared books.
-// #4 makes the market's feed stale on the shared TEST venue and puts it back live in the same step (and again after the
-// file), so no other file sees it stale. #5's ledger half (our ledger posts only our builder fee, once per fill) is
+// #3 lowers the market's cap and #4 makes its feed stale on the shared TEST venue; each puts it back in the same step
+// (and again after the file), so no other file sees either. #5's ledger half (our ledger posts only our builder fee, once per fill) is
 // J-derivatives-17's poster (intafaced #7690), read here as an operator reads it: the builder-fee recon for each fill,
 // and the person's own ledger accounts, which the venue trade never moves.
 const J = 'J-derivatives-21';
@@ -31,15 +31,20 @@ const DESK = `/trade/futures?symbol=${SYMBOL}`;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** The TEST open of #2: a market long of TEST 0.5 XAU at 5x, at most TEST 2700 (the TEST ladder's asks start at 2650.5). */
 const OPEN = { size: '0.5', worst: '2700', times: 5 };
+/** #3's TEST cap: the venue lowers its cap to 3x, below the 5x the person holds, and puts it back in the same step. */
+const LOWER_CAP_BPS = 30_000;
+/** The TEST venue's own cap on XAU-PERP (packages/venue-sim/src/http-server.ts), put back after the file whatever #3 left. */
+const CAP_BPS = 100_000;
 /** The words that would claim a protection of ours (the journey's money line). */
 const PROTECTION =
   /\b(?:protect\w*|guarantee\w*|safe\w*|insur\w*|no liquidation|never liquidat\w*|we (?:pause|halt|stop|hold|freeze)\w*|covered|secured?)\b/i;
 
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
-// The shared TEST venue's feed for the gold market goes back live after the file, whatever #4 left.
+// The shared TEST venue's feed for the gold market goes back live, and its cap back to the venue's own, after the file.
 test.afterAll(async () => {
   await testVenue('/test/feed', { symbol: SYMBOL, state: 'live' }).catch(() => undefined);
+  await testVenue('/test/market-leverage', { symbol: SYMBOL, maxLeverageBps: CAP_BPS }).catch(() => undefined);
 });
 
 function state() {
@@ -239,17 +244,29 @@ test(`${J} #3 tries an open above the venue's leverage cap: refused with the cap
   await expect(outcome).toContainText('The venue refused it:', { timeout: 15_000 });
   await expect(outcome).toContainText(`${SYMBOL} allows at most ${cap}x`);
   await expect(page.getByRole('dialog', { name: 'Check before you sign' })).toHaveCount(0);
-  // The open itself: on this venue an order carries no leverage of its own (its leverage is the account's signed
-  // setting, as on Hyperliquid), so the long the person now reviews is at the leverage the venue holds, within the cap,
-  // never at the refused one. Nothing is confirmed.
-  await reviewLong(page);
-  const sheet = page.getByTestId('venue-review');
-  await expect(sheet).toBeVisible({ timeout: 15_000 });
-  const leverageLine = sheet.locator('[data-line="leverage"]');
-  await expect(leverageLine).toContainText(`${before.leverage.leverageBps / 10_000}x`);
-  await expect(leverageLine).not.toContainText(`${cap * 2}x`);
+  // The open itself above the cap: on this venue an order carries no leverage of its own (its leverage is the account's
+  // signed setting, as on Hyperliquid), so the venue lowers its cap (TEST control) below the leverage the person holds,
+  // and the long they then try is refused by the venue, naming its cap, before anything is signed or sent.
   expect(before.leverage.leverageBps <= m.maxLeverageBps).toBe(true);
-  await page.waitForTimeout(1_000);
+  expect(before.leverage.leverageBps > LOWER_CAP_BPS).toBe(true);
+  try {
+    const lowered = await testVenue('/test/market-leverage', { symbol: SYMBOL, maxLeverageBps: LOWER_CAP_BPS });
+    expect(lowered.status, JSON.stringify(lowered.body)).toBe(200);
+    expect((await market()).maxLeverageBps).toBe(LOWER_CAP_BPS);
+    await expect(page.getByTestId('venue-contract-strip').getByTestId('venue-max-leverage')).toHaveText(`${LOWER_CAP_BPS / 10_000}x`, {
+      timeout: 20_000,
+    });
+    const ticket = await reviewLong(page);
+    await expect(ticket.getByRole('alert')).toContainText(
+      `The venue refused it: ${SYMBOL} allows at most ${LOWER_CAP_BPS / 10_000}x; ${before.leverage.leverageBps / 10_000}x is above its cap`,
+      { timeout: 15_000 },
+    );
+    await expect(page.getByTestId('venue-review')).toHaveCount(0);
+    await page.waitForTimeout(1_000);
+  } finally {
+    await testVenue('/test/market-leverage', { symbol: SYMBOL, maxLeverageBps: m.maxLeverageBps });
+  }
+  expect((await market()).maxLeverageBps).toBe(m.maxLeverageBps);
   // Nothing moved: no signature, no submit, and the venue's leverage, position, orders and balances are as they were.
   expect(wallet.requests).toHaveLength(0);
   expect(submits).toHaveLength(0);

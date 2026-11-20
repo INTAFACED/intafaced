@@ -2,6 +2,7 @@ import type { Sql } from 'postgres';
 import {
   OWN_AGENT_POLICY_ACTIONS,
   type OwnAgentPolicy,
+  type OwnAgentPolicyAccount,
   type OwnAgentPolicyAction,
   type OwnAgentPolicyDecision,
   type OwnAgentPolicyEffect,
@@ -23,7 +24,8 @@ import { OwnAgentRefusal } from './catalog.js';
  * them (the routes take the user from the signed principal and refuse an agent's token).
  */
 
-export type PolicyAccount = 'main';
+/** The main account, or one venue sub-account (`sub:<id>`, J-agents-08 #2): `all` covers both, `main` only the main one. */
+export type PolicyAccount = OwnAgentPolicyAccount;
 
 const covers = (scope: OwnAgentPolicyScope, account: PolicyAccount): boolean => scope === 'all' || scope === account;
 

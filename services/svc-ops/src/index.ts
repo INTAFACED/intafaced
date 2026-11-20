@@ -5,7 +5,7 @@ import postgres from 'postgres';
 import { migrateOutreach } from './db/migrate.js';
 import { OutreachCrm } from './outreach/crm.js';
 import { OutreachError } from './outreach/config.js';
-import { createFounderAuthority } from './outreach/authority.js';
+import { createFounderAuthority, operatorAuthorityFrom } from './outreach/authority.js';
 import { createClientIpResolver } from './outreach/client-ip.js';
 import { SqlConsoleModeStore } from './console-mode/store.js';
 import { StaffHoldDesk } from './staff-holds/desk.js';
@@ -54,6 +54,7 @@ import { OpsService } from './ops-service.js';
 import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED, OpsError } from './codes.js';
 import { opsReadyUrlHonesty } from './ready-honesty.js';
 import { homeConfigFromEnv } from './home-config.js';
+import { valuationPricesFromEnv } from './valuation-prices.js';
 import { createEvaluationFeedClient } from './reconciliation-alerts/feed-client.js';
 import { ingestReconciliationEvaluations } from './reconciliation-alerts/ingest.js';
 import { ReconciliationAlertStore } from './reconciliation-alerts/store.js';
@@ -187,15 +188,18 @@ const capitalSources = createCapitalSources({
 const capitalVenues = createVenueReader(
   testVenuesFor(env.OPS_TEST_VENUE, env.OPS_TEST_VENUE_BUILDER_ACCOUNT, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
 );
+// One live read of the operator entitlement, for outreach and for every `operatorProcedure`.
+const founderAuthority = createFounderAuthority({
+  identityUrl: env.IDENTITY_URL,
+  serviceSecret: process.env.INTERNAL_SERVICE_SECRET,
+});
+const operatorAuthority = operatorAuthorityFrom(founderAuthority);
 const appRouter = createOpsRouter(
   ops,
   {
     crm,
     ...(crmSql ? { publicSettings: new SqlPublicSettingsBook(crmSql) } : {}),
-    authority: createFounderAuthority({
-      identityUrl: env.IDENTITY_URL,
-      serviceSecret: process.env.INTERNAL_SERVICE_SECRET,
-    }),
+    authority: founderAuthority,
   },
   {
     restoreArchiveUrl: env.OPS_RESTORE_ARCHIVE_URL,
@@ -239,6 +243,11 @@ const appRouter = createOpsRouter(
     incidentSeverities: parseIncidentSeverities(env.OPS_INCIDENT_SEVERITIES),
     staffHolds,
     homeConfig: homeConfigFromEnv(env),
+    // A TEST price list only on a test stack (refuses to start elsewhere); blank, nothing is valued.
+    valuationPrices: valuationPricesFromEnv(env.OPS_VALUATION_TEST_PRICES, {
+      APP_ENV: process.env.APP_ENV,
+      NODE_ENV: process.env.NODE_ENV,
+    }),
     reconciliationAlerts: reconciliationAlerts ?? undefined,
     reconciliationBus: () => (reconciliationBus ? 'attached' : 'detached'),
     approvals: approvalConsumer,
@@ -293,6 +302,7 @@ await app.register(fastifyTRPCPlugin, {
     router: appRouter,
     createContext: async ({ req }) => ({
       ...(await edgeContext(req)),
+      operatorAuthority,
       outreachAbuseKey: createHash('sha256')
         .update(resolveClientIp(req.raw.socket.remoteAddress, req.headers['x-intafaced-client-ip']))
         .digest('hex'),

@@ -15,7 +15,7 @@ const world = vi.hoisted(() => ({
   query: undefined as unknown as (module: string, procedure: string, input?: unknown) => Promise<unknown>,
 }));
 
-vi.mock('../session/session', () => {
+vi.mock('../session', () => {
   const api = {
     query: (module: string, procedure: string, input?: unknown) => world.query(module, procedure, input),
     mutate: async () => ({ ok: false }),

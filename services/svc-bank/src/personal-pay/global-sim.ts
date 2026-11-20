@@ -1,7 +1,7 @@
 import { formatAmount, mul, parseAmount } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import { isExplicitDevOrTest } from '@intafaced/config';
-import { emptyGlobalPorts, type GlobalPorts } from './ports.js';
+import { emptyGlobalPorts, SWIFT_CHARGES, type GlobalPorts, type StandInPayout } from './ports.js';
 
 /**
  * THE GLOBAL-SEND STAND-IN, AND IT IS A TEST FIXTURE.
@@ -20,8 +20,9 @@ import { emptyGlobalPorts, type GlobalPorts } from './ports.js';
  * is posted (`GlobalHoldService.screen`), so the compliance queue, the information request, the proof upload and the
  * release can be proved on the stack. Absent, or no entry for the asset, nothing is screened.
  *
- * Numbers: corridors, bounds, rates, quote validity and delivery time come only from the typed catalogue. The fee is
- * zero because a global send posts the amount alone: a fee shown here would never be charged.
+ * Numbers: corridors, bounds, SWIFT charges, rates, fees, quote validity and delivery time come only from the typed catalogue.
+ * A global send posts the amount alone, so no fee is ever taken from the sender's balance: a pair with a TEST `fee` has it
+ * taken by the stand-in from what arrives, in the currency that arrives (receive = amount × rate − fee); otherwise it is zero.
  */
 export const GLOBAL_PARTNER_SETTINGS = ['none', 'global-sim'] as const;
 export type GlobalPartnerSetting = (typeof GLOBAL_PARTNER_SETTINGS)[number];
@@ -46,13 +47,25 @@ const catalogueShape = z
             cutOffTime: z.string().trim().min(1).max(80).nullable(),
             // TEST: false lists and quotes the corridor but gives it no payout, the way a corridor with no partner behaves.
             payout: z.boolean().optional(),
+            // TEST: on a SWIFT corridor, who bears the banks' charges, passed on as the partner's answer. Absent: none given.
+            swiftCharges: z.enum(SWIFT_CHARGES).optional(),
           })
           .strict(),
       )
       .min(1),
     rates: z
       .array(
-        z.object({ asset: z.string().regex(/^[A-Z0-9]{2,16}$/), toCurrency: z.string().regex(/^[A-Z]{3,8}$/), rate: decimal }).strict(),
+        z
+          .object({
+            asset: z.string().regex(/^[A-Z0-9]{2,16}$/),
+            toCurrency: z.string().regex(/^[A-Z]{3,8}$/),
+            rate: decimal,
+            // TEST: how long a quote for this pair stays locked, in place of `quoteValidSeconds`; absent, that applies.
+            validSeconds: z.number().int().min(1).max(3600).optional(),
+            // TEST: a fee in `toCurrency`, taken from what arrives (never from the sender's balance); absent, no fee.
+            fee: decimal.optional(),
+          })
+          .strict(),
       )
       .min(1),
     // TEST: a send of an asset at or over its amount here is put on hold before anything is posted. Absent: none is.
@@ -107,8 +120,11 @@ function receive(amount: string, rate: string): string {
 
 /** The stand-in's ports over one typed catalogue. `now` is injectable so a quote's validity can be tested. */
 export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = () => new Date()): GlobalPorts {
+  // What it paid out, by send, in this process only (a TEST record, gone on restart). The first payout of a send converts;
+  // the same send asked again is acknowledged with the same reference and converts nothing more.
+  const paid = new Map<string, StandInPayout>();
   return {
-    standIn: { label: catalogue.label },
+    standIn: { label: catalogue.label, payout: (sendId) => paid.get(sendId) ?? null },
     ...(catalogue.reviewFrom?.length
       ? {
           review: {
@@ -122,7 +138,11 @@ export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = 
     corridors: {
       status: live,
       list: async () =>
-        catalogue.corridors.map(({ payout: _payout, ...corridor }) => ({ ...corridor, deliveryMethods: [...corridor.deliveryMethods] })),
+        catalogue.corridors.map(({ payout: _payout, swiftCharges, ...corridor }) => ({
+          ...corridor,
+          deliveryMethods: [...corridor.deliveryMethods],
+          swiftCharges: swiftCharges ?? null,
+        })),
     },
     bic: {
       status: live,
@@ -138,13 +158,18 @@ export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = 
         // No typed rate for the pair is an unusable answer: the service refuses `bank.global_fx_unusable` and posts nothing.
         if (!row) throw new Error(`no TEST rate for ${asset} to ${toCurrency}`);
         const at = now().getTime();
+        // Floor, as a provider pays no more than it quotes; past what the ledger can hold, the quote is unusable.
+        const gross = receive(amount, row.rate);
+        const fee = row.fee ?? '0';
+        const net = parseAmount(gross) - parseAmount(fee);
+        // A send too small to cover the fee has nothing left to arrive: an unusable answer, refused, nothing posted.
+        if (net <= 0n) throw new Error(`a TEST fee of ${fee} ${toCurrency} leaves nothing to arrive`);
         return {
           rate: row.rate,
-          fee: '0',
-          feeAsset: asset,
-          // Floor, as a provider pays no more than it quotes; past what the ledger can hold, the quote is unusable.
-          receiveAmount: receive(amount, row.rate),
-          validUntil: new Date(at + catalogue.quoteValidSeconds * 1000).toISOString(),
+          fee,
+          feeAsset: row.fee ? toCurrency : asset,
+          receiveAmount: formatAmount(net),
+          validUntil: new Date(at + (row.validSeconds ?? catalogue.quoteValidSeconds) * 1000).toISOString(),
           eta: new Date(at + catalogue.etaHours * 3_600_000).toISOString(),
         };
       },
@@ -161,7 +186,16 @@ export function globalSimPorts(catalogue: GlobalSimCatalogue, now: () => Date = 
         ),
       railId: () => GLOBAL_SIM_RAIL,
       // The stand-in pays nobody: it acknowledges the send so the tracker has a reference, keyed by the send itself.
-      submit: async ({ sendId }) => ({ ok: true, providerRef: `TEST-${sendId}`, status: 'sent' }),
+      submit: async ({ sendId, quoteId, assetId, amount, toCurrency, rate, receiveAmount }) => {
+        const before = paid.get(sendId);
+        paid.set(
+          sendId,
+          before
+            ? { ...before, calls: before.calls + 1 }
+            : { sendId, quoteId, assetId, amount, toCurrency, rate, receiveAmount, conversions: 1, calls: 1 },
+        );
+        return { ok: true, providerRef: `TEST-${sendId}`, status: 'sent' };
+      },
     },
     travelRule: {
       decision: () => ({ decidedBy: catalogue.travelRule.decidedBy, requiredFields: [...catalogue.travelRule.requiredFields] }),

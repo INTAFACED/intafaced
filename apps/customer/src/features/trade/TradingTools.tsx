@@ -11,13 +11,14 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { positionSchema, type Position } from '@intafaced/exchange-contract/schemas';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { Button, DataTable, Dialog, EmptyState, Field, Loading, Page, Tabs } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount, formatAmount } from '../../shared/money';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import type { Listing, TradeApi } from './trade-api';
-import { createToolApi, copyFollowSchema, type ToolApi } from './tool-api';
+import { createToolApi, type ToolApi } from './tool-api';
+import { readMarker, type Marker } from './trade-pending-marker';
 import { MarketChart } from './Chart';
 
 function State<T>({
@@ -36,25 +37,6 @@ function State<T>({
   ) : (
     children(value.resource.data)
   );
-}
-const markerSchema = z.object({
-  kind: z.string(),
-  id: z.string(),
-  symbol: z.string(),
-  operation: z.string().optional(),
-  clientCloseId: z.string().optional(),
-  startedAt: z.number(),
-});
-type Marker = z.infer<typeof markerSchema>;
-function readMarker(key: string) {
-  try {
-    const wire = localStorage.getItem(key);
-    if (!wire) return { pending: null, blocked: false, available: true };
-    const parsed = markerSchema.safeParse(JSON.parse(wire));
-    return { pending: parsed.success ? parsed.data : null, blocked: true, available: true };
-  } catch {
-    return { pending: null, blocked: true, available: false };
-  }
 }
 function useWriteGuard() {
   const { userId, session } = useSession(),

@@ -33,29 +33,17 @@
  * merge-seal.yml runs again on an edit. On a merge queue's commit every queued pull request is judged on its own head the
  * same way, without waiting.
  *
- * A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP) also needs a clean full run: the
- * newest finished full Real-app journeys run on its exact head, judged here by journeys verdict's own rules
- * (journey-verdict.mjs judge) with the default branch's baseline and money rule, has 0 steps outside the list or against
- * its rules (judgeFullRun). Any title, naming steps or not. (Failure it prevents: on 7 Nov 2026 a pull request that
- * changed shared stack setup merged on its own named steps and turned main's journeys red for about 2.5 hours; the
- * pilot lead then asked builders by message not to arm such pull requests until a full run was clean. Rule 3 of
- * project-state AGENTS.md: a red main means a regression.) A run is full when its report holds a step from every journey
- * file the baseline's named run reported; a run short of files is judged on the files it has, fails the seal when any
- * of them is red, and is passed over only when all are clean, never read as a full run.
- *
- * Every pull request is also held to the journeys it touches (journey-touch.mjs journeyTouch, from its changed paths):
- * a path that can reach any journey (product code with no recorded map of what reaches it yet, every script under
- * tooling/scripts, the journeys workflow, this seal, the verdict, docs, build and environment files) needs the same
- * clean full run as shared setup (judgeFullRun); a pull request whose only such paths are journey test files needs
- * those files run on its exact head and clean by the journeys verdict (judgeTouchedRun); a pull request touching nothing
- * a journeys run executes or reads needs no run. (Failure it prevents: #7415 changed product code, merged on its own
- * steps and broke J-copy-bots-otc-01 #1 on main on 7 Nov 2026, so builders ran the full suite on nearly every branch by
- * hand. The seal now says exactly which run each pull request needs, and a builder runs that one.) A pull request whose
- * title or branch names a journey with a file at its head is held, for its product code, to that journey, its changed
- * journey files and the map's always-run list (namedSealInputs, journey-touch.mjs namedInputs: theo-01 part 1,
- * project-state#2065, OWNER 296), the same list its journeys run was given; main's full run after the merge judges the
- * rest and a red main is reverted (OWNER 249 (3)). A service's own stack file in such a pull request adds the journeys
- * that use it, to the run and to this list (theo-01 part 2, OWNER 296). Every other full path still needs the full run.
+ * Every pull request is also held to the journeys its own run was given (journey-touch.mjs journeyTouch and pullPick,
+ * from its changed paths), never to the full suite: its changed journey files, the journeys its title or branch names
+ * (namedSealInputs, theo-01 part 1, OWNER 296), the journeys the touched-journeys map records reaching its product paths
+ * and the map's always-run list, and the journeys that use a stack file it changes (theo-01 part 2); a change the map
+ * can't narrow (shared setup, a script, the workflow, a path no rule places) or a pick past PR_MAX_FILES runs the
+ * bounded set (its changed and named journeys, the always-run list and the CANARY). Each must be run on its exact head
+ * and clean by the journeys verdict (judgeTouchedRun); a pull request touching nothing a journeys run executes or reads
+ * needs no run. Main's full run after the merge judges the rest and a red main is reverted (OWNER 249 (3): "a PR runs
+ * only the journeys it touches, the full suite runs on main after a merge"). (Until 20 Nov 2026 shared setup and every
+ * path the map couldn't narrow needed a clean full run here: 174 of 233 merged pull requests in 48 hours, about 1,400
+ * runner-minutes each, and no such run on record catching a break outside its change's reach in the 7 days before.)
  *
  * A red step a pull request's run inherited from main stops only a pull request in its area (splitInherited; owner
  * decision 180, "only the broken area stops"): inherited means main's newest finished full run that the head contains is
@@ -72,23 +60,16 @@
  *   GH_TOKEN=... REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] [OLD_BODY=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import {
-  JOURNEYS_ARTIFACT,
-  fetchInputs,
-  isMainRun,
-  judge,
-  manifestsAt,
-  moneyCodeDirs,
-  readReport,
-  rootInputs,
-} from './journey-verdict.mjs';
-import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, stackImporters } from './journey-touch.mjs';
-import { SUBSCRIBES, builtMap, loadMap, newerMap, runsBehind } from './journey-reach-map.mjs';
-import { groupPulls, isJudgeDown, reviewRan } from './review-marker.mjs';
+import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
+import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, pullPick, stackImporters } from './journey-touch.mjs';
+import { subscribesVia, builtMap, headWanted, loadMap, newerMap, readHead, runsBehind } from './journey-reach-map.mjs';
+import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
+import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
+import { httpMessage, titleFor } from './api-budget.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -219,7 +200,7 @@ export function linesOutsideCode(body) {
  * tracker over the raw lines (a fence opens at any indent, so one inside a list counts) and HTML comments stripped; a
  * line inside either is code or hidden and exempts nothing. Outside them, a `Left-or-replaced:` line at column 0 whose
  * rest is only full step ids (`J-bank-13 #1 #3, J-bank-14 #2`) exempts those steps; every other line that looks like an
- * exemption is a problem, and so is an exemption line with anything else after the colon or a range that can't be read.
+ * exemption is a problem, printed as a note and never a red, as is an exemption line with more after the colon or a bad range.
  */
 export function exemptions(body) {
   const steps = new Set();
@@ -253,6 +234,7 @@ export function exemptionLine(keys) {
   }
   return `Left-or-replaced: ${[...by].map(([id, ns]) => `${id} ${ns.join(' ')}`).join(', ')}`;
 }
+const notes = (left) => left.problems.map((l) => `note: "${l.slice(0, 80)}" exempts nothing; only step ids at a line's start do`);
 const leaveLine = (keys) =>
   `to leave these steps instead, add this line to the body, at the start of a line and outside code: ${exemptionLine(keys)}`;
 
@@ -273,17 +255,7 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
     };
   if (named.length === 0) return { ok: true, state: 'none', lines: ['the title names no journey step'] };
   const left = exemptions(body);
-  if (left.problems.length)
-    return {
-      ok: false,
-      state: 'fail',
-      kinds: ['yours'],
-      lines: left.problems.map(
-        (l) =>
-          `"${l.slice(0, 160)}" looks like an exemption but isn't one: write \`Left-or-replaced: J-bank-13 #1 #3\` at the start of a line, outside code, with step ids only`,
-      ),
-    };
-  const lines = [];
+  const lines = notes(left);
   const needed = [];
   for (const k of named) {
     if (left.steps.has(k)) lines.push(`${k}: exempted on a Left-or-replaced line`);
@@ -382,7 +354,6 @@ export const SHARED_SETUP = [
   { glob: 'tooling/scripts/local-stack-fixtures/**' },
   { glob: 'tooling/scripts/local-test-*.mjs' },
   { glob: 'tooling/scripts/journey-world.mjs' },
-  { glob: 'tooling/scripts/local-infra-bootstrap.sh' },
   { glob: 'apps/customer/tests/real-app/**', unless: /\.pw\.mjs$/, trigger: 'apps/**' },
 ];
 /** A GitHub `paths:` glob as a regular expression: `**` any characters, `*` any but `/`. */
@@ -408,115 +379,8 @@ const onHead = (runs, sha, repo) =>
 const newestFirst = (a, b) => Date.parse(b.run_started_at ?? b.created_at) - Date.parse(a.run_started_at ?? a.created_at) || b.id - a.id;
 
 /**
- * The full-run verdict for a head whose pull request touches shared setup (`shared`: those files). `reportOf(run)` is
- * { states, files } of the run's current-attempt report, or { error }; `verdictOf(report, run)` is
- * { red: [{ step, why }], failing, missing: [journey files the full suite has and this report lacks] }, judged with the
- * default branch's baseline (makeIo). Newest first: a full run decides (0 red passes, anything else fails); a run whose
- * report lacks journey files (targeted, or a shard lost) is judged on the files it has (fullVerdict), fails the seal if
- * any is red, and is passed over only when all it has is clean. A run still going holds it (as judgeSteps), a cancelled
- * or skipped run says nothing, and a report that can't be read fails closed.
- */
-export async function judgeFullRun({
-  sha,
-  repo,
-  shared,
-  runs,
-  reportOf,
-  verdictOf,
-  waitOnRunning = true,
-  because = null,
-  inherited = null,
-}) {
-  const why =
-    because ??
-    `it changes the journey stack's shared setup (${shared.slice(0, 5).join(', ')}${shared.length > 5 ? `, ${shared.length - 5} more` : ''})`;
-  const how = 'dispatch real-app-journeys.yml on the branch with no journeys input (the full suite); the seal re-runs when it finishes';
-  const mine = onHead(runs, sha, repo);
-  const running = mine.filter((r) => r.status !== 'completed');
-  if (running.length && waitOnRunning) {
-    const ids = running.map((r) => `${r.id} (attempt ${r.run_attempt ?? 1}, ${r.status})`).join(', ');
-    return {
-      ok: false,
-      state: 'wait',
-      lines: [`full run: ${why}; Real-app journeys run ${ids} on this head has not finished; the seal reads it once it does`],
-    };
-  }
-  const finished = mine.filter((r) => r.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion)).sort(newestFirst);
-  const passed = [];
-  for (const r of finished) {
-    const where = `run ${r.id} (attempt ${r.run_attempt ?? 1})`;
-    let rep;
-    try {
-      rep = (await reportOf(r)) ?? { error: 'no report' };
-    } catch (e) {
-      rep = { error: e.message };
-    }
-    if (rep.error)
-      return {
-        ok: false,
-        state: 'fail',
-        kinds: ['runner'],
-        lines: [`full run: ${why}; ${where}'s report couldn't be read (${rep.error}), so the seal fails closed`],
-      };
-    let v;
-    try {
-      v = await verdictOf(rep, r);
-    } catch (e) {
-      return {
-        ok: false,
-        state: 'fail',
-        kinds: ['runner'],
-        lines: [`full run: ${why}; ${where}'s verdict couldn't be worked out (${e.message}), so the seal fails closed`],
-      };
-    }
-    // Reds this head inherited from main, outside this pull request's area, stop no one but their owner (owner decision
-    // 180, the affected-area stop); every other red still fails the seal (splitInherited).
-    const split = await splitOrAll(inherited, v.red, r);
-    const kept = inheritedLines(split).map((l) => `full run: ${l}`);
-    const red = split.blocking;
-    if (v.missing?.length && red.length === 0) {
-      passed.push(
-        `${where} is not a full run (no step from ${v.missing.length} journey file(s), e.g. ${v.missing.slice(0, 3).join(', ')}) and is clean on the files it has${split.passed.length ? ' but for reds inherited from main outside its area' : ''}`,
-        ...inheritedLines(split),
-      );
-      continue;
-    }
-    if (red.length === 0)
-      return {
-        ok: true,
-        state: 'pass',
-        lines: [
-          `full run: ${why}; ${where} is clean: ${v.failing} failing or missing step(s), 0 outside the list or against its rules${split.passed.length ? ` but ${split.passed.length} inherited from main outside this pull request's area` : ''}`,
-          ...kept,
-        ],
-      };
-    return {
-      ok: false,
-      state: 'fail',
-      kinds: redKinds(red),
-      lines: [
-        `full run: ${why}; ${where}${v.missing?.length ? `, short of ${v.missing.length} journey file(s),` : ''} has ${red.length} step(s) outside the list or against its rules: ${red
-          .slice(0, 10)
-          .map((x) => `${x.step}: ${x.why}`)
-          .join('; ')}${red.length > 10 ? `; ${red.length - 10} more` : ''}`,
-        ...kept,
-      ],
-    };
-  }
-  return {
-    ok: false,
-    state: 'fail',
-    kinds: ['runner'],
-    lines: [
-      `full run: ${why}, so it needs a clean full Real-app journeys run on this exact head, and none has finished; ${how}`,
-      ...passed.map((l) => `full run: ${l}`),
-    ],
-  };
-}
-
-/**
  * The touched-journeys verdict for a head whose pull request touches only journey test files (`files`: their names, as
- * a report's `ran` lists them). Newest finished run first, as judgeFullRun: every run read is judged by the journeys
+ * a report's `ran` lists them). Newest finished run first: every run read is judged by the journeys
  * verdict on the files it has (`verdictOf`, the default branch's baseline), and any red step there fails the seal, so a
  * newer red run is never hidden behind an older clean one; runs are read until every touched file has been run by one
  * of them. A touched file no finished run on the head ran fails the seal and is named. A run still going holds it, a
@@ -535,7 +399,7 @@ export async function judgeTouchedRun({
   named = null,
 }) {
   const why = `it touches ${files.length} journey file(s) (${files.slice(0, 5).join(', ')}${files.length > 5 ? `, ${files.length - 5} more` : ''})${reach?.length ? `, by the touched-journeys map (${reach.slice(0, 3).join('; ')}${reach.length > 3 ? `; ${reach.length - 3} more` : ''})` : ''}${named ? `, because ${named}` : ''}`;
-  const how = `dispatch real-app-journeys.yml on the branch with -f journeys="${files.join(' ')}" (or no journeys input, the full suite); the seal re-runs when it finishes`;
+  const how = `dispatch real-app-journeys.yml on the branch with -f journeys="${files.join(' ')}"; the seal re-runs when it finishes`;
   const mine = onHead(runs, sha, repo);
   const running = mine.filter((r) => r.status !== 'completed');
   if (running.length && waitOnRunning) {
@@ -576,7 +440,7 @@ export async function judgeTouchedRun({
         lines: [`touched journeys: ${why}; ${where}'s verdict couldn't be worked out (${e.message}), so the seal fails closed`],
       };
     }
-    // As judgeFullRun: a red this head inherited from main outside this pull request's area stops no one.
+    // A red this head inherited from main outside this pull request's area stops no one.
     const split = await splitOrAll(inherited, v.red, r);
     read.push(...inheritedLines(split));
     const red = split.blocking;
@@ -654,7 +518,7 @@ async function api(path, token, { raw = false } = {}) {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
     redirect: 'follow',
   });
-  if (!res.ok) throw new Error(`GET ${path}: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(httpMessage(path, res));
   return raw ? Buffer.from(await res.arrayBuffer()) : res.json();
 }
 
@@ -677,6 +541,8 @@ export function makeIo(repo, token) {
   const file = JOURNEYS_WORKFLOW.split('/').pop();
   return {
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
+    // The pull requests GitHub lists on a commit, open or not (mergedNothingToSeal).
+    pullsOn: (sha) => api(`/repos/${repo}/commits/${sha}/pulls?per_page=100`, token),
     // An automatic revert's commits (it must hold one) and the commit it reverts (autoRevertScope).
     pullCommits: (n) => api(`/repos/${repo}/pulls/${n}/commits?per_page=2`, token),
     commit: (sha) => api(`/repos/${repo}/commits/${sha}?per_page=300`, token),
@@ -714,6 +580,17 @@ export function makeIo(repo, token) {
         await builtMap({ get: (path) => api(path, token), raw: (path) => api(path, token, { raw: true }), before, repo }),
         loadMap(),
       ),
+    // Main's open `regression` and `flaky` issues, for a red that is main's own (mainsOwn).
+    mainIssues: async () =>
+      (
+        await Promise.all(
+          ['regression', 'flaky'].map(async (label) => {
+            const r = await api(`/repos/${repo}/issues?labels=${label}&state=open&per_page=100`, token);
+            if (!Array.isArray(r)) throw new Error(`open ${label} issues: not a list`);
+            return r;
+          }),
+        )
+      ).flat(),
     mainRuns: async () => {
       const r = await api(`/repos/${repo}/actions/workflows/${file}/runs?branch=main&status=completed&per_page=100`, token);
       if (!Array.isArray(r?.workflow_runs)) throw new Error(`${file} runs on main: not a list`);
@@ -728,6 +605,12 @@ export function makeIo(repo, token) {
       (await api(`/repos/${repo}/compare/${base}...${head}?per_page=1`, token))?.merge_base_commit?.sha ?? null,
     rangeOf: (from, to) => rangeFromCommits((path) => api(path, token), repo, from, to),
     files: (n) => pullFiles((path) => api(path, token), repo, n),
+    // A folder's entry names at a commit (journey-reach-map.mjs loadersReach): the contents API lists up to 1,000.
+    dirNames: async (dir, ref) => {
+      const list = await api(`/repos/${repo}/contents/${dir.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`, token);
+      if (!Array.isArray(list) || list.length >= 1000) throw new Error(`${dir} could not be listed whole`);
+      return list.map((e) => String(e?.name));
+    },
     // The journey files in the head's real-app folder (the contents API lists up to 1,000 entries; there are ~270).
     journeyFiles: async (ref) => {
       const list = await api(`/repos/${repo}/contents/apps/customer/tests/real-app?ref=${ref}`, token);
@@ -779,18 +662,26 @@ export function makeIo(repo, token) {
       return out;
     },
     verdictOf: (report, run) => fullVerdict({ repo, report, run, inputs: baseInputs() }),
-    // Whether a path is in money code, by the default branch's manifests (the base's copy this script runs from).
-    moneyCode: async (paths) => {
-      const dirs = moneyCodeDirs(manifestsAt(BASE_ROOT));
-      return paths.some((f) => dirs.has(packageOf(f)));
-    },
   };
 }
 
 /** The default branch's checkout this script runs from (ci.yml runs the base's copy): its baseline and money rule. */
 const BASE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 let base = null;
-const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), reports: new Map() });
+const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), onMain: journeyFilesAt(BASE_ROOT), reports: new Map() });
+
+/**
+ * The journey files a checkout holds (`apps/customer/tests/real-app/*.pw.mjs`), as a set of names, or null when the
+ * folder can't be read. The seal reads it from the default branch's checkout it runs from, never from the pull request's
+ * head, so a pull request can't shorten what a full run must hold by deleting or renaming a file itself.
+ */
+export function journeyFilesAt(root) {
+  try {
+    return new Set(readdirSync(join(root, 'apps/customer/tests/real-app')).filter((f) => f.endsWith('.pw.mjs')));
+  } catch {
+    return null;
+  }
+}
 
 /** One run's verdict, as journey-verdict.mjs would print it with the default branch's baseline, and the journey files
  *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
@@ -805,9 +696,14 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
   if (!Array.isArray(got.named.ran))
     return { red: [...red, { step: '(input)', why: "the named run's report has no list of the files it ran" }], failing: 0, missing: [] };
   const have = new Set(report.ran ?? []);
-  const missing = got.named.ran.filter((f) => !have.has(f));
+  // A file the named run ran that the default branch no longer has (deleted or renamed there since, as #8485 deleted
+  // J-home-ia-06-blocked.pw.mjs) can't run, so it is not missing (#8505: every full run after it read as short).
+  // `inputs.onMain` is main's own file list (`journeyFilesAt`); without one, every file still counts, so the rule
+  // fails closed.
+  const onMain = inputs.onMain instanceof Set ? inputs.onMain : null;
+  const missing = got.named.ran.filter((f) => !have.has(f) && (onMain === null || onMain.has(f)));
   // A run short of journey files (targeted, or a shard lost) is judged on the files it has, as a targeted run's own
-  // verdict is: a red step there fails the seal; only a run clean on all it has is passed over (judgeFullRun).
+  // verdict is: a red step there fails the seal; only a run clean on all it has is passed over.
   const target = missing.length ? have : null;
   const v = judge({ newest: report, named: got.named, baseline, money, passedSince: got.passedSince, issues: got.issues, target });
   // Where each red step last passed on main before this run (the newest history run that passed it, else the named run
@@ -816,7 +712,11 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
   for (const { step } of v.red) {
     const n = got.passedSince?.[step];
     lastPass[step] =
-      n !== undefined ? (got.shas?.[n] ?? '') : got.named.states?.[step] === 'passed' ? String(baseline?.run?.sha ?? '') : null;
+      n !== undefined
+        ? (got.shas?.[n] ?? '')
+        : got.named.states?.[step] === 'passed' || got.named.tests?.[step] === 'passed'
+          ? String(baseline?.run?.sha ?? '')
+          : null;
   }
   return { red: [...red, ...v.red], failing: v.failing, missing, lastPass };
 }
@@ -856,7 +756,7 @@ export function fileSteps(journey, text) {
 /**
  * A pull request that changes a journey test file says which steps it touches: for each changed file, at least one of
  * the steps it holds is named in the title (then judged by judgeSteps) or on a strict `Left-or-replaced:` line. A
- * title naming another journey's steps, or none, fails, and so does an exemption-like line that isn't one. `touched`:
+ * title naming another journey's steps, or none, fails; a line that only looks like an exemption names none. `touched`:
  * [{ file, journey, steps }], the steps each file holds at the head (or at the base, for a file the head removed).
  * (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so the seal
  * judged none of their steps; project-state #1249 comment 6681706701.)
@@ -868,14 +768,6 @@ export function judgeTouched({ title, body, touched, repo }) {
   const reverts = revertOf({ title, body, repo });
   if (reverts) return { ok: true, lines: [`a revert of #${reverts} (GitHub's Revert form): its journey tests need no steps named`] };
   const left = exemptions(body);
-  if (left.problems.length)
-    return {
-      ok: false,
-      lines: left.problems.map(
-        (l) =>
-          `"${l.slice(0, 160)}" looks like an exemption but isn't one: write \`Left-or-replaced: J-bank-13 #1 #3\` at the start of a line, outside code, with step ids only`,
-      ),
-    };
   const named = new Set([...titleSteps(title), ...left.steps]);
   const lines = [];
   for (const { file, journey, steps } of touched) {
@@ -890,6 +782,30 @@ export function judgeTouched({ title, body, touched, repo }) {
     );
   }
   return { ok: lines.length === 0, lines };
+}
+
+/**
+ * judgeTouched before the push (`--before-push`, from .githooks/pre-push), with the title it needs: the seal judged it
+ * only once every input had finished, so #8469 heard 42 minutes after its push and #8478 18. `title` null (no pull
+ * request yet): `need` names the steps the title must name. Otherwise ok, or `fix`: the title with them added. Pure.
+ */
+export function titleBeforePush({ title, body, touched, repo }) {
+  const runOf = ({ journey, steps }) => `${journey} ${steps.map((k) => `#${k.split('#')[1]}`).join(' ')}`;
+  const need = touched.filter((t) => t.steps.length).map(runOf);
+  if (title == null) return { ok: true, need };
+  const pass = (t) => judgeTouched({ title: t, body, touched, repo }).ok && !titleProblems(t).length;
+  if (pass(title)) return { ok: true, need };
+  let fix = title;
+  for (const t of touched.filter((t) => t.steps.length && !t.steps.some((k) => titleSteps(fix).includes(k)))) {
+    const at = new RegExp(`\\b${t.journey}\\b(?!\\s*#)`, 'i');
+    fix = at.test(fix) ? fix.replace(at, runOf(t)) : fix.replace(/( \(#\d+\))?\s*$/, (end) => `, ${runOf(t)}${end}`);
+  }
+  return {
+    ok: false,
+    need,
+    lines: [...titleProblems(title), ...judgeTouched({ title, body, touched, repo }).lines],
+    fix: pass(fix) ? fix : null,
+  };
 }
 
 /** The pull request a GitHub revert undoes: the title is exactly `Revert "…"` and a body line, at column 0, is exactly
@@ -916,7 +832,8 @@ const CULPRIT_PULL = /^Revert #(\d+), which turned the Real-app journeys red \(r
  * and main's full journeys run after the merge is what guards main afterwards (it bisects and reverts again if red).
  * Null when the pull request is not on a `revert/auto-<sha10>` branch; `{ ok: false, why }` when it is but any check
  * fails, so it gets the ordinary scope: opened by the factory App from this repository, exactly one commit whose message
- * says it reverts the commit the branch names, no file outside that commit's, no shared journey setup, and at least one
+ * says it reverts the commit the branch names, no file outside that commit's (shared journey setup included: its reverse
+ * restores what main proved before that commit, intafaced #8149), and at least one
  * journey file named. `commits`: GET /pulls/n/commits; `culprit`: GET /commits/<sha> (or null); `culpritTitle`: the
  * culprit pull request's title (or ''); `journeyFiles`: the head's journey file names.
  */
@@ -933,7 +850,6 @@ export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTi
   const own = new Set(pullFilePaths(culprit.files));
   const outside = paths.filter((f) => !own.has(f));
   if (outside.length) return no(`it changes ${outside.length} file(s) the reverted commit didn't`);
-  if (paths.some(isSharedSetup)) return no('it changes shared journey setup');
   const failing = /^- Failing: (.+)$/m.exec(String(pull?.body ?? '').replace(/\r/g, ''))?.[1] ?? '';
   const journeys = new Set([
     ...[...failing.matchAll(/`(J-[a-z][a-z0-9-]*-\d+) #\d+`/g)].map((m) => m[1]),
@@ -943,6 +859,8 @@ export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTi
   const dir = 'apps/customer/tests/real-app';
   const files = [...journeyFiles].filter((f) => journeys.has(JOURNEY_TEST.exec(`${dir}/${f}`)?.[1])).sort();
   if (!files.length) return no('it names no journey file');
+  // Shared setup too: a pull request's run is never the full suite (journey-touch.mjs pullPick), and the seal holds the
+  // revert to these files, as its run takes them.
   return {
     ok: true,
     sha,
@@ -950,6 +868,10 @@ export function autoRevertScope({ pull, repo, paths, commits, culprit, culpritTi
     why: `the automatic revert of ${sha.slice(0, 10)} runs the journeys that failed on main and the reverted change's own (${files.length}); main's full journeys run after the merge guards main`,
   };
 }
+
+/** What the journeys run's planner (real-app-journeys.yml, `--auto-revert-scope`) reads: the narrow files, or null for
+ *  the ordinary scope (journey-touch.mjs). Pure. */
+export const autoRevertPlan = (scope) => (scope?.ok ? { files: scope.files, why: scope.why } : { files: null, why: scope?.why ?? '' });
 
 /** The culprit pull request number an automatic revert's title names, or null. */
 export const autoRevertCulprit = (title) => Number(CULPRIT_PULL.exec(String(title ?? ''))?.[1]) || null;
@@ -1041,12 +963,10 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  *   - one whose paths share an area (areasOf) with a commit on main from where the step last passed to the newest main
  *     commit the head holds (`upTo`): the commits one of which broke it, and any that tried to fix it since
  *     (`rangeOf(from, to)` → { files, commits } from GitHub's compare).
- * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) or money
- * code (`touches.money`: AGENTS.md "How work flows" 8, "a red in a package your PR changes always blocks the merge, even
- * when main shares it") is in every red's area, so nothing it inherited is passed over. A money step's red (the verdict's
- * money rule) is never passed over, for any pull request, except one that failed, then passed on its retry both on this
- * head and in main's run (project-state OWNER 278: it "stops only its own journeys"), which stops only the pull
- * requests in its area like any other inherited red.
+ * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) is in every
+ * red's area, so nothing it inherited is passed over. A money step's red (the verdict's
+ * money rule) is never passed over, for any pull request. (A pass on the retry is no longer a red at all: the lead's
+ * decision of 12 Nov 2026 under OWNER 296 and 297, journey-verdict.mjs.)
  * A red that can't be bounded stops every pull request it reaches: an unreadable input, main's reference run with an
  * input problem, no reference run, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
  * short, or a step that never passed on main (no commit bounds where it broke; council review G1). A step that last
@@ -1074,12 +994,12 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
   const at = `main's run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}`;
   if (main.problems.length)
     return { blocking: red, passed: [], notes: [`${at} has unreadable inputs (${main.problems[0]}), so every red counts`] };
-  if (touches.shared || touches.money)
+  if (touches.shared)
     return {
       blocking: red.map((x) => (sameOnMain(main, x) ? { ...x, onMain: true } : x)),
       passed: [],
       notes: [
-        `this pull request changes ${touches.shared ? "the journey stack's shared setup, which reaches every journey" : 'money code (AGENTS.md "How work flows" 8)'}, so every red counts, inherited or not`,
+        `this pull request changes the journey stack's shared setup, which reaches every journey, so every red counts, inherited or not`,
       ],
     };
   const mine = new Set([...touches.paths].flatMap(areasOf));
@@ -1094,10 +1014,8 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
     const journey = journeyOf(x.step);
     const stop = (why) => blocking.push({ step: x.step, why: `${x.why}; inherited from ${at}, ${why}`, onMain: true });
     // A money step is never passed over (REVIEW.md item 3: setting a money step aside is a quarantine); a red the verdict
-    // didn't mark either way counts as money. The one exception is OWNER 278: a money step that failed, then passed on
-    // its retry, here and in main's run (the same verdict line, so main's was a retry pass too), stops only the pull
-    // requests in its area, by the rules below; money code and shared setup still put a pull request in every area.
-    if (x.money !== false && x.retryFlaky !== true) {
+    // didn't mark either way counts as money.
+    if (x.money !== false) {
       stop(`but it is a money step, so it stops every pull request`);
       continue;
     }
@@ -1174,6 +1092,52 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
   return { blocking, passed, notes: passed.length ? [`reds inherited from main are read against ${at}`] : [] };
 }
 
+/**
+ * The lead's decision of 12 Nov 2026 under OWNER 296 and 297, for a pull request that runs its bounded set (journey-touch.mjs
+ * pullPick), which stands where a full run stood: "a PR whose seal needs a full journeys run is not held
+ * by a step that is already red on main. Such a step is main's, tracked by main's own open issue (`regression` or
+ * `flaky`) and repaired there; the PR must still pass every other step. The excuse never applies when the PR changes
+ * that step's journey, its test or anything the step's shard reads as a test file; then the step is the PR's."
+ * Each red splitInherited still holds (`blocking`) is main's when main's newest finished full run (`latest`, read by
+ * mainReference whatever the head holds) is red on it with the same verdict line, an open issue tracks it (labelled
+ * `regression` and titled "Journey broken on main: <journey>", or labelled `flaky` and titled "Flaky step on main:
+ * <journey> #<n>…"), and the pull request touches neither its journey nor any test file
+ * (MAINS_TEST_PATHS). A money step's red (or one the verdict didn't mark either way) is never main's here: as in
+ * splitInherited, a money step is never passed over (REVIEW.md item 3). Anything else stays as it was. Never for a pull request that changes the journey stack's shared
+ * setup (every red counts there). Returns { blocking, passed }.
+ */
+export const MAINS_TEST_PATHS = ['apps/customer/tests/', 'apps/customer/playwright'];
+const FLAKY_TITLE = /^Flaky (?:money )?step on main: (J-[\w-]+)((?: #\d+)+)\s*$/;
+export function trackingIssue(issues, step) {
+  const journey = journeyOf(step);
+  const n = String(step).split('#')[1];
+  return (issues ?? []).find((i) => {
+    if (i?.state !== 'open' || i?.pull_request) return false;
+    const labels = (i.labels ?? []).map((l) => (typeof l === 'string' ? l : l?.name));
+    if (labels.includes('regression') && i.title === `Journey broken on main: ${journey}`) return true;
+    const m = labels.includes('flaky') ? FLAKY_TITLE.exec(String(i.title)) : null;
+    return Boolean(m && m[1] === journey && m[2].trim().split(/\s+/).includes(`#${n}`));
+  });
+}
+export function mainsOwn({ blocking, latest, issues, touches }) {
+  if (touches.shared || !latest || latest.problems.length) return { blocking, passed: [] };
+  const tests = [...touches.paths].find((p) => MAINS_TEST_PATHS.some((t) => p.startsWith(t)));
+  const at = `main's newest finished run ${latest.run.id} on ${String(latest.run.head_sha).slice(0, 10)}`;
+  const out = { blocking: [], passed: [] };
+  for (const x of blocking) {
+    const journey = journeyOf(x.step);
+    const issue = x.money === false && sameOnMain(latest, x) ? trackingIssue(issues, x.step) : null;
+    if (!issue) out.blocking.push(x);
+    else if (touches.journeys.has(journey) || tests)
+      out.blocking.push({
+        ...x,
+        why: `${x.why}; ${at} has it red too (#${issue.number}), but this pull request changes ${tests ? printable(tests) : journey}, so it is this pull request's`,
+      });
+    else out.passed.push({ step: x.step, why: `it is main's: ${at} has it red too and #${issue.number} tracks it there` });
+  }
+  return out;
+}
+
 /** `inherited(red, run)` split, failing closed: when it can't be worked out, every red stops the pull request. */
 async function splitOrAll(inherited, red, run) {
   if (!red.length || !inherited) return { blocking: red, passed: [], notes: [] };
@@ -1234,8 +1198,7 @@ async function runMap(io, head) {
 
 /**
  * What a pull request that names a journey runs (journey-touch.mjs namedInputs, theo-01 part 1), as its journeys run
- * worked it out: the journeys its title or branch names, with a file at the head, and the always-run list of the map
- * that run chose. Null when it names none, or when the head's journey files can't be read (then the other rules decide,
+ * worked it out: the journeys its title or branch names, with a file at the head. Null when it names none, or when the head's journey files can't be read (then the other rules decide,
  * which never ask fewer journeys).
  */
 export async function namedSealInputs({ io, pull, head }) {
@@ -1260,16 +1223,16 @@ export async function namedSealInputs({ io, pull, head }) {
   return namedInputs({
     ids,
     journeyFiles,
-    map: await runMap(io, head),
     importers: texts ? (stack) => stackImporters(stack, texts) : null,
   });
 }
 
-export async function reachInputs({ io, paths, head, text }) {
+export async function reachInputs({ io, paths, head, base, text }) {
   const kinds = paths.map((p) => [p, pathKind(p)]);
   const product = kinds.filter(([, k]) => k.product).map(([p]) => p);
-  // Any other full path makes the whole change full, so nothing below would be used: read nothing.
-  if (!product.length || kinds.some(([, k]) => k.kind === 'full' && !k.product) || !io.mainRuns || !io.journeyFiles) return null;
+  // Read for every change that runs journeys, as the touch job reads it: the map's always-run list goes into a bounded
+  // set (journey-touch.mjs pullPick) whatever made the change full.
+  if (!kinds.some(([, k]) => k.kind !== 'none') || !io.mainRuns || !io.journeyFiles) return null;
   const map = await runMap(io, head);
   let behind = null;
   try {
@@ -1291,10 +1254,36 @@ export async function reachInputs({ io, paths, head, text }) {
     } catch {
       t = undefined; // unreadable: counts as subscribing, so full
     }
-    subs.set(p, t === undefined ? true : t !== null && SUBSCRIBES.test(t));
+    // It, or a file of its service it imports, calls the bus's subscribe (subscribesVia); a file that can't be read is full.
+    subs.set(p, t === undefined ? true : t !== null && (await subscribesVia(p, (f) => (f === p ? t : text(f, head)))));
   }
+  // What a customer file no run recorded is judged by (journey-reach-map.mjs loadersReach), read as the touch job reads
+  // it from its checkout of the head (journey-touch.mjs checkoutHead); a read that fails leaves it unknown, which is full.
+  const want = headWanted(map, paths);
+  let headIn = null;
+  if (want)
+    try {
+      const mb = await io.mergeBase(base, head);
+      if (!SHA40.test(String(mb))) throw new Error('no merge base');
+      headIn = await readHead(map, want, {
+        read: (p) => text(p, head),
+        list: (d) => io.dirNames(d, head),
+        mergeBase: mb,
+        atBase: async (u) => (await text(u, mb)) !== null,
+        compare: io.compare,
+      });
+    } catch {
+      headIn = {};
+    }
   // io.reachMode: a test's stand-in for REACH_MAP_MODE; the seal itself never sets it.
-  return { map, behind, journeyFiles, subscribes: (p) => subs.get(p) ?? false, ...(io.reachMode ? { mode: io.reachMode } : {}) };
+  return {
+    map,
+    behind,
+    journeyFiles,
+    subscribes: (p) => subs.get(p) ?? false,
+    head: headIn,
+    ...(io.reachMode ? { mode: io.reachMode } : {}),
+  };
 }
 
 /** One pull request's head, judged. */
@@ -1325,6 +1314,10 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   if (!SHA40.test(head)) return { ok: false, lines: [`#${number}: its head could not be read`] };
   if (sha && head !== sha)
     return { ok: false, lines: [`#${number}: its head is now ${head}, not ${sha}; the newer head gets its own seal run`] };
+  if (requireOpen && pull.merged_at && io.pullsOn) {
+    const merged = mergedNothingToSeal(pull, head, await io.pullsOn(head));
+    if (merged) return { ok: true, lines: [merged] };
+  }
   if (requireOpen && pull.state !== 'open') return { ok: false, lines: [`#${number}: is ${pull.state}`] };
   const paths = await io.files(number);
   const texts = new Map();
@@ -1345,19 +1338,20 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   for (const f of paths) if (RUN_FILE.test(f)) atHead.set(f, (await text(f, head)) !== null);
   // GitHub's Revert button (revertOf) undoes a change and adds none, so only shared setup still holds it to a run: a red
   // main is fixed or undone within 2 hours (project-state OWNER 180), as judgeSteps and judgeTouched let it.
-  const reverting = revertOf({ title: pull.title, body: pull.body, repo });
-  // A pull request that names a journey is judged on it, its changed journey files and the always-run list, as its run
-  // was given them (namedSealInputs); else product code goes to the map or the full run.
+  // A revert that touches shared setup takes the ordinary scope, as its run does (real-app-journeys.yml's pick step).
+  const reverting = revertOf({ title: pull.title, body: pull.body, repo }) && !paths.some(isSharedSetup);
+  // A pull request that names a journey is judged on it and its changed journey files, as its run
+  // was given them (namedSealInputs), and its product code goes to the map like any other's. What it must run is what its
+  // run was given: never the full suite (journey-touch.mjs pullPick), the same bounded set where the map can't narrow it.
   const stack = paths.filter((p) => pathKind(p).stack);
-  const named =
-    reverting || !(stack.length || paths.some((p) => pathKind(p).product))
-      ? null
-      : await namedSealInputs({ io, pull: { ...pull, stack }, head });
+  const named = reverting || auto?.ok ? null : await namedSealInputs({ io, pull: { ...pull, stack }, head });
+  const touchAt = (f) => atHead.get(f) ?? true;
+  const inputs = reverting || auto?.ok ? null : await reachInputs({ io, paths, head, base: pull.base?.sha, text });
   const reach = reverting
     ? { mode: 'none', full: [], files: [] }
     : auto?.ok
       ? { mode: 'files', full: [], files: auto.files, reach: [auto.why] }
-      : journeyTouch(paths, (f) => atHead.get(f) ?? true, named ? null : await reachInputs({ io, paths, head, text }), named);
+      : pullPick(paths, journeyTouch(paths, touchAt, inputs, named), { atHead: touchAt, reach: inputs, named });
   // A stack file narrowed to the journeys using it (theo-01 part 2) no longer needs the full run as shared setup.
   const narrowed = new Set(reach.stack ?? []);
   const shared = paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));
@@ -1379,62 +1373,64 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
     ]),
     paths: new Set(paths),
     shared: shared.length > 0,
-    // Money code by the base's manifests, or any package.json the pull request changes: a dependency on ledger-client it
-    // adds, or a new package, would make money code the base can't see (CI review on e288d257).
-    money: paths.some((f) => /(^|\/)package\.json$/.test(f)) || (io.moneyCode ? await io.moneyCode(paths) : false),
   };
   let main;
   let upTo;
-  const inherited = io.mainRuns
-    ? async (red) =>
-        splitInherited({
-          red,
-          main: await (main ??= mainReference({
-            repo,
-            mainRuns: await io.mainRuns(),
-            contains: (sha) => io.contains(sha, head),
-            reportOf,
-            verdictOf,
-          })),
-          touches,
-          upTo: await (upTo ??= Promise.resolve()
-            .then(() => io.mergeBase(pull.base?.sha, head))
-            .catch(() => null)),
-          rangeOf: io.rangeOf,
-        })
-    : null;
-  const notShared = reach.full.filter((x) => !isSharedSetup(x.path));
-  const full = shared.length
-    ? await judgeFullRun({ sha: head, repo, shared, runs, reportOf, verdictOf, waitOnRunning, inherited })
-    : reach.mode === 'full'
-      ? await judgeFullRun({
+  let latest;
+  let issues;
+  // `full`: the pull request runs its bounded set (pullPick's `bounded`, where a full run stood before 20 Nov 2026), the
+  // only case where a red main tracks as its own is passed (mainsOwn).
+  const inheritedFor = (full) =>
+    io.mainRuns
+      ? async (red) =>
+          splitInherited({
+            red,
+            main: await (main ??= mainReference({
+              repo,
+              mainRuns: await io.mainRuns(),
+              contains: (sha) => io.contains(sha, head),
+              reportOf,
+              verdictOf,
+            })),
+            touches,
+            upTo: await (upTo ??= Promise.resolve()
+              .then(() => io.mergeBase(pull.base?.sha, head))
+              .catch(() => null)),
+            rangeOf: io.rangeOf,
+          }).then(async (split) => {
+            // A red main already has on its newest run and tracks in an open issue is main's (mainsOwn).
+            if (!full || !io.mainIssues || touches.shared || !split.blocking.length) return split;
+            const own = mainsOwn({
+              blocking: split.blocking,
+              latest: await (latest ??= mainReference({
+                repo,
+                mainRuns: await io.mainRuns(),
+                contains: async () => true,
+                reportOf,
+                verdictOf,
+              })),
+              issues: await (issues ??= io.mainIssues()),
+              touches,
+            });
+            return { ...split, blocking: own.blocking, passed: [...split.passed, ...own.passed] };
+          })
+      : null;
+  const inherited = inheritedFor(Boolean(reach.bounded));
+  const full =
+    reach.mode === 'files'
+      ? await judgeTouchedRun({
           sha: head,
           repo,
-          shared: [],
+          files: reach.files,
           runs,
           reportOf,
           verdictOf,
           waitOnRunning,
           inherited,
-          because: `it changes what can reach any journey (${notShared
-            .slice(0, 3)
-            .map((x) => `${x.path}: ${x.why}`)
-            .join('; ')}${notShared.length > 3 ? `; ${notShared.length - 3} more` : ''})`,
+          reach: reach.bounded ? [reach.bounded] : reach.reach,
+          named: reach.named,
         })
-      : reach.mode === 'files'
-        ? await judgeTouchedRun({
-            sha: head,
-            repo,
-            files: reach.files,
-            runs,
-            reportOf,
-            verdictOf,
-            waitOnRunning,
-            inherited,
-            reach: reach.reach,
-            named: reach.named,
-          })
-        : { ok: true, state: 'none', lines: [] };
+      : { ok: true, state: 'none', lines: [] };
   const v = {
     ok: steps.ok && full.ok && touched.ok,
     stepsOk: steps.ok && touched.ok,
@@ -1459,9 +1455,9 @@ export const CI_WORKFLOW = 'ci.yml';
 /**
  * Every workflow that holds a `CI merge seal` job, with the event it runs on. ci.yml's runs in the pull request's own
  * version; merge-seal.yml's runs on pull_request_target from the default branch, so its job and scripts are main's
- * whatever a pull request changes (R3 C3 piece 2, OWNER 242). Every Actions job named `CI merge seal` on a head must
- * pass (probe #7547, 8 Nov 2026: a red one blocked though a green one finished last), so the default branch's seal
- * decides even when a pull request edits its own; and each seal is re-run in place, since an older red run blocks.
+ * whatever a pull request changes (R3 C3 piece 2, OWNER 242). Each workflow's newest run on a head counts, and each
+ * must pass (probe #7547, 8 Nov 2026: a red ci.yml job blocked beside a green probe workflow's), so the default branch's
+ * seal decides even when a pull request edits its own; an older run of the same workflow is not read (probe #8246).
  */
 export const SEAL_WORKFLOWS = [
   { workflow: CI_WORKFLOW, event: 'pull_request' },
@@ -1491,7 +1487,25 @@ export const SEAL_INPUTS = [
   { workflow: 'ci.yml', event: 'pull_request', what: 'CI' },
   { workflow: 'ci-review.yml', event: 'pull_request_target', what: 'the CI review', judge: true },
   { workflow: 'real-app-journeys.yml', event: null, what: 'Real-app journeys', journeys: true },
+  // Runs only when the pull request touches its paths (#8708); with no run on the head nothing waits for it, and
+  // ci-jobs-seal.mjs moneyVerdict fails the seal when its paths were touched and no green run is there.
+  { workflow: 'customer-money-browser.yml', event: 'pull_request', what: 'the money browser checks' },
+  // Runs on every pull request; its `Model check` job checks the TLA+ models when the change touches what they cover
+  // (project-state#2962), and ci-jobs-seal.mjs modelVerdict requires its pass. A run that could not check (MODEL_DOWN_STEP)
+  // counts as still going, so the seal waits as for a down judge, never red on the change.
+  { workflow: 'model-check.yml', event: 'pull_request', what: 'the Model check', down: true },
 ];
+
+/** model-check.yml's verdict job, and its step that runs, instead of the Verdict step, when TLC could not check. */
+export const MODEL_JOB = 'Model check';
+export const MODEL_DOWN_STEP = 'Judge down';
+export const MODEL_VERDICT_STEP = 'Verdict';
+/** Whether a model-check.yml `Model check` job ended without a verdict because a model could not be checked. Pure. */
+export const isModelDown = (job) =>
+  job?.name === MODEL_JOB &&
+  job?.status === 'completed' &&
+  (job.steps ?? []).some((s) => s?.name === MODEL_DOWN_STEP && s?.conclusion === 'success') &&
+  !(job.steps ?? []).some((s) => s?.name === MODEL_VERDICT_STEP && ['success', 'failure'].includes(s?.conclusion));
 
 /**
  * The job each seal input ends with (ci.yml, ci-review.yml, real-app-journeys.yml): it needs every other job of its
@@ -1535,23 +1549,39 @@ export async function settleRuns(runs, jobsOf) {
  * input has finished. Journeys count only when the change needs them (`needJourneys`: it names steps, or its paths reach
  * a journey, journey-touch.mjs); a change that reaches none never waits for a journeys run. A CI review run that ended
  * with the judge down (`judgeDown`, set by readGoing on the head's newest run: review-marker.mjs isJudgeDown) counts as
- * still going when `needJudge` (readGoing sets it for every pull request), so its seal waits for the judge exactly as for a review
+ * still going when `needJudge` (readGoing sets it when a pull request's change needs the review's verdict), so its seal waits for the judge exactly as for a review
  * still running, and is started when a review on the head next finishes (project-state OWNER 289 point 11: "A judge
- * that stops shows as 'judge down' ... never as red PRs. No PR merges without its judge."). Pure.
+ * that stops shows as 'judge down' ... never as red PRs. No PR merges without its judge."). `unstarted` false (the
+ * re-check, readGoing): a CI review run not yet started (UNSTARTED) is not counted, since only a run whose review job runs
+ * starts the seal at its end (ci-review.yml's seal-start skips with it), and the seal the re-check starts waits for that
+ * run in WAIT_STEP all the same. Pure.
  */
-export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false }) {
+export function inputsGoing({ sha, runsOf, needJourneys, needJudge = false, unstarted = true }) {
   const out = [];
-  for (const { workflow, event, what, journeys, judge } of SEAL_INPUTS) {
+  for (const { workflow, event, what, journeys, judge, down } of SEAL_INPUTS) {
     if (journeys && !needJourneys) continue;
     for (const r of runsOf?.[workflow] ?? []) {
       if (r?.head_sha !== sha || (event && r?.event !== event)) continue;
+      if (judge && !unstarted && UNSTARTED.includes(r?.status)) continue;
       if (r?.status !== 'completed') out.push(`${what} run ${r.id} (${r.status})`);
+      else if (journeys && r?.deferred === true)
+        out.push(`${what} run ${r.id} (deferred behind main's journeys; it is re-run once main's shards are queued)`);
       else if (judge && needJudge && r?.judgeDown === true)
         out.push(`${what} run ${r.id} (judge down: no verdict; it re-runs when the judge is back)`);
+      else if (down && r?.judgeDown === true)
+        out.push(`${what} run ${r.id} (judge down: a model could not be checked, no verdict; re-run it once the cause in its log is gone)`);
     }
   }
   return out;
 }
+
+/**
+ * A run's statuses before any of its jobs starts. A CI review run waits as `pending` in its head's concurrency group behind
+ * the run already reviewing that head; a title or body edit's run then skips every job, its Start the seal too. The
+ * re-check that left the seal for such a run's end left it for good: intafaced #8574's seal never ran on 363a0e9b, 16 Nov
+ * 2026, after `gh pr ready` and its edit at 02:03:59 UTC started runs 43789888663 and 43789888130 (project-state #2548).
+ */
+export const UNSTARTED = ['requested', 'queued', 'pending', 'waiting'];
 
 /** Whether the change needs a journeys run: its title names steps, or its paths reach a journey (journey-touch.mjs). */
 export const needsJourneys = (pull, files) => namesSteps(pull?.title ?? '') || journeyTouch(files).mode !== 'none';
@@ -1588,7 +1618,7 @@ export const PR_READ_STEPS = new Set(['Require the named journey steps on this e
  * Whether a re-check or the CI review re-runs ci.yml's seal job `job` (its jobs-API object, with `steps`): only when it
  * is red on a PR_READ_STEPS step, which only an older ci.yml on the head runs. Red on CI's own jobs, a re-run reads the
  * same jobs, and as a new attempt of the CI run it would start another re-check when it ends (the loop of #1574). Green,
- * merge-seal.yml's re-run decides: every `CI merge seal` on the head must pass (probe #7547). Pure.
+ * merge-seal.yml's re-run decides. Pure.
  */
 export const ciSealReads = (job) =>
   job?.conclusion !== 'success' && (job?.steps ?? []).some((s) => PR_READ_STEPS.has(s?.name) && s?.conclusion === 'failure');
@@ -1603,13 +1633,19 @@ export const ciSealReads = (job) =>
 export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request') {
   const prs = (runs ?? []).filter((r) => r?.event === event).sort((a, b) => b.id - a.id);
   if (!prs.length) return { act: 'done', msg: 'CI has not run on this head; its seal will read the steps itself' };
-  // The newest run that has a seal job decides; a run that finished with none (cancelled before its jobs) is passed over.
+  // merge-seal.yml: its newest run decides (below). ci.yml: the newest run that has a seal job decides; a run that
+  // finished with none (cancelled before its jobs) is passed over.
   for (const run of prs) {
     const runId = String(run.id);
     if (!jobsByRun.has(runId)) return { act: 'jobs', runId, msg: `reading run ${runId}'s jobs` };
     const seal = (jobsByRun.get(runId) ?? []).filter((j) => j?.name === SEAL).sort((a, b) => b.id - a.id)[0];
-    // A skipped seal holds no verdict, so the run before it decides (merge-seal.yml's job is never skipped; this guards an
-    // older run or a future skip).
+    // merge-seal.yml: GitHub reads the required check from the newest run of a workflow on the head alone (probe
+    // intafaced#8246, 13 Nov 2026; #8225 stopped every merge for an hour by leaving its verdict on an older run). So the
+    // newest run decides: one that finished without its seal (it waited for its inputs, or was cancelled before its jobs)
+    // is started, never passed over for an older run's verdict, which GitHub no longer reads.
+    if (event === 'pull_request_target' && run.status === 'completed' && (!seal || seal.conclusion === 'skipped'))
+      return { act: 'start', runId, msg: `run ${runId}, the newest seal run on this head, has no verdict` };
+    // ci.yml: a skipped seal holds no verdict, so the run before it decides.
     if (seal?.status === 'completed' && seal?.conclusion === 'skipped') continue;
     if (!seal || ['queued', 'waiting', 'pending', 'requested'].includes(seal.status)) {
       if (run.status === 'completed') continue;
@@ -1618,6 +1654,9 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
         return { act: 'wait', runId, msg: `run ${runId} is deciding whether its seal waits for its inputs` };
       return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
     }
+    // A seal still waiting for its inputs (WAIT_STEP) reads them all once they finish: re-running it would be a second verdict.
+    if (seal.status !== 'completed' && (seal.steps ?? []).some((s) => s?.name === WAIT_STEP && s?.status !== 'completed'))
+      return { act: 'done', msg: `the seal in run ${runId} is waiting for its inputs and judges once they finish` };
     if (seal.status !== 'completed')
       return { act: 'wait', runId, msg: 'the seal is running and may have read the steps before this change' };
     if (run.status !== 'completed') return { act: 'wait', runId, msg: `run ${runId} is still finishing` };
@@ -1661,22 +1700,6 @@ export function rerunBlocker({ sha, pulls, headRuns, event = 'pull_request' }) {
       msg: `CI run ${going.map((r) => `${r.id} (${r.status})`).join(', ')} on this head is still going; a re-run now would join its concurrency group and cancel it`,
     };
   return null;
-}
-
-/**
- * The seal jobs of the other finished runs of one workflow on a head (`runs`, the newest `skip`ped): a close and reopen,
- * or the same head pushed twice, leaves an older seal run beside the newest, and every `CI merge seal` on a head must
- * pass (probe #7547), so each red one is re-run too (review 7552-R2). The newest seal job per run.
- */
-export async function otherSeals({ repo, runs, skip, event, get }) {
-  const out = [];
-  for (const run of (runs ?? []).filter((r) => r?.event === event && r?.status === 'completed' && String(r.id) !== String(skip))) {
-    const jobs = (await get(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`))?.jobs;
-    if (!Array.isArray(jobs)) throw new Error(`run ${run.id}'s jobs: not a list`);
-    const seal = jobs.filter((j) => j?.name === SEAL && j?.status === 'completed').sort((a, b) => b.id - a.id)[0];
-    if (seal && seal.conclusion !== 'skipped') out.push({ runId: String(run.id), seal });
-  }
-  return out;
 }
 
 /**
@@ -1735,17 +1758,7 @@ export async function rerunSealJob({
       // AGENTS.md "Check, then merge" 6: the one 403 that only means wait. Any other 403 or 429 stops and is reported.
       if (status === 403 && /already running/i.test(message)) return `run ${step.runId} is already re-running (${message})`;
       if (status !== 201) throw new Error(`could not re-run the seal job ${step.jobId} of run ${step.runId}: HTTP ${status} ${message}`);
-      let said2 = `re-ran the seal job ${step.jobId} of run ${step.runId}`;
-      for (const o of await otherSeals({ repo, runs, skip: step.runId, event, get })) {
-        if (o.seal.conclusion === 'success') continue;
-        if (workflow === CI_WORKFLOW && !ciSealReads(o.seal)) continue;
-        const r = await post(`/repos/${repo}/actions/jobs/${o.seal.id}/rerun`);
-        if (r.status === 403 && /already running/i.test(r.message ?? '')) continue;
-        if (r.status !== 201)
-          throw new Error(`could not re-run the older red seal job ${o.seal.id} of run ${o.runId}: HTTP ${r.status} ${r.message ?? ''}`);
-        said2 += `; and the older red seal job ${o.seal.id} of run ${o.runId}`;
-      }
-      return said2;
+      return `re-ran the seal job ${step.jobId} of run ${step.runId}`;
     }
     if (poll >= SEAL_POLLS)
       throw new Error(`${step.msg} after ${(SEAL_POLLS * SEAL_POLL_MS) / 60_000} min; re-run the seal once it finishes`);
@@ -1786,7 +1799,10 @@ export async function sharedPulls({ pulls, sha, repo, filesOf }) {
 
 /** The seals a re-check re-runs: after CI finished (`finished` = 'CI'), only the default branch's (see recheck). */
 export const sealsToRecheck = (finished) =>
-  SEAL_WORKFLOWS.filter((w) => !['CI', REVIEWED].includes(finished) || w.workflow !== CI_WORKFLOW);
+  SEAL_WORKFLOWS.filter((w) => !['CI', REVIEWED, MONEY, MODEL_JOB].includes(finished) || w.workflow !== CI_WORKFLOW);
+
+/** `finished` after the money browser checks' run on the head ended (#8708): like CI, every armed pull request there is re-sealed. */
+export const MONEY = 'Money browser checks';
 
 /** `finished` after the CI review's run on the head ended: like CI, every armed pull request on the head is re-sealed. */
 export const REVIEWED = 'CI review';
@@ -1809,7 +1825,7 @@ export const armed = (p) => p?.auto_merge !== null && p?.auto_merge !== undefine
  */
 export async function recheckTargets({ finished, pulls, sha, repo, oldTitle = '', oldBody = '', filesOf }) {
   const live = (pulls ?? []).filter(armed);
-  if (finished === 'CI' || finished === REVIEWED)
+  if (finished === 'CI' || finished === REVIEWED || finished === MONEY)
     return live.filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo);
   return recheckPulls({ pulls: live, sha, repo, oldTitle, oldBody, shared: await sharedPulls({ pulls: live, sha, repo, filesOf }) });
 }
@@ -1845,34 +1861,54 @@ export const whileGoing = ({ going, green }) => (!going.length ? 'seal' : green 
 export const REVIEW_RUNS_READ = 5;
 
 /**
- * inputsGoing on `sha` read through the API, journeys counted when any of `pulls` needs them (needsJourneys), and a down
+ * inputsGoing on `sha` read through the API (each run read through settledRun unless `settle` is false), journeys counted when any of `pulls` needs them (needsJourneys), and a down
  * judge for every pull request: the head's finished CI review runs' jobs are read, newest first, until one actually
  * reviewed (review-marker.mjs reviewRan).
  */
-export async function readGoing({ get, repo, sha, pulls }) {
+export async function readGoing({ get, repo, sha, pulls, settle = true, unstarted = true }) {
   const runsOf = {};
   for (const { workflow, event } of SEAL_INPUTS) {
     const runs = (
       await get(`/repos/${repo}/actions/workflows/${workflow}/runs?head_sha=${sha}${event ? `&event=${event}` : ''}&per_page=100`)
     )?.workflow_runs;
     if (!Array.isArray(runs)) throw new Error(`${workflow} runs on ${sha}: not a list`);
-    runsOf[workflow] = await settleRuns(
-      runs.filter((r) => r?.head_sha === sha),
-      async (id) => {
-        const jobs = (await get(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100`))?.jobs;
-        if (!Array.isArray(jobs)) throw new Error(`run ${id}'s jobs: not a list`);
-        return jobs;
-      },
-    );
+    const onHead = runs.filter((r) => r?.head_sha === sha);
+    // settle false (the seal's WAIT_STEP): a run counts as going until its START_JOB has ended too, so that job's re-check
+    // finds the seal still waiting and leaves it (recheckStep), and the seal gives the one verdict.
+    runsOf[workflow] = !settle
+      ? onHead
+      : await settleRuns(onHead, async (id) => {
+          const jobs = (await get(`/repos/${repo}/actions/runs/${id}/jobs?filter=latest&per_page=100`))?.jobs;
+          if (!Array.isArray(jobs)) throw new Error(`run ${id}'s jobs: not a list`);
+          return jobs;
+        });
+  }
+  // A deferred journeys run ran nothing and is re-run later (main-first.mjs): the newest on the head, finished with its
+  // touch job's DEFER_MARK, counts as going (inputsGoing), never as a finished run that reports no step (intafaced #7996).
+  {
+    const { workflow } = SEAL_INPUTS.find((i) => i.journeys);
+    const newest = [...runsOf[workflow]].sort((a, b) => b.id - a.id)[0];
+    if (newest?.status === 'completed') {
+      const jobs = (await get(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs;
+      if (!Array.isArray(jobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
+      const touch = jobs.find((j) => j?.name === TOUCH_JOB);
+      newest.deferred = (touch?.steps ?? []).some((st) => st?.name === DEFER_MARK && st?.conclusion === 'success');
+    }
   }
   let needJourneys = false;
+  // A down judge holds only a pull request whose change needs its verdict (review-marker.mjs requiredChecks: a gate
+  // file, a look baseline, a journey test or shared test code). Any other merges on its tests and its journeys, and the
+  // judge reads it when it is back (judge-down.mjs catchUpTargets; project-state OWNER 302, 12 Nov 2026: "While the
+  // reviewer is down, a product pull request that it can only advise on merges on its tests and its journey; the
+  // reviewer reads it when it is back and anything it finds becomes a fix. Pull requests it can stop (factory files,
+  // journey tests) still wait."). A list of files that can't be read is empty, and requiredChecks fails it closed.
+  let needJudge = false;
   for (const p of pulls ?? []) {
-    if (needJourneys) break;
-    needJourneys ||= needsJourneys(p, await pullFiles(get, repo, p.number));
+    if (needJourneys && needJudge) break;
+    const files = await pullFiles(get, repo, p.number);
+    needJourneys ||= needsJourneys(p, files);
+    needJudge ||= requiredChecks(files).length > 0;
   }
-  // No PR merges without its judge (project-state OWNER 289 point 11): a down judge holds every pull request it was asked
-  // to review, not only one whose change needs the review's verdict (CI review on 0cef53f9b, item 3).
-  const needJudge = true;
   {
     const { workflow, event } = SEAL_INPUTS.find((i) => i.judge);
     // The newest finished run that actually reviewed: a title or body edit's run, whose job is skipped (reviewRan), is
@@ -1889,7 +1925,17 @@ export async function readGoing({ get, repo, sha, pulls }) {
       break;
     }
   }
-  return inputsGoing({ sha, runsOf, needJourneys, needJudge });
+  // The Model check's newest finished run on the head: one that could not check (isModelDown) is no verdict.
+  for (const { workflow, event } of SEAL_INPUTS.filter((i) => i.down)) {
+    const newest = runsOf[workflow]
+      .filter((r) => r?.head_sha === sha && r?.event === event && r?.status === 'completed')
+      .sort((a, b) => b.id - a.id)[0];
+    if (!newest) continue;
+    const jobs = (await get(`/repos/${repo}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`))?.jobs;
+    if (!Array.isArray(jobs)) throw new Error(`run ${newest.id}'s jobs: not a list`);
+    newest.judgeDown = jobs.some(isModelDown);
+  }
+  return inputsGoing({ sha, runsOf, needJourneys, needJudge, unstarted });
 }
 
 /**
@@ -1915,6 +1961,49 @@ async function sealNowStep({ repo, token }) {
   if (GITHUB_OUTPUT) writeFileSync(GITHUB_OUTPUT, `now=${v.now}\n`, { flag: 'a' });
 }
 
+/**
+ * The seal job's first step (`--wait-inputs`, WAIT_STEP): while an input on the head is still going, the seal waits in
+ * its job, a running check that blocks the merge as a missing one does, and judges once they have all finished, so it
+ * is never red only because it is waiting (project-state OWNER 262 part 2, 9 Nov 2026: "no red while waiting"). Before
+ * this, a seal that ran at once (sealNow: a change under .github/, or a verdict already on the head) or a green re-run
+ * while an input ran (whileGoing) failed with "has not finished": 23 of the 70 red seals from 12:00 UTC on 11 Nov to
+ * 00:01 UTC on 12 Nov. Given the pull request as it is now and inputsGoing's lines: `wait` while one is going on its
+ * head; `judge` once none is, or when the pull request closed or its head moved (the judging steps then say so). Pure.
+ */
+export function waitStep({ pull, sha, going }) {
+  if (pull?.state !== 'open') return { act: 'judge', msg: `#${pull?.number} is no longer open` };
+  if (pull?.head?.sha !== sha) return { act: 'judge', msg: `#${pull.number}'s head moved to ${String(pull?.head?.sha).slice(0, 10)}` };
+  if (going.length) return { act: 'wait', msg: `waiting for ${going.join(', ')}` };
+  return { act: 'judge', msg: 'every input on this head has finished' };
+}
+
+/** The seal job's step that waits for its inputs (waitStep); a re-check leaves a seal still in it alone (recheckStep). */
+export const WAIT_STEP = 'Wait for CI, the CI review and the journeys this change needs';
+/**
+ * How long the seal waits in WAIT_STEP: 12 checks 5 minutes apart, beyond the slowest journeys run seen (43 min, 11 Nov).
+ * Each check is about 8 API calls on the repository's installation limit, which the other seals and checks share (on
+ * 12 Nov at 02:59 UTC seals failed on "API rate limit exceeded for installation"), so a waiting seal spends about 100
+ * calls an hour, not 480.
+ */
+export const WAIT_POLLS = 12;
+export const WAIT_POLL_MS = 300_000;
+
+async function waitInputsStep({ repo, token, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  const { HEAD_SHA, PR_NUMBER } = process.env;
+  if (!SHA40.test(HEAD_SHA ?? '') || !/^\d+$/.test(PR_NUMBER ?? '')) throw new Error('--wait-inputs needs HEAD_SHA and PR_NUMBER');
+  const get = (path) => api(path, token);
+  let said = '';
+  for (let poll = 1; ; poll++) {
+    const pull = await get(`/repos/${repo}/pulls/${PR_NUMBER}`);
+    const step = waitStep({ pull, sha: HEAD_SHA, going: await readGoing({ get, repo, sha: HEAD_SHA, pulls: [pull], settle: false }) });
+    if (step.act === 'judge') return console.log(`judging now: ${step.msg}`);
+    if (poll >= WAIT_POLLS)
+      throw new Error(`${step.msg} after ${(WAIT_POLLS * WAIT_POLL_MS) / 60_000} min; the seal fails closed (re-run it once they finish)`);
+    if (step.msg !== said) console.log(`${(said = step.msg)}; checking every ${WAIT_POLL_MS / 1000}s`);
+    await sleep(WAIT_POLL_MS);
+  }
+}
+
 /** A POST to the API that returns { status, message } and never throws on an HTTP error, so the caller decides. */
 const poster = (token) => async (path) => {
   const res = await fetch(`https://api.github.com${path}`, {
@@ -1928,41 +2017,6 @@ const poster = (token) => async (path) => {
   } catch {}
   return { status: res.status, message: String(message).slice(0, 200) };
 };
-
-/**
- * The older red seals a green verdict on `sha` re-runs (merge-seal.yml's last step, `--clear-older`): every
- * `CI merge seal` on a head must pass (probe #7547), so a red left by an earlier run on the same head (an edit, a reopen,
- * a push before the title named the right steps) would block a head that now passes. Each such job of merge-seal.yml's
- * other runs there is re-run, and judges again what this one just judged. A re-run that also passes re-runs no other
- * green, and one that fails re-runs nothing, so it ends. ci.yml's own red seals on a branch cut before 9 Nov 2026 13:50
- * UTC are left to the inputs' re-check (ciSealReads): re-running one starts that CI run again. Returns the lines said.
- */
-export async function clearOlderReds({ repo, sha, self, get, post }) {
-  const runs = (await get(`/repos/${repo}/actions/workflows/merge-seal.yml/runs?head_sha=${sha}&event=pull_request_target&per_page=100`))
-    ?.workflow_runs;
-  if (!Array.isArray(runs)) throw new Error(`merge-seal.yml runs on ${sha}: not a list`);
-  const out = [];
-  const mine = runs.filter((r) => r?.head_sha === sha);
-  for (const o of await otherSeals({ repo, runs: mine, skip: self, event: 'pull_request_target', get })) {
-    if (o.seal.conclusion === 'success') continue;
-    const r = await post(`/repos/${repo}/actions/jobs/${o.seal.id}/rerun`);
-    if (r.status === 403 && /already running/i.test(r.message ?? '')) {
-      out.push(`run ${o.runId}'s seal is already re-running`);
-      continue;
-    }
-    if (r.status !== 201)
-      throw new Error(`could not re-run the older red seal job ${o.seal.id} of run ${o.runId}: HTTP ${r.status} ${r.message ?? ''}`);
-    out.push(`re-ran the older red seal job ${o.seal.id} of run ${o.runId}`);
-  }
-  return out.length ? out : ['no older red seal on this head'];
-}
-
-async function clearOlderStep({ repo, token }) {
-  const { HEAD_SHA, RUN_ID } = process.env;
-  if (!SHA40.test(HEAD_SHA ?? '') || !/^\d+$/.test(RUN_ID ?? '')) throw new Error('--clear-older needs HEAD_SHA and RUN_ID');
-  for (const l of await clearOlderReds({ repo, sha: HEAD_SHA, self: RUN_ID, get: (path) => api(path, token), post: poster(token) }))
-    console.log(l);
-}
 
 /**
  * `--recheck`, the last job of each seal input (START_JOB, `FINISHED` naming the input): the open pull requests with
@@ -1992,7 +2046,8 @@ async function recheck({ repo, token }) {
     return console.log(
       `no open pull request with auto-merge armed on ${SHA} needs its seal re-run (${FINISHED || 'an edit'}); the seal is left as it is`,
     );
-  // Each seal on the head, ci.yml's and the default branch's (SEAL_WORKFLOWS); every one must pass, so each is re-run.
+  // Each seal on the head, ci.yml's and the default branch's (SEAL_WORKFLOWS); each workflow's newest run must pass, so each
+  // workflow's newest seal is re-run.
   // Read again just before a re-run: the head may have moved while a running seal was waited out (rerunBlocker).
   const outcomes = [];
   // After CI finished, ci.yml's own seal ran in that same run after its needs, so only the default branch's seal is
@@ -2000,7 +2055,9 @@ async function recheck({ repo, token }) {
   // running, and the next CI completion would start it all again (the CI review on 7a7eb9a0, 8 Nov 2026).
   // The seal's inputs on this head (SEAL_INPUTS): while one is still going, merge-seal.yml's seal is left alone, since
   // that input's own end starts this re-check again; so the seal gives one verdict, once they have all finished.
-  const going = await readGoing({ get, repo, sha: SHA, pulls: named });
+  // A CI review run not yet started is not waited for (inputsGoing `unstarted`): its end may start nothing, and the seal
+  // started now waits for it in WAIT_STEP.
+  const going = await readGoing({ get, repo, sha: SHA, pulls: named, unstarted: false });
   for (const { workflow, event } of sealsToRecheck(FINISHED)) {
     if (
       workflow !== CI_WORKFLOW &&
@@ -2035,7 +2092,7 @@ function report({ ok, lines, stepsOk = ok, fullOk = true, stepsKinds = [], fullK
         .slice(
           0,
           3000,
-        )}. A pull request is held to the journeys it touches (tooling/ci/journey-touch.mjs): shared setup, product code and anything else that can reach any journey need the newest finished full Real-app journeys run on its exact head clean by the journeys verdict (dispatch real-app-journeys.yml on the branch with no journeys input); a change to journey test files only needs those files run clean (the journeys input naming them). Read with the default branch's baseline; the seal re-runs when the run finishes. \`node tooling/ci/journey-touch.mjs --base origin/main\` prints which.`,
+        )}. A pull request is held to the journeys its own run was given (tooling/ci/journey-touch.mjs pullPick), never the full suite: each must be run clean on its exact head by the journeys verdict (its pull request run does it; or dispatch real-app-journeys.yml on the branch with the journeys input naming them). Read with the default branch's baseline; the seal re-runs when the run finishes. \`node tooling/ci/journey-touch.mjs --base origin/main\` prints which.`,
     );
   if (stepsOk) process.exit(1);
   // A review the judge left without a verdict (review-marker.mjs ciReviewVerdict) says so in the title: judge down, never
@@ -2061,7 +2118,29 @@ function report({ ok, lines, stepsOk = ok, fullOk = true, stepsKinds = [], fullK
   process.exit(1);
 }
 
+/** `--before-push`: titleBeforePush on this branch against origin/main and its open pull request (gh), if any. */
+async function beforePushStep() {
+  const sh = (...a) => execFileSync(a[0], a.slice(1), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 20_000 });
+  const base = sh('git', 'merge-base', 'HEAD', 'origin/main').trim();
+  const paths = sh('git', 'diff', '--name-only', base, 'HEAD').split('\n').filter(Boolean);
+  const text = (f, ref) => { try { return sh('git', 'show', `${ref}:${f}`); } catch { return null; } }; // prettier-ignore
+  const touched = await touchedSteps({ paths, head: 'HEAD', base, text });
+  if (!touched.length) return;
+  let pull = null;
+  try {
+    pull = process.env.CI ? null : JSON.parse(sh('gh', 'pr', 'view', '--json', 'number,title,body,state,url'));
+  } catch {}
+  if (pull?.state !== 'OPEN') pull = null;
+  const repo = /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(pull?.url ?? '')?.[1];
+  const v = titleBeforePush({ title: pull?.title ?? null, body: pull?.body, touched, repo });
+  if (v.ok) return console.log(`journey seal: the pull request's title must name ${v.need.join(', ')}${pull ? ', and it does' : ''}`);
+  console.error([`✖ #${pull.number}'s title fails the merge seal's step rule — push refused.`, ...v.lines].join('\n  '));
+  console.error(v.fix ? `  Fix: gh pr edit ${pull.number} --title '${v.fix.replace(/'/g, `'\\''`)}'` : `  Fix: name ${v.need.join(', ')}`);
+  process.exit(1);
+}
+
 async function main() {
+  if (process.argv.includes('--before-push')) return beforePushStep();
   const { GH_TOKEN, REPO } = process.env;
   if (!GH_TOKEN || !REPO) {
     console.error('::error::journey-seal needs GH_TOKEN and REPO');
@@ -2069,7 +2148,7 @@ async function main() {
   }
   if (process.argv.includes('--recheck')) return recheck({ repo: REPO, token: GH_TOKEN });
   if (process.argv.includes('--seal-now')) return sealNowStep({ repo: REPO, token: GH_TOKEN });
-  if (process.argv.includes('--clear-older')) return clearOlderStep({ repo: REPO, token: GH_TOKEN });
+  if (process.argv.includes('--wait-inputs')) return waitInputsStep({ repo: REPO, token: GH_TOKEN });
   const io = makeIo(REPO, GH_TOKEN);
   // The journeys run's planner (real-app-journeys.yml) reads an automatic revert's narrow scope from the same rule.
   const scopeAt = process.argv.indexOf('--auto-revert-scope');
@@ -2078,7 +2157,7 @@ async function main() {
     if (!Number.isSafeInteger(n) || n < 1) throw new Error('--auto-revert-scope needs a pull request number');
     const pull = await io.pull(n);
     const scope = await readAutoRevertScope({ io, repo: REPO, pull, number: n, paths: await io.files(n) });
-    return console.log(JSON.stringify(scope?.ok ? { files: scope.files, why: scope.why } : { files: null, why: scope?.why ?? '' }));
+    return console.log(JSON.stringify(autoRevertPlan(scope)));
   }
   const dry = process.argv.indexOf('--dry-run');
   if (dry > 0) {
@@ -2127,6 +2206,6 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href)
   main().catch((e) => {
-    console.error(`::error title=Named journey steps unreadable::${e.message}; the seal fails closed`);
+    console.error(`::error title=${titleFor(e.message, 'Named journey steps unreadable')}::${e.message}; the seal fails closed`);
     process.exit(1);
   });

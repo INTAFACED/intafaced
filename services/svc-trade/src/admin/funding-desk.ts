@@ -5,6 +5,7 @@
  * (a repeat returns the first answer) and an `expectedVersion` (a stale one is refused). Every version is an
  * append-only row; a blank field stays blank and the computer refuses on it. No money moves here.
  */
+import type { Queryable } from '@intafaced/db';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
@@ -88,7 +89,7 @@ async function versionedSet<R>(
     approvalId: string;
     clientRequestId: string;
     currentVersion: () => Promise<string>;
-    insert: (tx: Sql, next: string, ctx: { id: string; operatorId: string; approverId: string }) => Promise<void>;
+    insert: (tx: Queryable, next: string, ctx: { id: string; operatorId: string; approverId: string }) => Promise<void>;
     read: () => Promise<R>;
     staleCode: string;
   },
@@ -132,8 +133,7 @@ async function versionedSet<R>(
   const next = (BigInt(version) + 1n).toString();
   const at = deps.now?.() ?? new Date();
   try {
-    await deps.sql.begin(async (tx) => {
-      const txSql = tx as unknown as Sql;
+    await deps.sql.begin(async (txSql) => {
       await spec.insert(txSql, next, { id: randomUUID(), operatorId: principal.userId, approverId: consumed.approverId });
       await writeOperatorAudit(
         txSql,

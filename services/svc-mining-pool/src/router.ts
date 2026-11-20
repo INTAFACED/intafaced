@@ -1,9 +1,10 @@
-import { z } from 'zod';
-import { checkAccess, type KycTier } from '@intafaced/config';
-import { JurisdictionError, router, scopedProcedure, protectedProcedure, TRPCError } from '@intafaced/contracts';
+import { TRPCError } from '@trpc/server';
+import type { Context } from '@intafaced/contracts';
+import { mountRecords, type RefusalOf } from '@intafaced/contracts/procedure-mount';
+import { MINING_PROCEDURES } from '@intafaced/contracts/mining-procedures';
 import { readPoolConnection } from './connection.js';
-import { DIFFICULTY, publishedDifficulty } from './env.js';
-import { EMISSION_UNPUBLISHED, WORKER_NAME } from './window-store.js';
+import { publishedDifficulty } from './env.js';
+import { EMISSION_UNPUBLISHED } from './window-store.js';
 import { MiningError } from './errors.js';
 import { assertListLimit, assertWindowMinutes } from './list-limit.js';
 import { readPoolOverview } from './overview.js';
@@ -11,9 +12,6 @@ import { readPoolTerms } from './pool-terms.js';
 import { dialPool, ProbeRateLimit, runProbe, type Dial } from './probe.js';
 import { POW_SPEC_UNSET, publishedPowSpec } from './pow.js';
 import type { MiningReadStore } from './reads.js';
-
-const decimal = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
-const money = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
 
 export type MiningReads = Pick<
   MiningReadStore,
@@ -30,48 +28,6 @@ export type MiningReads = Pick<
   | 'issueMinerSecret'
 >;
 
-function fail(err: unknown): never {
-  if (err instanceof TRPCError) throw err;
-  if (err instanceof MiningError) {
-    const code = err.code === 'mining.cursor_invalid' || err.code === 'mining.share_range_invalid' ? 'BAD_REQUEST' : 'PRECONDITION_FAILED';
-    throw new TRPCError({ code, message: err.message, cause: err });
-  }
-  throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Request failed', cause: err });
-}
-
-const shareFilter = z.object({
-  windowId: z.string().max(200).optional(),
-  from: z.string().max(80).optional(),
-  to: z.string().max(80).optional(),
-});
-
-const shareWindow = z.object({
-  windowId: z.string(),
-  acceptedCount: z.number().int().nonnegative(),
-  rejectedCount: z.number().int().nonnegative(),
-  soloCount: z.number().int().nonnegative(),
-  acceptedWeight: decimal.nullable(),
-});
-
-const shareReport = z.object({ asOf: z.string(), windows: z.array(shareWindow) });
-
-function refusal(code: string, message: string): never {
-  throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: new MiningError(message, code) });
-}
-
-/** mining-pool on the fiat plane. Same `checkAccess` arguments as `workers.mine`, and no extra scope. */
-function refuseMiningPool(ctx: { readonly region: string; readonly principal: { readonly tier: KycTier } }): void {
-  const decision = checkAccess({
-    module: 'mining-pool',
-    plane: 'fiat',
-    region: ctx.region,
-    kycTier: ctx.principal.tier,
-  });
-  if (!decision.allowed) {
-    throw new TRPCError({ code: 'FORBIDDEN', message: decision.reason, cause: new JurisdictionError(decision) });
-  }
-}
-
 export type MiningPublishDeps = {
   /** When set, readers use this map instead of `process.env` (tests). */
   readonly env?: NodeJS.ProcessEnv;
@@ -81,365 +37,112 @@ export type MiningPublishDeps = {
 };
 
 /**
- * Signed reads for the customer Mining room and the founder Mining desk.
- * Own-account procedures require `ledger:read`. Operator procedures require
- * `admin:read`. Overview, connection and the reachability probe are signed-in
- * reads with no extra scope. After authentication they run the same mining-pool
- * fiat `checkAccess` as `workers.mine`, and refuse that decision before reading
- * or dialing. No `mining:*` scope is introduced here.
+ * svc-mining-pool's one refusal reader, in its wire form. A `MiningError` leaves as PRECONDITION_FAILED (a bad cursor or
+ * share range as BAD_REQUEST) with its own message; anything else unknown as `Request failed`. A TRPCError a handler already
+ * shaped passes as it is.
+ */
+const miningRefusal: RefusalOf = (err) => {
+  if (err instanceof TRPCError) return undefined;
+  if (err instanceof MiningError) {
+    const code = err.code === 'mining.cursor_invalid' || err.code === 'mining.share_range_invalid' ? 'BAD_REQUEST' : 'PRECONDITION_FAILED';
+    return { code: err.code, error: new TRPCError({ code, message: err.message, cause: err }) };
+  }
+  return { code: 'mining.request_failed', error: new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Request failed', cause: err }) };
+};
+
+/**
+ * The reads that handed back the store's promise without awaiting it never mapped what the store refused: whatever it
+ * rejects with is sent as INTERNAL_SERVER_ERROR with its own message, as tRPC sends an unknown error. Kept as it is, bug
+ * included, so the wire does not move with the mount. A check before the store (a list limit) still refuses by name.
+ */
+const unmapped = async <T>(read: () => Promise<T>): Promise<T> => {
+  const pending = read(); // a check that throws before the store (a list limit) still refuses by name
+  try {
+    return await pending;
+  } catch (err) {
+    if (err instanceof TRPCError) throw err;
+    throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', cause: err });
+  }
+};
+
+function refusal(code: string, message: string): never {
+  throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: new MiningError(message, code) });
+}
+
+/** The signed caller. Every record here is guarded, so the guard has already refused a call without one. */
+function userOf({ principal }: Context): string {
+  if (!principal) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
+  return principal.userId;
+}
+
+/**
+ * Signed reads for the customer Mining room and the founder Mining desk, mounted from their records
+ * (`@intafaced/contracts/mining-procedures`): this file holds only the handlers. Own-account calls need `ledger:read`, rig
+ * settings `trade:write`, operator reads `admin:read`; overview, connection, proof of work and the reachability probe are
+ * signed-in reads with no extra scope, behind the same mining-pool fiat jurisdiction check. `terms` is signed-in only.
  */
 export function createMiningRouter(
   reads: MiningReads,
   terms: () => ReturnType<typeof readPoolTerms> = () => readPoolTerms(),
   publish: MiningPublishDeps = {},
 ) {
-  const customer = scopedProcedure('ledger:read', { module: 'mining-pool' });
-  const operator = scopedProcedure('admin:read', { module: 'mining-pool' });
-  // A rig setting is the account's own trading-side write; a read-only key cannot change it.
-  const rigWriter = scopedProcedure('trade:write', { module: 'mining-pool' });
   const envOf = () => publish.env ?? process.env;
   const now = publish.now ?? Date.now;
   const dial = publish.dial ?? dialPool;
   const limiter = publish.limiter ?? new ProbeRateLimit();
-  const signed = protectedProcedure.use(({ ctx, next }) => {
-    refuseMiningPool(ctx);
-    return next({ ctx });
-  });
-  return router({
-    workers: router({
-      mine: customer
-        .input(
-          z.object({
-            windowMinutes: z.unknown().optional(),
-            limit: z.unknown().optional(),
-            cursor: z.string().max(512).optional(),
-            name: z.string().max(64).optional(),
-          }),
-        )
-        .output(
-          z.object({
-            asOf: z.string(),
-            windowMinutes: z.number().int(),
-            defaultDifficulty: decimal.nullable(),
-            defaultDifficultyReason: z.enum(['mining.default_difficulty_unset', 'mining.default_difficulty_invalid']).nullable(),
-            nextCursor: z.string().nullable(),
-            workers: z.array(
-              z
-                .object({
-                  id: z.string(),
-                  name: z.string(),
-                  createdAt: z.string(),
-                  hashrate: decimal.nullable(),
-                  hashrateReason: z.enum(['no_shares_in_window']).nullable(),
-                  minDifficulty: decimal.nullable(),
-                  mode: z.enum(['pooled', 'solo']),
-                })
-                .refine((row) => (row.hashrate === null) !== (row.hashrateReason === null)),
-            ),
-          }),
-        )
-        .query(async ({ ctx, input }) => {
-          try {
-            const windowMinutes = assertWindowMinutes(input.windowMinutes);
-            const limit = input.limit === undefined ? undefined : assertListLimit(input.limit, 'mining.workers_list_limit_unset');
-            const query = {
-              ...(limit === undefined ? {} : { limit }),
-              ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
-              ...(input.name === undefined ? {} : { name: input.name }),
-            };
-            const roster = await reads.myWorkers(ctx.principal.userId, windowMinutes, query);
-            const fallback = publishedDifficulty(envOf().MINING_DEFAULT_DIFFICULTY);
-            return {
-              ...roster,
-              defaultDifficulty: fallback === null || fallback === 'invalid' ? null : fallback,
-              defaultDifficultyReason:
-                fallback === null
-                  ? ('mining.default_difficulty_unset' as const)
-                  : fallback === 'invalid'
-                    ? ('mining.default_difficulty_invalid' as const)
-                    : null,
-            };
-          } catch (err) {
-            fail(err);
-          }
-        }),
-      /**
-       * The account's own minimum difficulty for one of its workers; null is automatic. Only a worker the caller's shares
-       * created can be changed, and nothing here touches a share, a window or a payout.
-       */
-      setDifficulty: rigWriter
-        .input(
-          z.object({
-            workerId: z.string().min(1).max(200),
-            minDifficulty: z.string().regex(DIFFICULTY).nullable(),
-          }),
-        )
-        .output(z.object({ id: z.string(), minDifficulty: decimal.nullable() }))
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await reads.setWorkerDifficulty(
-              ctx.principal.userId,
-              input.workerId,
-              input.minDifficulty === null ? null : BigInt(input.minDifficulty),
-            );
-          } catch (err) {
-            fail(err);
-          }
-        }),
-      /**
-       * Pooled or solo for one of the caller's own rigs, by name. Saving the same mode again changes nothing; a change while
-       * the rig has shares in an open window refuses `mining.mode_change_in_window`. Solo work never joins the PPLNS window.
-       */
-      setMode: rigWriter
-        .input(z.object({ name: z.string().regex(WORKER_NAME), mode: z.enum(['pooled', 'solo']) }))
-        .output(z.object({ id: z.string(), name: z.string(), mode: z.enum(['pooled', 'solo']) }))
-        .mutation(async ({ ctx, input }) => {
-          try {
-            return await reads.setWorkerMode(ctx.principal.userId, input.name, input.mode);
-          } catch (err) {
-            fail(err);
-          }
-        }),
-      /**
-       * A solo rig's credit: refused with the same code the payout job gives a window of solo work, since solo credit
-       * waits for the token's published reward source as pooled credit does.
-       */
-      soloCredit: customer.query(() => {
-        refusal(EMISSION_UNPUBLISHED, 'Solo credit waits for the published reward source');
-      }),
-      register: customer.mutation(() => {
-        refusal('mining.worker_registration_scope_unset', 'Worker registration is refused until a write scope is chosen');
-      }),
-    }),
-    ops: router({
-      workers: operator
-        .input(z.object({ limit: z.unknown().optional(), cursor: z.string().max(512).optional() }))
-        .output(
-          z.object({
-            asOf: z.string(),
-            workers: z.array(z.object({ id: z.string(), userId: z.string(), name: z.string(), createdAt: z.string() })),
-            nextCursor: z.string().nullable(),
-          }),
-        )
-        .query(({ input }) => {
-          try {
-            const limit = assertListLimit(input.limit, 'mining.workers_list_limit_unset');
-            return reads.listWorkers(limit, input.cursor ?? null);
-          } catch (err) {
-            fail(err);
-          }
-        }),
-      shares: operator
-        .input(shareFilter)
-        .output(shareReport)
-        .query(({ input }) => {
-          try {
-            return reads.opsShares(input);
-          } catch (err) {
-            fail(err);
-          }
-        }),
-      windows: operator
-        .output(
-          z.object({
-            asOf: z.string(),
-            windows: z.array(
-              z.object({
-                windowId: z.string(),
-                assetId: z.string(),
-                status: z.enum(['open', 'paid', 'no_credit']),
-                reward: money.nullable(),
-                feeBps: z.number().int().nullable(),
-                shareCount: z.number().int().nonnegative(),
-                totalWeight: decimal.nullable(),
-                paidAt: z.string().nullable(),
-              }),
-            ),
-          }),
-        )
-        .query(() => {
-          try {
-            return reads.opsWindows();
-          } catch (err) {
-            fail(err);
-          }
-        }),
-    }),
-    shares: router({
-      mine: customer
-        .input(shareFilter)
-        .output(shareReport)
-        .query(({ ctx, input }) => {
-          try {
-            return reads.myShares(ctx.principal.userId, input);
-          } catch (err) {
-            fail(err);
-          }
-        }),
-    }),
-    windows: router({
-      pending: customer
-        .output(
-          z.object({
-            asOf: z.string(),
-            windows: z.array(
-              z.object({
-                windowId: z.string(),
-                assetId: z.string(),
-                callerWeight: decimal,
-                totalWeight: decimal.nullable(),
-                reward: money.nullable(),
-                feeBps: z.number().int().nullable(),
-                estimate: z.object({ estimate: z.literal(true), estimatedGross: money }).nullable(),
-              }),
-            ),
-          }),
-        )
-        .query(({ ctx }) => {
-          try {
-            return reads.pending(ctx.principal.userId);
-          } catch (err) {
-            fail(err);
-          }
-        }),
-    }),
-    payouts: router({
-      mine: customer
-        .input(z.object({ limit: z.unknown().optional(), cursor: z.string().max(512).optional() }))
-        .output(
-          z.object({
-            asOf: z.string(),
-            nextCursor: z.string().nullable(),
-            payouts: z.array(
-              z.object({
-                windowId: z.string(),
-                minerId: z.string(),
-                assetId: z.string(),
-                amount: money.nullable(),
-                amountReason: z.string().nullable(),
-                paidAt: z.string().nullable(),
-                ledgerTransactionId: z.string().nullable(),
-                ledgerReason: z.enum(['mining.ledger_unavailable', 'mining.ledger_tx_unrecorded']).nullable(),
-              }),
-            ),
-          }),
-        )
-        .query(({ ctx, input }) => {
-          try {
-            const limit = assertListLimit(input.limit, 'mining.payouts_list_limit_unset');
-            return reads.myPayouts(ctx.principal.userId, limit, input.cursor ?? null);
-          } catch (err) {
-            fail(err);
-          }
-        }),
-    }),
-    terms: protectedProcedure
-      .output(
-        z.object({
-          feeBps: z.number().int().min(0).max(9999).nullable(),
-          feeReason: z.enum(['fee_unconfigured']).nullable(),
-          windowSize: z.number().int().positive().nullable(),
-          windowSizeReason: z.enum(['window_size_unconfigured']).nullable(),
-        }),
-      )
-      .query(() => terms()),
-    overview: signed
-      .output(
-        z.object({
-          version: z.string().min(1),
-          what: z.string().nullable(),
-          coin: z.string().nullable(),
-          hardware: z.string().nullable(),
-          revenueSplit: z.string().nullable(),
-          notSupported: z.string().nullable(),
-        }),
-      )
-      .query(() => {
-        try {
-          return readPoolOverview(envOf());
-        } catch (err) {
-          fail(err);
-        }
-      }),
-    /**
-     * The caller's own miner secret, which the miner door asks for on `mining.authorize`. `status` says when the current
-     * one was issued (never the secret). `issue` makes a new one, replacing the old, and returns it this once; only its
-     * SHA-256 is kept. Issuing is a rig setting, so it needs `trade:write` as `workers.setMode` does.
-     */
-    minerSecret: router({
-      status: customer.output(z.object({ issuedAt: z.string().nullable() })).query(async ({ ctx }) => {
-        try {
-          return await reads.minerSecretStatus(ctx.principal.userId);
-        } catch (err) {
-          fail(err);
-        }
-      }),
-      issue: rigWriter.output(z.object({ secret: z.string(), issuedAt: z.string() })).mutation(async ({ ctx }) => {
-        try {
-          return await reads.issueMinerSecret(ctx.principal.userId);
-        } catch (err) {
-          fail(err);
-        }
-      }),
-    }),
-    connection: signed
-      .output(
-        z.object({
-          host: z.string().min(1),
-          port: z.string().regex(/^[1-9]\d{0,4}$/),
-          secureUrl: z.string().nullable(),
-          accountId: z.string().min(1),
-          workerNamePattern: z.string().nullable(),
-        }),
-      )
-      .query(({ ctx }) => {
-        try {
-          return readPoolConnection(envOf(), ctx.principal.userId);
-        } catch (err) {
-          fail(err);
-        }
-      }),
-    /**
-     * The pool's proof-of-work parameters as published: a TEST testnet set, or blank (`mining.pow_spec_unset`). A mainnet
-     * set is never served (`audit.external`).
-     */
-    pow: signed
-      .output(
-        z.discriminatedUnion('status', [
-          z.object({
-            status: z.literal('published'),
-            dimension: z.number().int(),
-            targetBits: z.number().int(),
-            testnet: z.literal(true),
-          }),
-          z.object({ status: z.literal('unset'), code: z.literal(POW_SPEC_UNSET) }),
-        ]),
-      )
-      .query(() => {
-        try {
-          const spec = publishedPowSpec(envOf());
-          if (spec === null) return { status: 'unset' as const, code: POW_SPEC_UNSET };
-          return { status: 'published' as const, dimension: spec.dimension, targetBits: spec.targetBits, testnet: spec.testnet };
-        } catch (err) {
-          fail(err);
-        }
-      }),
-    probe: signed
-      .output(
-        z.object({
-          result: z.enum(['reachable', 'refused', 'timed_out']),
-          roundTripMs: z.string().regex(/^(0|[1-9]\d*)$/),
-          viewpoint: z.literal('pool_network'),
-        }),
-      )
-      .query(async ({ ctx }) => {
-        try {
-          return await runProbe({ env: envOf(), userId: ctx.principal.userId, nowMs: now(), limiter, dial });
-        } catch (err) {
-          fail(err);
-        }
-      }),
-  });
+  return mountRecords(
+    MINING_PROCEDURES,
+    {
+      'mining.workers.mine': async ({ ctx, input }) => {
+        const windowMinutes = assertWindowMinutes(input.windowMinutes);
+        const limit = input.limit === undefined ? undefined : assertListLimit(input.limit, 'mining.workers_list_limit_unset');
+        const query = {
+          ...(limit === undefined ? {} : { limit }),
+          ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+          ...(input.name === undefined ? {} : { name: input.name }),
+        };
+        const roster = await reads.myWorkers(userOf(ctx), windowMinutes, query);
+        const fallback = publishedDifficulty(envOf().MINING_DEFAULT_DIFFICULTY);
+        return {
+          ...roster,
+          defaultDifficulty: fallback === null || fallback === 'invalid' ? null : fallback,
+          defaultDifficultyReason:
+            fallback === null
+              ? ('mining.default_difficulty_unset' as const)
+              : fallback === 'invalid'
+                ? ('mining.default_difficulty_invalid' as const)
+                : null,
+        };
+      },
+      /** Only a worker the caller's shares created can be changed; nothing here touches a share, a window or a payout. */
+      'mining.workers.setDifficulty': ({ ctx, input }) =>
+        reads.setWorkerDifficulty(userOf(ctx), input.workerId, input.minDifficulty === null ? null : BigInt(input.minDifficulty)),
+      /** Saving the same mode again changes nothing; a change while the rig has shares in an open window refuses. */
+      'mining.workers.setMode': ({ ctx, input }) => reads.setWorkerMode(userOf(ctx), input.name, input.mode),
+      'mining.workers.soloCredit': () => refusal(EMISSION_UNPUBLISHED, 'Solo credit waits for the published reward source'),
+      'mining.ops.workers': ({ input }) =>
+        unmapped(() => reads.listWorkers(assertListLimit(input.limit, 'mining.workers_list_limit_unset'), input.cursor ?? null)),
+      'mining.ops.shares': ({ input }) => unmapped(() => reads.opsShares(input)),
+      'mining.ops.windows': () => unmapped(() => reads.opsWindows()),
+      'mining.shares.mine': ({ ctx, input }) => unmapped(() => reads.myShares(userOf(ctx), input)),
+      'mining.windows.pending': ({ ctx }) => unmapped(() => reads.pending(userOf(ctx))),
+      'mining.payouts.mine': ({ ctx, input }) =>
+        unmapped(() => reads.myPayouts(userOf(ctx), assertListLimit(input.limit, 'mining.payouts_list_limit_unset'), input.cursor ?? null)),
+      // `terms` never mapped its errors at all.
+      'mining.terms': () => unmapped(async () => terms()),
+      'mining.overview': () => readPoolOverview(envOf()),
+      'mining.minerSecret.status': ({ ctx }) => reads.minerSecretStatus(userOf(ctx)),
+      'mining.minerSecret.issue': ({ ctx }) => reads.issueMinerSecret(userOf(ctx)),
+      'mining.connection': ({ ctx }) => readPoolConnection(envOf(), userOf(ctx)),
+      'mining.pow': () => {
+        const spec = publishedPowSpec(envOf());
+        if (spec === null) return { status: 'unset' as const, code: POW_SPEC_UNSET };
+        return { status: 'published' as const, dimension: spec.dimension, targetBits: spec.targetBits, testnet: spec.testnet };
+      },
+      'mining.probe': ({ ctx }) => runProbe({ env: envOf(), userId: userOf(ctx), nowMs: now(), limiter, dial }),
+    },
+    miningRefusal,
+  );
 }
 
 export type MiningRouter = ReturnType<typeof createMiningRouter>;

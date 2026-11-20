@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { z } from 'zod';
-import { useApi } from '../session/session';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import {
+  MINING_CONNECTION,
+  MINING_MINER_SECRET_ISSUE,
+  MINING_MINER_SECRET_STATUS,
+  MINING_OVERVIEW,
+  MINING_PROBE,
+} from '@intafaced/contracts/mining-procedures';
+import { useApi } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { stamp } from '../../screens/money/time';
@@ -10,43 +17,16 @@ import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 import type { MiningHealth } from './mining-journey';
 
-// hand-declared-ok: svc-mining-pool's overview, connection and probe answers have no browser-safe schema in packages/contracts yet
-
 /** `overview`: the owner's published pool sections. A blank section is null; a wholly blank overview refuses. */
-export const poolOverview = z.object({
-  version: z.string(),
-  what: z.string().nullable(),
-  coin: z.string().nullable(),
-  hardware: z.string().nullable(),
-  revenueSplit: z.string().nullable(),
-  notSupported: z.string().nullable(),
-});
-export type PoolOverview = z.infer<typeof poolOverview>;
-
+export type PoolOverview = ProcedureOutput<typeof MINING_OVERVIEW>;
 /** `connection`: the published host and port, and the signed account's own id. A blank host or port refuses. */
-export const poolConnection = z.object({
-  host: z.string(),
-  port: z.string(),
-  secureUrl: z.string().nullable(),
-  accountId: z.string(),
-  workerNamePattern: z.string().nullable(),
-});
-export type PoolConnection = z.infer<typeof poolConnection>;
-
+export type PoolConnection = ProcedureOutput<typeof MINING_CONNECTION>;
 /** `minerSecret.status`: when the account's miner secret was issued, or null. Never the secret. */
-export const minerSecretStatus = z.object({ issuedAt: z.string().nullable() });
-export type MinerSecretStatus = z.infer<typeof minerSecretStatus>;
+export type MinerSecretStatus = ProcedureOutput<typeof MINING_MINER_SECRET_STATUS>;
 /** `minerSecret.issue`: a new secret, shown this once; the pool keeps only its hash. */
-export const issuedMinerSecret = z.object({ secret: z.string().min(1), issuedAt: z.string() });
-export type IssuedMinerSecret = z.infer<typeof issuedMinerSecret>;
-
+export type IssuedMinerSecret = ProcedureOutput<typeof MINING_MINER_SECRET_ISSUE>;
 /** `probe`: one TCP connect from the pool's network to its own published address. Stores nothing. */
-export const poolProbe = z.object({
-  result: z.enum(['reachable', 'refused', 'timed_out']),
-  roundTripMs: z.string(),
-  viewpoint: z.literal('pool_network'),
-});
-export type PoolProbe = z.infer<typeof poolProbe>;
+export type PoolProbe = ProcedureOutput<typeof MINING_PROBE>;
 
 export const OVERVIEW_UNSET = 'mining.overview_unset';
 export const CONNECTION_UNSET = 'mining.connection_unset';
@@ -79,13 +59,10 @@ export function workerNameFor(pattern: string | null, rig: string): string | nul
 /** Overview tab: what the pool is, how to connect, and whether its address answers. */
 export function MiningPool({ probe }: { probe: Probe }) {
   const api = useApi();
-  const overview = useResource((signal) => api.query('mining', 'overview', undefined, poolOverview, { signal }), 'mining-overview');
-  const connection = useResource((signal) => api.query('mining', 'connection', undefined, poolConnection, { signal }), 'mining-connection');
-  const secret = useResource(
-    (signal) => api.query('mining', 'minerSecret.status', undefined, minerSecretStatus, { signal }),
-    'mining-miner-secret',
-  );
-  const issue = () => api.mutate('mining', 'minerSecret.issue', undefined, issuedMinerSecret);
+  const overview = useResource((signal) => api.call(MINING_OVERVIEW, undefined, { signal }), 'mining-overview');
+  const connection = useResource((signal) => api.call(MINING_CONNECTION, undefined, { signal }), 'mining-connection');
+  const secret = useResource((signal) => api.call(MINING_MINER_SECRET_STATUS, undefined, { signal }), 'mining-miner-secret');
+  const issue = () => api.call(MINING_MINER_SECRET_ISSUE, undefined, { accept: (issued) => issued.secret.length > 0 });
   return (
     <div className="more-columns">
       <div>
@@ -314,7 +291,7 @@ export function usePoolProbe(): Probe {
   async function press() {
     const last = state.status === 'done' ? state.probe : state.status === 'idle' ? null : state.last;
     setState({ status: 'busy', last });
-    const result = await api.query('mining', 'probe', undefined, poolProbe);
+    const result = await api.call(MINING_PROBE, undefined);
     if (!mounted.current) return;
     setState(result.ok ? { status: 'done', probe: result.data } : { status: 'failed', failure: result, last });
   }

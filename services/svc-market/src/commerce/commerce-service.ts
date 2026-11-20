@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   formatAmount,
   IDEMPOTENCY_CONFLICT_CODE,
@@ -1601,7 +1601,12 @@ export class CommerceService {
     );
   }
 
-  private async maxAccessUntilExcluding(sql: Sql, listingId: string, buyerId: string, exceptPurchaseId: string): Promise<Date | null> {
+  private async maxAccessUntilExcluding(
+    sql: Queryable,
+    listingId: string,
+    buyerId: string,
+    exceptPurchaseId: string,
+  ): Promise<Date | null> {
     const [row] = await sql<Array<{ until: Date | null }>>`
       SELECT max(access_until) AS until
         FROM market.purchases

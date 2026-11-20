@@ -35,10 +35,15 @@ import {
   payPaymentListInputSchema,
   payPaymentListSummarySchema,
   payPricingSnapshotViewSchema,
+  paySettlementClearingSchema,
+  paySettlementDetailViewSchema,
   paySettlementLineSchema,
+  paySettlementViewSchema,
   paySettlementLinesInputSchema,
   payPayoutDestinationItemSchema,
+  payDestinationAddOutputSchema,
   payDestinationCancelHoldInputSchema,
+  payDestinationRemoveOutputSchema,
   payDestinationCancelHoldOutputSchema,
   payPayoutDestinationListInputSchema,
   payPayoutLifecycleInputSchema,
@@ -73,6 +78,7 @@ import { PAY_MERCHANT_DECIDE_KYB, kybApprovalFields, loadKybDecisionBinding } fr
 import { ControlError } from './control/errors.js';
 import { toTrpcError as controlToTrpcError } from './namespaces/control-errors.js';
 import { PayError, type PayService } from './payment-service.js';
+import { openingTxIdFromDetail } from './payment-service/internal.js';
 import { merchantFeeView, type MerchantStarterFee } from './starter-fee.js';
 import { DestinationKindError } from './payout-destination.js';
 import {
@@ -125,7 +131,9 @@ import { PostgresFraudReviewQueue, type DurableReviewCase } from './fraud/review
 import {
   defaultDisputeCaseStore,
   DisputeCaseError,
-  refuseChargebackUncovered,
+  refuseChargebackOpeningPostedShortfallUnfunded,
+  refuseChargebackPlanConflict,
+  refuseChargebackShortfallUnfunded,
   type ChargebackLedgerRefuse,
   type DisputeCaseStore,
 } from './fraud/dispute-case.js';
@@ -142,6 +150,7 @@ import {
 import { PAY_PUBLIC_API_BASE } from './plugins/reference-client.js';
 import { MAX_FEE_BPS } from './fee-bps-bound.js';
 import { ownMerchantRead } from './own-merchant-read.js';
+import { OnboardingDraftStore, onboardingDraftSaveInputSchema, onboardingDraftSchema } from './onboarding-draft.js';
 
 /**
  * svc-pay's internal tRPC surface (§2 — cross-service calls go through
@@ -183,39 +192,6 @@ const paymentView = z.object({
 });
 
 /** RC-merchant-10: one captured payment whose funds the rail still holds. `availableOn` is the rail's day, or null. */
-const heldClearingView = z.object({
-  paymentId: z.string().guid(),
-  amount: amountSchema,
-  assetId: assetIdSchema,
-  availableOn: z.string().datetime({ offset: true }).nullable(),
-  /** The settlement waiting on the rail that froze it; absent while no window holds it. */
-  settlementId: z.string().guid().optional(),
-});
-
-const settlementView = z.object({
-  id: z.string().guid(),
-  merchantId: z.string().guid(),
-  window: z.string(),
-  assetId: assetIdSchema,
-  gross: amountSchema,
-  fees: amountSchema,
-  net: amountSchema,
-  payoutMethod: z.string().nullable(),
-  payoutRef: z.string().nullable(),
-  status: z.enum(['pending', 'posted', 'paid_out', 'failed']),
-  /** On a settlement run: what the rail still holds, left in clearing. Absent when nothing is held. */
-  clearingPending: z.array(heldClearingView).optional(),
-});
-
-const settlementDetailView = settlementView.extend({
-  createdAt: z.string().datetime({ offset: true }).nullable(),
-  sentAt: z.string().datetime({ offset: true }).nullable(),
-  settledAt: z.string().datetime({ offset: true }).nullable(),
-  failedAt: z.string().datetime({ offset: true }).nullable(),
-  failure: payMerchantFailureSchema.nullable(),
-  pricingSnapshot: payPricingSnapshotViewSchema.nullable(),
-});
-
 /**
  * A checkout session on the wire.
  *
@@ -275,8 +251,8 @@ const withdrawalView = z.object({
 });
 
 type PaymentViewOut = z.infer<typeof paymentView>;
-type SettlementViewOut = z.infer<typeof settlementView>;
-type SettlementDetailOut = z.infer<typeof settlementDetailView>;
+type SettlementViewOut = z.infer<typeof paySettlementViewSchema>;
+type SettlementDetailOut = z.infer<typeof paySettlementDetailViewSchema>;
 type WithdrawalViewOut = z.infer<typeof withdrawalView>;
 
 function reviewReasons(c: FraudReviewCase | DurableReviewCase): Array<{ ruleId: string; detail: string }> {
@@ -627,7 +603,7 @@ export function createPayRouter(
       }),
 
     merchant: router({
-      ...(portal?.merchant ?? {}),
+      ...portal?.merchant,
       /**
        * Ownership: userId is always the authenticated principal. Body userId
        * was dropped so a caller with pay:write cannot create a merchant under
@@ -665,6 +641,8 @@ export function createPayRouter(
               displayName: input.displayName,
               legalName: input.legalName,
             });
+            // The account is open: the business step's draft has done its job. A failed delete never fails the open.
+            if (portalSql) await new OnboardingDraftStore(portalSql).clear(userId).catch(() => undefined);
             return { id: merchant.id, userId: merchant.userId, mode: merchant.mode, feeBps: merchant.pricing.feeBps ?? null };
           }),
         ),
@@ -741,6 +719,34 @@ export function createPayRouter(
       starterFee: ownMerchantRead()
         .output(z.object({ starterFee: merchantStarterFeeSchema.nullable() }))
         .query(() => ({ starterFee })),
+
+      /**
+       * The business step's saved draft for the signed-in person (J-merchant-02 #1), or null. Kept before any account
+       * exists, so leaving the page or signing out never drops what was typed. Never another person's: keyed by session.
+       */
+      onboardingDraft: ownMerchantRead()
+        .output(onboardingDraftSchema)
+        .query(({ ctx }) =>
+          wrap(async () => {
+            const userId = ctx.principal?.userId;
+            if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+            if (!portalSql) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'pay.onboarding_draft_unavailable' });
+            return new OnboardingDraftStore(portalSql).get(userId);
+          }),
+        ),
+
+      /** Saves the business step's draft for the signed-in person, newest `seq` winning. It opens no account. */
+      saveOnboardingDraft: scopedProcedure('pay:onboard', { module: 'pay' })
+        .input(onboardingDraftSaveInputSchema)
+        .output(onboardingDraftSchema)
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            const userId = ctx.principal?.userId;
+            if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+            if (!portalSql) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'pay.onboarding_draft_unavailable' });
+            return new OnboardingDraftStore(portalSql).save(userId, input.fields, input.seq);
+          }),
+        ),
 
       /**
        * KYB stub submit — dossier reference only. Does not invent a partner decision.
@@ -1038,15 +1044,7 @@ export function createPayRouter(
               ref: z.string().min(1),
             }),
           )
-          .output(
-            z.object({
-              kind: z.string(),
-              ref: z.string(),
-              railId: z.string(),
-              status: z.literal('unverified'),
-              activatesAt: z.null(),
-            }),
-          )
+          .output(payDestinationAddOutputSchema)
           .mutation(({ ctx, input }) => wrap(async () => addDestination(ctx.principal, input))),
         /**
          * The owner sends a held destination back to unverified (J-merchant-02 #5, the lead's ruling of 2026-10-30).
@@ -1085,7 +1083,7 @@ export function createPayRouter(
           ),
         remove: scopedProcedure('pay:write', { module: 'pay' })
           .input(z.object({ merchantId: z.string().guid(), destinationId: z.string().guid() }))
-          .output(z.object({ removed: z.literal(true) }))
+          .output(payDestinationRemoveOutputSchema)
           .mutation(({ ctx, input }) =>
             wrap(async () => {
               await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.payoutDestinations.remove');
@@ -1363,7 +1361,7 @@ export function createPayRouter(
     settlement: router({
       run: scopedProcedure('pay:write', { module: 'pay' })
         .input(z.object({ merchantId: z.string().guid(), window: z.string().min(1), assetId: assetIdSchema }))
-        .output(settlementView)
+        .output(paySettlementViewSchema)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.settlement.run');
@@ -1380,7 +1378,7 @@ export function createPayRouter(
             destination: z.object({ kind: z.string().min(1), ref: z.string().min(1) }).optional(),
           }),
         )
-        .output(settlementView)
+        .output(paySettlementViewSchema)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
@@ -1401,7 +1399,7 @@ export function createPayRouter(
 
       get: ownMerchantRead()
         .input(z.object({ settlementId: z.string().guid() }))
-        .output(settlementDetailView)
+        .output(paySettlementDetailViewSchema)
         .query(({ ctx, input }) =>
           wrap(async () => {
             // A settlement names gross, fees and net for a window — another
@@ -1419,7 +1417,7 @@ export function createPayRouter(
        */
       list: ownMerchantRead()
         .input(paySettlementListInputSchema)
-        .output(payPageSchema(settlementDetailView))
+        .output(payPageSchema(paySettlementDetailViewSchema))
         .query(({ ctx, input }) =>
           wrap(async () => {
             const audience = await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
@@ -1434,7 +1432,7 @@ export function createPayRouter(
        */
       clearing: ownMerchantRead()
         .input(z.object({ merchantId: z.string().guid(), assetId: assetIdSchema.optional() }))
-        .output(z.object({ held: z.array(heldClearingView) }))
+        .output(paySettlementClearingSchema)
         .query(({ ctx, input }) =>
           wrap(async () => {
             await assertRead(ctx.principal?.userId, input.merchantId, 'trpc.settlement.list', 'settlements.read');
@@ -1470,7 +1468,7 @@ export function createPayRouter(
        */
       release: scopedProcedure('pay:write', { module: 'pay' })
         .input(z.object({ settlementId: z.string().guid(), reason: z.string().min(1) }))
-        .output(settlementView)
+        .output(paySettlementViewSchema)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const settlement = await pay.getSettlement(input.settlementId);
@@ -1990,7 +1988,23 @@ export function createPayRouter(
                     cause: e,
                   });
                 }
-                throw e;
+                // The refusals the webhook door records as a case (postChargebackOpenOrRefuse): the dispute exists either
+                // way. An opening that already posted before the shortfall was refused moved the merchant's money, so the
+                // case must name that transaction; a later lost or closed outcome books the shortfall once.
+                const ref = { disputeId: input.disputeId, paymentId: input.paymentId };
+                if (e instanceof PayError && e.code === 'pay.chargeback_plan_conflict') {
+                  ledgerRefuse = refuseChargebackPlanConflict(ref);
+                } else if (e instanceof PayError && e.code === 'pay.chargeback_shortfall_unfunded') {
+                  const openingTxId = openingTxIdFromDetail(e.detail);
+                  if (openingTxId) {
+                    posted = { txId: openingTxId };
+                    ledgerRefuse = refuseChargebackOpeningPostedShortfallUnfunded(ref);
+                  } else {
+                    ledgerRefuse = refuseChargebackShortfallUnfunded(ref);
+                  }
+                } else {
+                  throw e;
+                }
               }
             }
             const ledgerPost = posted?.txId?.trim() ? { txId: posted.txId.trim() } : undefined;
@@ -2795,6 +2809,7 @@ export function toTrpcError(err: unknown): unknown {
        * is wrong, which is the only thing that is actually true.
        */
       case 'pay.link_exhausted':
+      case 'pay.payment_not_in_our_custody':
       case 'pay.checkout_session_closed':
       case 'pay.merchant_parent_present':
         return 'CONFLICT' as const;
@@ -2821,6 +2836,8 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.destination_hold_unset':
       case 'pay.payout_admission_missing':
       case 'pay.fee_bps_unset':
+      case 'pay.partner_fee_rate_unset':
+      case 'pay.receiving_wallet_unset':
       case 'pay.starter_fee_unpublished':
       case 'pay.link_ttl_unset':
       case 'pay.purchase_hold_period_unset':

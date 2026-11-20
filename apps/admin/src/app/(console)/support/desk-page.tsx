@@ -34,7 +34,7 @@ export async function SupportDeskPage({ query, ticketId }: { query: QueueQuery; 
       openTicketId={ticketId}
     >
       <p>
-        <Link href="/support/settings">Contact details for the help centre</Link> ·{' '}
+        <Link href="/support/settings">Help centre settings and contact details</Link> ·{' '}
         <Link href="/support/articles">Write and review help articles</Link>
       </p>
       <RoutingWaiting initial={waiting} />

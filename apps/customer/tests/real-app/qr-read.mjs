@@ -1,13 +1,14 @@
 import jsQR from 'jsqr';
 
 /**
- * Scans the QR code the page draws (`pay-qr`), as a camera would: the drawn image is rendered to pixels with a quiet
+ * Scans the QR code the page draws (`pay-qr`, or the code's own `svg`), as a camera would: the drawn image is rendered to pixels with a quiet
  * zone and decoded by a QR reader that is not the app's own encoder. Returns the decoded text, or null when it does not
  * read.
  */
 export async function scanQr(locator) {
   const pixels = await locator.evaluate(async (box) => {
-    const svg = box.querySelector('svg');
+    // The drawn code itself, or the box that holds it.
+    const svg = box instanceof SVGSVGElement ? box : box.querySelector('svg');
     if (!svg) return null;
     const scale = 8;
     const [, , w, h] = svg.getAttribute('viewBox').split(' ').map(Number);

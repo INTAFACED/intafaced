@@ -41,9 +41,14 @@ export interface Drawing {
   variant?: PatternVariant;
   /** Text annotation content. */
   text?: string;
-  /** Text size in pixels (a UI default of 14 when unset). */
+  /** Text size in pixels (a UI default of 14 when unset), one of `TEXT_SIZES`. */
   size?: number;
   tone: Tone;
+  /**
+   * The indicator pane the drawing is on, numbered as the chart numbers its panes (1 is the first under the price). Absent
+   * on the price pane (0). Only the kinds in `PANE_KINDS` go on an indicator pane; its values are that pane's scale.
+   */
+  pane?: number;
   /** Fibonacci levels, editable by the person. */
   levels?: Decimal[];
   locked: boolean;
@@ -91,6 +96,15 @@ export function pointsNeeded(kind: DrawingKind, variant?: PatternVariant): numbe
 }
 
 export const SIZE_DEFAULT = 14;
+/** The text sizes a person can pick, in pixels: UI choices, not owner values. */
+export const TEXT_SIZES: readonly number[] = [12, 14, 18, 24];
+
+/**
+ * The kinds that may be drawn on an indicator pane: lines and text read the same on any scale. The rest (Fibonacci levels,
+ * positions, patterns, shapes, measure, brush) read a price, so they stay on the price pane and refuse anywhere else.
+ */
+export const PANE_KINDS: readonly DrawingKind[] = ['horizontal', 'ray', 'vertical', 'cross', 'trend', 'info', 'text'];
+export const allowedOnPane = (kind: DrawingKind, pane: number): boolean => pane === 0 || PANE_KINDS.includes(kind);
 
 /** The tone a new drawing takes: positions show their profit side and loss side; text the neutral one; the rest the accent. */
 export function toneFor(kind: DrawingKind): Tone {
@@ -105,17 +119,20 @@ export function makeDrawing(
   id: string,
   kind: DrawingKind,
   points: Pt[],
-  extras: { variant?: PatternVariant; text?: string } = {},
+  extras: { variant?: PatternVariant; text?: string; size?: number; tone?: Tone; pane?: number } = {},
 ): Drawing {
+  const size = extras.size !== undefined && TEXT_SIZES.includes(extras.size) ? extras.size : SIZE_DEFAULT;
+  const tone = kind === 'text' && extras.tone && TONES.includes(extras.tone) ? extras.tone : toneFor(kind);
   return {
     id,
     kind,
     points,
     ...(extras.variant ? { variant: extras.variant } : {}),
-    ...(kind === 'text' ? { text: extras.text?.trim() || 'Text', size: SIZE_DEFAULT } : {}),
+    ...(kind === 'text' ? { text: extras.text?.trim() || 'Text', size } : {}),
     ...(kind === 'fib' ? { levels: [...FIB_LEVELS] } : {}),
     ...(kind === 'fibExtension' ? { levels: [...EXTENSION_LEVELS] } : {}),
-    tone: toneFor(kind),
+    ...(extras.pane ? { pane: extras.pane } : {}),
+    tone,
     locked: false,
     hidden: false,
   };
@@ -171,7 +188,9 @@ export type ModelRefusal =
   | 'brush-cap-unset'
   | 'brush-cap-loading'
   | 'brush-cap-unavailable'
-  | 'outside-bars';
+  | 'outside-bars'
+  | 'pane-not-allowed'
+  | 'bad-size';
 
 const DRAWING_CAP_REFUSAL: Record<CapWhy, ModelRefusal> = {
   unset: 'cap-unset',
@@ -343,5 +362,7 @@ function validDrawing(value: unknown): Drawing | null {
     if (typeof p !== 'object' || p === null || !Number.isInteger(p.time) || dec(p.price) === null) return null;
   }
   if (typeof d.locked !== 'boolean' || typeof d.hidden !== 'boolean') return null;
+  if (d.pane !== undefined && !(Number.isInteger(d.pane) && d.pane >= 1 && PANE_KINDS.includes(d.kind))) return null;
+  if (d.size !== undefined && !TEXT_SIZES.includes(d.size)) return null;
   return d;
 }

@@ -21,6 +21,11 @@ describe('the platform posting freeze on the trade API (DV-errors-02)', () => {
     // trade send.
     expect(classifyRefusal('trade.account_restricted')).toBe('tradingOnHold');
     expect(classifyRefusal('ledger.frozen')).toBe('platformPaused');
+    // The owner's own freeze names itself, never a hold the person must ask support about (J-wallet-13 #2).
+    expect(classifyRefusal('identity.account_frozen_self')).toBe('frozenByYou');
+    expect(classifyRefusal('trade.account_frozen_self')).toBe('frozenByYou');
+    expect(classifyRefusal('agents.identity.owner_frozen_self')).toBe('frozenByYou');
+    expect(refusalCopy('identity.account_frozen_self').body).toContain('own wallet and venue account, which only your wallet controls');
   });
 });
 

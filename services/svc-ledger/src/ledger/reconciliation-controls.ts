@@ -6,8 +6,9 @@
  * the contract shape; no snapshot is the word `unset`, not null and not zero.
  */
 
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
-import type { JSONValue, Sql, TransactionSql } from 'postgres';
+import type { JSONValue, Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import {
   LEDGER_RECONCILE_ASOF_INVALID,
@@ -61,8 +62,6 @@ import {
   readInstant,
   type ReconciliationPeriod,
 } from './reconciliation-schedule.js';
-
-type Db = Sql | TransactionSql;
 
 export interface SnapshotRead {
   readonly kind: 'unset' | 'unavailable' | 'snapshot';
@@ -235,7 +234,7 @@ function toView(row: ControlRow): ReconciliationControlView {
 }
 
 async function audit(
-  tx: Db,
+  tx: Queryable,
   controlId: string,
   actor: string,
   reason: string,
@@ -254,7 +253,7 @@ const CONTROL_COLUMNS = `
   tolerance, margin, account_set, threshold, version, resumed_at
 `;
 
-async function loadControl(sql: Db, id: string, lock: boolean): Promise<ControlRow> {
+async function loadControl(sql: Queryable, id: string, lock: boolean): Promise<ControlRow> {
   const rows = await sql<ControlRow[]>`
     SELECT ${sql.unsafe(CONTROL_COLUMNS)}
       FROM reconciliation_controls
@@ -402,7 +401,7 @@ export async function updateReconciliationControl(
  * The state is checked before the approval is consumed, so an illegal move does not spend it.
  */
 async function moveLifecycle(
-  tx: Db,
+  tx: Queryable,
   approvals: LedgerApprovalConsumer,
   ids: { readonly approvalId?: string; readonly operationId?: string },
   current: ControlRow,
@@ -532,14 +531,19 @@ interface AccountHit {
  * In the set at readAt: created by then on the database clock, or holding an entry posted by then on the posting clock.
  * The two clocks can disagree by a millisecond or more (created_at is the post's transaction start in microseconds,
  * posted_at the app's clock in milliseconds), and an account funded at readAt must be counted with its counter-leg.
+ *
+ * The posted side is one uncorrelated `IN`, never a per-account `EXISTS`: Postgres hashes it once. A correlated
+ * `EXISTS` is planned per account on a table with no statistics yet (a young database), and for a past readAt that
+ * precedes every posting it walks every entry of every account in the set with a ledger_tx lookup each, slow enough
+ * that the edge gave up on the run (issue #8044).
  */
-function existedAt(sql: Db, readAt: Date) {
-  return sql`(created_at <= ${readAt} OR EXISTS (
-    SELECT 1 FROM ledger_entries e JOIN ledger_tx t ON t.id = e.tx_id WHERE e.account_id = accounts.id AND t.posted_at <= ${readAt}
+export function existedAt(sql: Queryable, readAt: Date) {
+  return sql`(created_at <= ${readAt} OR id IN (
+    SELECT e.account_id FROM ledger_entries e JOIN ledger_tx t ON t.id = e.tx_id WHERE t.posted_at <= ${readAt}
   ))`;
 }
 
-async function accountsInSet(sql: Db, accountSet: ReconciliationAccountSet, readAt: Date): Promise<AccountHit[]> {
+async function accountsInSet(sql: Queryable, accountSet: ReconciliationAccountSet, readAt: Date): Promise<AccountHit[]> {
   if (accountSet.mode === 'explicit') {
     return sql<AccountHit[]>`
       SELECT id, asset_id FROM accounts
@@ -562,7 +566,7 @@ async function accountsInSet(sql: Db, accountSet: ReconciliationAccountSet, read
   `;
 }
 
-async function balancesAt(sql: Db, ids: string[], readAt: Date): Promise<Map<string, Amount>> {
+async function balancesAt(sql: Queryable, ids: string[], readAt: Date): Promise<Map<string, Amount>> {
   const out = new Map<string, Amount>();
   for (const id of ids) out.set(id, 0n);
   if (ids.length === 0) return out;
@@ -578,7 +582,7 @@ async function balancesAt(sql: Db, ids: string[], readAt: Date): Promise<Map<str
 }
 
 /** The cached balance column, read for a run at the current instant only (it has no history). */
-async function cachedBalances(sql: Db, ids: string[]): Promise<Map<string, Amount>> {
+async function cachedBalances(sql: Queryable, ids: string[]): Promise<Map<string, Amount>> {
   const out = new Map<string, Amount>();
   for (const id of ids) out.set(id, 0n);
   if (ids.length === 0) return out;
@@ -622,14 +626,14 @@ class BookReadError extends Error {
  * entries (Book.drift) when the check replays. A chain check reads the set only, outside a transaction.
  */
 async function readBook(
-  sql: Db,
+  sql: Queryable,
   accountSet: ReconciliationAccountSet,
   readAt: Date,
   past: boolean,
   withBalances: boolean,
   replays: boolean,
 ): Promise<Book> {
-  const read = async (db: Db): Promise<Book> => {
+  const read = async (db: Queryable): Promise<Book> => {
     let accounts: AccountHit[];
     try {
       accounts = await accountsInSet(db, accountSet, readAt);
@@ -660,7 +664,7 @@ async function readBook(
 }
 
 /** Each account's entries summed up to readAt, or every entry the snapshot shows when readAt is null. */
-async function replayedAt(sql: Db, ids: string[], readAt: Date | null): Promise<Map<string, Amount>> {
+async function replayedAt(sql: Queryable, ids: string[], readAt: Date | null): Promise<Map<string, Amount>> {
   const out = new Map<string, Amount>();
   for (const id of ids) out.set(id, 0n);
   if (ids.length === 0) return out;
@@ -834,7 +838,7 @@ function thresholdAssets(
 
 /** Read the book once (readBook) and judge it; the account ids are the ones the verdict counted, stored as its evidence. */
 async function evaluate(
-  sql: Db,
+  sql: Queryable,
   row: ControlRow,
   readAt: Date,
   sources: ReconciliationSources,
@@ -881,7 +885,7 @@ function itemsKey(items: readonly ReconciliationReconcilingItem[]): string {
 }
 
 async function judge(
-  sql: Db,
+  sql: Queryable,
   row: ControlRow,
   accountSet: ReconciliationAccountSet,
   book: Book,
@@ -1219,7 +1223,7 @@ function isUniqueViolation(err: unknown, depth = 0): boolean {
 }
 
 /** A started row is the only one a later pass may finish. A terminal row is returned as stored. */
-async function finishRun(sql: Db, runId: string, verdict: Verdict, accountIds: string[]): Promise<RunRow> {
+async function finishRun(sql: Queryable, runId: string, verdict: Verdict, accountIds: string[]): Promise<RunRow> {
   const rows = await sql<RunRow[]>`
     UPDATE reconciliation_control_runs
        SET status = ${verdict.status},

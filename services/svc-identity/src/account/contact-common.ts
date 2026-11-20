@@ -9,7 +9,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
 import { customerStepUpPayloadHash } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { ActionApprovalError } from '../auth/action-approval-service.js';
 import type { PasswordResetMail } from '../auth/password-reset.js';
@@ -268,7 +268,7 @@ export async function takeMatchingProof(
   return match;
 }
 
-export async function assertLiveSession(tx: Sql, userId: string, sessionId: string): Promise<void> {
+export async function assertLiveSession(tx: Queryable, userId: string, sessionId: string): Promise<void> {
   const live = await tx<Array<{ id: string }>>`
     SELECT id FROM sessions
     WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()
@@ -276,7 +276,7 @@ export async function assertLiveSession(tx: Sql, userId: string, sessionId: stri
   if (!live[0]) throw new ContactError('auth.session_invalid');
 }
 
-export async function revokeOtherSessions(tx: Sql, userId: string, sessionId: string): Promise<string[]> {
+export async function revokeOtherSessions(tx: Queryable, userId: string, sessionId: string): Promise<string[]> {
   const revoked = await tx<Array<{ id: string }>>`
     UPDATE sessions SET revoked = true
     WHERE user_id = ${userId} AND revoked = false AND id <> ${sessionId}
@@ -285,7 +285,7 @@ export async function revokeOtherSessions(tx: Sql, userId: string, sessionId: st
   return revoked.map((row) => row.id);
 }
 
-export async function killPasswordResetProofs(tx: Sql, userId: string, now: Date): Promise<void> {
+export async function killPasswordResetProofs(tx: Queryable, userId: string, now: Date): Promise<void> {
   await tx`
     UPDATE password_reset_proofs SET consumed_at = ${now}
     WHERE user_id = ${userId} AND consumed_at IS NULL
@@ -297,7 +297,7 @@ export async function killPasswordResetProofs(tx: Sql, userId: string, now: Date
 }
 
 export async function writeAudit(
-  tx: Sql,
+  tx: Queryable,
   input: {
     userId: string;
     sessionId: string;

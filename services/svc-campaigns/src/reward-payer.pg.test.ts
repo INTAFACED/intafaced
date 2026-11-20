@@ -1,0 +1,833 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db/testing';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  CUSTODY_LAYER_OFF_CODE,
+  LedgerError,
+  MemoryLedger,
+  movesCustomerBalance,
+  ownFundsPlaceAccount,
+  parseAmount,
+  recipes,
+  rewardOwedAccount,
+  userAvailable,
+  type LedgerClient,
+  type PostRequest,
+  type RewardCeiling,
+} from '@intafaced/ledger-client';
+import type { CampaignParticipant } from '@intafaced/contracts';
+import type { CampaignDefinitionInput, CampaignTasks } from '@intafaced/contracts/campaigns-catalogue';
+import { CampaignService } from './campaigns.js';
+import { PAYOUT_UNAVAILABLE, PayoutSaga, ledgerRewardId } from './payouts.js';
+import {
+  FROZEN,
+  NO_WALLET,
+  PAYMENT_UNCONFIRMED,
+  RewardPayer,
+  SEND_UNANSWERED,
+  WALLET_SHORT,
+  rewardsPaidToWallet,
+  unitsOf,
+  type RewardChain,
+} from './reward-payer.js';
+import { TaskService } from './tasks.js';
+import { payoutBoard } from './payout-board.js';
+import type { VenueDeposit, VenueDepositRead, VenueDepositSource } from './venue-deposits.js';
+
+/**
+ * Paying an owed reward to the customer's own wallet (J-campaigns-03 #2 #3, #8195) against real Postgres, the in-memory
+ * reference ledger with the custodial layer off, and an in-memory TEST chain. Every test ends with the invariant: each
+ * paid reward left our wallet on the chain exactly once, to the wallet recorded at its claim, and was booked once under
+ * its chain transaction; what is still owed is exactly what the ledger owes; our wallet's place in the book came down by
+ * exactly what was paid; and no customer account holds anything.
+ */
+
+const adminUrl = process.env.TEST_DATABASE_URL?.trim();
+if (!adminUrl && (process.env.REQUIRE_POSTGRES === '1' || process.env.CI === 'true' || process.env.CI === '1')) {
+  throw new Error('TEST_DATABASE_URL is required');
+}
+const available = adminUrl ? await postgresAvailable(adminUrl) : false;
+const drizzle = join(dirname(fileURLToPath(import.meta.url)), '..', 'drizzle');
+const migrations = readdirSync(drizzle)
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((f) => readFileSync(join(drizzle, f), 'utf8'));
+const db: TestDatabase | null =
+  available && adminUrl ? await createTestDatabase({ url: adminUrl, service: 'campaigns', migrations }) : null;
+
+afterAll(async () => {
+  await db?.drop();
+});
+
+const A = 'operator-a';
+const B = 'operator-b';
+const ME = '00000000-0000-4000-8000-0000000000a1';
+const FUNDER = '00000000-0000-4000-8000-0000000000c3';
+const HOUR = 3_600_000;
+const CEILING: RewardCeiling = { perCampaign: parseAmount('15'), total: parseAmount('25') };
+const OURS = '0x00000000000000000000000000000000ce510001';
+const MY_WALLET = '0x1111111111111111111111111111111111111111';
+const WALLET = { walletId: 'test-chain:rewards', address: OURS, tokenDecimals: 6 };
+const VENUE = 'test-venue-sim';
+
+const people = new Map<string, CampaignParticipant>();
+const participants = { read: async (userId: string) => people.get(userId) ?? null };
+const person = (userId: string): CampaignParticipant => ({
+  userId,
+  accountType: 'individual',
+  region: 'DE',
+  status: 'active',
+  kycTier: 'full',
+});
+
+const STEPS: CampaignTasks = {
+  steps: [{ title: 'TEST buy BTC', event: 'trade.fill', market: null, side: 'buy', count: 1, streakDays: null }],
+  claimWindowSeconds: 3600,
+  holdSeconds: 0,
+  lock: null,
+  kycGate: 'basic',
+};
+let names = 0;
+const definition = (over: Partial<CampaignDefinitionInput> = {}): CampaignDefinitionInput => ({
+  name: `TEST paid campaign ${(names += 1)}`,
+  type: 'task',
+  rules: 'TEST rules',
+  startsAt: new Date(Date.now() - HOUR).toISOString(),
+  endsAt: new Date(Date.now() + 30 * 24 * HOUR).toISOString(),
+  participation: { exclusions: [], regionScope: 'platform', restrictedRegions: null },
+  budget: { asset: 'USDC', limit: '100' },
+  limits: { perCustomer: { count: 100, periodSeconds: 86_400 }, totalRedemptions: null },
+  reward: { asset: 'USDC', amount: '10' },
+  tasks: STEPS,
+  ...over,
+});
+
+async function joined(over: Partial<CampaignDefinitionInput> = {}) {
+  const s = new CampaignService({ sql: db!.sql, timeZone: () => 'UTC', participants });
+  const c = await s.create({ definition: definition(over), actor: A });
+  await s.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
+  await s.transition({ id: c.id, action: 'approve', revision: 1, actor: B });
+  await s.transition({ id: c.id, action: 'activate', revision: 1, actor: A });
+  await s.join({ campaignId: c.id, accountId: ME });
+  return c;
+}
+
+/** svc-ledger with the custodial layer off; `frozen` refuses every post; `loseNextReply` lands a post and loses its answer. */
+function custodyOff(inner: MemoryLedger) {
+  const mode = { frozen: false, loseNextReply: false, posts: [] as string[] };
+  const ledger: LedgerClient = {
+    post: async (request: PostRequest) => {
+      if (mode.frozen) throw new LedgerError('Ledger posting is frozen: TEST freeze', 'ledger.frozen');
+      if (movesCustomerBalance(request.entries)) throw new LedgerError('custody layer off', CUSTODY_LAYER_OFF_CODE);
+      const tx = await inner.post(request);
+      mode.posts.push(request.idempotencyKey);
+      if (mode.loseNextReply) {
+        mode.loseNextReply = false;
+        throw new Error('reply lost after the post landed');
+      }
+      return tx;
+    },
+    balance: (ref) => inner.balance(ref),
+    balances: (t, id) => inner.balances(t, id),
+    getTx: (id) => inner.getTx(id),
+    getTxByKey: (key) => inner.getTxByKey(key),
+  };
+  return { ledger, mode };
+}
+
+/**
+ * An in-memory TEST chain: token balances, every transfer it took, and a send that can throw after it was taken.
+ * `holdNext` keeps the next transfer it takes waiting to be mined, as a real chain's pending pool does, until `mine()`.
+ */
+function testChain() {
+  const balances = new Map<string, bigint>();
+  const transfers: { hash: string; from: string; to: string; units: bigint; block: bigint }[] = [];
+  const pending: { hash: string; from: string; to: string; units: bigint }[] = [];
+  const mode = { throwAfterTaking: false, revertNext: false, holdNext: false, reverted: new Set<string>() };
+  let block = 1n;
+  let taken = 0;
+  /** Mines every transfer the chain took and holds, in the order it took them. */
+  const mine = () => {
+    for (const t of pending.splice(0)) {
+      block += 1n;
+      balances.set(t.from, (balances.get(t.from) ?? 0n) - t.units);
+      balances.set(t.to, (balances.get(t.to) ?? 0n) + t.units);
+      transfers.push({ ...t, block });
+    }
+  };
+  const chain: RewardChain = {
+    head: async () => block,
+    holds: async (from) => balances.get(from) ?? 0n,
+    async send(from, to, units) {
+      const have = balances.get(from) ?? 0n;
+      if (have < units) throw new Error('TEST chain: transfer amount exceeds balance');
+      const hash = `0x${(taken += 1).toString(16).padStart(64, 'a')}`;
+      if (mode.holdNext) {
+        mode.holdNext = false;
+        pending.push({ hash, from, to, units });
+        if (mode.throwAfterTaking) {
+          mode.throwAfterTaking = false;
+          throw new Error('TEST chain: the answer was lost after the node took it');
+        }
+        return hash;
+      }
+      block += 1n;
+      if (mode.revertNext) {
+        mode.revertNext = false;
+        mode.reverted.add(hash);
+        return hash;
+      }
+      balances.set(from, have - units);
+      balances.set(to, (balances.get(to) ?? 0n) + units);
+      transfers.push({ hash, from, to, units, block });
+      if (mode.throwAfterTaking) {
+        mode.throwAfterTaking = false;
+        throw new Error('TEST chain: the answer was lost after the node took it');
+      }
+      return hash;
+    },
+    receipt: async (hash) => (mode.reverted.has(hash) ? false : transfers.some((t) => t.hash === hash) ? true : null),
+    // 21,000 gas at 2 gwei, paid by the sender, as an EVM receipt states it.
+    networkFee: async (hash) => (transfers.some((t) => t.hash === hash) ? 21_000n * 2_000_000_000n : null),
+    find: async (from, to, units, fromBlock) =>
+      transfers.filter((t) => t.from === from && t.to === to && t.units === units && t.block >= fromBlock).map((t) => t.hash),
+  };
+  return { chain, balances, transfers, pending, mode, mine };
+}
+
+let book: MemoryLedger;
+let wire: ReturnType<typeof custodyOff>;
+let world: ReturnType<typeof testChain>;
+let tasks: TaskService;
+let payer: RewardPayer;
+let posting: boolean | null;
+let clock: Date | null;
+let connected: string[] | null;
+
+/** The venue's own deposits into each wallet's venue account (J-campaigns-02 #1); a wallet missing here is unread. */
+let venue = new Map<string, VenueDepositRead['deposits']>();
+const wallets: VenueDepositSource = {
+  wallets: async (forwarded) => (Object.keys(forwarded).length > 0 ? connected : null),
+  deposits: async (owner) => {
+    const list = venue.get(owner);
+    return list ? { venueId: VENUE, asOf: (clock ?? new Date()).toISOString(), deposits: list } : null;
+  },
+};
+const FORWARDED = { 'x-intafaced-principal': 'TEST' };
+
+let seeds = 0;
+/** TEST USDC in the rewards engine and in our rewards wallet, set up on the reference book and the TEST chain directly. */
+async function seed(engine: string, wallet: string) {
+  const ref = `seed-${(seeds += 1)}`;
+  await book.post(recipes.deposit({ userId: FUNDER, assetId: 'USDC', amount: parseAmount(engine), rail: 'test', railRef: ref }));
+  await book.post(
+    recipes.feeCharge({ chargeId: ref, userId: FUNDER, module: 'trade', mode: 'asset', assetId: 'USDC', amount: parseAmount(engine) }),
+  );
+  await book.post(recipes.sweepFeesToRewards({ windowId: ref, sourceModule: 'trade', assetId: 'USDC', amount: parseAmount(engine) }));
+  await fundWallet(wallet);
+}
+/** Our builder fees collected at the venue and moved to our rewards wallet: in the book and on the chain. */
+async function fundWallet(amount: string) {
+  const ref = `move-${(seeds += 1)}`;
+  const a = parseAmount(amount);
+  await book.post(
+    recipes.builderFeeEarn({ venueId: VENUE, venueAccount: '0xowner', fillId: `f-${ref}`, assetId: 'USDC', amount: a, userId: FUNDER }),
+  );
+  await book.post(recipes.builderFeeReceive({ venueId: VENUE, claimId: ref, assetId: 'USDC', amount: a }));
+  await book.post(
+    recipes.ownFundsMove({
+      from: { kind: 'venue-builder-account', venueId: VENUE },
+      to: { kind: 'treasury-wallet', walletId: WALLET.walletId },
+      assetId: 'USDC',
+      amount: a,
+      reference: `0x${ref}`,
+    }),
+  );
+  world.balances.set(OURS, (world.balances.get(OURS) ?? 0n) + unitsOf(a, 6)!);
+}
+
+async function complete(campaignId: string) {
+  await db!.sql`
+    INSERT INTO campaigns.task_completions (campaign_id, account_id, completed_at) VALUES (${campaignId}, ${ME}, now())
+    ON CONFLICT DO NOTHING`;
+}
+
+async function claimed(over: Partial<CampaignDefinitionInput> = {}) {
+  const c = await joined(over);
+  await complete(c.id);
+  return (await tasks.claim({ campaignId: c.id, accountId: ME, forwarded: FORWARDED })).reward;
+}
+
+const recordOf = async (key: string) => (await tasks.myRewards({ accountId: ME })).rewards.find((r) => r.rewardKey === key)!;
+const ourPlace = async () =>
+  (await book.balance(ownFundsPlaceAccount({ kind: 'treasury-wallet', walletId: WALLET.walletId }, 'USDC'))).amount;
+
+/** The invariant (see the file's comment). `funded` is what was moved to our wallet in all. */
+async function reconciles(funded: string) {
+  const rows = await db!.sql<{ reward_key: string; campaign_id: string; amount: string; state: string; pay_to_wallet: string | null }[]>`
+    SELECT reward_key, campaign_id, amount::text AS amount, state, pay_to_wallet FROM campaigns.reward_intents`;
+  let paidUnits = 0n;
+  for (const r of rows) {
+    const key = ledgerRewardId(r.campaign_id, r.reward_key);
+    const amount = parseAmount(r.amount);
+    expect((await book.balance(rewardOwedAccount(key))).amount, r.reward_key).toBe(r.state === 'owed' ? amount : 0n);
+    const [payment] = await db!.sql<{ chain_tx: string | null; paid_tx_id: string | null }[]>`
+      SELECT chain_tx, paid_tx_id FROM campaigns.reward_payments WHERE reward_key = ${r.reward_key}`;
+    const sent = world.transfers.filter((t) => t.hash === payment?.chain_tx);
+    if (r.state === 'paid') {
+      // One transfer from our wallet to the wallet recorded at the claim, for exactly the reward, booked under its hash.
+      expect(sent, r.reward_key).toEqual([expect.objectContaining({ from: OURS, to: r.pay_to_wallet, units: unitsOf(amount, 6) })]);
+      const booked = await book.getTxByKey(`campaigns:reward-paid:${sent[0]!.hash}`);
+      expect(booked?.id, r.reward_key).toBe(payment!.paid_tx_id);
+      expect(booked?.meta).toMatchObject({ rewardId: key, toWallet: r.pay_to_wallet });
+      paidUnits += sent[0]!.units;
+    } else {
+      expect(sent, r.reward_key).toEqual([]);
+    }
+  }
+  // Every booking of a payment is one of the transfers, each once.
+  const bookings = [...new Set(wire.mode.posts.filter((k) => k.startsWith('campaigns:reward-paid:')))];
+  expect(bookings.sort()).toEqual(
+    world.transfers
+      .filter((t) => t.from === OURS)
+      .map((t) => `campaigns:reward-paid:${t.hash}`)
+      .sort(),
+  );
+  expect(world.transfers.filter((t) => t.from === OURS).reduce((n, t) => n + t.units, 0n)).toBe(paidUnits);
+  // Our wallet's place in the book (negative: ours is there) came back by exactly what was paid.
+  expect(-(await ourPlace())).toBe(parseAmount(funded) - paidUnits * 10n ** 12n);
+  expect((await book.balance(userAvailable(ME, 'USDC'))).amount).toBe(0n);
+  expect(book.reconcile()).toEqual({ ok: true });
+}
+
+if (!db) {
+  describe.skip('reward payments (Postgres unavailable)', () => {
+    it('skipped', () => undefined);
+  });
+} else {
+  describe('paying owed rewards to the customer wallet (Postgres)', () => {
+    beforeEach(async () => {
+      await db.sql`TRUNCATE campaigns.reward_payments, campaigns.redemption_attempts, campaigns.reward_intents,
+        campaigns.welcome_events, campaigns.welcome_accounts,
+        campaigns.task_progress, campaigns.task_completions, campaigns.pot_fundings, campaigns.participations,
+        campaigns.eligibility_reviews, campaigns.audit_log, campaigns.campaigns CASCADE`;
+      people.clear();
+      people.set(ME, person(ME));
+      book = new MemoryLedger();
+      wire = custodyOff(book);
+      world = testChain();
+      posting = true;
+      clock = null;
+      connected = [MY_WALLET];
+      venue = new Map();
+      const saga = new PayoutSaga({ sql: db.sql, ledger: wire.ledger, reconcileAfterSeconds: 1, rewardCeiling: CEILING });
+      tasks = new TaskService({
+        sql: db.sql,
+        participants,
+        saga,
+        markets: null,
+        timeZone: () => 'UTC',
+        rollbackWindowSeconds: 86_400,
+        venueDeposits: wallets,
+        rewardsPaidTo: rewardsPaidToWallet(db.sql),
+        now: () => clock ?? new Date(),
+      });
+      payer = new RewardPayer({
+        sql: db.sql,
+        ledger: wire.ledger,
+        chain: world.chain,
+        wallet: WALLET,
+        postingEnabled: async () => posting,
+        now: () => clock ?? new Date(),
+      });
+    });
+
+    it('a deposit step ticks once from the venue’s record of a deposit after the join; read again, or reported again, nothing changes (J-campaigns-02 #1)', async () => {
+      const DEPOSIT_STEPS: CampaignTasks = {
+        ...STEPS,
+        steps: [
+          { title: 'TEST deposit USDC', event: 'pay.deposit', market: null, side: null, count: 1, streakDays: null },
+          { title: 'TEST buy BTC', event: 'trade.fill', market: null, side: 'buy', count: 1, streakDays: null },
+        ],
+      };
+      const c = await joined({ tasks: DEPOSIT_STEPS });
+      const read = () => tasks.progress({ campaignId: c.id, accountId: ME, forwarded: FORWARDED });
+      // The venue unread: the step stays open and says unread, never "no deposit"; with no principal nothing is read.
+      expect(await read()).toMatchObject({ completed: 0, deposit: { source: 'unread', asOf: null } });
+      expect((await tasks.progress({ campaignId: c.id, accountId: ME })).deposit).toEqual({ source: 'unread', asOf: null });
+      connected = [];
+      expect((await read()).deposit).toEqual({ source: 'no_wallet', asOf: null });
+      connected = [MY_WALLET];
+      // A deposit the venue saw before the join, one not credited, and one in another asset count for nothing.
+      const [member] = await db.sql<{ created_at: Date }[]>`SELECT created_at FROM campaigns.participations WHERE campaign_id = ${c.id}`;
+      const before = new Date(member!.created_at.getTime() - 60_000).toISOString();
+      const after = new Date(member!.created_at.getTime() + 1_000).toISOString();
+      venue.set(MY_WALLET, [
+        { depositRef: '0xold:0', asset: 'USDC', amount: '25', status: 'credited', seenAt: before },
+        { depositRef: '0xwait:0', asset: 'USDC', amount: '25', status: 'confirming', seenAt: after },
+        { depositRef: '0xeth:0', asset: 'ETH', amount: '1', status: 'credited', seenAt: after },
+      ]);
+      const none = await read();
+      expect(none.deposit?.source).toBe('read');
+      expect(none.steps.map((st) => st.done)).toEqual([0, 0]);
+      // Credited USDC after the join: the step is done, from the venue's own id for the transfer.
+      venue.get(MY_WALLET)!.push({ depositRef: '0xnew:0', asset: 'USDC', amount: '25', status: 'credited', seenAt: after });
+      const done = await read();
+      expect(done.steps.map((st) => st.done)).toEqual([1, 0]);
+      const events = () => db.sql<{ event_id: string; occurred_at: Date }[]>`
+        SELECT event_id, occurred_at FROM campaigns.task_progress WHERE campaign_id = ${c.id} ORDER BY event_id`;
+      expect(await events()).toEqual([{ event_id: `venue-deposit:${VENUE}:0xnew:0`, occurred_at: new Date(after) }]);
+      // Read again, and with a later deposit on the venue: the one event stands, the step counts once.
+      venue.get(MY_WALLET)!.push({ depositRef: '0xlater:0', asset: 'USDC', amount: '5', status: 'credited', seenAt: after });
+      for (let i = 0; i < 3; i += 1) expect((await read()).steps.map((st) => st.done)).toEqual([1, 0]);
+      expect(await events()).toHaveLength(1);
+      // The fill completes the campaign; the deposit step's event never moved.
+      await tasks.onFill({ fillId: 'fill-deposit-1', userId: ME, marketId: 'm', side: 'buy', ts: new Date().toISOString() });
+      expect((await read()).completed).toBe(2);
+      expect(await events()).toHaveLength(2);
+      // A deposit step is one event on no market or side, never a streak.
+      const s = new CampaignService({ sql: db.sql, timeZone: () => 'UTC', participants });
+      const bad = (step: Partial<CampaignTasks['steps'][number]>) =>
+        s.create({ definition: definition({ tasks: { ...STEPS, steps: [{ ...DEPOSIT_STEPS.steps[0]!, ...step }] } }), actor: A }).then(
+          () => 'made',
+          (e: { code?: string }) => e.code,
+        );
+      expect(await bad({ count: 2 })).toBe('campaigns.tasks_invalid');
+      expect(await bad({ side: 'buy' })).toBe('campaigns.tasks_invalid');
+      expect(await bad({ market: 'BTC/USDT' })).toBe('campaigns.tasks_invalid');
+    });
+
+    it('reward money we paid a wallet, deposited back, does not tick a deposit step', async () => {
+      await seed('50', '20');
+      const reward = await claimed();
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 1 });
+      expect((await recordOf(reward.rewardKey)).state).toBe('paid');
+      const c = await joined({
+        tasks: {
+          ...STEPS,
+          steps: [{ title: 'TEST deposit USDC', event: 'pay.deposit', market: null, side: null, count: 1, streakDays: null }],
+        },
+      });
+      const read = () => tasks.progress({ campaignId: c.id, accountId: ME, forwarded: FORWARDED });
+      const after = new Date(Date.now() + 1_000).toISOString();
+      // The 10 USDC we paid, sent back to the venue: not a deposit of the person's own money.
+      venue.set(MY_WALLET, [{ depositRef: '0xback:0', asset: 'USDC', amount: '10', status: 'credited', seenAt: after }]);
+      expect((await read()).completed).toBe(0);
+      // Anything above it is theirs: the step ticks on the deposit that passes it.
+      venue.get(MY_WALLET)!.push({ depositRef: '0xmine:0', asset: 'USDC', amount: '1', status: 'credited', seenAt: after });
+      expect((await read()).completed).toBe(1);
+      await reconciles('20');
+    });
+
+    it('the budget reservation moves to spent once; reserved, spent and left add up to the limit exactly; the rollback window closes at the payment; the network fee is ours', async () => {
+      await seed('50', '20');
+      const c = await joined({ budget: { asset: 'USDC', limit: '100.000000000000000001' } });
+      const read = () => tasks.progress({ campaignId: c.id, accountId: ME, forwarded: FORWARDED });
+      expect((await read()).budget).toEqual({
+        asset: 'USDC',
+        limit: '100.000000000000000001',
+        reserved: '0',
+        spent: '0',
+        left: '100.000000000000000001',
+      });
+      await complete(c.id);
+      const owed = (await tasks.claim({ campaignId: c.id, accountId: ME, forwarded: FORWARDED })).reward;
+      expect(owed.state).toBe('owed');
+      expect((await read()).budget).toMatchObject({ reserved: '10', spent: '0', left: '90.000000000000000001' });
+      // Owed: the rollback window runs from when it was owed and closes when it is paid.
+      expect(owed.rollback).toMatchObject({ closesOn: 'payment', windowSeconds: 86_400 });
+      expect(Date.parse(owed.rollback.closesAt!)).toBe(Date.parse(owed.owed!.at) + 86_400_000);
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 1 });
+      await payer.pass();
+      const paid = (await read()).reward!;
+      expect(paid.state).toBe('paid');
+      expect((await read()).budget).toMatchObject({ reserved: '0', spent: '10', left: '90.000000000000000001' });
+      // Closed at the payment: a chain payment cannot be taken back.
+      expect(paid.rollback).toMatchObject({ closesOn: 'payment', closesAt: paid.payout!.at });
+      // The network fee is what the chain's receipt states, paid by our wallet, and the reward reached the wallet whole.
+      expect(paid.payout!.networkFee).toEqual({ asset: 'ETH', amount: '0.000042', paidBy: 'intafaced' });
+      expect(world.balances.get(MY_WALLET)).toBe(10_000_000n);
+      // The ledger agrees: owed once, paid once, nothing still owed.
+      expect(wire.mode.posts.filter((k) => k.startsWith('campaigns:owe:'))).toHaveLength(1);
+      expect(new Set(wire.mode.posts.filter((k) => k.startsWith('campaigns:reward-paid:'))).size).toBe(1);
+      await reconciles('20');
+    });
+
+    it('pays an owed reward once to the wallet connected at its claim, books it under its chain transaction, and it reads paid', async () => {
+      await seed('50', '20');
+      const reward = await claimed();
+      expect(reward).toMatchObject({ state: 'owed', reason: PAYOUT_UNAVAILABLE, payout: null });
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 1 });
+      const paid = await recordOf(reward.rewardKey);
+      expect(paid).toMatchObject({ state: 'paid', status: 'paid', reason: null, payout: { toWallet: MY_WALLET } });
+      expect(paid.payout!.chainTx).toBe(world.transfers[0]!.hash);
+      expect(paid.ledgerTxId).toBeTruthy();
+      expect(paid.attempts.filter((a) => a.outcome === 'paid')).toHaveLength(1);
+      expect(world.balances.get(MY_WALLET)).toBe(10_000_000n);
+      // Later passes send and book nothing more.
+      expect(await payer.pass()).toEqual({ sent: 0, paid: 0 });
+      expect((await tasks.myRewards({ accountId: ME })).totals).toEqual([{ status: 'paid', asset: 'USDC', amount: '10', count: 1 }]);
+      await reconciles('20');
+    });
+
+    it('counts what we paid a wallet from our payout records: every payment that left or may have left, never a failed one', async () => {
+      await seed('50', '40');
+      const paidTo = rewardsPaidToWallet(db.sql);
+      expect(await paidTo(MY_WALLET)).toBe(0n);
+      await claimed();
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 1 });
+      // Read in any case: an address is one wallet however it is written.
+      expect(await paidTo(MY_WALLET.toUpperCase().replace('0X', '0x'))).toBe(parseAmount('10'));
+      expect(await paidTo('0x2222222222222222222222222222222222222222')).toBe(0n);
+      // A payment the chain reverted left nothing with the wallet, so it is not counted.
+      world.mode.revertNext = true;
+      await claimed();
+      await payer.pass();
+      const states = await db.sql<{ state: string }[]>`SELECT state FROM campaigns.reward_payments ORDER BY created_at`;
+      expect(states.map((r) => r.state)).toEqual(['booked', 'failed']);
+      expect(await paidTo(MY_WALLET)).toBe(parseAmount('10'));
+      await reconciles('40');
+    });
+
+    it('a welcome reward is owed at its claim, paid once to the wallet connected then, and that money deposited back never ticks the deposit task (J-campaigns-04 #3 #4)', async () => {
+      await seed('50', '20');
+      const usdc = (amount: string) => ({ asset: 'USDC', amount });
+      const s = new CampaignService({ sql: db.sql, timeZone: () => 'UTC', participants });
+      const c = await s.create({
+        definition: definition({
+          type: 'welcome',
+          reward: undefined,
+          tasks: {
+            steps: [
+              { title: 'TEST verify', event: 'identity.verified', market: null, side: null, count: 1, streakDays: null, reward: usdc('5') },
+              { title: 'TEST deposit', event: 'pay.deposit', market: null, side: null, count: 1, streakDays: null, reward: usdc('2') },
+            ],
+            claimWindowSeconds: null,
+            holdSeconds: 0,
+            lock: null,
+            kycGate: 'none',
+            welcomeWindowSeconds: 7 * 24 * 3600,
+          },
+        }),
+        actor: A,
+      });
+      await s.transition({ id: c.id, action: 'submit', revision: 1, actor: A });
+      await s.transition({ id: c.id, action: 'approve', revision: 1, actor: B });
+      await s.transition({ id: c.id, action: 'activate', revision: 1, actor: A });
+      let venue: VenueDeposit[] = [];
+      const welcome = new TaskService({
+        sql: db.sql,
+        participants,
+        saga: new PayoutSaga({ sql: db.sql, ledger: wire.ledger, reconcileAfterSeconds: 1, rewardCeiling: CEILING }),
+        markets: null,
+        timeZone: () => 'UTC',
+        rollbackWindowSeconds: 86_400,
+        venueDeposits: { ...wallets, deposits: async () => ({ venueId: VENUE, asOf: new Date().toISOString(), deposits: venue }) },
+        rewardsPaidTo: rewardsPaidToWallet(db.sql),
+      });
+      await welcome.onSignUp({ userId: ME, eventId: `user.created:${ME}`, at: new Date(Date.now() - 60_000).toISOString() });
+      await welcome.onWelcomeEvent({ userId: ME, event: 'identity.verified', eventId: 'kyc-1', at: new Date().toISOString() });
+
+      // Claimed with the wallet connected: owed from the campaign's budget, and noted to be paid to that wallet.
+      const claim = await welcome.welcomeClaim({ accountId: ME, event: 'identity.verified', forwarded: FORWARDED });
+      expect(claim).toMatchObject({ created: true, reward: { state: 'owed', amount: '5', owed: { txId: expect.any(String) } } });
+      const [intent] = await db.sql<{ pay_to_wallet: string }[]>`
+        SELECT pay_to_wallet FROM campaigns.reward_intents WHERE reward_key = ${claim.reward.rewardKey}`;
+      expect(intent!.pay_to_wallet).toBe(MY_WALLET);
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 1 });
+      // Claimed again: the same reward, paid once, with its chain transaction; nothing more is sent.
+      const again = await welcome.welcomeClaim({ accountId: ME, event: 'identity.verified', forwarded: FORWARDED });
+      expect(again).toMatchObject({ created: false, reward: { rewardKey: claim.reward.rewardKey, state: 'paid' } });
+      expect(again.reward.payout).toEqual({
+        chainTx: world.transfers[0]!.hash,
+        toWallet: MY_WALLET,
+        at: expect.any(String),
+        networkFee: { asset: 'ETH', amount: '0.000042', paidBy: 'intafaced' },
+      });
+      expect(await payer.pass()).toEqual({ sent: 0, paid: 0 });
+      expect(world.balances.get(MY_WALLET)).toBe(5_000_000n);
+
+      // The person deposits exactly the reward we paid into their venue account: the deposit task does not tick.
+      venue = [{ depositRef: '84532:0xback:0', asset: 'USDC', amount: '5', status: 'credited', seenAt: new Date().toISOString() }];
+      const list = await welcome.welcomeChecklist({ accountId: ME, forwarded: FORWARDED });
+      expect(list.deposit).toMatchObject({ source: 'read' });
+      expect(list.tasks.find((t) => t.event === 'pay.deposit')).toMatchObject({ state: 'open', doneAt: null, record: null });
+      await expect(welcome.welcomeClaim({ accountId: ME, event: 'pay.deposit', forwarded: FORWARDED })).rejects.toMatchObject({
+        code: 'campaigns.tasks_incomplete',
+      });
+      expect(await db.sql`SELECT 1 FROM campaigns.welcome_events WHERE account_id = ${ME} AND event = 'pay.deposit'`).toHaveLength(0);
+      // Money of their own on top passes what we paid: that deposit is the one that ticks it.
+      const own = new Date().toISOString();
+      venue = [...venue, { depositRef: '84532:0xown:0', asset: 'USDC', amount: '1', status: 'credited', seenAt: own }];
+      const ticked = await welcome.welcomeChecklist({ accountId: ME, forwarded: FORWARDED });
+      expect(ticked.tasks.find((t) => t.event === 'pay.deposit')).toMatchObject({ state: 'done', doneAt: own });
+      await reconciles('20');
+    });
+
+    it('sends nothing under the posting freeze: it stays owed with reason ledger.frozen, logged once, and is paid once after it lifts', async () => {
+      await seed('50', '20');
+      const reward = await claimed();
+      posting = false;
+      await payer.pass();
+      await payer.pass();
+      const held = await recordOf(reward.rewardKey);
+      expect(held).toMatchObject({ state: 'owed', reason: FROZEN, payout: null });
+      expect(held.attempts.filter((a) => a.outcome === 'refused')).toEqual([expect.objectContaining({ reason: FROZEN })]);
+      expect(world.transfers).toEqual([]);
+      // Unread freeze state: nothing is sent either.
+      posting = null;
+      expect(await payer.pass()).toEqual({ sent: 0, paid: 0 });
+      posting = true;
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 1 });
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'paid', reason: null });
+      await reconciles('20');
+    });
+
+    it('waits, owed, while our wallet cannot cover it, and pays once it can', async () => {
+      await seed('50', '4');
+      const reward = await claimed();
+      await payer.pass();
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'owed', reason: WALLET_SHORT });
+      expect(world.transfers).toEqual([]);
+      await fundWallet('6');
+      await payer.pass();
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'paid' });
+      await reconciles('10');
+    });
+
+    it('waits for a connected wallet: none at the claim and nothing is sent; one connected later is recorded on the next read and paid', async () => {
+      await seed('50', '20');
+      connected = [];
+      const reward = await claimed();
+      await payer.pass();
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'owed', reason: NO_WALLET });
+      expect(world.transfers).toEqual([]);
+      connected = [MY_WALLET];
+      await tasks.myRewards({ accountId: ME, forwarded: FORWARDED });
+      await payer.pass();
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'paid', payout: { toWallet: MY_WALLET } });
+      // The wallet a reward was given stays its wallet: another connected later changes nothing.
+      connected = ['0x2222222222222222222222222222222222222222'];
+      await tasks.myRewards({ accountId: ME, forwarded: FORWARDED });
+      expect((await recordOf(reward.rewardKey)).payout?.toWallet).toBe(MY_WALLET);
+      await reconciles('20');
+    });
+
+    it('pays a held reward only once its hold ends with the account active', async () => {
+      await seed('50', '20');
+      const reward = await claimed({ tasks: { ...STEPS, holdSeconds: 3600 } });
+      await payer.pass();
+      expect(world.transfers).toEqual([]);
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'owed', status: 'on_hold' });
+      clock = new Date(Date.now() + 2 * HOUR);
+      await tasks.releaseHolds();
+      await payer.pass();
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'paid' });
+      await reconciles('20');
+    });
+
+    it('a send whose answer was lost after the chain took it is found on the chain, never sent again, and paid once', async () => {
+      await seed('50', '20');
+      const reward = await claimed();
+      world.mode.throwAfterTaking = true;
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 1 });
+      expect(world.transfers).toHaveLength(1);
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'paid', payout: { chainTx: world.transfers[0]!.hash } });
+      await payer.pass();
+      expect(world.transfers).toHaveLength(1);
+      await reconciles('20');
+    });
+
+    it('the payout board shows each intent where it stands, with its keys, its ledger transactions and its chain transaction (J-campaigns-19 #1 #2)', async () => {
+      await seed('20', '20');
+      const r3 = { reward: { asset: 'USDC', amount: '3' } };
+      // Paid, after a send whose answer was lost once the chain took it.
+      world.mode.throwAfterTaking = true;
+      const paid = await claimed(r3);
+      await payer.pass();
+      // Sending: the node never took it; it is looked for on the chain and never sent again.
+      const send = world.chain.send;
+      world.chain.send = async () => {
+        throw new Error('TEST chain: the node never took it');
+      };
+      const sending = await claimed(r3);
+      await payer.pass();
+      world.chain.send = send;
+      // Failed: the chain reverted it.
+      world.mode.revertNext = true;
+      const failed = await claimed(r3);
+      await payer.pass();
+      // Owed: no connected wallet to pay it to.
+      connected = null;
+      const owed = await claimed(r3);
+      await payer.pass();
+      connected = [MY_WALLET];
+      // Pending funding: the rewards engine holds 20 and 12 is set aside already, so 15 more can't be.
+      const pending = await claimed({ reward: { asset: 'USDC', amount: '15' } });
+      const board = await payoutBoard(db.sql, {});
+      const at = (key: string) => board.rows.find((r) => r.rewardKey === key)!;
+      expect(board.counts).toEqual({ owed: 1, pending_funding: 1, sending: 1, paid: 1, failed: 1, other: 0 });
+      expect(at(paid.rewardKey)).toMatchObject({
+        board: 'paid',
+        state: 'paid',
+        owedTxId: expect.any(String),
+        paidTxId: expect.any(String),
+        payment: { state: 'booked', toWallet: MY_WALLET, chainTx: world.transfers[0]!.hash },
+      });
+      // Logged unknown once when the answer was lost, then paid once; one transfer on the chain.
+      expect(at(paid.rewardKey).attempts.map((a) => [a.outcome, a.reason])).toEqual([
+        ['qualified', null],
+        ['owed', null],
+        ['unknown', SEND_UNANSWERED],
+        ['paid', null],
+      ]);
+      expect(world.transfers.filter((t) => t.to === MY_WALLET && t.hash === at(paid.rewardKey).payment!.chainTx)).toHaveLength(1);
+      expect(at(paid.rewardKey).paidTxId).toBe((await book.getTxByKey(`campaigns:reward-paid:${world.transfers[0]!.hash}`))!.id);
+      expect(at(sending.rewardKey)).toMatchObject({ board: 'sending', state: 'owed', payment: { state: 'sending', chainTx: null } });
+      expect(at(failed.rewardKey)).toMatchObject({
+        board: 'failed',
+        state: 'owed',
+        reason: 'campaigns.reward_payment_reverted',
+        payment: { state: 'failed', chainTx: expect.stringMatching(/^0x/) },
+      });
+      expect(at(owed.rewardKey)).toMatchObject({ board: 'owed', state: 'owed', reason: NO_WALLET, payment: null, paidTxId: null });
+      expect(at(pending.rewardKey)).toMatchObject({
+        board: 'pending_funding',
+        state: 'pending_funding',
+        reason: 'ledger.insufficient_funds',
+        owedTxId: null,
+        payment: null,
+      });
+      // One campaign's board counts only that campaign.
+      const one = await payoutBoard(db.sql, { campaignId: owed.campaignId });
+      expect(one.rows.map((r) => r.rewardKey)).toEqual([owed.rewardKey]);
+      expect(one.counts).toEqual({ owed: 1, pending_funding: 0, sending: 0, paid: 0, failed: 0, other: 0 });
+      await reconciles('20');
+    });
+
+    // Rewritten for #8581 (row d76): it said such a send is given up as `failed` with `campaigns.reward_payment_not_taken`.
+    // What it guarded still holds here (never sent again, owed, one line for a person); the send is now still looked for,
+    // because a transfer the node took may be mined after the wait (the test below and RewardPay.tla guard that).
+    it('a send not found on the chain after the wait is never sent again, stays looked for, and the reward stays owed for a person', async () => {
+      await seed('50', '20');
+      const reward = await claimed();
+      const send = world.chain.send;
+      world.chain.send = async () => {
+        throw new Error('TEST chain: the node never took it');
+      };
+      await payer.pass();
+      world.chain.send = send;
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'owed' });
+      clock = new Date(Date.now() + 2 * 60_000);
+      await payer.pass();
+      await payer.pass();
+      expect(world.transfers).toEqual([]);
+      const after = await recordOf(reward.rewardKey);
+      expect(after).toMatchObject({ state: 'owed', reason: PAYMENT_UNCONFIRMED, payout: null });
+      expect(after.attempts.filter((a) => a.reason === PAYMENT_UNCONFIRMED)).toHaveLength(1);
+      const [payment] = await db!.sql<{ state: string; chain_tx: string | null }[]>`
+        SELECT state, chain_tx FROM campaigns.reward_payments WHERE reward_key = ${reward.rewardKey}`;
+      expect(payment).toEqual({ state: 'sending', chain_tx: null });
+      await reconciles('20');
+    });
+
+    // RewardPay.tla (services/svc-campaigns/model), NeverGiveUpOnALiveSend: a payment is given up only when its transfer
+    // can no longer land. A transfer not found on the chain may still be waiting to be mined.
+    it('a send the node took, whose answer was lost and which is mined after the wait, is booked once it lands, never left as not taken', async () => {
+      await seed('50', '20');
+      const reward = await claimed();
+      world.mode.holdNext = true;
+      world.mode.throwAfterTaking = true;
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 0 });
+      expect(world.pending).toHaveLength(1);
+      clock = new Date(Date.now() + 2 * 60_000);
+      await payer.pass();
+      world.mine();
+      await payer.pass();
+      await payer.pass();
+      expect(world.transfers).toHaveLength(1);
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'paid', payout: { chainTx: world.transfers[0]!.hash } });
+      await reconciles('20');
+    });
+
+    it('a second payer never gives up a payment whose send the first payer still has in flight', async () => {
+      await seed('50', '20');
+      const reward = await claimed();
+      // The first payer's send has not reached the node yet when a second payer (another replica) looks at the payment.
+      const send = world.chain.send;
+      let reached!: () => void;
+      const inFlight = new Promise<void>((resolve) => (reached = resolve));
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      world.chain.send = async (from, to, units) => {
+        reached();
+        await gate;
+        return send(from, to, units);
+      };
+      const first = payer.pass();
+      await inFlight;
+      world.chain.send = send;
+      const second = new RewardPayer({
+        sql: db!.sql,
+        ledger: wire.ledger,
+        chain: world.chain,
+        wallet: WALLET,
+        postingEnabled: async () => posting,
+        now: () => new Date(Date.now() + 2 * 60_000),
+      });
+      await second.pass();
+      release();
+      await first;
+      await payer.pass();
+      await second.pass();
+      expect(world.transfers).toHaveLength(1);
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'paid', payout: { chainTx: world.transfers[0]!.hash } });
+      await reconciles('20');
+    });
+
+    it('a lost booking answer leaves it owed and sent; the next pass books the same key once and it reads paid', async () => {
+      await seed('50', '20');
+      const reward = await claimed();
+      wire.mode.loseNextReply = true;
+      expect(await payer.pass()).toEqual({ sent: 1, paid: 0 });
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'owed', reason: 'ledger.answer_lost' });
+      expect(await payer.pass()).toEqual({ sent: 0, paid: 1 });
+      expect(world.transfers).toHaveLength(1);
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'paid', reason: null });
+      await reconciles('20');
+    });
+
+    it('a booking the ledger refuses (frozen after the send) is booked once after it lifts; nothing is sent twice', async () => {
+      await seed('50', '20');
+      const reward = await claimed();
+      // The freeze reads off before the send, then the ledger freezes before the booking.
+      const post = wire.ledger.post;
+      let first = true;
+      wire.ledger.post = async (request) => {
+        if (first && request.idempotencyKey.startsWith('campaigns:reward-paid:')) {
+          first = false;
+          throw new LedgerError('Ledger posting is frozen: TEST freeze', 'ledger.frozen');
+        }
+        return post(request);
+      };
+      await payer.pass();
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'owed', reason: FROZEN });
+      await payer.pass();
+      expect(await recordOf(reward.rewardKey)).toMatchObject({ state: 'paid' });
+      expect(world.transfers).toHaveLength(1);
+      await reconciles('20');
+    });
+
+    it('never pays a reward that is not owed: locked, closed or still open rewards send nothing', async () => {
+      await seed('50', '20');
+      // Past the ceiling: never owed, so never paid.
+      const open = await claimed({ reward: { asset: 'USDC', amount: '20' }, budget: { asset: 'USDC', limit: '100' } });
+      expect(open.state).toBe('pending_retry');
+      await payer.pass();
+      expect(world.transfers).toEqual([]);
+      await reconciles('20');
+    });
+  });
+}

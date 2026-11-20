@@ -15,6 +15,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { presentAlgoCapabilityNote } from './algo/algo-capability.js';
 import { presentFuturesJobsCapabilityNote } from './futures/futures-jobs-capability.js';
 import { readTradePlanes } from './futures/plane-capabilities.js';
+import { checkMarginModeForFuturesOpen, NAMED_MARGIN_MODES } from './futures/margin-mode.js';
 import { isPremarket } from './futures/premarket.js';
 import { visibleOnPublicBoard } from './futures/futures-reads.js';
 import { badRequest, badSymbol, notSupported, toCcxtError, type CcxtErrorResponse } from './ccxt-errors.js';
@@ -28,6 +29,7 @@ import type { MarketMaintenanceBoard } from './market-maintenance-read.js';
 import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
+import type { CandleGate } from './admin/chart-feed-controls.js';
 import { publicRead } from './route-inventory.js';
 import { registerMarketAnalyticsRoute } from './spot/market-analytics.js';
 
@@ -70,8 +72,18 @@ export interface PublicRestDeps {
   /** Listed markets page. Limit required at GET /markets — never invent 50. */
   markets(limit: number): Promise<Market[]>;
   marketBySymbol(symbol: string): Promise<Market | null>;
+  /**
+   * The published fee schedule's regular-tier maker/taker bps per listed symbol, the rates fills charge (#4679).
+   * Null: no schedule is published. A symbol missing from the map has a row that refuses. Absent: rates are null.
+   */
+  publishedFeeRates?(markets: readonly Market[]): Promise<ReadonlyMap<string, { makerBps: number; takerBps: number }> | null>;
   /** Charts owner values (C-ops-04). Absent: the owner-values read refuses, it never answers with a default. */
   chartOwnerValues?: ChartOwnerValuesPublicReader;
+  /**
+   * A market's chart feed control (J-charts-desk-19): disabled or switched to an unconnected fallback refuses the candle
+   * read by name; delisted with history serves only candles that opened before the delisting. Absent: every chart serves.
+   */
+  chartFeedGate?: (symbol: string) => Promise<CandleGate>;
   /**
    * Matching's published trading rulebook (RC-cex-spot-08): `current` is GET /rulebook, `versions` GET /rulebook/versions,
    * passed on as matching serves them. Absent, or throwing, answers 503 (trade.rulebook_unavailable); never invented text.
@@ -380,6 +392,12 @@ export function listingStatusOf(market: Pick<Market, 'status' | 'delistsAt'>): L
   }
 }
 
+/** The end of a market's opening window as ISO, while it is still ahead of `nowMs`; null otherwise. */
+export function openingWindowEndsAtOf(market: Pick<Market, 'openingWindowEndsAt'>, nowMs: number): string | null {
+  const ends = market.openingWindowEndsAt;
+  return ends instanceof Date && !Number.isNaN(ends.getTime()) && ends.getTime() > nowMs ? ends.toISOString() : null;
+}
+
 /** Listing status vs kill-switch. Paper options are orderable; live options are not. */
 export function orderableForListedMarket(market: Market, futuresOrderable: boolean, nowMs: number = Date.now()): boolean {
   if (market.status !== 'active') return false;
@@ -420,6 +438,11 @@ export function presentCcxtMarket(
     readonly pairRules?: PairRules | null;
     readonly pairHalt?: PairHalt | null;
     readonly maintenance?: UpcomingMaintenance;
+    /**
+     * The published schedule's regular-tier rates for this market, the ones fills charge (#4679). Null or absent: none
+     * is published or the row refuses, and the listing says null rather than the listing row's own bps.
+     */
+    readonly feeRates?: { readonly makerBps: number; readonly takerBps: number } | null;
   } = {},
 ) {
   const tick = formatAmount(market.tickSize);
@@ -474,6 +497,11 @@ export function presentCcxtMarket(
     /** The date a delisting market leaves the board, or null when none is set. */
     delistsAt: market.status === 'delisted' && market.delistsAt instanceof Date ? market.delistsAt.toISOString() : (null as string | null),
     /**
+     * When a new listing's opening window ends (J-cex-spot-14 #7): until then only limit orders are taken, and a market
+     * or stop order refuses `trade.opening_window`. Null when the market has no window or its window has ended.
+     */
+    openingWindowEndsAt: openingWindowEndsAtOf(market, nowMs),
+    /**
      * TRUE = the order path will accept a new order/open here (subject to
      * session, paper, risk). FALSE = listed but refused — futures kill-switch
      * or options until an engine exists. Distinct from `active` (listing).
@@ -527,8 +555,8 @@ export function presentCcxtMarket(
     pairRules: flags.pairRules ?? null,
     /** Operator circuit-breaker state; null when unread. `refusesAllOrders` true means no order is accepted. */
     pairHalt: flags.pairHalt ?? null,
-    taker: bpsToRate(market.takerBps),
-    maker: bpsToRate(market.makerBps),
+    taker: flags.feeRates ? bpsToRate(flags.feeRates.takerBps) : (null as string | null),
+    maker: flags.feeRates ? bpsToRate(flags.feeRates.makerBps) : (null as string | null),
     contractSize: isFutures && market.contractSize != null ? formatAmount(market.contractSize) : (null as string | null),
     expiry: listedExpiry ? listedExpiry.getTime() : (null as number | null),
     expiryDatetime: listedExpiry ? listedExpiry.toISOString() : (null as string | null),
@@ -767,6 +795,23 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
   app.get('/api/v1/order-types', publicRead, async (_req, reply) => reply.code(200).send(spotOrderTypes()));
 
   /**
+   * Futures margin modes on our own book (D-portfolio-wallet-05; J-dex-protocol-06 #7): every named mode, whether it is
+   * offered, and the typed refusal of each that is not, from the same check the open door runs
+   * (`checkMarginModeForFuturesOpen`). Isolated, Standard to the person, is the only one offered; portfolio margin
+   * refuses `trade.portfolio_margin_unset` while its owner rules are unset. A read: nothing is switched or recorded.
+   */
+  app.get('/api/v1/futures/margin-modes', publicRead, async (_req, reply) =>
+    reply.code(200).send({
+      modes: NAMED_MARGIN_MODES.map((mode) => {
+        const check = checkMarginModeForFuturesOpen(mode);
+        return check.ok
+          ? { mode, offered: true, code: null, reason: null }
+          : { mode, offered: false, code: check.code, reason: check.reason };
+      }),
+    }),
+  );
+
+  /**
    * Futures order-type catalogue (D-orders-01): every type, time in force and
    * flag per listed futures market, with its typed refusal. Derived from the
    * capability matrix; no market listed → an empty list, never a sample one.
@@ -860,6 +905,15 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
       }
     };
     const board = deps.maintenanceBoard ? await deps.maintenanceBoard() : null;
+    // The rates fills charge, from the published schedule. A failed read shows null rates, never the listing row's.
+    let feeRates: ReadonlyMap<string, { makerBps: number; takerBps: number }> | null = null;
+    if (deps.publishedFeeRates) {
+      try {
+        feeRates = await deps.publishedFeeRates(markets);
+      } catch (err) {
+        req.log.warn({ err }, 'GET /api/v1/markets: fee schedule read failed; taker/maker null');
+      }
+    }
     const presented = await Promise.all(
       markets.map(async (m) =>
         presentCcxtMarket(m, ts, {
@@ -869,6 +923,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
           lifecycle: deps.lifecycleForMarket ? await deps.lifecycleForMarket(m) : null,
           pairRules: await rulesFor(m),
           pairHalt: !rulesFailed && batchedRisk ? (batchedRisk.get(m.id)?.halt ?? null) : null,
+          feeRates: feeRates?.get(m.symbol) ?? null,
         }),
       ),
     );
@@ -1118,8 +1173,14 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     }
 
     try {
+      const gate = deps.chartFeedGate ? await deps.chartFeedGate(market.symbol) : ({ kind: 'serve', until: null } as const);
+      if (gate.kind === 'refuse') {
+        return sendCcxt(reply, { status: 503, body: { code: 'ExchangeNotAvailable', message: gate.message, intafacedCode: gate.code } });
+      }
       const candles = await deps.candles(market.id, tf.data, limit, sinceParsed.sinceMs);
-      return reply.code(200).send(candles.map(presentOhlcv));
+      const until = gate.until?.getTime() ?? null;
+      const served = until === null ? candles : candles.filter((c) => c.openTimeMs < until);
+      return reply.code(200).send(served.map(presentOhlcv));
     } catch (err) {
       return sendMapped(reply, err);
     }
@@ -1198,6 +1259,7 @@ export function fakeMarket(partial: {
   schedule?: Market['schedule'];
   assetClass?: Market['assetClass'];
   delistsAt?: Date | null;
+  openingWindowEndsAt?: Date | null;
 }): Market {
   return {
     id: partial.id ?? '00000000-0000-4000-8000-000000000001',
@@ -1218,6 +1280,7 @@ export function fakeMarket(partial: {
     schedule: partial.schedule ?? 'crypto-24x7',
     paper: partial.paper ?? false,
     ...(partial.delistsAt !== undefined ? { delistsAt: partial.delistsAt } : {}),
+    ...(partial.openingWindowEndsAt !== undefined ? { openingWindowEndsAt: partial.openingWindowEndsAt } : {}),
   };
 }
 

@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
+import { HOUR, closedMinute, minuteStart, utcDay } from './clock.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, bestPrices, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
 import { confirm, deskPath, fundedTrader, held, reviewLimit, signIn } from './desk.mjs';
@@ -229,7 +230,7 @@ test(`${J} #5 picks the lot for one sale and sets a method for one day: that sal
 
   // A method for today (UTC), every coin: HIFO. The picked sale still uses its lot; the other sale follows the day.
   const choices = page.getByRole('region', { name: 'Your matching choices' });
-  const day = new Date().toISOString().slice(0, 10);
+  const day = utcDay(Date.now());
   await choices.getByLabel('Day (UTC)').fill(day);
   await choices.getByRole('combobox', { name: 'Method for that day' }).selectOption('HIFO');
   await choices.getByRole('button', { name: 'Save day method' }).click();
@@ -259,25 +260,13 @@ test(`${J} #5 picks the lot for one sale and sets a method for one day: that sal
 
 /** The close of the last one-minute candle that started at or before `t`, from the public candles of `symbol`. */
 async function closesAround(symbol, before, after) {
-  const res = await fetch(
-    `${EDGE}/api/v1/ohlcv/${encodeURIComponent(symbol)}?timeframe=1m&since=${Math.floor(before / 60_000) * 60_000 - 3_600_000}&limit=720`,
-    { headers: { origin: ORIGIN } },
-  );
+  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent(symbol)}?timeframe=1m&since=${minuteStart(before) - HOUR}&limit=720`, {
+    headers: { origin: ORIGIN },
+  });
   expect(res.status).toBe(200);
   const candles = await res.json();
   const lastAt = (t) => candles.filter((c) => c[0] <= t).at(-1)?.[4];
   return [...new Set([lastAt(before), lastAt(after)].filter(Boolean))];
-}
-
-/**
- * Waits until the minute `t` falls in has ended and that minute's fills are in. An open candle's close moves with every
- * trade, so the screen's read of it and the hand count's read a moment later need not agree; once it has ended, both
- * read the same final close.
- */
-async function minuteEnded(page, t) {
-  const final = (Math.floor(t / 60_000) + 1) * 60_000 + 2_000;
-  const left = final - Date.now();
-  if (left > 0) await page.waitForTimeout(left);
 }
 
 /** The screen's dollar text for `qty` coins at each candle close: what the arrival is worth at that price. */
@@ -373,7 +362,7 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
   const before = Date.now();
   expect(fund(who.email, 'BTC', '0.004').tx).toBeTruthy();
   const after = Date.now();
-  await minuteEnded(page, after);
+  await closedMinute(page, after);
   await signIn(page, who);
   const lots = await lotsPage(page);
   const row = lots.locator('tbody tr[data-source="deposit"]');
@@ -434,7 +423,7 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
     expect(history.days.map((d) => d.amount)).toEqual([REWARD]);
     // The saving goes back whole; the interest stays with the person.
     await bank.mutate('earn.withdraw', { positionId });
-    await minuteEnded(page, paidBy);
+    await closedMinute(page, paidBy);
 
     // The reward's lot: its own row, sourced "Reward", the amount paid, valued at the ETH/USDT candle of when it arrived.
     const ethLots = await lotsPage(page, 'ETH');
@@ -549,100 +538,5 @@ test(`${J} #7 enters the price paid for that lot: the result recomputes, marked 
   expect(await (await api(who)).balances()).toEqual(balances);
 });
 
-/** The person's own svc-bank API through Edge, with a session of its own (not the browser's). */
-async function bank(who) {
-  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
-    method: 'POST',
-    headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
-  }).then((r) => r.json());
-  const token = login?.result?.data?.accessToken;
-  if (!token) throw new Error(`sign-in for ${who.email} refused`);
-  const res = await fetch(`${EDGE}/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`, {
-    headers: { origin: ORIGIN, authorization: `Bearer ${token}` },
-  });
-  const body = await res.json();
-  if (!res.ok) throw new Error(`spaces.list refused: ${res.status} ${JSON.stringify(body).slice(0, 300)}`);
-  return body.result.data;
-}
-
-// Step 2 runs last: moving the coins out of the main account changes which lots the sales of steps 4 to 7 could draw on.
-test(`${J} #2 moves TEST BTC from the main account to a space: each lot keeps its acquired date and basis and shows in the space's list`, async ({
-  page,
-}) => {
-  const who = account();
-  const SPACE = 'Cold TEST';
-  await signIn(page, who);
-  // A fresh TEST buy, so the move carries a lot with a known cost as well as what is left of the deposit (cost unknown).
-  const bought = await buyNow(page, who, '0.002');
-
-  // The open lots on the main account before the move, as the list shows them.
-  let lots = await lotsPage(page);
-  const open = [];
-  for (const row of await lots.locator('tbody tr').all()) {
-    if ((await row.locator('[data-col="left"]').innerText()) === '0') continue;
-    open.push({
-      id: await row.getAttribute('data-lot'),
-      acquired: await row.locator('th').innerText(),
-      source: await row.getAttribute('data-source'),
-      left: await row.locator('[data-col="left"]').innerText(),
-      costLeft: await row.locator('[data-col="cost-left"]').innerText(),
-    });
-  }
-  expect(open.map((lot) => lot.source)).toEqual(['deposit', 'trade']);
-  expect(open[1].left).toBe(fromUnits(bought.qty));
-  expect(open[1].costLeft).toBe(usd(bought.cost));
-
-  // Create the space in the app, then move every BTC on the main account into it.
-  await page.goto('/bank/spaces');
-  await page.getByRole('button', { name: 'Create space' }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('Asset', { exact: true }).selectOption('BTC');
-  await dialog.getByLabel('Space name').fill(SPACE);
-  await dialog.getByRole('button', { name: 'Review' }).click();
-  await dialog.getByRole('button', { name: 'Confirm' }).click();
-  await expect(dialog.getByText('Confirmed by the service')).toBeVisible();
-  const spaces = await bank(who);
-  const main = spaces.find((s) => s.kind === 'primary' && s.assetId === 'BTC');
-  const cold = spaces.find((s) => s.kind === 'named' && s.name === SPACE);
-  expect(cold).toBeTruthy();
-  const amount = main.balance;
-  expect(toUnits(amount)).toBe(open.reduce((sum, lot) => sum + toUnits(lot.left), 0n));
-
-  await page.goto('/bank/transfers');
-  await page.getByLabel('From your space').selectOption(main.id);
-  await page.getByRole('button', { name: 'Continue' }).click();
-  const move = page.getByRole('dialog');
-  await move.getByLabel('To which of your accounts').selectOption(cold.id);
-  await move.getByLabel(/Amount/).fill(amount);
-  await move.getByRole('button', { name: 'Review' }).click();
-  await move.getByRole('button', { name: 'Confirm' }).click();
-  await expect(move.getByText(/ledger/i).first()).toBeVisible();
-  const after = await bank(who);
-  expect(after.find((s) => s.id === cold.id).balance).toBe(amount);
-
-  // The space's lots: one per lot that moved, with the date, source and cost it had, marked as moved between accounts.
-  lots = await lotsPage(page);
-  await lots.getByLabel('Account for lots').selectOption(cold.id);
-  await expect(page).toHaveURL(new RegExp(`account=${cold.id}`));
-  const rows = lots.locator('tbody tr');
-  await expect(rows).toHaveCount(open.length);
-  for (const [i, before] of open.entries()) {
-    const row = rows.nth(i);
-    await expect(row.locator('th')).toHaveText(before.acquired);
-    await expect(row).toHaveAttribute('data-source', before.source);
-    await expect(row.locator('[data-col="account"]')).toContainText(`Space: ${SPACE}`);
-    await expect(row.locator('[data-col="account"] [data-label="carried"]')).toContainText('Moved between your accounts');
-    await expect(row.locator('[data-col="qty"]')).toHaveText(before.left);
-    await expect(row.locator('[data-col="cost-left"]')).toHaveText(before.costLeft);
-  }
-  // The bought lot's basis went with it, to the cent; the deposit's part is still without a cost, not a made-up one.
-  await expect(rows.nth(1).locator('[data-col="cost"]')).toHaveText(usd(bought.cost));
-  await expect(rows.nth(0).locator('[data-col="cost"]')).toContainText('Cost unknown');
-  await expect(lots).toContainText('Moving coins between your main account and your spaces is not a sale.');
-
-  // A move is not a sale: no new sale row, and the main account's lots are used up by the move.
-  await lots.getByLabel('Account for lots').selectOption('main');
-  for (const lot of open) await expect(lots.locator(`tbody tr[data-lot="${lot.id}"] [data-col="left"]`)).toHaveText('0');
-  await expect(page.getByRole('region', { name: 'Sales' }).locator('tr[data-sale]')).toHaveCount(3);
-});
+// #2 (a move to the person's own venue sub-account, signed in their wallet) is J-portfolio-04-venue.pw.mjs's: it runs on
+// the TEST venue, with the door on for that file only.

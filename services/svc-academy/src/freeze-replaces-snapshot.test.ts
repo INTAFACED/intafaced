@@ -9,13 +9,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestDatabase, type TestDatabase } from '@intafaced/db';
+import { createTestDatabase, type TestDatabase, resolveTestDatabaseUrl } from '@intafaced/db';
 import { AcademyService } from './academy-service.js';
 import type { HostRightsSource } from './host-rights.js';
 import type { StakeSource } from './stake-source.js';
 import type { StreamProvider } from './stream/provider.js';
 
-const TEST_URL = process.env.TEST_DATABASE_URL ?? 'postgres://Nitro@127.0.0.1:5432/intafaced_test';
+const TEST_URL = resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test');
 const databaseName = new URL(TEST_URL).pathname.replace(/^\//, '');
 if (!databaseName.endsWith('_test')) {
   throw new Error(`Refusing to run freeze snapshot tests against database ${databaseName}`);

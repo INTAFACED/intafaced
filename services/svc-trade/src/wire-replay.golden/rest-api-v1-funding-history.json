@@ -1,0 +1,24 @@
+{
+  "inputs": {},
+  "bodies": ["{\"statusCode\":500,\"error\":\"Internal Server Error\",\"message\":\"replay stub: sql.unsafe\"}"],
+  "answers": {
+    "GET /api/v1/funding-history/:symbol": {
+      "absent anon": [500, 0],
+      "absent no-scope": [500, 0],
+      "absent trader": [500, 0],
+      "absent all": [500, 0],
+      "absent all-US": [500, 0],
+      "absent svc-trade": [500, 0],
+      "absent svc-ops": [500, 0],
+      "absent svc-identity": [500, 0],
+      "absent svc-campaigns": [500, 0],
+      "absent svc-bank": [500, 0],
+      "absent svc-token": [500, 0],
+      "absent svc-support": [500, 0],
+      "absent svc-market": [500, 0],
+      "absent svc-fix": [500, 0],
+      "absent svc-agents": [500, 0],
+      "absent svc-tax": [500, 0]
+    }
+  }
+}

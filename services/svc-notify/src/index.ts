@@ -50,11 +50,23 @@ import { PostgresTargetRateLimiter } from './target-rate-limit.js';
 import { NotifyService } from './notify-service.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
 import { subscribeNotificationEvents } from './events.js';
+import { SqlReconAlertFeedStore } from './reconciliation-alert-feed/feed.js';
 import { ALERT_SWEEP_INTERVAL_MS, AlertService, type AlertSweepReport } from './alerts/service.js';
 import { runAlertSweepPass } from './alerts/sweep-driver.js';
+import { AlertOpsReader } from './alerts/ops-health.js';
+import { AlertOwnerValues, parseAccountPlans } from './alerts/owner-values.js';
 import { PostgresAlertStore } from './alerts/store.js';
 import { PostgresWatchRuleStore, WatchRuleService } from './alerts/watch-rules.js';
 import { PostgresAlertTriggerLog } from './alerts/trigger-log.js';
+import {
+  ALERT_WEBHOOK_TICK_MS,
+  httpPostWebhook,
+  parseNumberList,
+  PostgresAlertWebhookStore,
+  runWebhookTick,
+  webhookTestLoopback,
+  type AlertWebhookPolicy,
+} from './alerts/webhook.js';
 import { createTradeHttpMarkSource } from './alerts/trade-http-mark.js';
 import { createDarkWhaleMarkSource, createTradeHttpWhaleMarkSource, parseWhaleFlowAllowlist } from './alerts/whale-mark.js';
 import { ALERT_KIND_UNPUBLISHED, UNPUBLISHED_ALERT_KINDS, type MarkSource } from './alerts/types.js';
@@ -151,6 +163,11 @@ await sql`SELECT changelog FROM notify.notices LIMIT 1`.catch(() => {
 });
 await sql`SELECT audience FROM notify.notices LIMIT 1`.catch(() => {
   throw new Error('notify.notices has no audience column — run migration 0034_notify_notice_audiences before starting svc-notify');
+});
+await sql`SELECT webhook_url FROM notify.price_alerts LIMIT 1`.catch(() => {
+  throw new Error(
+    'notify.price_alerts has no webhook_url column — run migration 20261114033918_notify_alert_delivery before starting svc-notify',
+  );
 });
 await sql`SELECT source FROM notify.price_alerts LIMIT 1`.catch(() => {
   throw new Error(
@@ -340,6 +357,22 @@ const whaleMarks: MarkSource =
         marketsLimit: env.NOTIFY_MARKETS_LIST_LIMIT,
       })
     : createDarkWhaleMarkSource();
+/**
+ * Alert webhooks (J-charts-desk-10): the owner's ports and retry schedule, both blank by default (blank ports refuse every webhook
+ * save; a blank schedule resends nothing), and the LOCAL TEST loopback switch, refused outside dev and test.
+ */
+const webhookPolicy: AlertWebhookPolicy = {
+  ports: parseNumberList(env.NOTIFY_ALERT_WEBHOOK_PORTS, 'NOTIFY_ALERT_WEBHOOK_PORTS', 1, 65535),
+  retrySeconds: parseNumberList(env.NOTIFY_ALERT_WEBHOOK_RETRY_SECONDS, 'NOTIFY_ALERT_WEBHOOK_RETRY_SECONDS', 1, 86_400),
+  testLoopback: webhookTestLoopback(env.NOTIFY_ALERT_WEBHOOK_TEST_LOOPBACK, env.APP_ENV),
+  timeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS,
+};
+const alertWebhooks = new PostgresAlertWebhookStore(sql);
+await sql`SELECT 1 FROM notify.alert_webhook_deliveries LIMIT 1`.catch(() => {
+  throw new Error(
+    'notify.alert_webhook_deliveries is missing — run migration 20261114033918_notify_alert_delivery before starting svc-notify',
+  );
+});
 const alerts = new AlertService(
   new PostgresAlertStore(sql),
   alertMarks,
@@ -356,6 +389,7 @@ const alerts = new AlertService(
     burstMaxTriggers: env.NOTIFY_ALERT_BURST_MAX_TRIGGERS ?? null,
   },
   new PostgresAlertTriggerLog(sql),
+  { webhooks: alertWebhooks, policy: webhookPolicy },
 );
 /**
  * Watchlist alerts (J-charts-desk-09 #7): the person's lists come from identity (`preferences.watchlistsFor`, svc-notify only),
@@ -396,6 +430,23 @@ const statusPageDeps = {
   maintenance,
   publicOrigin: env.NOTIFY_PUBLIC_ORIGIN ?? null,
 };
+// The founder console's alert engine read (J-charts-desk-18 #3 #4): counts of this service's own rows.
+alerts.attachOpsReader(new AlertOpsReader(sql));
+// The founder's alert values (J-charts-desk-18 #5 #6): a value never set on the page keeps the deployment's own setting.
+alerts.attachOwnerValues(
+  new AlertOwnerValues(
+    sql,
+    {
+      maxActivePrice: env.NOTIFY_ALERT_MAX_ACTIVE_PRICE ?? null,
+      triggerLogDays: env.NOTIFY_ALERT_TRIGGER_LOG_DAYS ?? null,
+    },
+    parseAccountPlans(env.BANK_PLANS_JSON),
+  ),
+);
+// The teams' reconciliation alert feed (OPS-reconciliation-04): svc-ops' alert transitions, one row per business key.
+const reconAlertFeed = new SqlReconAlertFeedStore(sql);
+// Set once the consumers attach below; until then, and if any of the four is pending, the feed reads as detached.
+let reconAlertFeedAttached = false;
 export const appRouter = createNotifyRouter(
   notify,
   alerts,
@@ -421,6 +472,7 @@ export const appRouter = createNotifyRouter(
     },
   ),
   watchRules,
+  { store: reconAlertFeed, attached: () => reconAlertFeedAttached },
 );
 export type AppRouter = typeof appRouter;
 
@@ -435,7 +487,8 @@ const edgeContext = createGuestIngressContext({
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
 
-const { subscriptions, pending } = await subscribeNotificationEvents(bus, notify);
+const { subscriptions, pending } = await subscribeNotificationEvents(bus, notify, { reconAlertFeed });
+reconAlertFeedAttached = !pending.some((p) => p.durable.startsWith('notify-recon-alert-'));
 
 // The status badge as an image another page can show (SP-status-05). Public through Edge; no script, no personal data.
 // Hot-linked pages can ask often, so one page read serves every badge for a few seconds.
@@ -604,6 +657,23 @@ const alertSweep = setInterval(() => {
 alertSweep.unref();
 
 /**
+ * THE ALERT WEBHOOK WORKER: posts each due webhook delivery and writes the attempt. Fail-safe like the sweeps above: a tick that
+ * cannot run logs and waits for the next; a delivery it claimed and did not settle is claimed again when its lease runs out.
+ */
+const postWebhook = httpPostWebhook(webhookPolicy);
+let webhookTickRunning = false;
+const alertWebhookWorker = setInterval(() => {
+  if (webhookTickRunning) return;
+  webhookTickRunning = true;
+  void runWebhookTick(alertWebhooks, postWebhook, webhookPolicy)
+    .catch((err) => app.log.error({ err }, 'svc-notify alert webhook tick failed — due webhooks wait for the next tick'))
+    .finally(() => {
+      webhookTickRunning = false;
+    });
+}, ALERT_WEBHOOK_TICK_MS);
+alertWebhookWorker.unref();
+
+/**
  * THE MAINTENANCE REMINDER SWEEP (SP-status-03): makes each published window's reminder rows and sends the due ones.
  * Fail-safe like the sweeps above: a tick that cannot run logs and waits for the next; a reminder it took and did not
  * settle is taken again when its lease runs out, and its delivery rows keep anyone from getting it twice.
@@ -644,7 +714,7 @@ for (const consumer of pending) {
   }
   app.log.error(
     { subject: consumer.subject, durable: consumer.durable, reason: consumer.reason },
-    'svc-notify consumer cannot attach and NOTHING DECLARES WHY — notifications for this subject are dark. Wire its publisher, or record it in WIRING_SOCKETS with a reason (pnpm scan:events fails on an undeclared one, so this should never reach main)',
+    'svc-notify consumer cannot attach and NOTHING DECLARES WHY — notifications for this subject are dark. Wire its publisher, or record it in WIRING_SOCKETS with a reason',
   );
 }
 
@@ -668,6 +738,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     void (async () => {
       clearInterval(reaper);
       clearInterval(alertSweep);
+      clearInterval(alertWebhookWorker);
       for (const sub of subscriptions) await sub.unsubscribe().catch(() => undefined);
       await app.close();
       await bus.close();

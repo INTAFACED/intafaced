@@ -6,6 +6,7 @@ import { WalletRoom } from './wallet/WalletRoom';
 import { VenueWalletRoom } from './venue-wallet/VenueWalletRoom';
 import { EmbeddedWalletRoom } from './embedded-wallet/EmbeddedWalletRoom';
 import { ClaimPage } from './wallet/ClaimPage';
+import { ConventionPage, HoldingPage } from './wallet/PortfolioPanel';
 import { TokenPage } from './tokens/TokenPage';
 import { TokensRoom } from './tokens/TokensRoom';
 import { NewPool } from './liquidity/NewPool';
@@ -17,6 +18,7 @@ import { BlockPage, TxPage } from './explorer/pages';
 import { PoolPage } from './pools/PoolPage';
 import { ContractPage } from './contracts/ContractPage';
 import { OrdersRoom } from './orders/OrdersRoom';
+import { OwnFreezeNotice } from '../account';
 
 /**
  * Mounts one component per Web3 route (IA-SPEC 2.8). A tab route renders its room's tab; a detail route renders its full
@@ -25,6 +27,18 @@ import { OrdersRoom } from './orders/OrdersRoom';
 export function ProtocolRoutes({ path }: { path: string }) {
   const found = matchWeb3Route(path);
   if (!found) return <NotFoundRoute path={path} />;
+  // Every wallet section first says when the owner froze their account (J-wallet-13 #3).
+  if (found.route.room === 'wallet')
+    return (
+      <>
+        <OwnFreezeNotice />
+        {routeBody(path, found)}
+      </>
+    );
+  return routeBody(path, found);
+}
+
+function routeBody(path: string, found: NonNullable<ReturnType<typeof matchWeb3Route>>) {
   const { route, params } = found;
   // The venue account is its own room on the flow template (J-wallet-09), reached from the wallet room's tabs.
   if (route.wallet === 'venue') return <VenueWalletRoom />;
@@ -66,6 +80,12 @@ export function ProtocolRoutes({ path }: { path: string }) {
     if (id === undefined || !ADDRESS_SHAPE.test(id)) return <NotFoundRoute path={path} />;
     return <ClaimPage id={id} />;
   }
+  if (route.walletToken) {
+    const token = safeDecode(params.token);
+    if (token === undefined || !ADDRESS_SHAPE.test(token)) return <NotFoundRoute path={path} />;
+    return <HoldingPage token={token} />;
+  }
+  if (route.walletConvention) return <ConventionPage id={safeDecode(params.convention) ?? ''} />;
   if (route.walletGroup) return <WalletRoom section="addressBook" groupId={safeDecode(params.groupId) ?? ''} />;
   if (route.pending) {
     const { param } = route.pending;

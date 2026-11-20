@@ -8,7 +8,7 @@ import {
   payDepositTravelRuleViewSchema,
   type PayDepositTravelRuleView,
 } from '@intafaced/contracts/pay-custody-deposit';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema } from '../../shared/money';
 import type { ApiClient, ApiResult } from '../../shared/api';
@@ -46,7 +46,14 @@ export const depositHaltedSchema = z.object({
 export type DepositHaltedView = z.infer<typeof depositHaltedSchema>;
 
 export const depositCatalogueSchema = z.object({
-  assets: z.array(z.object({ assetId: z.string().min(1), networks: z.array(depositNetworkSchema) })),
+  assets: z.array(
+    z.object({
+      assetId: z.string().min(1),
+      /** The asset's decimal places in the supported asset list. Absent from an older bank: not shown. */
+      precision: z.number().int().nonnegative().optional(),
+      networks: z.array(depositNetworkSchema),
+    }),
+  ),
   /** Absent from an older bank: none are known to be switched off. */
   halted: z.array(depositHaltedSchema).optional(),
 });

@@ -11,10 +11,10 @@ import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, Loading, Panel } from '../../shared/ui';
 import { navigate } from '../../app/location';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref, formatDay } from './academy-lms';
-import { AcademyRefusal, GuardedButton, kindLabel, pathLabel } from './AcademyLmsParts';
+import { AcademyRefusal, GuardedButton, itemTypeLabel, pathLabel } from './AcademyLmsParts';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 
@@ -223,7 +223,7 @@ export function CourseOutlineView({ outline, current }: { outline: AcademyCourse
                 </a>
               )}
               <span data-testid="academy-lms-meta" className="academy-lms-meta">
-                <span>{kindLabel(t, row.kind)}</span>
+                <span data-item-type={row.type}>{itemTypeLabel(t, row.type)}</span>
                 {why && <span>{why}</span>}
                 {row.dueAt && (
                   <span data-testid="outline-due" data-due-extended={row.dueExtended ? 'true' : 'false'}>

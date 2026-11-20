@@ -17,6 +17,7 @@ import { RankService } from '../rank/rank-service.js';
 import { AuthService } from '../auth/auth-service.js';
 import { KycDocumentStore } from './document-store.js';
 import { KycProfileDesk, parseKycDocumentTypes, parseKycUploadCaps } from './profile.js';
+import { TRADING_CHECKS_REVIEWER } from './trading-checks.js';
 
 function identityTestUrl(): string {
   const raw = process.env.TEST_DATABASE_URL ?? 'postgres://test:test@127.0.0.1:55432/intafaced_test';
@@ -244,6 +245,17 @@ if (!available) {
       const ready = await fill(userId);
       await expect(desk.submit(userId, ready.version)).rejects.toMatchObject({ code: 'kyc.profile_request_open' });
       expect(kycProfileSchema.parse(await desk.read(userId)).draft).toMatchObject({ recordId: null, version: ready.version });
+    });
+
+    it("a trading-checks clear does not stand in for the bank's request: the guided send opens its own", async () => {
+      const userId = await person();
+      await db.sql`INSERT INTO kyc_records (user_id, tier, jurisdiction, status, reviewed_by, reviewed_at)
+        VALUES (${userId}, 'basic', 'DE', 'approved', ${TRADING_CHECKS_REVIEWER}, now())`;
+      const ready = await fill(userId);
+      const sent = await desk.submit(userId, ready.version);
+      const [record] = await db.sql<Array<{ status: string; provider_ref: string }>>`
+        SELECT status, provider_ref FROM kyc_records WHERE id = ${sent.recordId}`;
+      expect(record).toEqual({ status: 'pending', provider_ref: ready.fields.documentId });
     });
 
     it('with no key every door refuses and nothing is stored', async () => {

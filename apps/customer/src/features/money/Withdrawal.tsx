@@ -4,11 +4,12 @@ import { authoredRefusal, type ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { amount, date, Section } from './components';
 import { WithdrawForm } from './WithdrawForm';
+import { PartnerHolds } from './PartnerHolds';
 import { asksForWallet } from './withdraw-to-wallet';
-import { WalletProvider } from '../protocol/wallet/WalletProvider';
+import { WalletProvider } from '../protocol';
 import { INTERNAL_RAIL } from './withdraw-destination';
 import { allowlistCopy } from './withdrawal-allowlist-copy';
 import { supportedAssetsCopy } from './supported-assets-copy';
@@ -531,6 +532,7 @@ export function Withdrawal({ context, search }: { context: WithdrawalReadContext
   return (
     <Page eyebrow={t('money')} title={t('title')} description={t('description')}>
       <div className="withdrawal-page">
+        {listing && <PartnerHolds />}
         {listing &&
           (toWallet ? (
             // The browser wallet's connection, mounted here only when the page is asked to fill from it.

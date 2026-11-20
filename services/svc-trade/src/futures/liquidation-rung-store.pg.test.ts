@@ -458,9 +458,9 @@ describe('liquidation rungs (Postgres)', () => {
 
   describe('probe L: a short margin release is amended, never left open', () => {
     const potOf = (user: string, id: string) =>
-      ({ ownerType: 'user', ownerId: user, assetId: 'USDT', kind: 'collateral', purpose: `position:${id}` }) as unknown as AccountRef;
-    const avail = (user: string) => ({ ownerType: 'user', ownerId: user, assetId: 'USDT', kind: 'available' }) as unknown as AccountRef;
-    const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as unknown as AccountRef;
+      ({ ownerType: 'user', ownerId: user, assetId: 'USDT', kind: 'collateral', purpose: `position:${id}` }) as AccountRef;
+    const avail = (user: string) => ({ ownerType: 'user', ownerId: user, assetId: 'USDT', kind: 'available' }) as AccountRef;
+    const fees = { ownerType: 'house', ownerId: 'fees:trade', assetId: 'USDT', kind: 'available' } as AccountRef;
 
     async function storedClosingRung(id: string) {
       const user_id = (await sql<{ user_id: string }[]>`SELECT user_id FROM trade.positions WHERE id = ${id}`)[0]!.user_id;
@@ -572,7 +572,7 @@ describe('liquidation rungs (Postgres)', () => {
         entries: [
           { account: potOf(user_id, id), direction: 'credit', amount: amt('100') },
           {
-            account: { ownerType: 'house', ownerId: 'insurance-fund', assetId: 'USDT', kind: 'available' } as unknown as AccountRef,
+            account: { ownerType: 'house', ownerId: 'insurance-fund', assetId: 'USDT', kind: 'available' } as AccountRef,
             direction: 'credit',
             amount: amt('60'),
           },

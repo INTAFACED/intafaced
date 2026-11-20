@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { MemoryResponseTargetBook, ResponseTargetError, type ResponseTargetBook, type ResponseTargetPolicy } from './response-targets.js';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import {
   SUPPORT_CATEGORY_ROUTES,
@@ -10,8 +11,6 @@ import {
   SUPPORT_FRAUD_ROUTE_UNSET,
   supportTicketCategorySchema,
   type SupportCategories,
-  SUPPORT_KB_STORED_BODY_KEY,
-  SUPPORT_KB_STORED_TITLE_KEY,
   supportKbBodyProblem,
   supportKbTitleProblem,
   SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
@@ -35,12 +34,10 @@ import {
   type SupportMergePreview,
   type SupportMergeResult,
   type SupportAttachmentStatus,
-  type SupportTicketPriority,
   type SupportAwaitingMine,
   type SupportTicketLifecycle,
   type SupportTicketProperties,
   type SupportTicketPropertyChange,
-  type SupportTicketType,
   supportMacroUnfilled,
 } from '@intafaced/contracts';
 import type {
@@ -87,7 +84,6 @@ import {
   assertKbTopic,
   getKb,
   KbCatalogError,
-  kbVersionOf,
   namesVendor,
   relatedPublished,
   searchKb,
@@ -121,7 +117,6 @@ import {
 import { SUPPORT_SETTLE_REFUSE, checkSupportSettlement, type SupportForbiddenSettlementAct } from './settlement-refuse.js';
 import {
   FEEDBACK_COMMENT_MAX,
-  READER_ACTOR_PREFIX,
   SEARCH_QUERY_CONTRACT_MAX,
   SUPPORT_ASSISTANT_MODEL_UNSET,
   SUPPORT_FEEDBACK_RATE_EXCEEDED,
@@ -153,6 +148,8 @@ import { MemoryRatingRequestBook, RatingRequestOutbox } from './rating-request.j
 import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './desk-properties.js';
 import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook, type GroupLogEntry } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
+import { UNWIRED_CHARTS_SOURCES, type ChartsAlertsSource, type DeskLayoutsSource } from './charts-lookup.js';
+import { chartsLookupNote, type SupportChartsLookup } from '@intafaced/contracts';
 import { findCommentSecret, SUPPORT_COMMENT_SECRET_REFUSED } from './comment-secrets.js';
 
 const INVALID = Symbol('invalid');
@@ -655,6 +652,9 @@ export class SupportService implements SupportContract {
         });
         if (grouped === 'unknown_group') throw new SupportError('the fraud report group does not exist', SUPPORT_FRAUD_ROUTE_MISSING);
       }
+      // A new request starts its first-reply clock while a response target is active (SP-sla-01). Keyed by the ticket, so a
+      // replay keeps the first clock; a crash before this line leaves the request with no due time (its replay starts it).
+      await this.responseTargetBook.startClock(ticket.id, ticket.createdAt, await this.responseTargetBook.policy());
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       return ticket;
     });
@@ -1012,6 +1012,60 @@ export class SupportService implements SupportContract {
     });
   }
 
+  /** Where a charts lookup reads alerts (svc-notify) and layouts (svc-identity). Unwired until the process wires them. */
+  private charts: { readonly alerts: ChartsAlertsSource; readonly layouts: DeskLayoutsSource } = UNWIRED_CHARTS_SOURCES;
+  useChartsSources(sources: { readonly alerts: ChartsAlertsSource; readonly layouts: DeskLayoutsSource }): void {
+    this.charts = sources;
+  }
+
+  /**
+   * A CUSTOMER'S ALERTS AND LAYOUTS, FOR THIS TICKET (C-ops-03 (a), J-charts-desk-19 #1). Read-only.
+   *
+   * The customer comes off the ticket. ONE `charts_lookup` trail row (the agent, the customer, the time) is written
+   * BEFORE anything is read: when it does not land the lookup is refused `support.charts_lookup_unaudited` and nothing
+   * is read, so there is no read without its row. A source that cannot answer reads `unread` with its reason.
+   */
+  async readChartsLookup(input: { operatorId: string; ticketId: string }): Promise<SupportChartsLookup> {
+    return withSupportSpan('support.readChartsLookup', { op: 'readChartsLookup' }, async (span) => {
+      await this.assertDeskVisible(input.operatorId, input.ticketId);
+      const ticket = await this.store.findById(input.ticketId);
+      if (!ticket) throw ticketNotFound();
+      span.setAttribute('intafaced.support.ticket_id', ticket.id);
+
+      let row: SupportTicketEvent;
+      try {
+        row = await this.store.appendEvent({
+          ticketId: ticket.id,
+          kind: 'charts_lookup',
+          actorId: input.operatorId,
+          actorRole: 'operator',
+          note: chartsLookupNote(ticket.userId),
+        });
+      } catch {
+        throw new SupportError('the lookup was not recorded, so nothing was read', 'support.charts_lookup_unaudited');
+      }
+
+      const [alerts, layouts] = await Promise.all([
+        this.charts.alerts.alertsOf(ticket.userId),
+        this.charts.layouts.layoutsOf(ticket.userId),
+      ]);
+      span.setAttribute('intafaced.support.charts_alerts', alerts.status);
+      span.setAttribute('intafaced.support.charts_layouts', layouts.status);
+      return {
+        ticketId: ticket.id,
+        audit: { sequence: row.sequence, agentId: row.actorId, customerId: ticket.userId, at: row.occurredAt },
+        alerts:
+          alerts.status === 'read'
+            ? { status: 'read', items: alerts.data.alerts, more: alerts.data.more, history: alerts.data.history }
+            : { status: 'unread', reason: alerts.reason },
+        layouts:
+          layouts.status === 'read'
+            ? { status: 'read', items: layouts.data.layouts, active: layouts.data.active }
+            : { status: 'unread', reason: layouts.reason },
+      };
+    });
+  }
+
   /**
    * READ ONE ORDER FOR THIS TICKET.
    *
@@ -1224,7 +1278,7 @@ export class SupportService implements SupportContract {
   }
 
   /**
-   * Operator change of who may read an article. Stale `baseRevision` refuses `support.kb.revision_stale`;
+   * Operator change of who may read an article. Stale `baseRevision` refuses `support.kb_revision_stale`;
    * an unknown article is `support.kb_invalid`. The same audience again changes nothing and writes no audit row.
    */
   async setKbAudience(input: {
@@ -1244,7 +1298,7 @@ export class SupportService implements SupportContract {
         actorId: input.operatorId,
       });
       if (result.status === 'refuse') {
-        if (result.reason === 'revision_stale') throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        if (result.reason === 'revision_stale') throw new SupportError('KB revision is stale', 'support.kb_revision_stale');
         throw new SupportError('KB article refused', 'support.kb_invalid');
       }
       return toPublicKb(result.article);
@@ -1290,7 +1344,7 @@ export class SupportService implements SupportContract {
     });
     if (result.status === 'refuse') {
       if (result.reason === 'revision_stale') {
-        throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        throw new SupportError('KB revision is stale', 'support.kb_revision_stale');
       }
       if (result.reason === 'section_unknown') throw new SupportError('KB section is not open', 'support.kb_section_unknown');
       throw new SupportError('KB article refused', result.reason === 'vendor' ? 'support.kb_vendor_name' : 'support.kb_invalid');
@@ -1339,11 +1393,63 @@ export class SupportService implements SupportContract {
     });
     if (result.status === 'refuse') {
       if (result.reason === 'revision_stale') {
-        throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        throw new SupportError('KB revision is stale', 'support.kb_revision_stale');
       }
       throw new SupportError('KB article refused', 'support.kb_invalid');
     }
     return toPublicKb(result.article);
+  }
+
+  /** The desk's response targets (SP-sla-01). In memory until the process wires its own book. */
+  private responseTargetBook: ResponseTargetBook = new MemoryResponseTargetBook();
+  /** Wires the desk to its stored response targets. */
+  useResponseTargets(book: ResponseTargetBook): void {
+    this.responseTargetBook = book;
+  }
+
+  /** The desk's response target policy as stored. */
+  async responseTargets(): Promise<ResponseTargetPolicy> {
+    return this.responseTargetBook.policy();
+  }
+
+  /** A lead's change to the response targets, from the revision they read; on with no target refuses `support.sla_targets_unset`. */
+  async saveResponseTargets(input: {
+    actorId: string;
+    firstReplyMinutes?: number | null;
+    active?: boolean;
+    expectedRevision: number;
+    reason: string;
+  }): Promise<ResponseTargetPolicy> {
+    const actor = await this.staff.get(input.actorId);
+    if (actor?.role !== 'lead') throw new SupportError('only a lead can change response targets', 'support.not_lead');
+    try {
+      return await this.responseTargetBook.save({
+        ...(input.firstReplyMinutes !== undefined ? { firstReplyMinutes: input.firstReplyMinutes } : {}),
+        ...(input.active !== undefined ? { active: input.active } : {}),
+        expectedRevision: input.expectedRevision,
+        by: input.actorId,
+        reason: input.reason,
+        at: this.now().toISOString(),
+      });
+    } catch (err) {
+      if (err instanceof ResponseTargetError) throw new SupportError(err.code, err.code);
+      throw err;
+    }
+  }
+
+  /** The queue's entries with each one's first-reply due time, while a response target is active; none otherwise. */
+  private async withResponseDue<T extends QueueEntry>(entries: readonly T[]): Promise<T[]> {
+    const policy = await this.responseTargetBook.policy();
+    if (!policy.active || entries.length === 0) return entries.map((entry) => ({ ...entry, responseDue: null }));
+    const clocks = await this.responseTargetBook.clocks(entries.map((entry) => entry.ticketId));
+    return entries.map((entry) => {
+      const clock = clocks.get(entry.ticketId);
+      return { ...entry, responseDue: clock ? { dueAt: clock.dueAt, targetMinutes: clock.targetMinutes } : null };
+    });
+  }
+
+  private async queueWithResponseDue(result: QueueResult): Promise<QueueResult> {
+    return result.status === 'empty' ? result : { status: 'ok', entries: await this.withResponseDue(result.entries) };
   }
 
   /** The requests linked to a `recovery_required` order (J-support-public-20 #1); none until links are wired. */
@@ -1366,7 +1472,8 @@ export class SupportService implements SupportContract {
         tickets = tickets.filter((t) => carrying.has(t.id));
       }
       const recovery = await this.recoveryLinks();
-      if (!this.deskQueryAsked(options)) return buildOperatorQueue(tickets, { limit, now: this.now(), recovery });
+      if (!this.deskQueryAsked(options))
+        return this.queueWithResponseDue(buildOperatorQueue(tickets, { limit, now: this.now(), recovery }));
       const facts = await this.narrow(await this.deskFacts(options.viewerId), { ...options, label: undefined });
       const allowed = new Set(tickets.map((ticket) => ticket.id));
       const visible = facts.filter((fact) => allowed.has(fact.ticket.id));
@@ -1387,11 +1494,13 @@ export class SupportService implements SupportContract {
         const page = ordered.slice(0, limit);
         if (page.length === 0) return { status: 'empty' };
         const entryById = new Map(ranked.map((entry) => [entry.ticketId, entry]));
-        return { status: 'ok', entries: page.map((fact) => entryById.get(fact.ticket.id)!) };
+        return this.queueWithResponseDue({ status: 'ok', entries: page.map((fact) => entryById.get(fact.ticket.id)!) });
       }
-      return buildOperatorQueue(
-        visible.map((fact) => fact.ticket),
-        { limit, now: this.now(), recovery },
+      return this.queueWithResponseDue(
+        buildOperatorQueue(
+          visible.map((fact) => fact.ticket),
+          { limit, now: this.now(), recovery },
+        ),
       );
     });
   }
@@ -1400,7 +1509,8 @@ export class SupportService implements SupportContract {
   async peekNext(viewerId?: string): Promise<QueueEntry | null> {
     return withSupportSpan('support.peekNext', { op: 'peekNext' }, async () => {
       const tickets = await this.visibleTickets(viewerId, await this.store.listAll());
-      return assignNext(tickets, { recovery: await this.recoveryLinks() });
+      const next = assignNext(tickets, { recovery: await this.recoveryLinks() });
+      return next ? ((await this.withResponseDue([next]))[0] ?? null) : null;
     });
   }
 

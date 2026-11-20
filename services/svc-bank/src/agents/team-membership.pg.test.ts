@@ -200,7 +200,7 @@ describe('POST /internal/agents/team-membership', () => {
   });
 
   it('answers 503 with a typed code, never the error text, when the read fails or breaks the contract', async () => {
-    const broken = { ok: true, businessId: business, role: 'admin', members: [] } as unknown as AgentsTeamMembershipResponse;
+    const broken = { ok: true, businessId: business, role: 'admin', members: [] } as AgentsTeamMembershipResponse;
     for (const read of [
       async () => {
         throw new Error('connect ECONNREFUSED 10.0.0.9:5432');

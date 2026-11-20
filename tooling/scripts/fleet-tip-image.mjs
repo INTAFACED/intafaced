@@ -2,9 +2,10 @@
 /**
  * D26-P2-04 — fleet tip-image law (executable).
  *
- * Local `pnpm platform:up` must build from this tree. Staging must tag a
- * GHCR digest onto the unqualified compose name and `up --no-build` so Hub
- * namesquatting and host-disk rebuilds cannot become the fleet.
+ * Local `pnpm platform:up` must build from this tree, so Hub namesquatting
+ * cannot become the fleet. The staging digest path was checked here against
+ * staging-deploy.yml, removed on 15 Nov 2026 (no host was ever bought; restore
+ * it and that check from commit 9ef9844c1d).
  *
  *   pnpm fleet:tip-images
  *   node tooling/scripts/fleet-tip-image.mjs
@@ -70,21 +71,6 @@ if (!dockerfile) {
   fail('root Dockerfile base stage missing — this is the fleet runtime, not a new kit.');
 }
 
-const staging = read('.github/workflows/staging-deploy.yml');
-if (!staging) {
-  fail('staging-deploy.yml missing — digest→tag→inspect→up --no-build is the remote law.');
-} else {
-  if (!/docker tag[\s\S]{0,80}intafaced\/app:dev/.test(staging)) {
-    fail('staging-deploy.yml must docker tag the pulled digest to intafaced/app:dev so compose never Hub-pulls.');
-  }
-  if (!/docker compose -f docker-compose\.apps\.yml up -d --no-build/.test(staging)) {
-    fail('staging remote up must be --no-build after digest tag — --build on the host replaces reviewed bytes.');
-  }
-  if (/APP_ENV=staging docker compose -f docker-compose\.apps\.yml up -d --build/.test(staging)) {
-    fail('staging must not up --build; that is the local path.');
-  }
-}
-
 const threat = read('docs/THREAT-MODEL-STAGING-DEPLOY.md');
 if (!threat || !/namesquat/i.test(threat) || !/intafaced\/app:dev/.test(threat)) {
   fail('docs/THREAT-MODEL-STAGING-DEPLOY.md must keep the unqualified-name / namesquatting section.');
@@ -105,5 +91,5 @@ if (process.exitCode) {
   process.exit(process.exitCode);
 }
 
-console.log('✓ fleet-tip-image — local platform:up --build; compose intafaced/app:dev; staging digest-tag + up --no-build');
+console.log('✓ fleet-tip-image — local platform:up --build; compose intafaced/app:dev');
 process.exit(0);

@@ -5,6 +5,9 @@ import { keys, type AsOf, type OrderIntent, type VenuePreview, type VenueUp } fr
 import { AsOfLine, Known, OutcomeLine, TestMark, word, type ActionResult, type RunAction, type VenueAccount } from './VenueKit';
 import { venueCopy } from './venue-copy';
 
+/** A discount in basis points of the fee as a percent of it, without trailing zeros: 5000 is "50", 25 is "0.25". */
+export const bpsPercent = (bps: number): string => String(bps / 100);
+
 /** Whether the account's approval covers our builder fee, from the venue's own record. */
 export function builderApproved(account: VenueAccount, status: VenueUp): boolean | null {
   if (!status.builder) return null;
@@ -53,6 +56,7 @@ export function ReviewDialog({
   run,
   confirmLabel,
   extra,
+  after,
   result,
   onConfirm,
   onClose,
@@ -66,6 +70,8 @@ export function ReviewDialog({
   run: RunAction;
   confirmLabel: string;
   extra?: ReactNode;
+  /** What follows the order's outcome on the sheet (the protections attached to an entry, J-derivatives-03 #4). */
+  after?: ReactNode;
   result: ActionResult | null;
   onConfirm: () => void;
   onClose: () => void;
@@ -123,6 +129,16 @@ export function ReviewDialog({
               )}
             </dd>
           </div>
+          {carries && p.feeDiscount ? (
+            <div>
+              <dt>{t('Builder fee discount')}</dt>
+              <dd className="numeric" data-line="builder-fee-discount" data-source={p.feeDiscount.source}>
+                {p.feeDiscount.source === 'coupon'
+                  ? t('Builder discount coupon', { code: p.feeDiscount.code, pct: bpsPercent(p.feeDiscount.bps) })
+                  : t('Builder discount rank', { pct: bpsPercent(p.feeDiscount.bps) })}
+              </dd>
+            </div>
+          ) : null}
           <div>
             <dt>{t('Fee role')}</dt>
             <dd data-line="role">{word(t, 'role', p.role)}</dd>
@@ -160,6 +176,7 @@ export function ReviewDialog({
           {t('Close review')}
         </Button>
         <OutcomeLine result={result} owner={owner} />
+        {after}
       </div>
     </Dialog>
   );

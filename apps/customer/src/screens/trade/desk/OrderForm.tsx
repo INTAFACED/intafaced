@@ -1,10 +1,12 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { BalanceEntry } from '../../../data/derive';
 import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
+import { TradingHoldReason } from '../../../features/account/TradingHoldReason';
 import { usePreferences } from '../../../shared/preferences';
 import { fitsPlaces } from '../../../features/account/trading-settings';
 import { draftSchema, isStopType, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
+import { useLeadMode } from '../../../features/trade/lead-mode';
 import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
 import { useDeskApi, useFeeToken, useMyFees, useOpenOrders, useRefreshPrivate } from './data';
@@ -75,6 +77,7 @@ import { scaleLockStays } from './ticket/scale-flow';
 import { TicketRules } from './MarketRules';
 import { failureOf, isLedgerFrozen, previewFailure, previewIsOrderable, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
+import { dayTime } from './time';
 import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
 import { reviewIdFor } from './review-id';
@@ -108,6 +111,19 @@ function restingRefusal(failure: Failure, draft: Draft): Failure {
   };
 }
 
+/** A shut session says when it opens, and that nothing waits for it (J-cex-spot-14 #6). */
+function SessionShut({ market }: { market: DeskMarket }) {
+  const { t } = deskCopy.useCopy();
+  const { timeZone } = usePreferences();
+  return (
+    <StateBlock
+      kind="refused"
+      title={t('Session shut title')}
+      body={market.opensAt != null ? t('Session shut body opens', { time: dayTime(market.opensAt, timeZone) }) : t('Session shut body')}
+    />
+  );
+}
+
 function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetry?: () => void; onDismiss?: () => void }) {
   const { t } = deskCopy.useCopy();
   if (failure.kind === 'network')
@@ -131,6 +147,7 @@ function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetr
       ) : null}
       <p className="dk-note-title">{title}</p>
       <p>{body}</p>
+      {failure.tradingHold ? <TradingHoldReason /> : null}
       {action ? (
         <a className="dk-link" href={action.href}>
           {action.label}
@@ -161,7 +178,30 @@ interface SideProps {
   expireAt: string | null;
   /** The person's own label for the order, trimmed; null when none. */
   tag: string | null;
+  /** A listed lead's Lead trade switch (J-copy-bots-otc-04 #5); undefined for everyone who is not a lead. */
+  lead: boolean | undefined;
   onPlaced: () => void;
+}
+
+/**
+ * A listed lead's Lead trade switch (J-copy-bots-otc-04 #5): on, the order is a lead trade that followers copy once it
+ * fills; off, it is the lead's own order and is never copied.
+ */
+function LeadSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  const { t } = deskCopy.useCopy();
+  const noteId = useId();
+  // The switch is named "Lead trade"; what it does is its description, outside the label.
+  return (
+    <div className="dk-tif">
+      <label>
+        <input type="checkbox" role="switch" checked={on} aria-describedby={noteId} onChange={(event) => onChange(event.target.checked)} />
+        <span className="dk-tif-label">{t('Lead trade')}</span>
+      </label>
+      <span id={noteId} className="dk-note-small">
+        {on ? t('Lead trade on') : t('Lead trade off')}
+      </span>
+    </div>
+  );
 }
 
 function SideForm({
@@ -180,6 +220,7 @@ function SideForm({
   tif,
   expireAt,
   tag,
+  lead,
   onPlaced,
 }: SideProps) {
   const { t } = deskCopy.useCopy();
@@ -327,7 +368,7 @@ function SideForm({
   const draft: Draft | null = useMemo(() => {
     if (!tradable || !checked.ok || (tif === 'GTD' && expireAt === null)) return null;
     // The tag does not price the order: it joins only the reviewed and sent draft, so typing it never re-checks.
-    return draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: 'desk-preview' });
+    return draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: 'desk-preview', lead });
   }, [
     tradable,
     checked.ok,
@@ -343,7 +384,7 @@ function SideForm({
     type,
     tif,
     expireAt,
-  ]); // eslint-disable-line react-hooks/exhaustive-deps
+  ]);
   const key = draft
     ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${draft.stopPrice ?? ''}|${tif}|${draft.expireAt ?? ''}`
     : 'none';
@@ -462,6 +503,7 @@ function SideForm({
       feeCurrency,
       checked,
       clientOrderId: '',
+      lead,
     });
     const fresh = { ...body, clientOrderId: reviewIdFor(userId ?? '', body) };
     const parsed = draftSchema.safeParse(fresh);
@@ -1310,6 +1352,10 @@ export const OrderPanel = memo(function OrderPanel({
   // The person's own label, kept for the next orders until they clear it; blank sends none.
   const [tagText, setTagText] = useState('');
   const tag = tagText.trim() === '' ? null : tagText.trim();
+  // A listed lead's Lead trade switch (J-copy-bots-otc-04 #5): on when the lead account's link opened the desk.
+  const leadMode = useLeadMode();
+  const [leadOn, setLeadOn] = useState(() => new URLSearchParams(window.location.search).get('lead') === '1');
+  const lead = leadMode.isLead ? leadOn : undefined;
   const pending = usePendingOrder(userId);
   const [settled, setSettled] = useState<string | null>(null);
   const [stillChecking, setStillChecking] = useState(false);
@@ -1435,6 +1481,7 @@ export const OrderPanel = memo(function OrderPanel({
     tif,
     expireAt,
     tag,
+    lead,
   } as const;
   return (
     <Tabs
@@ -1482,12 +1529,17 @@ export const OrderPanel = memo(function OrderPanel({
         <div className="dk-order-opts">
           <SelfTradeSelect />
           <TagField value={tagText} onChange={setTagText} />
+          {leadMode.isLead ? <LeadSwitch on={leadOn} onChange={setLeadOn} /> : null}
         </div>
       ) : null}
       <TicketRules market={market} />
       {!market.open ? (
         <div className="dk-order-body">
-          <StateBlock kind="refused" title={t('Market closed title')} body={t('Market closed body')} />
+          {market.sessionShut ? (
+            <SessionShut market={market} />
+          ) : (
+            <StateBlock kind="refused" title={t('Market closed title')} body={t('Market closed body')} />
+          )}
         </div>
       ) : (
         <TabsPanel value={type} className="dk-order-body">

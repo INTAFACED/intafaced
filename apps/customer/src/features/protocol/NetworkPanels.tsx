@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { canAddToWallet, NETWORK_PARAMS_UNSET, routerIsSunset, type NetworkEntry } from '@intafaced/contracts/protocol-networks';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';

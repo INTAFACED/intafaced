@@ -7,7 +7,7 @@
  * A scanner that passes is indistinguishable from a scanner that is switched
  * off. `pnpm scan:secrets` printing a green tick proves nothing on its own —
  * `process.exit(0)` on line 1 would print the same tick. The A1.4 branch
- * (docs/A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md §4) handled this by hand:
+ * (2026-07-30, its report now in git history) handled this by hand:
  * a probe file with three planted credentials, run once, then deleted. That
  * proved the gate worked on the day it was written and nothing afterwards.
  *
@@ -83,6 +83,63 @@ const MUTANTS = [
     content: 'spring.redis.password=${COINEX_REDIS_PASSWORD}\n',
     catch: false,
     why: '${VAR} with no default is the outcome the gate wants',
+  },
+  {
+    id: 'json-token-field-holding-an-evm-address',
+    file: 'packages/contracts/procedures.schema.json',
+    content:
+      '{\n  "input": {\n    "owner": "0x1111111111111111111111111111111111111111",\n    "token": "0x2222222222222222222222222222222222222222",\n    "spender": "0x3333333333333333333333333333333333333333"\n  }\n}\n',
+    catch: false,
+    why: 'in the generated record schema, a sample input whose `token` is a contract address: 20 bytes of hex is an address, never key material',
+  },
+  {
+    id: 'json-refusal-code-mapped-to-trpc-status',
+    file: 'packages/contracts/procedures.schema.json',
+    content: '{\n  "refusals": {\n    "amm.identical_tokens": "BAD_REQUEST",\n    "amm.seed_too_small": "BAD_REQUEST"\n  }\n}\n',
+    catch: false,
+    why: 'a refusal code named for tokens, mapped to the tRPC status it is sent with: a fixed status word is public',
+  },
+  {
+    id: 'json-token-field-holding-32-bytes-of-hex',
+    file: 'packages/contracts/procedures.schema.json',
+    content: '{\n  "token": "0x4d5554414e542d6e6f742d612d7265616c2d63726564656e7469616c2d3030"\n}\n',
+    catch: true,
+    why: '32 bytes of hex under a credential key is the shape of a private key; only exactly 20 bytes reads as an address',
+  },
+  {
+    id: 'json-token-field-holding-a-status-word-with-more',
+    file: 'packages/contracts/procedures.schema.json',
+    content: `{\n  "token": "BAD_REQUEST-${V}"\n}\n`,
+    catch: true,
+    why: 'a status word is exempt only whole: anything appended is a literal again',
+  },
+  {
+    id: 'record-schema-secret-field-holding-20-bytes-of-hex',
+    file: 'packages/contracts/procedures.schema.json',
+    content: '{\n  "secret": "0x4d5554414e542d6e6f742d612d7265616c2d3031"\n}\n',
+    catch: true,
+    why: 'the address exemption covers only `token` and `key`: 20 bytes of hex under `secret` (HMAC-SHA1-sized key material) is still a finding',
+  },
+  {
+    id: 'env-api-key-holding-20-bytes-of-hex',
+    file: 'services/svc-x/.env.example',
+    content: 'API_KEY=0x4d5554414e542d6e6f742d612d7265616c2d3032\n',
+    catch: true,
+    why: 'outside the generated record schema no value is exempt by shape: a 20-byte hex api key in an env file is still a finding',
+  },
+  {
+    id: 'other-json-token-field-holding-an-evm-address',
+    file: 'packages/x/records.schema.json',
+    content: '{\n  "token": "0x2222222222222222222222222222222222222222"\n}\n',
+    catch: true,
+    why: 'the exemption is tied to the one generated file: the same address under `token` in any other JSON file is still a finding',
+  },
+  {
+    id: 'record-schema-plain-key-holding-a-status-word',
+    file: 'packages/contracts/procedures.schema.json',
+    content: '{\n  "password": "BAD_REQUEST"\n}\n',
+    catch: true,
+    why: 'a status word is exempt only as the value of a dotted refusal code, never under a plain credential key',
   },
   {
     id: 'compose-required-var',
@@ -443,6 +500,35 @@ const MUTANTS = [
     content: "jobs:\n  b:\n    steps:\n      - with:\n          key: tools-${{ inputs.token }}-${{ hashFiles('packages/x/pom.xml') }}\n",
     catch: true,
     why: 'only runner.os, runner.arch and hashFiles expressions are a cache key: an inputs reference behind `key` is still a finding',
+  },
+  {
+    id: 'actions-cache-key-per-commit',
+    file: '.github/workflows/ci.yml',
+    content:
+      'steps:\n  - with:\n      key: turbo-build-${{ runner.os }}-${{ github.sha }}\n      restore-keys: turbo-build-${{ runner.os }}-\n',
+    catch: false,
+    why: 'a cache saved once per commit names it by github.sha, the public commit id, and restores by its dash-ended prefix',
+  },
+  {
+    id: 'actions-cache-key-other-github-expression',
+    file: '.github/workflows/ci.yml',
+    content: 'steps:\n  - with:\n      key: tools-${{ github.token }}\n',
+    catch: true,
+    why: 'github.sha is the only github expression a cache key may hold: github.token behind `key` is still a finding',
+  },
+  {
+    id: 'actions-cache-restore-keys-literal',
+    file: '.github/workflows/ci.yml',
+    content: 'steps:\n  - with:\n      restore-keys: tok3n9xq7-\n',
+    catch: true,
+    why: 'a restore-keys prefix is lowercase letter words and runner expressions only: a digit-bearing literal is still a finding',
+  },
+  {
+    id: 'cache-restore-keys-outside-github',
+    file: 'tooling/infra/tls.yml',
+    content: 'tls:\n  restore-keys: turbo-build-\n',
+    catch: true,
+    why: 'the restore-keys carve-out applies under .github/ only',
   },
   {
     id: 'cache-key-shape-outside-github',

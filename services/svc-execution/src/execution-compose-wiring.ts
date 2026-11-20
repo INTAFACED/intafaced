@@ -4,18 +4,13 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
-/**
- * Slice the svc-execution service out of compose text.
- * JavaScript `\Z` matches the letter Z. End of input is `(?![\s\S])`.
- * `/m` makes `$` the end of a line, so it is not the end of the file.
- */
+/** Slice the svc-execution service out of compose text. */
 export function matchExecutionComposeBlock(compose: string): string {
-  const match = compose.match(/^  svc-execution:\n(?:.*\n)*?(?=^  [a-z#]|(?![\s\S]))/m);
-  if (!match) throw new Error('svc-execution service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(compose, 'svc-execution');
 }
 
 export function executionComposeBlock(): string {

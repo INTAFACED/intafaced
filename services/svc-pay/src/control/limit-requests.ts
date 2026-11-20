@@ -9,7 +9,7 @@ import {
   type MerchantLimitTerminal,
   type MerchantLimitWithdrawResult,
 } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { writeAudit } from './audit.js';
 import { ControlError } from './errors.js';
 
@@ -121,7 +121,7 @@ export async function listPendingLimitRequests(
   };
 }
 
-async function assertMerchantCanAsk(tx: Sql, merchantId: string): Promise<void> {
+async function assertMerchantCanAsk(tx: Queryable, merchantId: string): Promise<void> {
   const rows = await tx<Array<{ status: string }>>`
     SELECT status::text AS status FROM pay.merchants WHERE id = ${merchantId} FOR UPDATE
   `;
@@ -193,7 +193,7 @@ export async function requestLimitIncrease(
   }
 }
 
-async function lockRequest(tx: Sql, requestId: string): Promise<TerminalRow | null> {
+async function lockRequest(tx: Queryable, requestId: string): Promise<TerminalRow | null> {
   const rows = await tx<TerminalRow[]>`
     SELECT request_id, seq, merchant_id, caps, reason, status, requested_by, created_at, closed_at, closed_by, close_reason
       FROM pay.control_limit_requests
@@ -204,7 +204,7 @@ async function lockRequest(tx: Sql, requestId: string): Promise<TerminalRow | nu
 }
 
 async function moveOnce(
-  tx: Sql,
+  tx: Queryable,
   row: TerminalRow,
   next: { status: 'withdrawn' | 'closed'; actorId: string; closeReason: string; auditKind: string; after?: unknown },
 ): Promise<TerminalRow> {
@@ -326,7 +326,7 @@ export async function closeLimitRequest(
  * them must not roll back the change that closed the ask.
  */
 async function closePending(
-  tx: Sql,
+  tx: Queryable,
   merchantId: string,
   founderUserId: string,
   closeReason: 'cap_change_confirmed' | 'tier_change_confirmed',
@@ -351,7 +351,7 @@ async function closePending(
 
 /** Auto-close inside a confirmed `set_caps`. */
 export async function closePendingForCapChange(
-  tx: Sql,
+  tx: Queryable,
   merchantId: string,
   founderUserId: string,
   capChangeRequestId: string,
@@ -361,7 +361,7 @@ export async function closePendingForCapChange(
 
 /** Auto-close inside a confirmed `set_tier`. */
 export async function closePendingForTierChange(
-  tx: Sql,
+  tx: Queryable,
   merchantId: string,
   founderUserId: string,
   tierChangeRequestId: string,

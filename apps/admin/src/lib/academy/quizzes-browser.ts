@@ -1,8 +1,7 @@
 /** Browser hop for the quiz editor. Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { QuizDeskReply, QuizView } from './quizzes-model';
-
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+import { isRecord } from '@intafaced/contracts/guards';
 
 export async function fetchQuiz(itemId: string): Promise<QuizView | null> {
   try {

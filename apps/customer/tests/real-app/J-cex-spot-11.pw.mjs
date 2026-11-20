@@ -232,10 +232,13 @@ test(`${J} #6 loses the connection on accept: the note stays; Check again asks a
   page.on('request', (r) => {
     if (/convert\.accept/.test(r.url())) sent.push(r.postDataJSON());
   });
+  // What the service answered the lost accept, so a refusal is named rather than read later as a missing receipt.
+  let lost;
   await page.route(
     /convert\.accept/,
     async (route) => {
-      await route.fetch();
+      const answer = await route.fetch();
+      lost = { status: answer.status(), body: await answer.text() };
       // The page may already have given up on the request; either way its answer never reaches the page.
       await route.abort('connectionreset').catch((err) => {
         if (!/already handled/.test(String(err?.message))) throw err;
@@ -245,6 +248,9 @@ test(`${J} #6 loses the connection on accept: the note stays; Check again asks a
   );
   await dialog.getByRole('button', { name: 'Convert now' }).click();
   await expect(page.getByTestId('pending')).toContainText('We couldn’t confirm this conversion');
+  // The lost answer was a conversion: the service settled it, so Check again has one to find (#8734).
+  await expect.poll(() => lost?.status, { message: 'the service answered the lost accept' }).toBeDefined();
+  expect(lost.status, `the lost accept: ${lost.body.slice(0, 300)}`).toBe(200);
   await page.unroute(/convert\.accept/);
   await page.reload();
   // The note stays across a reload.
@@ -252,7 +258,9 @@ test(`${J} #6 loses the connection on accept: the note stays; Check again asks a
   // Check again asks about the same quote, under the same request id: the service answers with the one conversion.
   const checked = page.waitForResponse((r) => /convert\.accept/.test(r.url()));
   await page.getByTestId('pending').getByRole('button', { name: 'Check again' }).click();
-  const fill = (await (await checked).json()).result.data;
+  const answer = await (await checked).json();
+  expect(answer.result, `Check again: ${JSON.stringify(answer).slice(0, 300)}`).toBeDefined();
+  const fill = answer.result.data;
   expect(sent).toHaveLength(2);
   expect(sent[1].quoteId).toBe(sent[0].quoteId);
   expect(sent[1].clientConvertId).toBe(sent[0].clientConvertId);

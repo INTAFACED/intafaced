@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { opsAlertAcceptFields, opsAlertEvidenceCanonical } from '@intafaced/contracts/ops-reconciliation-alerts';
 import { approvalPayloadHash } from '../../../../../services/svc-ops/src/operator-desks';
-import { ALERT, alertDetail } from '@/lib/recon-alerts/fixtures.test-util';
+import { ALERT, alertDetail } from '@/testing/recon-alert-fixtures.test-util';
 import { evidenceHash } from '@/lib/recon-alerts/treasury';
 import { confirmPhrase, describeRequest, readDeskRequest, requestReason, type DeskRequest } from './approval-packet';
 import { payloadHashFor, proposeInputFor } from './approval-hash';

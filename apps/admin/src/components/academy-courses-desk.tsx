@@ -398,7 +398,7 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
               <dt>Thumbnail</dt>
               <dd>
                 {detail.data.course.thumbnailUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- an address staff typed, shown as it is; nothing is fetched server-side
+                  // An <img>, not next/image: an address staff typed, shown as it is; nothing is fetched server-side.
                   <img src={detail.data.course.thumbnailUrl} alt="Course thumbnail" width={160} referrerPolicy="no-referrer" />
                 ) : (
                   'None'

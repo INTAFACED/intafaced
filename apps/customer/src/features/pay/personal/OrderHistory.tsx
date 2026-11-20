@@ -192,6 +192,8 @@ export function historyRefusal(
   const rows = /export_too_many_rows: (\d+) rows, at most (\d+)/.exec(text);
   if (rows) return t('exportTooManyRows', { rows: rows[1]!, max: rows[2]! });
   if (text.includes('p2p.export_range_invalid')) return t('exportRangeInvalid');
+  const exportReset = /export_quota_reached: .*resets at (\S+)/.exec(text);
+  if (exportReset) return t('exportQuotaDaily', { time: time(exportReset[1]!) });
   const reset = /receipt_quota_reached: .*resets at (\S+)/.exec(text);
   if (reset) return t('receiptQuotaDaily', { time: time(reset[1]!) });
   if (text.includes('p2p.receipt_quota_reached')) return t('receiptQuotaTrade');

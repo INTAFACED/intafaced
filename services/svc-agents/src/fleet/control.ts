@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { OWN_TOOLS } from '../own/catalog.js';
 
 /**
@@ -247,7 +247,7 @@ export function fleetCsv(rows: readonly FleetRow[]): string {
  * Whether new work of one of a person's agents may start: `active`, or the switch that stops it. Read at every session
  * open and every run, so a quarantine set after a session opened still stops the next run.
  */
-export async function ownAgentSwitch(sql: Sql, agentId: string): Promise<'active' | 'quarantined' | 'disabled_by_kind'> {
+export async function ownAgentSwitch(sql: Queryable, agentId: string): Promise<'active' | 'quarantined' | 'disabled_by_kind'> {
   const rows = await sql<{ quarantined: boolean; kind_off: boolean }[]>`
     SELECT EXISTS (SELECT 1 FROM agents.agent_switches WHERE agent_ref = ${`${OWN_PREFIX}${agentId}`}) AS quarantined,
            EXISTS (SELECT 1 FROM agents.agent_kind_switches WHERE kind = 'customer_built') AS kind_off
@@ -284,7 +284,7 @@ export const fleetKey = (action: string, operatorId: string, requestId: string):
  * already did (the action ran then). A key already used for a different target is refused.
  */
 async function recordAction(
-  tx: Sql,
+  tx: Queryable,
   row: {
     key: string;
     operatorId: string;
@@ -320,7 +320,7 @@ function assertReason(reason: string | undefined): string {
 }
 
 /** The agent a reference names, as it is stored now; an unknown reference is `agents.agent_not_found`. */
-async function assertAgent(tx: Sql, ref: string): Promise<{ kind: FleetKind; id: string }> {
+async function assertAgent(tx: Queryable, ref: string): Promise<{ kind: FleetKind; id: string }> {
   if (ref.startsWith(PRODUCT_PREFIX)) {
     const id = ref.slice(PRODUCT_PREFIX.length);
     if (!id.startsWith('own.')) {
@@ -536,7 +536,7 @@ export async function readFleetAudit(sql: Sql, limit: number): Promise<FleetAudi
   }));
 }
 
-async function kindCount(sql: Sql, kind: FleetKind): Promise<number> {
+async function kindCount(sql: Queryable, kind: FleetKind): Promise<number> {
   const [row] =
     kind === 'product'
       ? await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM agents.agent_definitions WHERE agent_id NOT LIKE 'own.%'`

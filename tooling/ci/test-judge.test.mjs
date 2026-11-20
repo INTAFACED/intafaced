@@ -27,7 +27,6 @@ import {
   JUDGE_SCHEMA,
   moneyGuard,
   setAsideDays,
-  setAsideRefusal,
   retryProblem,
   mainSetAsideDays,
   setAsideCap,
@@ -83,7 +82,7 @@ test("the judge covers every file proof v2's reach reads covered (project-state 
   // the judge stands in for those reads only if every file they named is judged here.
   const TEST_CONFIG = /^tooling\/(scripts\/local-stack-services|profiles\/test-owner-values)\//;
   const reachKind = (f) =>
-    TEST_CONFIG.test(f) || /(^|\/)tests\/real-app\//.test(f) || (/^tooling\/scripts\/[^/]+\.mjs$/.test(f) && !/\.test\.mjs$/.test(f));
+    TEST_CONFIG.test(f) || /(^|\/)tests\/real-app\//.test(f) || (/^tooling\/scripts\/[^/]+\.mjs$/.test(f) && !f.endsWith('.test.mjs'));
   const tree = execFileSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 64 << 20 })
     .split('\n')
     .filter(Boolean);
@@ -106,7 +105,7 @@ test("the judge covers every file proof v2's reach reads covered (project-state 
 test('no drift: every file the journey tests and look sweeps import on this tree is judged', () => {
   const dir = 'apps/customer/tests/real-app';
   const entries = readdirSync(dir)
-    .filter((f) => /\.pw\.mjs$/.test(f))
+    .filter((f) => f.endsWith('.pw.mjs'))
     .map((f) => `${dir}/${f}`);
   const read = (p) => {
     try {
@@ -889,7 +888,7 @@ test('planted (U4): a journey step file whose step no longer checks its words fa
   assert.equal(prompt.match(/^BEGIN UNTRUSTED DIFF$/gm).length, 1);
   assert.equal(prompt.match(/^END UNTRUSTED DIFF$/gm).length, 1);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, 'schema.json'), 'utf8')), COMBINED_SCHEMA);
-  assert.deepEqual(COMBINED_SCHEMA.required, ['verdict', 'findings', 'tests']);
+  assert.deepEqual(COMBINED_SCHEMA.required, ['verdict', 'findings', 'cleared', 'tests']);
   assert.deepEqual(COMBINED_SCHEMA.properties.tests, JUDGE_SCHEMA);
 
   const answer = (tests, review = { verdict: 'PASS', findings: [] }) => {
@@ -1083,4 +1082,39 @@ test('U4 review fix (planted): a review finding that quotes the step words is wi
   assert.equal(status, 1);
   assert.match(log, /finding withheld/);
   for (const secret of ['deposit exactly', 'private balance', 'hidden page']) assert.ok(!log.includes(secret), secret);
+});
+
+test('a diff over the cap: the test part judges its own files whole, beside the review in parts; its own files over the cap still fail', async () => {
+  const product = (p) =>
+    `diff --git a/${p} b/${p}\n--- a/${p}\n+++ b/${p}\n@@ -1,0 +1,2800 @@\n${Array.from({ length: 2_800 }, (_, i) => `+const v${i} = '${'x'.repeat(60)}';`).join('\n')}\n`;
+  const big = `${DIFF}${product('services/svc-a/src/a.ts')}${product('services/svc-b/src/b.ts')}`;
+  assert.ok(Buffer.byteLength(big) > MAX_DIFF_BYTES);
+  const loadWords = async () => ({ words: parseStepWords(WORDS_MD), ref: 'r' });
+  const dir = tmp();
+  const said = await writeReviewInputs(dir, { diff: big, base: BASE, head: HEAD, pr: 7, src: fakeSrc(big), loadWords, ...realBriefs() });
+  // The test files lead and close part 1; the two product files, too large to share a call, take a part each.
+  assert.match(said, /reviewed in 3 parts; one call for the review and the test part/);
+  assert.ok(existsSync(join(dir, 'combined')) && !existsSync(join(dir, 'skip-reviewer')));
+  const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
+  // Part 1 is exactly the test part's own files, so the one call carries them once, in the review's fence.
+  assert.ok(!prompt.includes('BEGIN UNTRUSTED TEST DIFF'), 'not given twice');
+  assert.match(prompt, /The diff is the review's UNTRUSTED DIFF block above/);
+  const open = prompt.lastIndexOf('\nBEGIN UNTRUSTED DIFF\n');
+  const testDiff = prompt.slice(open, prompt.indexOf('\nEND UNTRUSTED DIFF', open));
+  assert.equal(testDiff, `\nBEGIN UNTRUSTED DIFF\n${DIFF}`);
+  assert.ok(readFileSync(join(dir, 'parts', '2', 'prompt.txt'), 'utf8').includes('+++ b/services/svc-a/src/a.ts'));
+  assert.ok(readFileSync(join(dir, 'parts', '3', 'prompt.txt'), 'utf8').includes('+++ b/services/svc-b/src/b.ts'));
+  assert.ok(testDiff.includes('-  expect(a).toBe(1);\n+  expect(a).toBeTruthy();'), 'the journey test, whole');
+  assert.ok(testDiff.includes('+  return BigInt(Math.round(v));'), 'the shared test code, whole');
+  assert.ok(!testDiff.includes('svc-a/src/a.ts') && !testDiff.includes('svc-b/src/b.ts'), 'not the product code');
+  assert.match(prompt, /this holds only its journey test and shared test code files, whole; the review judges the rest in parts/);
+  // Planted: the test files themselves over the cap still FAIL both parts without the call.
+  const own = `${DIFF.replace('+  expect(a).toBeTruthy();', `+  expect(a).toBeTruthy();\n${'+  // x\n'.repeat(60_000)}`)}`;
+  const large = tmp();
+  await writeReviewInputs(large, { diff: own, base: BASE, head: HEAD, pr: 7, src: fakeSrc(own), loadWords, ...realBriefs() });
+  assert.equal(JSON.parse(readFileSync(join(large, 'tests', 'verdict.json'), 'utf8')).verdict, 'FAIL');
+  assert.match(
+    JSON.parse(readFileSync(join(large, 'tests', 'verdict.json'), 'utf8')).findings[0],
+    /journey test and shared test code files alone are/,
+  );
 });

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   payMerchantIdSchema,
   type PayHaltErrorCode,
@@ -119,7 +119,12 @@ export interface BlockingHalt {
  * `conn` so a guard running inside a money transaction asks on its own connection.
  * THROWS if the store cannot be read; the caller must treat that as halted.
  */
-export async function findBlockingHalt(conn: Sql, scope: PayHaltScope, merchantId?: string, railId?: string): Promise<BlockingHalt | null> {
+export async function findBlockingHalt(
+  conn: Queryable,
+  scope: PayHaltScope,
+  merchantId?: string,
+  railId?: string,
+): Promise<BlockingHalt | null> {
   const targets = [merchantId?.toLowerCase() ?? 'global'];
   if (railId) targets.push(railHaltKey(railId));
   return findBlockingHaltForTargets(conn, scope, targets);
@@ -129,7 +134,11 @@ export async function findBlockingHalt(conn: Sql, scope: PayHaltScope, merchantI
  * First halted switch for `scope` among the global switch and `targets` (lower-cased merchant ids).
  * The one query behind `findBlockingHalt` and the user-money guard, so the two cannot drift.
  */
-export async function findBlockingHaltForTargets(conn: Sql, scope: PayHaltScope, targets: readonly string[]): Promise<BlockingHalt | null> {
+export async function findBlockingHaltForTargets(
+  conn: Queryable,
+  scope: PayHaltScope,
+  targets: readonly string[],
+): Promise<BlockingHalt | null> {
   const rows = await conn<Array<{ scope: PayHaltScope; target: string }>>`
     SELECT scope, target FROM pay.halts
      WHERE scope = ${scope} AND halted AND target IN ${conn(['global', ...targets])}
@@ -381,7 +390,7 @@ export class PayHaltStore {
   }
 
   private async clear(
-    tx: Sql,
+    tx: Queryable,
     actor: string,
     requestId: string,
     input: PayHaltSetInput,
@@ -437,14 +446,14 @@ export class PayHaltStore {
     return done('changed', next);
   }
 
-  private async current(tx: Sql, scope: PayHaltScope, target: PayHaltTarget): Promise<PayHaltState> {
+  private async current(tx: Queryable, scope: PayHaltScope, target: PayHaltTarget): Promise<PayHaltState> {
     const rows = await tx<HaltRow[]>`SELECT * FROM pay.halts WHERE scope = ${scope} AND target = ${targetKey(target)}`;
     return rows[0] ? stateOf(rows[0]) : neverHalted(scope, target);
   }
 
   /** The one writer of `pay.halts` + `pay.halt_events`. The caller holds the advisory lock for (scope, key). */
   private async write(
-    tx: Sql,
+    tx: Queryable,
     w: {
       scope: PayHaltScope;
       key: string;
@@ -520,7 +529,7 @@ export class PayHaltStore {
   ): Promise<{ tripped: boolean; consecutiveFailures: number }> {
     if (target.level === 'global') return { tripped: false, consecutiveFailures: 0 };
     if (this.autoTripOff()) return { tripped: false, consecutiveFailures: 0 };
-    const run = async (tx: Sql) => {
+    const run = async (tx: Queryable) => {
       await this.boundAccountingLock(tx);
       return this.applyFailure(tx, scope, target, sourceKey, eventKey);
     };
@@ -549,7 +558,7 @@ export class PayHaltStore {
   async recordSuccess(scope: PayHaltScope, target: PayHaltTarget, sourceKey: string, conn?: Sql): Promise<void> {
     if (target.level !== 'merchant' && target.level !== 'user') return;
     if (this.autoTripOff()) return;
-    const run = async (tx: Sql) => {
+    const run = async (tx: Queryable) => {
       await this.boundAccountingLock(tx);
       return this.applySuccess(tx, scope, target, sourceKey);
     };
@@ -587,29 +596,29 @@ export class PayHaltStore {
   }
 
   /** Accounting waits at most a second for the auto-trip lock, then the caller logs it and keeps the money result. */
-  private async boundAccountingLock(tx: Sql): Promise<void> {
+  private async boundAccountingLock(tx: Queryable): Promise<void> {
     await tx`SET LOCAL lock_timeout = '1s'`;
   }
 
-  private async lockAutoTrip(tx: Sql): Promise<void> {
+  private async lockAutoTrip(tx: Queryable): Promise<void> {
     await tx`SELECT pg_advisory_xact_lock(hashtext('pay.halt:autotrip'))`;
   }
 
-  private async lockTargets(tx: Sql, scope: PayHaltScope, keys: readonly string[]): Promise<void> {
+  private async lockTargets(tx: Queryable, scope: PayHaltScope, keys: readonly string[]): Promise<void> {
     const names = [...new Set(keys)].map((key) => `pay.halt:${scope}:${key}`).sort();
     for (const name of names) await tx`SELECT pg_advisory_xact_lock(hashtext(${name}))`;
   }
 
-  private async lockWindow(tx: Sql): Promise<void> {
+  private async lockWindow(tx: Queryable): Promise<void> {
     await tx`SELECT singleton FROM pay.halt_autotrip_window WHERE singleton = 'autotrip' FOR UPDATE`;
   }
 
-  private async disarmUnset(tx: Sql): Promise<void> {
+  private async disarmUnset(tx: Queryable): Promise<void> {
     if (this.autoTrip.failures === null) await this.disarmSide(tx, 'merchant');
     if (this.autoTrip.railFailures === null) await this.disarmSide(tx, 'rail');
   }
 
-  private async disarmSide(tx: Sql, side: 'merchant' | 'rail'): Promise<void> {
+  private async disarmSide(tx: Queryable, side: 'merchant' | 'rail'): Promise<void> {
     await this.lockWindow(tx);
     if (side === 'merchant') {
       const updated = await tx`
@@ -641,7 +650,7 @@ export class PayHaltStore {
   }
 
   /** Same count keeps the stored time. A new count, or a re-arm after disarm, opens a fresh window. */
-  private async armSide(tx: Sql, side: 'merchant' | 'rail', limit: number): Promise<void> {
+  private async armSide(tx: Queryable, side: 'merchant' | 'rail', limit: number): Promise<void> {
     await this.lockWindow(tx);
     if (side === 'merchant') {
       const rows = await tx<Array<{ failures: string | number | null; disarmed_at: Date | null }>>`
@@ -706,7 +715,7 @@ export class PayHaltStore {
   }
 
   private async applyFailure(
-    tx: Sql,
+    tx: Queryable,
     scope: PayHaltScope,
     target: PayHaltTarget,
     sourceKey: string,
@@ -744,7 +753,7 @@ export class PayHaltStore {
     return primary;
   }
 
-  private async applySuccess(tx: Sql, scope: PayHaltScope, target: PayHaltTarget, sourceKey: string): Promise<void> {
+  private async applySuccess(tx: Queryable, scope: PayHaltScope, target: PayHaltTarget, sourceKey: string): Promise<void> {
     if (this.autoTripOff()) return;
     const plan = this.countPlan(scope, target, sourceKey);
     await this.lockAutoTrip(tx);
@@ -769,7 +778,7 @@ export class PayHaltStore {
   }
 
   private async bump(
-    tx: Sql,
+    tx: Queryable,
     scope: PayHaltScope,
     key: string,
     sourceKey: string,
@@ -821,7 +830,7 @@ export class PayHaltStore {
     return { tripped: await this.tripLocked(tx, scope, key, reason), consecutiveFailures: count };
   }
 
-  private async tripLocked(tx: Sql, scope: PayHaltScope, key: string, reason: string): Promise<boolean> {
+  private async tripLocked(tx: Queryable, scope: PayHaltScope, key: string, reason: string): Promise<boolean> {
     const rows = await tx<HaltRow[]>`SELECT * FROM pay.halts WHERE scope = ${scope} AND target = ${key}`;
     if (rows[0]?.halted) return false;
     await this.write(tx, { scope, key, halted: true, reason, source: 'auto_trip', actor: null, confirmedBy: null, requestId: null });

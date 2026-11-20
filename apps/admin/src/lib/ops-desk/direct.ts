@@ -1,15 +1,9 @@
 import 'server-only';
-import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { type ExecuteReply, explainRefusal, failureRefusal, founderCall, type FounderCallContext } from '@/lib/desk';
 import type { EscalateRequest } from './direct-model';
-import { failureRefusal } from './execute';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /** Run a one-operator desk action as the signed-in founder. The service checks the permission and the moderator list itself. */
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 interface EscalateAnswer {
   readonly disputeId: string;

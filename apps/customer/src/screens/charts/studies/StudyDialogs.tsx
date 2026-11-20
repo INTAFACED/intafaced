@@ -19,7 +19,7 @@ import {
 import { SOURCES } from './math';
 import { readPeriod, readValue } from './compute';
 import type { StudyInstance } from './model';
-import { studiesCopy, type StudiesWord } from './copy';
+import { type StudiesWord } from './copy';
 import { useWords } from './words';
 
 const CATEGORY_KEY: Record<Category, StudiesWord> = {

@@ -1,5 +1,5 @@
 import type { FounderCallFailure } from '@/lib/desk/founder-call';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+import { explainRefusal, type RefusalView } from '@/lib/refusal-copy';
 
 /**
  * Plain-English answers for what svc-support says back to a founder acting on a ticket or an article.
@@ -232,7 +232,7 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-support does not change the properties of a closed ticket.',
     next: 'Nothing was changed.',
   },
-  'support.kb.revision_stale': {
+  'support.kb_revision_stale': {
     title: 'Someone changed this article first',
     body: 'The revision you used is no longer the latest, so svc-support refused to overwrite.',
     next: 'Reload the articles and try again from the new revision. Nothing was changed.',

@@ -1,4 +1,5 @@
 import type { SupportAttachment, SupportAttachmentScanState } from '@intafaced/contracts';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * The files on one ticket, as the operator desk shows them. Types only from the contracts package: a client component may
@@ -32,10 +33,6 @@ export function sizeLabel(bytes: number): string {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isFileId = (value: unknown): value is string => typeof value === 'string' && UUID.test(value);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 const STATES: readonly string[] = ['scanning', 'clean', 'blocked'];
 

@@ -1,11 +1,13 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import type { HomeConfig } from '@intafaced/contracts';
+import { VALUATION_PRICES_UNSET, type HomeConfig, type ValuationPrices } from '@intafaced/contracts';
 import { createHomeConfigRouter, homeConfigFromEnv } from './home-config.js';
+import { createValuationPricesRouter } from './valuation-prices.js';
 import {
   opsCostEntryInputSchema,
   opsCostEntrySchema,
   opsVenueEconomicsSchema,
+  operatorProcedure,
   publicProcedure,
   router,
   scopedProcedure,
@@ -267,6 +269,8 @@ export interface OperatorDeskConfig {
   readonly staffHolds?: StaffHoldDesk;
   /** Home's owner values for the public `home.config` read. Absent means every value is blank. */
   readonly homeConfig?: HomeConfig;
+  /** The prices Home and Assets value holdings with (`valuation.prices`); absent is unpublished. */
+  readonly valuationPrices?: ValuationPrices;
   /** The capital monitor's thresholds and breach alerts. Absent means every capital call refuses `ops.capital.storage_unconfigured`. */
   readonly capital?: CapitalStore;
   /** The capital monitor's ledger and bank reads. Absent reads every source as not wired ("unknown"). */
@@ -304,7 +308,7 @@ export function createOpsRouter(
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-ops') }))
       .query(() => ({ ok: true as const, service: 'svc-ops' as const })),
 
-    contacts: scopedProcedure('ops:read', guards)
+    contacts: operatorProcedure('admin:read', guards)
       .input(listLimitInput)
       .output(
         z.object({
@@ -323,7 +327,7 @@ export function createOpsRouter(
         }
       }),
 
-    createContact: scopedProcedure('ops:write', guards)
+    createContact: operatorProcedure('admin:write', guards)
       .input(z.object({ displayName: z.string(), email: z.string().optional().nullable() }))
       .output(contactSchema)
       .mutation(({ input }) => {
@@ -334,7 +338,7 @@ export function createOpsRouter(
         }
       }),
 
-    team: scopedProcedure('ops:read', guards)
+    team: operatorProcedure('admin:read', guards)
       .input(listLimitInput)
       .output(
         z.object({
@@ -356,7 +360,7 @@ export function createOpsRouter(
         }
       }),
 
-    createTeamMember: scopedProcedure('ops:write', guards)
+    createTeamMember: operatorProcedure('admin:write', guards)
       .input(z.object({ handle: z.string().optional(), role: z.string().optional() }).passthrough())
       .output(teamMemberSchema)
       .mutation(({ input }) => {
@@ -367,7 +371,7 @@ export function createOpsRouter(
         }
       }),
 
-    inventPayroll: scopedProcedure('ops:write', guards)
+    inventPayroll: operatorProcedure('admin:write', guards)
       .input(z.object({}).passthrough().optional())
       .mutation(() => {
         try {
@@ -377,7 +381,7 @@ export function createOpsRouter(
         }
       }),
 
-    revenue: scopedProcedure('ops:read', guards)
+    revenue: operatorProcedure('admin:read', guards)
       .output(
         z.object({
           empty: z.boolean(),
@@ -397,7 +401,7 @@ export function createOpsRouter(
       }),
 
     projects: router({
-      list: scopedProcedure('ops:read', guards)
+      list: operatorProcedure('admin:read', guards)
         .input(listLimitInput)
         .output(z.object({ projects: z.array(projectSchema) }))
         .query(({ input }) => {
@@ -409,7 +413,7 @@ export function createOpsRouter(
             mapError(err);
           }
         }),
-      create: scopedProcedure('ops:write', guards)
+      create: operatorProcedure('admin:write', guards)
         .input(z.object({ title: z.string() }))
         .output(projectSchema)
         .mutation(({ input }) => {
@@ -422,7 +426,7 @@ export function createOpsRouter(
     }),
 
     fundraising: router({
-      list: scopedProcedure('ops:read', guards)
+      list: operatorProcedure('admin:read', guards)
         .input(listLimitInput)
         .output(z.object({ raises: z.array(raiseSchema) }))
         .query(({ input }) => {
@@ -434,7 +438,7 @@ export function createOpsRouter(
             mapError(err);
           }
         }),
-      create: scopedProcedure('ops:write', guards)
+      create: operatorProcedure('admin:write', guards)
         .input(
           z
             .object({
@@ -452,7 +456,7 @@ export function createOpsRouter(
             mapError(err);
           }
         }),
-      milestones: scopedProcedure('ops:read', guards)
+      milestones: operatorProcedure('admin:read', guards)
         .input(z.object({ raiseId: z.string().optional(), limit: listLimitField }).optional())
         .output(z.object({ milestones: z.array(milestoneSchema) }))
         .query(({ input }) => {
@@ -464,7 +468,7 @@ export function createOpsRouter(
             mapError(err);
           }
         }),
-      fund: scopedProcedure('ops:write', guards)
+      fund: operatorProcedure('admin:write', guards)
         .input(z.object({}).passthrough().optional())
         .mutation(({ input }) => {
           try {
@@ -476,7 +480,7 @@ export function createOpsRouter(
     }),
 
     structured: router({
-      list: scopedProcedure('ops:read', guards)
+      list: operatorProcedure('admin:read', guards)
         .input(listLimitInput)
         .output(z.object({ records: z.array(structuredSchema) }))
         .query(({ input }) => {
@@ -488,7 +492,7 @@ export function createOpsRouter(
             mapError(err);
           }
         }),
-      create: scopedProcedure('ops:write', guards)
+      create: operatorProcedure('admin:write', guards)
         .input(
           z
             .object({
@@ -508,7 +512,7 @@ export function createOpsRouter(
     }),
 
     custody: router({
-      list: scopedProcedure('ops:read', guards)
+      list: operatorProcedure('admin:read', guards)
         .input(listLimitInput)
         .output(
           z.object({
@@ -532,7 +536,7 @@ export function createOpsRouter(
             mapError(err);
           }
         }),
-      createApproval: scopedProcedure('ops:write', guards)
+      createApproval: operatorProcedure('admin:write', guards)
         .input(
           z
             .object({
@@ -550,7 +554,7 @@ export function createOpsRouter(
             mapError(err);
           }
         }),
-      wrap: scopedProcedure('ops:write', guards)
+      wrap: operatorProcedure('admin:write', guards)
         .input(z.object({}).passthrough().optional())
         .mutation(({ input }) => {
           try {
@@ -559,7 +563,7 @@ export function createOpsRouter(
             mapError(err);
           }
         }),
-      execute: scopedProcedure('ops:write', guards)
+      execute: operatorProcedure('admin:write', guards)
         .input(z.object({}).passthrough().optional())
         .mutation(({ input }) => {
           try {
@@ -852,6 +856,8 @@ export function createOpsRouter(
     protocolListing: createProtocolListingRouter(desks.protocolListing),
 
     home: createHomeConfigRouter(desks.homeConfig ?? homeConfigFromEnv({})),
+
+    valuation: createValuationPricesRouter(desks.valuationPrices ?? { published: false, code: VALUATION_PRICES_UNSET }),
 
     alertRules: createAlertRulesRouter(desks.alertRules, desks.alertState),
 

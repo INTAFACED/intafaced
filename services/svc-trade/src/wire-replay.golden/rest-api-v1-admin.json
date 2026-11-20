@@ -1,0 +1,47 @@
+{
+  "inputs": {},
+  "bodies": [
+    "{\"code\":\"AuthenticationError\",\"message\":\"Authentication required\",\"intafacedCode\":\"auth.required\"}",
+    "{\"code\":\"PermissionDenied\",\"message\":\"Scope \\\"admin:read\\\" is required\",\"intafacedCode\":\"scope.denied\"}",
+    "{\"statusCode\":500,\"error\":\"Internal Server Error\",\"message\":\"replay stub: sql\"}",
+    "{\"code\":\"BadRequest\",\"message\":\"admin orders limit is unset — refuse to invent 100\",\"intafacedCode\":\"trade.admin_orders_limit_unset\"}"
+  ],
+  "answers": {
+    "GET /api/v1/admin/fees": {
+      "absent anon": [401, 0],
+      "absent no-scope": [403, 1],
+      "absent trader": [403, 1],
+      "absent all": [500, 2],
+      "absent all-US": [500, 2],
+      "absent svc-trade": [401, 0],
+      "absent svc-ops": [401, 0],
+      "absent svc-identity": [401, 0],
+      "absent svc-campaigns": [401, 0],
+      "absent svc-bank": [401, 0],
+      "absent svc-token": [401, 0],
+      "absent svc-support": [401, 0],
+      "absent svc-market": [401, 0],
+      "absent svc-fix": [401, 0],
+      "absent svc-agents": [401, 0],
+      "absent svc-tax": [401, 0]
+    },
+    "GET /api/v1/admin/orders/open": {
+      "absent anon": [401, 0],
+      "absent no-scope": [403, 1],
+      "absent trader": [403, 1],
+      "absent all": [400, 3],
+      "absent all-US": [400, 3],
+      "absent svc-trade": [401, 0],
+      "absent svc-ops": [401, 0],
+      "absent svc-identity": [401, 0],
+      "absent svc-campaigns": [401, 0],
+      "absent svc-bank": [401, 0],
+      "absent svc-token": [401, 0],
+      "absent svc-support": [401, 0],
+      "absent svc-market": [401, 0],
+      "absent svc-fix": [401, 0],
+      "absent svc-agents": [401, 0],
+      "absent svc-tax": [401, 0]
+    }
+  }
+}

@@ -31,3 +31,6 @@ export function sameMasked(kind: string, ref: string, masked: string): boolean {
   const crypto = mine.includes('…') || kind.trim().toLowerCase() === 'crypto';
   return crypto ? mine === masked.toLowerCase() : mine === masked;
 }
+
+/** True only for the row the owner marked. A missing flag is "not the default", never a guess. */
+export const isDefaultDestination = (d: { defaultFlag?: string }) => d.defaultFlag === 'default';

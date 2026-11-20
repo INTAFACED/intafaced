@@ -28,6 +28,24 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'The trading rulebook customers read: versions, history, and a new version with a second founder.',
   },
   {
+    id: 'feeds',
+    href: '/trade-ops/feeds',
+    label: 'Market feeds',
+    job: "Each market's candle stream: age, last tick, delayed or stale past the owner's ages; candle gaps and the feed event journal.",
+  },
+  {
+    id: 'charts-metrics',
+    href: '/trade-ops/charts/metrics',
+    label: 'Charts metrics',
+    job: 'Chart opens, alerts, saved layouts and indicator use: real counts, or what is missing to count them.',
+  },
+  {
+    id: 'alert-engine',
+    href: '/trade-ops/alerts',
+    label: 'Alert engine',
+    job: 'Evaluation lag, firings today, and alert deliveries and failures per channel.',
+  },
+  {
     id: 'charts-settings',
     href: '/trade-ops/charts/settings',
     label: 'Charts settings',
@@ -62,6 +80,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     href: '/trade-ops/copy',
     label: 'Copy trading',
     job: 'Vet who may lead copy trading with a second founder; set the lead criteria; suspend a lead.',
+  },
+  {
+    id: 'copy-settlements',
+    href: '/trade-ops/copy/settlements',
+    label: 'Copy settlements',
+    job: 'Each lead fee share against its ledger post and the builder fee the venue reports; held rows with their key; reconcile a window.',
   },
   {
     id: 'seeding',

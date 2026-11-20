@@ -5,8 +5,9 @@ import { join } from 'node:path';
 import postgres from 'postgres';
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyPendingUp } from './migrate.js';
+import { resolveTestDatabaseUrl } from '@intafaced/db';
 
-const URL = process.env.TEST_DATABASE_URL ?? 'postgres://Nitro@127.0.0.1:5432/intafaced_test';
+const URL = resolveTestDatabaseUrl(undefined, 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test');
 
 describe('academy up migrations', () => {
   const schemas: string[] = [];

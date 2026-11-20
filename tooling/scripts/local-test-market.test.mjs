@@ -19,6 +19,7 @@ import {
   buildLadder,
   createPriceWalk,
   crossingSide,
+  crossingLegs,
   bookMid,
   parseShift,
   shiftedMid,
@@ -26,10 +27,16 @@ import {
   placingOrder,
   shiftQuoted,
   crossesOn,
+  missedMinute,
   quotesInTheWay,
   quotesThisCycle,
   holdTaken,
   HOLD_MAX_MS,
+  stillThisCycle,
+  stillTaken,
+  STILL_MAX_MS,
+  walkedMid,
+  takerCrosses,
   stackNotActive,
   STACK_INACTIVE_LIMIT_MS,
   fromScaled,
@@ -39,6 +46,8 @@ import {
   laterEdgeBudget,
   readEdgeBudget,
   tapeWindow,
+  TAPE_RETRY_WAITS_MS,
+  transientTapeRefusal,
   toScaled,
   toScaledFloor,
 } from './local-test-market.mjs';
@@ -101,7 +110,8 @@ try {
   r = run(home, ['hold', 'NOPE/USDT']);
   assert.equal(r.status, 2, r.stderr);
 
-  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-03 #8) does not outlive the
+  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-10, a `market` file that holds the
+  // book; J-cex-spot-03 and J-cex-spot-08 trade on the venue and no longer hold it) does not outlive the
   // file: the journeys' world restore, entering the next file, clears it (world-restore.mjs restoreWorld, `unshift`).
   // Failure it prevents: a frozen BTC/USDT book for every journey file after it.
   run(home, ['hold', 'BTC/USDT']);
@@ -113,13 +123,25 @@ try {
       '--input-type=module',
       '-e',
       `const w = await import(${JSON.stringify(join(realApp, 'world-restore.mjs'))});
-       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-03.pw.mjs'))});
+       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-10.pw.mjs'))});
        await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-04.pw.mjs'))});`,
     ],
     { env: { ...process.env, HOME: home, TEST_PARALLEL_INDEX: 'hold-leak' }, encoding: 'utf8' },
   );
   assert.equal(between.status, 0, between.stderr);
   assert.deepEqual(JSON.parse(readFileSync(holdFile, 'utf8')), {}, 'a hold outlived the journey file that set it');
+  // 4d. Entering a journey file asks for a still market (no walk, no crossing) unless the file has a `// Market: live`
+  // line; with no maker running, the request waits in its file for the maker's next start. `live` clears it.
+  const stillFile = join(dirname(holdFile), 'market-still.json');
+  assert.ok(Number.isFinite(JSON.parse(readFileSync(stillFile, 'utf8')).askedAt), 'a journey file entered on a live market');
+  r = run(home, ['live']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /not running; it starts live when it does/);
+  assert.equal(existsSync(stillFile), false);
+  r = run(home, ['still']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /not running; it starts still when it does/);
+  assert.ok(Number.isFinite(JSON.parse(readFileSync(stillFile, 'utf8')).askedAt));
   // 5. Through the command line as well: a real-looking target never gets past the guard.
   r = run(home, ['start', '--edge-url', 'https://api.intafaced.com']);
   assert.equal(r.status, 1, r.stderr);
@@ -165,6 +187,32 @@ try {
   assert.throws(() => tapeWindow({ nowMs: now, trades: 7, stepMs: 1000, perBar: 7 }), /divide evenly/);
   assert.equal(TAPE_CLIENT_PREFIX, 'LTEST-TAPE-');
   assert.ok(`${TAPE_CLIENT_PREFIX}abcdef-${5000 * 5}`.length <= 64); // the order contract's client id limit
+}
+
+// 5c2. A tape order a service refused as unavailable is tried again, a few times; a refusal about the order is not.
+// The reasons are the ones the writer logged on 10 Nov (main's run 42745917050 shard 11, run 42760091859 shard 22).
+{
+  for (const reason of [
+    'refused authority.unavailable',
+    'refused HTTP 503 edge.venue_halt_unavailable',
+    'refused trade.matching_unavailable',
+    'refused HTTP 502 bad gateway',
+    'no result ',
+    'unknown trade.outcome_unknown',
+  ])
+    assert.equal(transientTapeRefusal(reason), true, reason);
+  for (const reason of [
+    'refused trade.price_band',
+    'refused trade.insufficient_funds',
+    'refused HTTP 400 validation',
+    'refused HTTP 429 edge.rate_limited',
+    'filled 0 of 0.5',
+    '',
+    undefined,
+  ])
+    assert.equal(transientTapeRefusal(reason), false, String(reason));
+  // A few tries within about 17 s in all: past a stall of a few seconds, never long enough to hide a service that is down.
+  assert.deepEqual(TAPE_RETRY_WAITS_MS, [2000, 5000, 10000]);
 }
 
 // 5d. The wait at the end of `history`: none while Edge says half its budget or more is left, until the window ends when
@@ -445,6 +493,62 @@ for (const q of ladder) {
 
 // The taker must alternate sides so it cannot drain one asset (it once bought forever and every order got 400).
 assert.deepEqual([1, 2, 3, 4].map(crossingSide), ['buy', 'sell', 'buy', 'sell']);
+// Each turn makes three crossings: its side at level 0, the other side at level 0, its side again at level 1. The bar's
+// first trade, its open, is then strictly inside the bar, so an entry at that open reaches both a stop loss and a take
+// profit 0.001% either side of it on the same bar (J-algo-dev-05 #3: with two legs the open was the bar's high or low,
+// and an entry there was stopped out on its own bar; replay on main 1bff0b1, run 43710208806). Turns alternate sides,
+// so the taker stays flat.
+for (const n of [1, 2, 3, 4]) {
+  const legs = crossingLegs(n);
+  assert.deepEqual(
+    legs.map((l) => [crossingSide(l.k), l.level]),
+    [
+      [crossingSide(n), 0],
+      [crossingSide(n + 1), 0],
+      [crossingSide(n), 1],
+    ],
+  );
+  assert.equal(legs.at(-1).k + 1, n + 1, 'the next turn starts on the other side');
+}
+{
+  const ladder = buildLadder({
+    mid: toScaled('65000'),
+    tick: toScaled('0.01'),
+    lot: toScaled('0.00001'),
+    minAmount: toScaled('0.00001'),
+    minCost: toScaled('5'),
+    levels: 3,
+    halfSpreadBps: 6n,
+    stepBps: 9n,
+    levelNotional: toScaled('3000'),
+  });
+  for (const n of [1, 2]) {
+    // The book as each leg meets it: a leg takes its level whole, so the next level on that side is the top after it.
+    const resting = ladder.map((q) => ({ ...q }));
+    const prices = [];
+    for (const { k, level } of crossingLegs(n)) {
+      const side = crossingSide(k);
+      const want = side === 'buy' ? 'sell' : 'buy';
+      const top = resting.filter((q) => q.side === want).sort((x, y) => x.level - y.level)[0];
+      const book = {
+        bids: want === 'buy' ? [[top.price, top.amount]] : [],
+        asks: want === 'sell' ? [[top.price, top.amount]] : [],
+      };
+      const q = crossingQuote(ladder, resting, side, book, level);
+      assert.ok(q, `turn ${n}: leg ${side} at level ${level} meets the maker's own quote`);
+      prices.push(toScaled(q.price));
+      resting.splice(resting.indexOf(top), 1);
+    }
+    const [open] = prices;
+    const high = prices.reduce((a, b) => (a > b ? a : b));
+    const low = prices.reduce((a, b) => (a < b ? a : b));
+    const tenth = open / 100000n; // 0.001% of the entry
+    assert.ok(
+      high >= open + tenth && low <= open - tenth,
+      `turn ${n}: open ${fromScaled(open)} lies inside high ${fromScaled(high)} and low ${fromScaled(low)}`,
+    );
+  }
+}
 // The taker crosses each market every sixth cycle, half the markets at a time, and BTC/USDT (the one the journeys run
 // waits for) on the very first cycle.
 const crossCycles = (symbol) => Array.from({ length: 20 }, (_, i) => i + 1).filter((c) => crossesOn(c, symbol));
@@ -516,7 +620,9 @@ const deadPid = async () => {
 const sup = mkdtempSync(join(tmpdir(), 'local-test-market-supervise-'));
 const supState = join(sup, '.intafaced', 'local-test-stack');
 const supRun = join(supState, 'run');
-const pidFile = join(supRun, 'market.json');
+const recordsFile = join(supRun, 'processes.json');
+// The maker's record, in the stack's one process record (local-test-facts.mjs stackRecords), or undefined.
+const makerRecord = () => (existsSync(recordsFile) ? JSON.parse(readFileSync(recordsFile, 'utf8'))['market-maker'] : undefined);
 const logFile = join(supState, 'logs', 'market.log');
 const deadEdge = await freePort();
 const fakes = [];
@@ -527,19 +633,29 @@ try {
   const setPid = (pid, extra = {}) => {
     const fake = fakes.find((child) => child.pid === pid);
     const startedAt = fake ? new Date(readProcessIdentity(pid).startedAt).toISOString() : '2026-10-14T00:00:00.000Z';
-    writeFileSync(pidFile, JSON.stringify({ pid, startedAt, ...(fake ? { argv: fake.spawnargs } : {}), ...extra }));
+    writeFileSync(recordsFile, JSON.stringify({ 'market-maker': { pid, startedAt, ...(fake ? { argv: fake.spawnargs } : {}), ...extra } }));
   };
 
   // 9a. A stray word never starts a copy (`pnpm local:market status` once meant `start status`).
   let r = run(sup, ['start', 'status']);
   assert.equal(r.status, 2, r.stdout + r.stderr);
   assert.match(r.stderr, /unexpected argument "status"/);
-  assert.equal(existsSync(pidFile), false, 'a stray argument must not start the market');
+  assert.equal(makerRecord(), undefined, 'a stray argument must not start the market');
 
   // 9b. status: never started -> off; died on its own -> DOWN (exit 1); alive and writing -> ok; alive but silent -> STALE (exit 1).
   r = run(sup, ['status']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /not started/);
+  // svc-market's own record is `market` in the same file: never the maker's. Failure it prevents: the first cut of the
+  // one record keyed the maker `market`, so on CI the maker read svc-market as itself ("already running") and its stop
+  // signalled svc-market (#8811, every journey shard red).
+  writeFileSync(recordsFile, JSON.stringify({ market: { pid: process.pid, startedAt: new Date().toISOString() } }));
+  r = run(sup, ['status']);
+  assert.match(r.stdout, /not started/, "svc-market's record is not the maker's");
+  r = run(sup, ['stop']);
+  assert.match(r.stdout, /test market is not running/);
+  assert.equal(JSON.parse(readFileSync(recordsFile, 'utf8')).market.pid, process.pid, "the maker's stop leaves svc-market's record");
+  rmSync(recordsFile);
   setPid(await deadPid());
   r = run(sup, ['status']);
   assert.equal(r.status, 1);
@@ -568,7 +684,7 @@ try {
     r = run(sup, [cmd]);
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /already running/, cmd);
-    assert.equal(JSON.parse(readFileSync(pidFile, 'utf8')).pid, fake.pid, `${cmd} must not replace the running copy`);
+    assert.equal(makerRecord().pid, fake.pid, `${cmd} must not replace the running copy`);
   }
   writeFileSync(join(supRun, 'market.lock'), String(process.pid)); // held by a live process that is not the script
   setPid(await deadPid());
@@ -595,15 +711,15 @@ try {
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /test market stopped/);
   await waitFor(() => fake.exitCode !== null || fake.signalCode !== null, 'the stopped market to exit');
-  assert.equal(existsSync(pidFile), false);
+  assert.equal(makerRecord(), undefined);
   r = run(sup, ['ensure']);
   assert.match(r.stdout, /not started; leaving it off/);
-  assert.equal(existsSync(pidFile), false, 'ensure must not start a market that was never started or was stopped');
+  assert.equal(makerRecord(), undefined, 'ensure must not start a market that was never started or was stopped');
   // stop after it died on its own also forgets it.
   setPid(await deadPid());
   r = run(sup, ['stop']);
   assert.match(r.stdout, /already down; forgot it/);
-  assert.equal(existsSync(pidFile), false);
+  assert.equal(makerRecord(), undefined);
 
   // 9e. ensure restarts a market that was running and died, with the same options, and the new copy names why it ended.
   const dead = await deadPid();
@@ -612,7 +728,7 @@ try {
   r = run(sup, ['ensure']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /was running \(pid \d+\) and is not now; starting it again/);
-  const rec = JSON.parse(readFileSync(pidFile, 'utf8'));
+  const rec = makerRecord();
   assert.notEqual(rec.pid, dead);
   assert.deepEqual(rec.args, args);
   await waitFor(
@@ -702,6 +818,68 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
   assert.equal(holdTaken({ 'BTC/USDT': 1_000 }, 'BTC/USDT', 1_000), false);
   assert.equal(holdTaken({ 'BTC/USDT': 1_001 }, 'BTC/USDT', 1_000), true);
   assert.equal(holdTaken({ 'ETH/USDT': 2_000 }, 'BTC/USDT', 1_000), false);
+}
+
+// A still market (the journeys' default, project-state #2065): the walk does not step and nothing crosses, so a price
+// read twice in one step reads the same unless someone traded. A `move` still shifts it. A still request left set (a
+// killed run) lapses on its own, but never inside one journey file's hour.
+{
+  const tick = toScaled('0.01');
+  const walk = () => createPriceWalk({ seed: 's', symbol: 'BTC/USDT', startScaled: toScaled('65000'), tickScaled: tick });
+  const still = walk();
+  const mids = Array.from({ length: 5 }, () => walkedMid(still, { still: true, shift: undefined, tick }));
+  assert.deepEqual(new Set(mids).size, 1, 'a still cycle quotes the same mid every time');
+  assert.equal(still.steps, 0);
+  assert.equal(walkedMid(still, { still: true, shift: 100n, tick }), shiftedMid(mids[0], 100n, tick));
+  const live = walk();
+  const moving = Array.from({ length: 5 }, () => walkedMid(live, { still: false, shift: undefined, tick }));
+  assert.ok(new Set(moving).size > 1, 'a live cycle steps the walk (the walk never freezes)');
+  assert.equal(live.steps, 5);
+  assert.equal(stillThisCycle(null, 2_000), false);
+  assert.equal(stillThisCycle({}, 2_000), false);
+  assert.equal(stillThisCycle({ askedAt: 1_000 }, 2_000), true);
+  assert.ok(STILL_MAX_MS >= 3_600_000);
+  assert.equal(stillThisCycle({ askedAt: 1_000 }, 1_000 + STILL_MAX_MS), true);
+  assert.equal(stillThisCycle({ askedAt: 1_000 }, 1_000 + STILL_MAX_MS + 1), false);
+  // The taker crosses on its turn in a live cycle and never in a still one (CI review on #7969: a shadowed name made it
+  // read a set of quotes, always truthy, so it never crossed in either mode).
+  const turn = [1, 2, 3, 4, 5, 6, 7].find((c) => crossesOn(c, 'BTC/USDT'));
+  assert.ok(turn);
+  assert.equal(takerCrosses({ still: false, cross: undefined, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), true);
+  assert.equal(takerCrosses({ still: true, cross: undefined, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), false);
+  assert.equal(takerCrosses({ still: false, cross: false, rested: 6, cycle: turn, symbol: 'BTC/USDT' }), false);
+  assert.equal(takerCrosses({ still: false, cross: undefined, rested: 0, cycle: turn, symbol: 'BTC/USDT' }), false);
+  // Off its turn, a market crosses when its last crossing was in an earlier UTC minute, so every live minute trades
+  // (#8390: on a loaded runner the turn alone left half the 1m bars of BTC/USDT without a trade).
+  const off = [1, 2, 3, 4, 5, 6, 7].find((c) => !crossesOn(c, 'BTC/USDT'));
+  const minute = 1_800_000_000_000 - (1_800_000_000_000 % 60_000);
+  assert.equal(missedMinute(undefined, minute + 5_000), false);
+  assert.equal(missedMinute(minute + 1_000, minute + 59_999), false);
+  assert.equal(missedMinute(minute + 59_000, minute + 60_000), true);
+  assert.equal(
+    takerCrosses({ still: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 30_000, lastCrossMs: minute + 1_000 }),
+    false,
+  );
+  assert.equal(
+    takerCrosses({ still: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000, lastCrossMs: minute + 1_000 }),
+    true,
+  );
+  assert.equal(takerCrosses({ still: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000 }), false);
+  assert.equal(
+    takerCrosses({ still: true, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000, lastCrossMs: minute }),
+    false,
+  );
+  assert.equal(
+    takerCrosses({ still: false, cross: false, rested: 6, cycle: off, symbol: 'BTC/USDT', nowMs: minute + 61_000, lastCrossMs: minute }),
+    false,
+  );
+  // `still` and `live` return only on a cycle of the running maker that started after the ask and runs that way.
+  assert.equal(stillTaken(null, { still: true, askedAt: 1_000, pid: 7 }), false);
+  assert.equal(stillTaken({ pid: 7, startedAt: 1_000, still: true }, { still: true, askedAt: 1_000, pid: 7 }), false);
+  assert.equal(stillTaken({ pid: 8, startedAt: 2_000, still: true }, { still: true, askedAt: 1_000, pid: 7 }), false);
+  assert.equal(stillTaken({ pid: 7, startedAt: 2_000, still: false }, { still: true, askedAt: 1_000, pid: 7 }), false);
+  assert.equal(stillTaken({ pid: 7, startedAt: 2_000, still: true }, { still: true, askedAt: 1_000, pid: 7 }), true);
+  assert.equal(stillTaken({ pid: 7, startedAt: 2_000 }, { still: false, askedAt: 1_000, pid: 7 }), true);
 }
 
 // A maker restart is ready only once its newest run has quoted every market it named, the perpetual (quoted last) too.
@@ -866,11 +1044,58 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
       assert.match(r.stdout, /custody off|LEDGER_CUSTODY_LAYER off/, cmd);
       assert.match(r.stdout, cmd === 'history' ? /no TEST chart history written/ : /TEST market maker not started/, cmd);
     }
-    assert.equal(existsSync(join(offState, 'run', 'market.json')), false, 'no maker was started');
+    assert.equal(
+      JSON.parse(readFileSync(join(offState, 'run', 'processes.json'), 'utf8'))['market-maker'],
+      undefined,
+      'no maker was started',
+    );
     assert.equal(existsSync(join(offState, 'market-accounts.json')), false, 'no maker account was made or funded');
     assert.equal(existsSync(join(offState, 'logs', 'market.log')), false, 'nothing ran to log');
   } finally {
     rmSync(offHome, { recursive: true, force: true });
   }
   console.log('local-test-market: with custody off nothing quotes, trades, funds or writes history');
+}
+
+// 10. A stop request ends start-up funding before the next transfer (#8312): a SIGTERM during funding used to wait for
+// every `local:fund` call, about 35 s for ten, because the funding loop never read STOP.requested.
+{
+  const { ensureFunds, STOP } = await import('./local-test-market.mjs');
+  const empty = { json: { balances: {} } };
+  const fakeClient = () => {
+    const calls = [];
+    return { calls, account: { userId: 'u-test' }, http: async (method, route) => (calls.push(`${method} ${route}`), empty) };
+  };
+  const assets = ['USDT', 'BTC', 'ETH'];
+  try {
+    // Stop already asked: no balance read and no transfer.
+    STOP.requested = true;
+    const before = fakeClient();
+    const funded = [];
+    await ensureFunds(before, 'maker', assets, 1, { fund: (...a) => (funded.push(a), { status: 0 }) });
+    assert.deepEqual(funded, [], 'a stop asked before funding makes no local:fund call');
+    assert.deepEqual(before.calls, [], 'and reads no balance');
+
+    // Stop asked while the first transfer runs: that one finishes, no later one starts.
+    STOP.requested = false;
+    const during = fakeClient();
+    const order = [];
+    await ensureFunds(during, 'maker', assets, 1, {
+      fund: (_user, asset) => {
+        order.push(asset);
+        STOP.requested = true;
+        return { status: 0 };
+      },
+    });
+    assert.deepEqual(order, ['USDT'], 'a stop during the first transfer ends funding before the second');
+
+    // No stop: every asset short of its target gets its one transfer (the guard does not skip real work).
+    STOP.requested = false;
+    const all = [];
+    await ensureFunds(fakeClient(), 'taker', assets, 10, { fund: (_u, asset) => (all.push(asset), { status: 0 }) });
+    assert.deepEqual(all, assets, 'without a stop each short asset is funded');
+  } finally {
+    STOP.requested = false;
+  }
+  console.log('local-test-market: a stop during start-up funding ends it before the next transfer');
 }

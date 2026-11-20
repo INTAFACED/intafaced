@@ -46,6 +46,10 @@ export interface ChartApi {
     setHeight(height: number): void;
     getHeight(): number;
     getStretchFactor(): number;
+    /** The series drawn in this pane, in the order they were added. */
+    getSeries(): ChartSeries[];
+    /** The pane's own element (its row in the chart's layout), or null before it is laid out. */
+    getHTMLElement(): HTMLElement | null;
   }>;
   removePane(index: number): void;
   timeScale(): {
@@ -90,6 +94,12 @@ export interface ChartHost {
   tickSize: string;
   symbol: string;
 }
+
+/**
+ * What a chart other than the workbench's (the venue desk's `PriceChart`) hands to trading from the chart
+ * (J-charts-desk-15): the library's chart, its main price series, the element it draws in and the market's tick.
+ */
+export type ChartOrderHost = Pick<ChartHost, 'chart' | 'main' | 'element' | 'tickSize'>;
 
 /** An add-on draws on the host and returns the function that removes all it added. */
 export type ChartAddon = (host: ChartHost, bars: readonly Candle[]) => () => void;

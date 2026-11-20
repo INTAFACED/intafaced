@@ -45,7 +45,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 /**
- * THE MOUNT BOUNDARY, for svc-p2p (docs/decisions/mount-boundary.md).
+ * THE MOUNT BOUNDARY, for svc-p2p.
  *
  * Not a test of P2P behaviour — `p2p-service.test.ts` owns that. What this file
  * protects is the one property mounting `/trpc` depends on:

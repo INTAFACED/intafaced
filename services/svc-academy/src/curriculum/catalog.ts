@@ -43,6 +43,15 @@ export type { CurriculumKeyTerm, CurriculumTeaching } from './content.js';
 export type CurriculumPath = 'foundations' | 'markets' | 'builder' | 'sovereign';
 export type CurriculumKind = 'playbook' | 'workbook' | 'lesson';
 
+/**
+ * AC-course-structure-02: what an item is to the learner in a course outline. A published quiz on the item makes it a quiz;
+ * a workbook is drills to do, so an assignment; a playbook or lesson is read, so a lesson. Pure.
+ */
+export function itemType(kind: CurriculumKind, hasQuiz: boolean): 'lesson' | 'quiz' | 'assignment' {
+  if (hasQuiz) return 'quiz';
+  return kind === 'workbook' ? 'assignment' : 'lesson';
+}
+
 export interface CurriculumItemSummary {
   slug: string;
   title: string;

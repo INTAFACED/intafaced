@@ -12,7 +12,7 @@
  *                                                     the test part's input alone from a local clone, for the proof runs
  *
  * Why it exists: proof v2's post-merge reach reads voided 545 proofs over one harness change that, judged once in its
- * own PR, altered nothing the tests observe (project-state research/system-design-2026-11-07/E1-RESULT.md). The test
+ * own PR, altered nothing the tests observe (project-state product/E1-RESULT.md). The test
  * part rules before merge instead, and the seal (review-marker.mjs, JUDGE_CHECK) waits for its Test verdict step on the
  * exact head whenever judgeReason names a changed file. A FAIL stands for its head and its code, like the review's.
  *
@@ -25,7 +25,7 @@
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync, existsSync, readdirSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { join, dirname, posix } from 'node:path';
+import { join, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 // The default branch's copy: the job runs this file from the default branch's checkout (ci-review.yml), never the pull
 // request's, so the money rule below is main's.
@@ -250,6 +250,13 @@ export function setAsideRefusal(line, answer, rules) {
 // ── Reading a diff ────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** A unified diff (git or the compare API's) as files, each with the old and new line numbers it changes. */
+/** A diff's file sections, each from its `diff --git` line to the next, byte for byte: joined, they are the diff. */
+export function diffSections(diff) {
+  return String(diff)
+    .split(/^(?=diff --git )/m)
+    .filter((s) => s.length > 0);
+}
+
 export function parseDiff(text) {
   const files = [];
   let cur = null;
@@ -276,7 +283,7 @@ export function parseDiff(text) {
     }
     if (!cur.hunk && line.startsWith('new file mode')) cur.oldPath = null;
     if (!cur.hunk && line.startsWith('deleted file mode')) cur.newPath = null;
-    if (!cur.hunk && (/^Binary files /.test(line) || line.startsWith('GIT binary patch'))) cur.binary = true;
+    if (!cur.hunk && (line.startsWith('Binary files ') || line.startsWith('GIT binary patch'))) cur.binary = true;
     if (!cur.hunk && /^(rename|copy) from /.test(line)) {
       cur.moved = line.startsWith('rename') ? 'rename' : 'copy';
       cur.oldPath = line.replace(/^(rename|copy) from /, '');
@@ -542,15 +549,29 @@ const stable = (s, salt) => createHash('sha256').update(`${salt}|${s}`).digest('
  * Returns { applicable, why, prompt?, required?, schema?, deterministic: [{ step, line }], facts, shingleTexts }.
  */
 export async function buildInputs({ src, base, head, pr, brief, loadWords, lead = '', reviewDiff }) {
-  const { diff, mergeBase } = await src.diff(base, head);
+  const got = await src.diff(base, head);
+  const { mergeBase } = got;
+  let { diff } = got;
   const files = parseDiff(diff);
-  const judged = files.filter((f) => judgedFile(f.path) || (f.oldPath && judgedFile(f.oldPath)));
+  const isJudged = (f) => judgedFile(f.path) || (f.oldPath && judgedFile(f.oldPath));
+  const judged = files.filter(isJudged);
   if (judged.length === 0) return { applicable: false, why: 'no journey test or shared test code changed' };
-  if (Buffer.byteLength(diff) > MAX_DIFF_BYTES)
-    return {
-      applicable: true,
-      tooLarge: `the diff is ${Buffer.byteLength(diff)} bytes, over ${MAX_DIFF_BYTES}; it can't be judged whole; split the pull request`,
-    };
+  // A diff over the cap: the test part judges its own files' sections whole (the journey tests and the shared test
+  // code), and the review judges the whole diff in parts (ci-review.mjs splitDiff). Only those sections over the cap
+  // can't be judged whole.
+  let ownOnly = false;
+  if (Buffer.byteLength(diff) > MAX_DIFF_BYTES) {
+    const own = diffSections(diff)
+      .filter((s) => parseDiff(s).some(isJudged))
+      .join('');
+    if (Buffer.byteLength(own) > MAX_DIFF_BYTES)
+      return {
+        applicable: true,
+        tooLarge: `the diff is ${Buffer.byteLength(diff)} bytes and its journey test and shared test code files alone are ${Buffer.byteLength(own)}, over ${MAX_DIFF_BYTES}; they can't be judged whole; split the pull request`,
+      };
+    diff = own;
+    ownOnly = true;
+  }
 
   const before = new Map();
   const after = new Map();
@@ -615,7 +636,12 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
     if (users.length === 0) continue; // e.g. a look sweep or a file no journey reaches: no step to judge
     const names = new Set([...changedNames(before.get(f.path), f.removed), ...changedNames(after.get(f.path), f.added)]);
     let n = 0;
-    for (const jf of users) for (const s of allStepsOf(jf)) if (!own.has(s)) (reached.set(s, reached.get(s) ?? jf), n++);
+    for (const jf of users)
+      for (const s of allStepsOf(jf))
+        if (!own.has(s)) {
+          reached.set(s, reached.get(s) ?? jf);
+          n++;
+        }
     changes.push({ file: f.path, kind: 'shared', reaches: n, journeys: users.length, names: [...names] });
   }
   for (const s of own) reached.delete(s);
@@ -733,9 +759,15 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
     { must: true },
   );
   // When the review already gave the very same diff, it is not repeated; a different one is given apart, never dropped.
-  if (reviewDiff === diff) add("\nThe diff is the review's UNTRUSTED DIFF block above (the same compare diff, untrusted).", { must: true });
+  const ownNote = ownOnly
+    ? ` The whole diff is over ${MAX_DIFF_BYTES} bytes, so this holds only its journey test and shared test code files, whole; the review judges the rest in parts.`
+    : '';
+  if (reviewDiff === diff)
+    add(`\nThe diff is the review's UNTRUSTED DIFF block above (the same compare diff, untrusted).${ownNote}`, { must: true });
   else if (reviewDiff != null)
-    add(`\nThe test part's diff follows (untrusted).\nBEGIN UNTRUSTED TEST DIFF\n${fence(diff)}\nEND UNTRUSTED TEST DIFF`, { must: true });
+    add(`\nThe test part's diff follows (untrusted).${ownNote}\nBEGIN UNTRUSTED TEST DIFF\n${fence(diff)}\nEND UNTRUSTED TEST DIFF`, {
+      must: true,
+    });
   else add(`\nThe diff follows (untrusted).\nBEGIN UNTRUSTED DIFF\n${fence(diff)}\nEND UNTRUSTED DIFF`, { must: true });
   const fileBlock = (when, path, text) => `\nBEGIN UNTRUSTED FILE ${when} ${path}\n${fence(text)}\nEND UNTRUSTED FILE`;
   const sharedFirst = [...judged].sort((a, b) => Number(Boolean(JOURNEY_FILE.test(a.path))) - Number(Boolean(JOURNEY_FILE.test(b.path))));
@@ -1022,20 +1054,87 @@ const roadmapAt = (read, manifests) => ({
   manifests,
 });
 
+/** git's empty tree, and its own defaults for every setting that shapes a diff's text (a local config never counts). */
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const DIFF_DEFAULTS = [
+  'diff.noprefix=false',
+  'diff.mnemonicPrefix=false',
+  'diff.srcPrefix=a/',
+  'diff.dstPrefix=b/',
+  'diff.context=3',
+  'diff.interHunkContext=0',
+  'diff.indentHeuristic=true',
+  'diff.suppressBlankEmpty=false',
+  'diff.algorithm=myers',
+  'diff.relative=false',
+  'diff.renames=true',
+  'core.quotePath=true',
+  'core.autocrlf=false',
+].flatMap((c) => ['-c', c]);
+
 export function gitSource(clone, graphSha) {
   const git = (...a) => execFileSync('git', ['-C', clone, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  // Each sha's regular files are listed once (one ls-tree) and each blob read once, the import graph's code files in one
+  // `git cat-file --batch` (about 0.3 s): the graph probes thousands of paths, and one git call per probe took 105 s on
+  // intafaced #8496. Only a regular file's text, as before: a symlink, a submodule or a directory is null.
+  const trees = new Map();
+  const texts = new Map();
+  const filesAt = (sha) => {
+    if (!trees.has(sha)) {
+      const m = new Map();
+      for (const l of git('ls-tree', '-r', '-z', '--full-tree', sha).split('\0')) {
+        const r = /^100(?:644|755) blob ([0-9a-f]+)\t([^]+)$/.exec(l);
+        if (r) m.set(r[2], r[1]);
+      }
+      trees.set(sha, m);
+      if (sha === graphSha) {
+        const blobs = [...new Set([...m].filter(([p]) => /\.(mjs|cjs|js|mts|ts|tsx|json)$/.test(p)).map(([, b]) => b))];
+        const out = execFileSync('git', ['-C', clone, 'cat-file', '--batch'], { input: `${blobs.join('\n')}\n`, maxBuffer: 1 << 30 });
+        for (let at = 0; at < out.length;) {
+          const nl = out.indexOf(10, at);
+          const [blob, type, size] = out.subarray(at, nl).toString('latin1').split(' ');
+          if (type !== 'blob') throw new Error(`git cat-file --batch: ${blob} is ${type}`);
+          texts.set(blob, out.subarray(nl + 1, nl + 1 + Number(size)).toString('utf8'));
+          at = nl + 2 + Number(size);
+        }
+      }
+    }
+    return trees.get(sha);
+  };
   const show = (sha, p) => {
     try {
-      if (!/^100(644|755) blob /.test(git('ls-tree', sha, '--', p))) return null;
-      return git('show', `${sha}:${p}`);
+      const blob = filesAt(sha).get(p);
+      if (!blob) return null;
+      if (!texts.has(blob)) texts.set(blob, git('cat-file', 'blob', blob));
+      return texts.get(blob);
     } catch {
       return null;
     }
   };
   return {
     diff: async (base, head) => ({
-      // Rename detection on, as in the compare API's diff, so a local replay sees the renames CI sees.
-      diff: git('diff', '--no-color', '--no-ext-diff', '--find-renames', `${base}...${head}`),
+      // Rename detection on, as in the compare API's diff, so a local replay sees the renames CI sees. The compare API
+      // reads no .gitattributes (its `-diff` lockfile comes as text: #8458's 33075 bytes, 793 here without this) and no
+      // one's git config: attributes from the empty tree, and git's own defaults for what shapes a diff.
+      diff: execFileSync(
+        'git',
+        [
+          '-C',
+          clone,
+          `--attr-source=${EMPTY_TREE}`,
+          ...DIFF_DEFAULTS,
+          'diff',
+          '--no-color',
+          '--no-ext-diff',
+          '-O/dev/null', // no diff.orderFile: the files in git's own order
+          '--find-renames',
+          `${base}...${head}`,
+        ],
+        {
+          encoding: 'utf8',
+          maxBuffer: 256 * 1024 * 1024,
+        },
+      ),
       mergeBase: git('merge-base', base, head).trim(),
     }),
     read: async (sha, p) => show(sha, p),

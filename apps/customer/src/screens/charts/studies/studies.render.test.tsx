@@ -347,6 +347,17 @@ describe('refusals say what is missing', () => {
     expect(legend()).toContain('No public trades for this market.');
   });
 
+  it('on a market with no trades (no bars), volume delta and the profile both say there are no public trades and draw nothing', async () => {
+    world.tape = { status: 'empty' };
+    await render({ bars: [] });
+    await addStudy('delta', 'Volume delta');
+    await addStudy('profile', 'Volume profile');
+    const rows = (id: string) => host.querySelector(`[data-study="${id}"]`)?.textContent ?? '';
+    expect(rows('volume-delta-1')).toContain('No public trades for this market.');
+    expect(rows('volume-profile-1')).toContain('No public trades for this market.');
+    expect(fake.made.filter((s) => !s.removed)).toHaveLength(0);
+  });
+
   it('a volume profile reads the tape and marks its point of control', async () => {
     const prints: Print[] = [
       { t: 0, side: 'buy', amount: '2', price: '100' },

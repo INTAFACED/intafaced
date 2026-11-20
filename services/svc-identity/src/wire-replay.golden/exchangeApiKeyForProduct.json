@@ -1,0 +1,44 @@
+{
+  "inputs": {
+    "exchangeApiKeyForProduct": {
+      "sample": "{\"key\":\"placeholder\",\"product\":\"placeholder\"}",
+      "sample-nulls": "{\"key\":null,\"product\":null}"
+    }
+  },
+  "bodies": [
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"exchangeApiKeyForProduct\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"exchangeApiKeyForProduct\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"exchangeApiKeyForProduct\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"key\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"product\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"exchangeApiKeyForProduct\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"replay stub: auth.exchangeApiKey\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"exchangeApiKeyForProduct\",\"requestId\":\"replay-request\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"key\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"product\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"exchangeApiKeyForProduct\",\"requestId\":\"replay-request\"}}}"
+  ],
+  "answers": {
+    "exchangeApiKeyForProduct": {
+      "absent anon": [400, 0],
+      "absent no-scope": [400, 0],
+      "absent all": [400, 0],
+      "absent all-US": [400, 0],
+      "null anon": [400, 1],
+      "null no-scope": [400, 1],
+      "null all": [400, 1],
+      "null all-US": [400, 1],
+      "wrong-type anon": [400, 2],
+      "wrong-type no-scope": [400, 2],
+      "wrong-type all": [400, 2],
+      "wrong-type all-US": [400, 2],
+      "empty anon": [400, 3],
+      "empty no-scope": [400, 3],
+      "empty all": [400, 3],
+      "empty all-US": [400, 3],
+      "sample anon": [400, 4],
+      "sample no-scope": [400, 4],
+      "sample all": [400, 4],
+      "sample all-US": [400, 4],
+      "sample-nulls anon": [400, 5],
+      "sample-nulls no-scope": [400, 5],
+      "sample-nulls all": [400, 5],
+      "sample-nulls all-US": [400, 5]
+    }
+  }
+}

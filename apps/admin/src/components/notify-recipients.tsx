@@ -5,7 +5,7 @@ import { Chip } from '@/components/chip';
 import './desk.css';
 import { formatWhen } from '@/lib/as-of';
 import { shortId } from '@/lib/desk/desk-model';
-import { codeWords } from '@/lib/desk/words';
+import { codeWords } from '@/lib/code-words';
 import { fetchRecipients, postRelease } from '@/lib/notify/recipients-browser';
 import {
   RECIPIENT_STATES,

@@ -1,4 +1,11 @@
 import 'server-only';
+import {
+  replyAccepted,
+  type ProcedureInput,
+  type ProcedureOutput,
+  type ProcedureRecord,
+  type TrpcTransport,
+} from '@intafaced/contracts/procedure';
 import type { AdminSessionConfig, FounderSession } from '@/lib/founder-session';
 
 /**
@@ -90,6 +97,20 @@ function unwrapData(body: unknown): { found: boolean; data: unknown } {
   return { found: true, data: data && typeof data === 'object' && 'json' in data ? (data as { json: unknown }).json : data };
 }
 
+/** svc-edge's own refusal, a flat `{ code }` body, when identity cannot answer its per-request authority read in time. */
+const EDGE_AUTHORITY_UNAVAILABLE = 'edge.authority_unavailable';
+/** The longest wait honoured from the edge's `retry-after` before the one second ask. */
+const AUTHORITY_RETRY_MAX_MS = 2_000;
+
+function edgeAuthorityUnavailable(response: Response, body: unknown): boolean {
+  return response.status === 503 && (body as { code?: unknown } | null)?.code === EDGE_AUTHORITY_UNAVAILABLE;
+}
+
+function retryAfterMs(response: Response): number {
+  const seconds = Number(response.headers.get('retry-after'));
+  return Number.isFinite(seconds) && seconds >= 0 ? Math.min(seconds * 1000, AUTHORITY_RETRY_MAX_MS) : 1_000;
+}
+
 export interface FounderCallOptions {
   /**
    * Send an empty object as the input of a GET instead of leaving the input out. A procedure whose input schema is an object
@@ -129,9 +150,8 @@ export async function edgeCall<T>(
   const empty = typeof input === 'object' && input !== null && Object.keys(input as object).length === 0;
   const hasInput = input !== undefined && input !== null && (!empty || options.sendEmptyInput === true);
   const query = method === 'GET' && hasInput ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
-  let response: Response;
-  try {
-    response = await fetch(`${target.edgeUrl}/api/${module}/trpc/${procedure}${query}`, {
+  const send = () =>
+    fetch(`${target.edgeUrl}/api/${module}/trpc/${procedure}${query}`, {
       method,
       headers: {
         accept: 'application/json',
@@ -143,13 +163,27 @@ export async function edgeCall<T>(
       redirect: 'error',
       signal: AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS),
     });
+  let response: Response;
+  let body: unknown;
+  try {
+    response = await send();
+    body = await response.json().catch(() => null);
+    // svc-edge could not ask identity who is calling in time, so it forwarded nothing and ran nothing (`retry-after: 1`).
+    // Ask once more after the wait it names; a second refusal is a definite "nothing was sent", never "outcome unknown".
+    if (edgeAuthorityUnavailable(response, body)) {
+      await new Promise((resolve) => setTimeout(resolve, retryAfterMs(response)));
+      response = await send();
+      body = await response.json().catch(() => null);
+    }
   } catch {
     // The request may or may not have arrived. For a read that is harmless; for a write it is "unknown".
     return { kind: 'unavailable', uncertain: method === 'POST', requestId: null };
   }
   const requestId = response.headers.get('x-request-id');
-  const body: unknown = await response.json().catch(() => null);
 
+  if (edgeAuthorityUnavailable(response, body)) {
+    return { kind: 'refused', refusal: { code: EDGE_AUTHORITY_UNAVAILABLE, message: '', status: response.status }, requestId };
+  }
   if (!response.ok) {
     const { code, message, trpcCode } = unwrapError(body);
     const refusal: ServiceRefusal = { code, message, status: response.status };
@@ -175,4 +209,31 @@ export function parseWith<T>(schema: {
     const result = schema.safeParse(raw);
     return result.success ? result.data : null;
   };
+}
+
+type TrpcCallRecord = ProcedureRecord & TrpcTransport & { readonly module: CallModule };
+
+/**
+ * `founderCall` through the call's record: the module, path and method come from the record, the input is checked by it
+ * before it leaves, and the answer is parsed by `record.output` and the record's `accept` checks.
+ */
+export async function founderRecordCall<R extends TrpcCallRecord>(
+  ctx: FounderCallContext,
+  record: R,
+  input: ProcedureInput<R>,
+  options: FounderCallOptions = {},
+): Promise<FounderCallResult<ProcedureOutput<R>>> {
+  const checked: unknown = input === undefined ? undefined : record.input.parse(input);
+  return founderCall(
+    ctx,
+    record.module,
+    record.path,
+    record.kind === 'query' ? 'GET' : 'POST',
+    checked,
+    (raw) => {
+      const parsed = record.output.safeParse(raw);
+      return parsed.success && replyAccepted(record, parsed.data) ? (parsed.data as ProcedureOutput<R>) : null;
+    },
+    options,
+  );
 }

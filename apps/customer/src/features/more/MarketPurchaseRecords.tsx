@@ -4,7 +4,7 @@ import { Button, DataTable, EmptyState, Failure, Loading } from '../../shared/ui
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { marketPurchasesCopy as copy } from './market-purchases-copy';
 import './market-purchases.css';
 

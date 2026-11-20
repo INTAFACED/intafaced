@@ -226,6 +226,7 @@ if (!available) {
         cost: ran.cost,
         assetId: 'IFC',
         metered: true,
+        provenance: null,
         refusalCodes: [],
         createdAt: expect.any(String),
         updatedAt: expect.any(String),
@@ -511,6 +512,46 @@ if (!available) {
       expect(await usageCount()).toBe('1');
       expect(await stored(ran.runId)).toMatchObject({ state: 'completed', reply: ran.text });
       expect(await trail(ran.runId)).toHaveLength(3);
+    });
+
+    it('a research answer keeps its provenance in the write that completes it; no other state holds one (J-agents-10 #4)', async () => {
+      const session = await person().session.open({ agentId: 'probe' });
+      const store = createRunStore(sql);
+      const provenance = {
+        sources: [
+          { id: 'S1', market: 'BTC/USDT', measure: 'last_price' as const, value: '64000.5', observedAt: '2026-11-14T08:00:00.000Z' },
+        ],
+        observedAt: '2026-11-14T08:00:00.000Z',
+        environment: 'TEST' as const,
+        assumptions: ['last_trade_at_observation' as const, 'named_markets_only' as const],
+        uncertainty: { level: 'TEST high', scale: ['TEST low', 'TEST high'], unsupportedCount: 1, claimCount: 1 },
+        unsupported: ['mock reply'],
+        notAdvice: true as const,
+      };
+      const { run } = await store.admit({
+        userId: USER,
+        sessionId: session.id,
+        requestId: 'runs:db:provenance',
+        agentId: 'probe',
+        task: 'plan',
+      });
+      // A run that is not completed holds none, even when one is offered.
+      expect((await store.move(run.id, 'running', { provenance })).provenance).toBeNull();
+      const done = await store.move(run.id, 'completed', { reply: 'mock reply', provenance });
+      expect(done.provenance).toEqual(provenance);
+      expect((await store.get(run.id, USER))!.run.provenance).toEqual(provenance);
+      expect((await store.forSession(session.id, 10)).find((r) => r.id === run.id)!.provenance).toEqual(provenance);
+      // The table itself refuses provenance on a run that is not completed.
+      const other = await store.admit({
+        userId: USER,
+        sessionId: session.id,
+        requestId: 'runs:db:provenance-2',
+        agentId: 'probe',
+        task: 'plan',
+      });
+      await expect(sql`UPDATE agents.agent_runs SET provenance = ${sql.json(provenance)} WHERE id = ${other.run.id}`).rejects.toThrow(
+        /agent_runs_provenance_completed_ck/,
+      );
     });
 
     it('one request id names one request: a retry asking another task is agents.request_id_replay and runs nothing', async () => {

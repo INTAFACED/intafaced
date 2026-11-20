@@ -4,7 +4,7 @@ import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useLocation } from '../../app/location';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { invitationCopy as copy } from './invitation-copy';
 import { ReferrerChange } from './ReferrerChange';
 import { useShareVisit } from './share-visit';

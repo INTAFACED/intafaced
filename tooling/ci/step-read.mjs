@@ -40,6 +40,15 @@ import {
 
 export const READ_BRIEF = new URL('./test-judge/READ.md', import.meta.url);
 export const READ_VERDICTS = ['FAITHFUL', 'WEAK', 'MISMATCH'];
+/**
+ * What the step's end picture shows (step-pictures.mjs; project-state #2693): SHOWN, NOT SHOWN (the picture shows another
+ * part of the screen), BROKEN (something the step names, or the screen it lives on, is visibly missing, empty, cut off or
+ * overlapping), or NOT READ (no picture). The reader's verdict answers the test question alone; a BROKEN picture caps it
+ * at WEAK here, marked `capped`, so the count of record lifts that call once a later read sees another picture, not only
+ * once the test changes (the fix for a broken screen is product code). A step with no picture is NOT READ whatever the
+ * reader answers, and the count of record never counts a NOT READ step.
+ */
+export const PICTURE_VERDICTS = ['SHOWN', 'NOT SHOWN', 'BROKEN', 'NOT READ'];
 /** The most steps one call reads; more, and none is read (the count requests them as before). */
 export const MAX_READS = 150;
 /** The most helper files (the shared harness included) one read is given. */
@@ -49,20 +58,10 @@ const HELPER_DIR = HARNESS[0].slice(0, HARNESS[0].lastIndexOf('/'));
 export const localImports = (text) =>
   [...String(text ?? '').matchAll(/\bfrom\s+['"]\.\/([\w.-]+\.mjs)['"]/g)].map((m) => `${HELPER_DIR}/${m[1]}`);
 
-// The count of record's own rules (project-state tooling/truth/SCOREBOARD.md, "Money journeys" and "The second reader's
-// sample"; its code is tooling/proof-v2/money.mjs), so the second, blind reader is asked for exactly the steps the count
-// needs one for. A money step: project-state's tooling/proof-v2/money.json says its journey is money, decided on the Money
-// line it records the hash of; a journey missing there, or whose Money line has changed, is money. The sample: sha256 of
-// `<step>|run:<this run's id>` below 15%, a seed nobody knows before the run starts; with no run id, every step.
+// The count of record's sample (project-state tooling/truth/SCOREBOARD.md): the second, blind reader is asked for the steps
+// the count samples, sha256 of `<step>|run:<this run's id>` below 15%, a seed nobody knows before the run starts; with no
+// run id, every step. Money steps get no second reader of their own until launch hardening (project-state OWNER 296).
 export const countKey = (step) => String(step).replace(/\s+/g, '');
-export const moneyLineHash = (line) =>
-  line == null ? null : `ml1:${createHash('sha256').update(String(line).replace(/\s+/g, ' ').trim()).digest('hex')}`;
-export function countMoney(step, words, money) {
-  const c = money?.[countKey(step).split('#')[0]];
-  if (!c || typeof c.money !== 'boolean') return true;
-  const h = moneyLineHash(words?.get(step)?.fields?.Money ?? null);
-  return h !== null && h === c.line ? c.money : true;
-}
 export function countSample(step, seed) {
   if (!seed) return true;
   const h = createHash('sha256')
@@ -70,31 +69,7 @@ export function countSample(step, seed) {
     .digest();
   return h.readUInt32BE(0) / 2 ** 32 < 0.15;
 }
-export const secondReason = (step, { words, money, seed }) =>
-  countMoney(step, words, money) ? 'money step' : countSample(step, seed) ? '15% sample' : null;
-
-/** money.json's journeys at project-state `ref`, or null (then every step counts as money: more reads, never fewer). */
-export async function readMoneyApi(token, ref) {
-  const res = await fetch(`https://api.github.com/repos/INTAFACED/project-state/contents/tooling/proof-v2/money.json?ref=${ref}`, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github.raw', 'x-github-api-version': '2022-11-28' },
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (res.status === 403 || res.status === 429)
-    throw new Error(`GitHub ${res.status} on GET project-state money.json: stopping, not retrying`);
-  try {
-    return res.status === 200 ? (JSON.parse(await res.text()).journeys ?? null) : null;
-  } catch {
-    return null;
-  }
-}
-/** money.json's journeys in a local project-state checkout, or null. */
-export function readMoneyLocal(dir) {
-  try {
-    return JSON.parse(readFileSync(join(dir, 'tooling/proof-v2/money.json'), 'utf8')).journeys ?? null;
-  } catch {
-    return null;
-  }
-}
+export const secondReason = (step, { seed }) => (countSample(step, seed) ? '15% sample' : null);
 
 const READ_ITEMS = {
   type: 'array',
@@ -105,8 +80,9 @@ const READ_ITEMS = {
       verdict: { type: 'string', enum: READ_VERDICTS },
       refusal: { type: 'boolean' },
       note: { type: 'string' },
+      picture: { type: 'string', enum: PICTURE_VERDICTS },
     },
-    required: ['step', 'verdict', 'refusal', 'note'],
+    required: ['step', 'verdict', 'refusal', 'note', 'picture'],
     additionalProperties: false,
   },
 };
@@ -114,6 +90,22 @@ const READ_ITEMS = {
 export const READ_SCHEMA = { type: 'object', properties: { reads: READ_ITEMS }, required: ['reads'], additionalProperties: false };
 
 const norm = (s) => String(s).replace(/\s+/g, ' ').replace(/ ?# ?/, ' #').trim();
+
+/**
+ * In a serial file (`mode: 'serial'`) each step runs after the ones above it, so the count of record takes every earlier
+ * step's test as part of a step's own test (project-state tooling/scoreboard/test-hash.mjs): a change to one step's test
+ * changes the own test of every step below it. Those steps are read too, or the change leaves them unread on main (12 Nov
+ * 2026: of 28 green steps short only of a read after an "own test changed", 27 sat below the step a PR changed in a
+ * serial file). `touched`: the steps whose own lines changed. Returns the steps at or below the first of them.
+ */
+export function laterInSerial(text, journey, touched) {
+  if (!touched.size || !/mode:\s*['"]serial['"]/.test(String(text ?? ''))) return [];
+  const tests = testsIn(text, journey);
+  const starts = tests.filter((t) => touched.has(t.step)).map((t) => t.start);
+  if (!starts.length) return [];
+  const first = Math.min(...starts);
+  return tests.filter((t) => t.start >= first).map((t) => t.step);
+}
 
 /**
  * The read's input for one pull request at `head`. `src` is test-judge.mjs's source (ciSource or gitSource); the words
@@ -158,6 +150,7 @@ export async function buildReads({
       added: f.whole === 'new' ? lines(now) : f.added,
     });
     for (const s of t.own) own.add(s);
+    for (const s of laterInSerial(now, j, t.own)) own.add(s);
   }
   if (own.size === 0 && claimed.size === 0) return { applicable: false, why: 'the title claims no step and no step’s own test changed' };
 
@@ -180,8 +173,8 @@ export async function buildReads({
   let reads = asked.filter((s) => headTests.has(s));
   if (reads.length === 0) return { applicable: false, why: 'no step has a test at the head', notRead };
   if (reads.length > MAX_READS) return { applicable: false, why: `${reads.length} steps, over ${MAX_READS} in one call`, notRead };
-  const { words, ref: wordsRef, money = null } = await loadWords();
-  const count = { words, money, seed: runId ? `run:${runId}` : null };
+  const { words, ref: wordsRef } = await loadWords();
+  const count = { seed: runId ? `run:${runId}` : null };
   for (const s of reads) if (!words.has(s)) notRead.push({ step: s, why: `no step words at project-state ${wordsRef}` });
   reads = reads.filter((s) => words.has(s));
   if (reads.length === 0) return { applicable: false, why: 'no step to read has words', notRead, wordsRef };
@@ -219,14 +212,20 @@ export async function buildReads({
       const block = `\nBEGIN UNTRUSTED FILE at the head (${head.slice(0, 10)}) ${jf}\n${fence(headFiles.get(jf))}\nEND UNTRUSTED FILE`;
       const b = Buffer.byteLength(block) + 1;
       if (size + b > MAX_PROMPT_BYTES - 64_000) left.push(jf);
-      else (parts.push(block), (size += b));
+      else {
+        parts.push(block);
+        size += b;
+      }
     }
     // The harness the tests call into, so a helper's check is read with the test (as the test part reads it).
     for (const [h, t] of harness) {
       const block = `\nBEGIN UNTRUSTED FILE at the head (${head.slice(0, 10)}) ${h}\n${fence(t)}\nEND UNTRUSTED FILE`;
       const b = Buffer.byteLength(block) + 1;
       if (size + b > MAX_PROMPT_BYTES - 64_000) left.push(h);
-      else (parts.push(block), (size += b));
+      else {
+        parts.push(block);
+        size += b;
+      }
     }
     if (left.length) parts.push(`\nLeft out for size: ${left.join('; ')}`);
     parts.push('\nAnswer with the structured reads only.');
@@ -276,8 +275,12 @@ export async function writeReads(dir, opts) {
   return `reading #${opts.pr} at ${opts.head}: ${got.required.length} step(s), ${got.secondRequired.length} with a second reader; ${got.read.notRead.length} not read`;
 }
 
-/** One reader call's answer (`--output-format json`) checked against the steps it was asked, or why it can't be used. */
-export function readAnswer(path, required) {
+/**
+ * One reader call's answer (`--output-format json`) checked against the steps it was asked, or why it can't be used.
+ * `pictures`: meta.json's pictures (step id without spaces -> its picture); a step with none reads NOT READ, and a BROKEN
+ * picture caps a FAITHFUL verdict at WEAK, so neither can pass whatever the reader answers.
+ */
+export function readAnswer(path, required, pictures = {}) {
   if (!existsSync(path)) return { ok: false, why: 'the reader wrote no answer' };
   let out;
   try {
@@ -289,7 +292,12 @@ export function readAnswer(path, required) {
     return { ok: false, why: `the reader ended with an error (${out?.subtype ?? 'none'})` };
   const given = out.structured_output?.reads;
   const good = (e) =>
-    e && typeof e.step === 'string' && READ_VERDICTS.includes(e.verdict) && typeof e.refusal === 'boolean' && typeof e.note === 'string';
+    e &&
+    typeof e.step === 'string' &&
+    READ_VERDICTS.includes(e.verdict) &&
+    typeof e.refusal === 'boolean' &&
+    typeof e.note === 'string' &&
+    PICTURE_VERDICTS.includes(e.picture);
   if (!Array.isArray(given) || !given.every(good)) return { ok: false, why: 'the reads are not well-formed' };
   const by = new Map();
   for (const e of given) {
@@ -301,7 +309,19 @@ export function readAnswer(path, required) {
   for (const s of required) {
     const e = by.get(norm(s));
     if (!e) return { ok: false, why: `the reader left ${s} unanswered` };
-    lines.push({ step: s, verdict: e.verdict, refusal: e.refusal, note: e.note });
+    const pic = pictures?.[countKey(s)];
+    const picture = pic ? e.picture : 'NOT READ';
+    const capped = picture === 'BROKEN' && e.verdict === 'FAITHFUL';
+    lines.push({
+      step: s,
+      verdict: capped ? 'WEAK' : e.verdict,
+      refusal: e.refusal,
+      note: e.note,
+      picture,
+      picture_file: pic?.file ?? null,
+      picture_run: pic?.run ?? null,
+      capped,
+    });
   }
   return { ok: true, lines };
 }
@@ -327,18 +347,24 @@ export function readDoc(meta, lines, { reader, run, builder, set }) {
       red_before: null,
       green_after: null,
       readers: [{ thread: `${run}/${reader}`, verdict: l.verdict, refusal: l.refusal, note: redact(l.note, set) }],
+      picture: { seen: l.picture ?? 'NOT READ', file: l.picture_file ?? null, run: l.picture_run ?? null, capped: l.capped === true },
     })),
     not_read: meta.read.notRead.map((n) => ({ step: countKey(n.step), why: n.why })),
   };
 }
 
-/** The commit status for this head: success only when every reader read every step FAITHFUL; counts only (public). */
+/**
+ * The commit status for this head: success only when every reader read every step FAITHFUL and saw its picture (SHOWN
+ * or NOT SHOWN); counts only (public).
+ */
 export function readStatus(lines) {
   const vs = lines.map((l) => l.verdict);
   const counts = READ_VERDICTS.filter((v) => vs.includes(v)).map((v) => `${vs.filter((x) => x === v).length} ${v}`);
+  const ps = lines.map((l) => l.picture ?? 'NOT READ');
+  const pics = ['BROKEN', 'NOT READ'].filter((v) => ps.includes(v)).map((v) => `${ps.filter((x) => x === v).length} picture ${v}`);
   return {
-    state: vs.every((v) => v === 'FAITHFUL') ? 'success' : 'failure',
-    description: `${counts.join(', ')} (the CI review's proof read)`,
+    state: vs.every((v) => v === 'FAITHFUL') && !pics.length ? 'success' : 'failure',
+    description: `${[...counts, ...pics].join(', ')} (the CI review's proof read)`,
   };
 }
 
@@ -346,9 +372,11 @@ export function readStatus(lines) {
 export function cmdRead(dir, env = process.env) {
   if (existsSync(join(dir, 'skip.txt'))) return { ok: true, why: `no read: ${readFileSync(join(dir, 'skip.txt'), 'utf8')}` };
   const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'));
-  const first = readAnswer(join(dir, 'answer.json'), meta.required);
+  const first = readAnswer(join(dir, 'answer.json'), meta.required, meta.pictures);
   if (!first.ok) return first;
-  const second = meta.secondRequired.length ? readAnswer(join(dir, 'second', 'answer.json'), meta.secondRequired) : { ok: true, lines: [] };
+  const second = meta.secondRequired.length
+    ? readAnswer(join(dir, 'second', 'answer.json'), meta.secondRequired, meta.pictures)
+    : { ok: true, lines: [] };
   if (!second.ok) return { ok: false, why: `the second reader: ${second.why}` };
   let builder = 'unknown';
   try {
@@ -392,8 +420,7 @@ async function main() {
         body: pull.body ?? '',
         loadWords: async () => {
           if (!words) throw new Error('no PROJECT_STATE_READ_TOKEN, so the step words are unreadable');
-          const got = await readWordsApi(words);
-          return { ...got, money: await readMoneyApi(words, got.ref) };
+          return readWordsApi(words);
         },
         runId: process.env.GITHUB_RUN_ID ?? null,
       }),
@@ -407,7 +434,7 @@ async function main() {
         head: arg('--head'),
         pr: arg('--pr') ?? 'local',
         title: arg('--title') ?? '',
-        loadWords: async () => ({ ...readWordsLocal(arg('--words')), money: readMoneyLocal(arg('--words')) }),
+        loadWords: async () => readWordsLocal(arg('--words')),
         runId: arg('--run-id') ?? null,
       }),
     );

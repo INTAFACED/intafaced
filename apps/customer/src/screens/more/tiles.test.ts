@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { findRoom, rooms, type Room } from '../../app/navigation';
 import { features, isFeatureLive, isHiddenPath } from '../../app/feature-registry';
 import { moreCopy } from './copy';
-import { allServices, SECTIONS, sectionId, TILES, visibleSections } from './tiles';
+import { allServices, SECTIONS, sectionId, TILES, visibleSections, web3TileBlockers } from './tiles';
 
 const allLive = { hidden: () => false };
 
@@ -52,13 +52,28 @@ describe('More tiles (UI-SPEC 5.11, IA-SPEC 1.4)', () => {
     });
   });
 
-  it('shows the three Web3 rooms without a "Parked" line; their pages name the blockers', () => {
-    for (const id of ['chain', 'dex', 'protocol']) {
+  it('names on each Web3 tile the blockers its room stands behind, from the blocker engine, never "Parked"', () => {
+    const line = (id: string) => {
       const tile = TILES.find((candidate) => candidate.id === id)!;
-      expect(moreCopy.t(tile.line)).not.toMatch(/parked/i);
+      expect(tile.line, id).toBeUndefined();
       expect(findRoom(tile.href)?.area).toBe('web3');
       expect(findRoom(tile.href)?.description).not.toMatch(/parked|not activated/i);
-    }
+      return moreCopy.t('Blocked by', {
+        blockers: web3TileBlockers(tile.web3!)
+          .map((key) => moreCopy.t(key))
+          .join(' · '),
+      });
+    };
+    expect(line('dex')).toBe('Blocked: nothing submits trades · not audited');
+    expect(line('chain')).toBe('Blocked: no chain service · not audited');
+    expect(line('protocol')).toBe('Blocked: not audited · no bridge service');
+    for (const id of ['dex', 'chain', 'protocol']) expect(line(id)).not.toMatch(/parked/i);
+  });
+
+  it('has short words for every blocker a Web3 room stands behind, and a line or a room for every tile', () => {
+    for (const slug of ['dex', 'chain', 'protocol'] as const)
+      for (const key of web3TileBlockers(slug)) expect(moreCopy.t(key), key).toMatch(/^[a-z][a-zA-Z ]+$/);
+    for (const tile of TILES) expect(Boolean(tile.line) !== Boolean(tile.web3), tile.id).toBe(true);
   });
 
   it('drops only a tile whose screen is hidden, and a section left empty; a blocked registry row stays', () => {
@@ -118,10 +133,12 @@ describe('More tiles (UI-SPEC 5.11, IA-SPEC 1.4)', () => {
   it('has a plain-words line for every tile and none of the banned words', () => {
     const banned = /unavailable|not connected|restricted|fixture|lifecycle|\broom\b|\bledger\b|\btier\b/i;
     for (const tile of TILES) {
-      for (const key of [tile.title, tile.line]) {
-        const text = moreCopy.t(key);
-        expect(text, key).not.toBe('');
-        expect(text, key).not.toMatch(banned);
+      const words = tile.web3
+        ? [moreCopy.t('Blocked by', { blockers: ' ' }), ...web3TileBlockers(tile.web3).map((key) => moreCopy.t(key))]
+        : [];
+      for (const text of [moreCopy.t(tile.title), ...(tile.line ? [moreCopy.t(tile.line)] : []), ...words]) {
+        expect(text.trim(), tile.id).not.toBe('');
+        expect(text, tile.id).not.toMatch(banned);
       }
     }
   });

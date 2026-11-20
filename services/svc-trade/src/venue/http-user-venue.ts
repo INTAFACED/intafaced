@@ -1,35 +1,15 @@
-import type { Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
   decodeVenueWire,
   encodeVenueWire,
-  type AsOf,
-  type MaybeKnown,
-  type VenueBuilderTotals,
-  type PlaceUserOrderIntent,
+  userVenueReads,
   type PreparedVenueAction,
   type UserVenue,
-  type UserVenueAccount,
-  type UserVenueAgent,
-  type UserVenueBalance,
   type UserVenueDepositRoute,
   type UserVenueDescriptor,
-  type UserVenueFill,
-  type UserVenueLeverage,
-  type UserVenueMarket,
-  type UserVenueOrder,
-  type UserVenuePosition,
-  type UserVenueSubAccount,
-  type UserVenueSubAccountReads,
-  type UserVenueTransfer,
-  type UserVenueWithdrawal,
-  type VenueIntent,
-  type VenueBook,
-  type VenueOrderPreview,
-  type VenueBestPrices,
+  type UserVenueReads,
   type VenueRefusal,
   type VenueSignature,
-  type VenueSigner,
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 
@@ -84,7 +64,21 @@ export function readDepositRoute(raw: unknown): UserVenueDepositRoute | null {
     r.asset.trim() === ''
   )
     return null;
-  return { chainId: r.chainId, token, tokenDecimals: r.tokenDecimals, address, asset: r.asset };
+  // The venue's published terms: each one it names but does not give in its form is not published (null), never guessed.
+  const minimum = typeof r.minimum === 'string' && /^(0|[1-9]\d*)(\.\d+)?$/.test(r.minimum) ? r.minimum : null;
+  const confirmations =
+    typeof r.confirmations === 'number' && Number.isSafeInteger(r.confirmations) && r.confirmations > 0 ? r.confirmations : null;
+  const network = typeof r.network === 'string' && r.network.trim() !== '' ? r.network : null;
+  return {
+    chainId: r.chainId,
+    token,
+    tokenDecimals: r.tokenDecimals,
+    address,
+    asset: r.asset,
+    minimum,
+    confirmations,
+    network,
+  };
 }
 
 type Failure = { readonly kind: 'not_sent' | 'timeout' | 'connection_lost' | 'error_after_send'; readonly detail: string };
@@ -110,7 +104,10 @@ export function classifyFetchFailure(err: unknown): Failure {
   return { kind: 'connection_lost', detail: `the connection was lost (${code ?? (err as Error)?.message ?? 'unknown'})` };
 }
 
-export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
+/** The client `connect` answers: the transport and `submit`, with every read from USER_VENUE_READS on it. */
+export type ConnectedHttpUserVenue = HttpUserVenue & UserVenueReads;
+
+export class HttpUserVenue implements Pick<UserVenue, 'venue' | 'submit'> {
   private constructor(
     readonly venue: UserVenueDescriptor,
     readonly chainId: number,
@@ -119,9 +116,14 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
   ) {}
 
   /** Read the venue's descriptor (`GET /venue`) and build the client. Throws `VenueRefusalError('venue_down')` when unreachable. */
-  static async connect(opts: HttpUserVenueOptions): Promise<HttpUserVenue> {
+  static async connect(opts: HttpUserVenueOptions): Promise<ConnectedHttpUserVenue> {
     const info = await HttpUserVenue.info(opts);
-    return new HttpUserVenue(info.venue, info.chainId, opts, info.depositRoute);
+    const client = new HttpUserVenue(info.venue, info.chainId, opts, info.depositRoute);
+    // Every read (venue-contracts user-venue-calls.ts): a new read is a line there, never a method here.
+    return Object.assign(
+      client,
+      userVenueReads((path, body) => client.read(path, body)),
+    );
   }
 
   static async info(opts: HttpUserVenueOptions): Promise<HttpVenueInfo> {
@@ -191,7 +193,10 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     try {
       return { ok: true, value: decodeVenueWire<T>(parsed) };
     } catch (err) {
-      return { ok: false, failure: { kind: 'error_after_send', detail: `the answer did not parse: ${(err as Error).message}` } };
+      return {
+        ok: false,
+        failure: { kind: 'error_after_send', detail: `the answer did not parse: ${err instanceof Error ? err.message : String(err)}` },
+      };
     }
   }
 
@@ -200,27 +205,6 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
     const answer = await this.post<T>(path, body);
     if (!answer.ok) throw this.down(`${this.venue.displayName}: ${path}: ${answer.failure.detail}`);
     return answer.value;
-  }
-
-  markets(account: UserVenueAccount | null): Promise<AsOf<readonly UserVenueMarket[]>> {
-    return this.read('/markets', { account });
-  }
-
-  book(symbol: string, depth: number): Promise<AsOf<VenueBook>> {
-    return this.read('/book', { symbol, depth });
-  }
-
-  preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
-    return this.read('/preview', { account, intent });
-  }
-
-  bestPrices(symbol: string): Promise<AsOf<VenueBestPrices>> {
-    return this.read('/best-prices', { symbol });
-  }
-
-  /** A lost prepare sends nothing to sign, so it is `venue_down` and safe to ask again. */
-  prepare(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): Promise<PreparedVenueAction> {
-    return this.read('/prepare', { account, signer, intent });
   }
 
   async submit(prepared: PreparedVenueAction, signature: VenueSignature): Promise<VenueSubmitOutcome> {
@@ -242,56 +226,5 @@ export class HttpUserVenue implements UserVenue, UserVenueSubAccountReads {
       case 'error_after_send':
         return { definite: false, reason: 'venue_error_after_send' };
     }
-  }
-
-  balances(account: UserVenueAccount): Promise<AsOf<readonly UserVenueBalance[]>> {
-    return this.read('/balances', { account });
-  }
-
-  openOrders(account: UserVenueAccount): Promise<AsOf<readonly UserVenueOrder[]>> {
-    return this.read('/open-orders', { account });
-  }
-
-  orderByClientId(account: UserVenueAccount, venueClientOrderId: string): Promise<AsOf<UserVenueOrder | null>> {
-    return this.read('/order-by-client-id', { account, venueClientOrderId });
-  }
-
-  fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>> {
-    return this.read('/fills', { account, since });
-  }
-
-  positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>> {
-    return this.read('/positions', { account });
-  }
-
-  withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>> {
-    return this.read('/withdrawal', { account, nonce });
-  }
-
-  builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {
-    return this.read('/builder-fee-approval', { account, builder });
-  }
-
-  /** The TEST venue's own builder-fee totals for `builder` (OWNER 288 1e). */
-  builderTotals(builder: string): Promise<AsOf<MaybeKnown<VenueBuilderTotals>>> {
-    return this.read('/builder-totals', { builder });
-  }
-
-  agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
-    return this.read('/agents', { account });
-  }
-
-  leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
-    return this.read('/leverage', { account, symbol });
-  }
-
-  // ── UserVenueSubAccountReads (J-agents-21: the agent's sub-account and the person's moves into and out of it) ──
-
-  subAccounts(account: UserVenueAccount): Promise<AsOf<readonly UserVenueSubAccount[]>> {
-    return this.read('/sub-accounts', { account });
-  }
-
-  transfer(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueTransfer | null>> {
-    return this.read('/transfer', { account, nonce });
   }
 }

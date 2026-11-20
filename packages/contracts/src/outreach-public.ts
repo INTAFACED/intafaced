@@ -1,5 +1,5 @@
 /**
- * Outreach public settings contract (SP-pages-02): the two owner-set values the public partner page reads from the
+ * Outreach public settings contract (SP-pages-02, SP-pages-03): the owner-set values the public partner page reads from the
  * outreach desk, each a value or `null`, and the founder call that sets them.
  *
  * - `joinUrl`: where the invitation site (the join and partner enquiry forms) is served. The partner page links to its
@@ -8,6 +8,8 @@
  *   withdraws the link.
  * - `partnerTerms`: programme terms as plain text, supplied by the founders and their lawyers. Blank means the page says
  *   no terms are published. This file holds no wording of its own.
+ * - `appStoreUrl` (SP-pages-03): the https address of the app's store listing. The /app page shows one store button to it
+ *   only when it is set; blank means the page says there is no store app. No store address is built in.
  *
  * Browser safe: nothing here imports Node. The values are public by design and hold no customer data.
  *
@@ -21,10 +23,11 @@ import { z } from 'zod';
 export const OUTREACH_PUBLIC_ERROR_CODES = ['ops.public_setting_invalid', 'ops.public_settings_revision_stale'] as const;
 export type OutreachPublicErrorCode = (typeof OUTREACH_PUBLIC_ERROR_CODES)[number];
 
-export const OUTREACH_PUBLIC_SETTINGS = ['joinUrl', 'partnerTerms'] as const;
+export const OUTREACH_PUBLIC_SETTINGS = ['joinUrl', 'partnerTerms', 'appStoreUrl'] as const;
 export type OutreachPublicSetting = (typeof OUTREACH_PUBLIC_SETTINGS)[number];
 
 export const OUTREACH_JOIN_URL_MAX = 300;
+export const OUTREACH_APP_STORE_URL_MAX = 300;
 export const OUTREACH_PARTNER_TERMS_MAX = 20_000;
 export const OUTREACH_PUBLIC_REASON_MAX = 500;
 
@@ -36,7 +39,8 @@ const TERMS_FORBIDDEN = /[\p{Cc}\p{Co}\p{Cn}\p{Cs}\u2028\u2029\u202A-\u202E\u206
 
 /**
  * Why a value cannot be stored, or `null` when it can. Judged after trimming. A join address is an origin only: https, or
- * http on a loopback host (a local stack), with no user, password, path, query or fragment.
+ * http on a loopback host (a local stack), with no user, password, path, query or fragment. A store address is a whole
+ * https link (a path and query are allowed, a user or password is not), because a store listing lives at a path.
  */
 export function outreachPublicProblem(setting: OutreachPublicSetting, value: string): string | null {
   const text = value.trim();
@@ -44,6 +48,17 @@ export function outreachPublicProblem(setting: OutreachPublicSetting, value: str
   if (setting === 'partnerTerms') {
     if (text.length > OUTREACH_PARTNER_TERMS_MAX) return 'too_long';
     return TERMS_FORBIDDEN.test(text.replace(/[\r\n\t]/g, '')) ? 'not_text' : null;
+  }
+  if (setting === 'appStoreUrl') {
+    if (text.length > OUTREACH_APP_STORE_URL_MAX) return 'too_long';
+    let link: URL;
+    try {
+      link = new URL(text);
+    } catch {
+      return 'not_a_link';
+    }
+    if (link.username || link.password || !link.hostname) return 'not_a_link';
+    return link.protocol === 'https:' ? null : 'not_https';
   }
   if (text.length > OUTREACH_JOIN_URL_MAX) return 'too_long';
   let url: URL;
@@ -64,6 +79,7 @@ export const outreachPublicSettingsSchema = z
   .object({
     joinUrl: value,
     partnerTerms: value,
+    appStoreUrl: value,
     revision: z.number().int().min(0),
     updatedAt: z.string().datetime().nullable(),
   })
@@ -81,13 +97,14 @@ const settable = (setting: OutreachPublicSetting) =>
     .transform((input) => (input !== null && setting === 'joinUrl' ? new URL(input).origin : input));
 
 /**
- * Set one or both values. A field left out is unchanged; `null` clears it. `expectedRevision` is the revision the founder
+ * Set one or more values. A field left out is unchanged; `null` clears it. `expectedRevision` is the revision the founder
  * read, so the other founder's change is never overwritten without being seen.
  */
 export const outreachPublicSettingsSetInputSchema = z
   .object({
     joinUrl: settable('joinUrl').optional(),
     partnerTerms: settable('partnerTerms').optional(),
+    appStoreUrl: settable('appStoreUrl').optional(),
     expectedRevision: z.number().int().min(0).max(2_147_483_646),
     reason: z.string().trim().min(1).max(OUTREACH_PUBLIC_REASON_MAX),
   })

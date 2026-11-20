@@ -82,7 +82,8 @@ export interface AuthorizedPaymentRow {
 }
 
 export interface BookedCaptureCompletion {
-  readonly ledgerTxId: string;
+  /** The ledger transaction the capture booked; null for a payment held outside our book whose fee rounds to nothing. */
+  readonly ledgerTxId: string | null;
   readonly amount: Amount;
   readonly railRef: string;
   /**
@@ -456,8 +457,7 @@ async function reconcileOne(deps: CaptureReconcileDeps, conn: Sql, candidate: Ca
   const booked = await deps.ledger.getTxByKey(key);
   if (!booked) return { kind: 'left' };
   const accounts = await expectedCaptureAccounts(deps.ledger, candidate);
-  const db = conn as unknown as Sql;
-  return inReservedTransaction(db, async (tx) => {
+  return inReservedTransaction(conn, async (tx) => {
     const peek = await tx<Array<{ merchant_id: string }>>`
       SELECT merchant_id FROM pay.payments WHERE id = ${candidate.id}
     `;

@@ -63,6 +63,14 @@ export function edgeAnswer(path) {
   return { status: 503, json: REFUSAL };
 }
 
+/** How many times the console is started again after its port was briefly held by another socket. */
+export const ADMIN_REBINDS = 4;
+
+/** Whether the console's output says its port was taken (and nothing else stopped it). */
+export function isAddressInUse(log) {
+  return /\bEADDRINUSE\b/.test(log);
+}
+
 function listen(server, port) {
   return new Promise((ok, fail) => {
     server.once('error', (error) => fail(new Error(`the look gate needs port ${port} for the founder console: ${error.message}`)));
@@ -112,29 +120,36 @@ export async function startAdmin(root, { now, port: ADMIN_PORT }) {
     // Next to this file, so CI's copy of the gate from main preloads main's clock, never the pull request's.
     NODE_OPTIONS: `--require "${fileURLToPath(new URL('./frozen-clock.cjs', import.meta.url))}"`,
   };
-  const next = spawn(
-    process.execPath,
-    [join(dir, 'node_modules/next/dist/bin/next'), 'start', '--port', String(port), '--hostname', '127.0.0.1'],
-    {
-      cwd: dir,
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    },
-  );
+  const command = [join(dir, 'node_modules/next/dist/bin/next'), 'start', '--port', String(port), '--hostname', '127.0.0.1'];
+  let next;
   let log = '';
-  next.stdout.on('data', (d) => (log = (log + d).slice(-4000)));
-  next.stderr.on('data', (d) => (log = (log + d).slice(-4000)));
+  const launch = () => {
+    log = '';
+    next = spawn(process.execPath, command, { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    next.stdout.on('data', (d) => (log = (log + d).slice(-4000)));
+    next.stderr.on('data', (d) => (log = (log + d).slice(-4000)));
+  };
+  launch();
   const stop = () => {
     next.kill('SIGTERM');
     edge.close();
   };
   // A gate run that throws never reaches stop(): the console must not outlive it and hold the port.
   process.once('exit', () => next.kill('SIGTERM'));
+  // 47310 sits in Linux's ephemeral range, so a loopback connection made between the probe above and the console's own
+  // bind can hold it for a moment (EADDRINUSE, issue #7584). Only that refusal starts the console again, a few times.
+  let rebinds = 0;
   for (let i = 0; ; i++) {
     const up = await fetch(`${origin}/login`)
       .then((r) => r.status < 500)
       .catch(() => false);
     if (up) break;
+    if (next.exitCode !== null && rebinds < ADMIN_REBINDS && isAddressInUse(log)) {
+      rebinds++;
+      await new Promise((ok) => setTimeout(ok, 1000));
+      launch();
+      continue;
+    }
     if (i > 120 || next.exitCode !== null) {
       stop();
       throw new Error(`the founder console did not start on ${origin}:\n${log}`);

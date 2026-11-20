@@ -53,6 +53,43 @@ export const tradeVenueSpotFillSchema = z
   .strict();
 export type TradeVenueSpotFill = z.infer<typeof tradeVenueSpotFillSchema>;
 
+/**
+ * One move of the person's own coins between their main venue account and one of their own sub-accounts (J-portfolio-04
+ * #2), signed by their wallet on the main account, as the venue recorded it. Not a sale and not an arrival from outside:
+ * the lots go with the coins.
+ */
+export const tradeVenueOwnMoveSchema = z
+  .object({
+    /** The venue's id for the move (the signed action's nonce). */
+    moveId: z.string().min(1),
+    /** The sub-account's venue id. */
+    subAccount: z.string().min(1),
+    direction: z.enum(['into_sub_account', 'out_of_sub_account']),
+    asset: z.string().min(1),
+    amount: decimal,
+    /** The venue's own time for the move. */
+    settledAt: z.string().datetime(),
+  })
+  .strict();
+export type TradeVenueOwnMove = z.infer<typeof tradeVenueOwnMoveSchema>;
+
+/**
+ * One credit of coins into the account from outside it (a deposit, or a transfer in from another address), as the venue
+ * recorded it (J-portfolio-02 #6). The venue knows no cost for it: the lot it opens has none until the person enters one.
+ */
+export const tradeVenueArrivalSchema = z
+  .object({
+    /** The venue's own id for the credit. */
+    arrivalId: z.string().min(1),
+    kind: z.enum(['deposit', 'transfer_in']),
+    asset: z.string().min(1),
+    amount: decimal,
+    /** The venue's own time for the credit. */
+    arrivedAt: z.string().datetime(),
+  })
+  .strict();
+export type TradeVenueArrival = z.infer<typeof tradeVenueArrivalSchema>;
+
 export const tradeVenueAccountActivitySchema = z
   .object({
     venueId: z.string().min(1),
@@ -63,7 +100,17 @@ export const tradeVenueAccountActivitySchema = z
     balances: z.array(z.object({ asset: z.string().min(1), total: decimal }).strict()),
     /** Every spot fill of the account, oldest first. Perpetual fills are not coins held, so they are not listed. */
     fills: z.array(tradeVenueSpotFillSchema),
-    /** The venue's own time for the read (the later of the balances' and the fills'). */
+    /**
+     * On a main account: the moves between it and its sub-accounts that the person's wallet signed through the door and
+     * the venue settled, oldest first. Absent on a sub-account (a move is signed and recorded on the main account).
+     */
+    transfers: z.array(tradeVenueOwnMoveSchema).optional(),
+    /**
+     * Every credit from outside the account, oldest first (J-portfolio-02 #6). Absent when the venue's adapter does not
+     * read them: a coin that arrived that way then does not reconcile in the lot book, named, never guessed.
+     */
+    arrivals: z.array(tradeVenueArrivalSchema).optional(),
+    /** The venue's own time for the read (the latest of its balances, fills and arrivals). */
     asOf: z.string().datetime(),
   })
   .strict();

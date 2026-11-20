@@ -18,6 +18,12 @@ public final class MatchingSubmitPort {
     public static final String BASE_URL_ENV = "MATCHING_BASE_URL";
     public static final String COMPID_ACCOUNT_JSON_ENV = "FIX_COMPID_ACCOUNT_JSON";
     public static final String SERVICE_SECRET_ENV = ServiceAuth.SECRET_ENV;
+    /**
+     * The operator's off switch for FIX order entry, mirroring the {@code fix.gateway} flag in
+     * packages/config/src/flags.ts. Read once at boot; unset is on. {@code 0}, {@code false}, {@code off} or
+     * {@code no} turns new orders away before matching sees them, while matching keeps serving every other door.
+     */
+    public static final String GATEWAY_ENABLED_ENV = "FIX_GATEWAY_ENABLED";
     public static final String AUDIENCE = "svc-matching";
     static final String CONTENT_TYPE_JSON = "application/json";
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
@@ -33,6 +39,7 @@ public final class MatchingSubmitPort {
     private final String internalServiceSecret;
     private final ServiceKeys.Outbound outbound;
     private final Transport transport;
+    private final boolean gatewayEnabled;
 
     public MatchingSubmitPort(String matchingBaseUrl, String compIdAccountJson, Transport transport) {
         this(matchingBaseUrl, compIdAccountJson, null, transport);
@@ -54,6 +61,18 @@ public final class MatchingSubmitPort {
             String internalServiceSecret,
             ServiceKeys.Outbound outbound,
             Transport transport) {
+        this(matchingBaseUrl, compIdAccountJson, internalServiceSecret, outbound, transport, true);
+    }
+
+    /** @param gatewayEnabled false refuses every new order with {@code fix_gateway_off} before any POST. */
+    public MatchingSubmitPort(
+            String matchingBaseUrl,
+            String compIdAccountJson,
+            String internalServiceSecret,
+            ServiceKeys.Outbound outbound,
+            Transport transport,
+            boolean gatewayEnabled) {
+        this.gatewayEnabled = gatewayEnabled;
         this.matchingBaseUrl = matchingBaseUrl;
         this.compIdAccountJson = compIdAccountJson;
         this.internalServiceSecret = internalServiceSecret;
@@ -71,10 +90,24 @@ public final class MatchingSubmitPort {
                 env.get(COMPID_ACCOUNT_JSON_ENV),
                 env.get(SERVICE_SECRET_ENV),
                 ServiceKeys.outboundFromEnv(env, ServiceAuth.SERVICE_NAME),
-                jdkTransport());
+                jdkTransport(),
+                gatewayEnabled(env.get(GATEWAY_ENABLED_ENV)));
+    }
+
+    /** Unset or blank is on; {@code 0}, {@code false}, {@code off}, {@code no} (any case) is off; anything else is on. */
+    static boolean gatewayEnabled(String raw) {
+        if (raw == null) return true;
+        String v = raw.trim().toLowerCase(java.util.Locale.ROOT);
+        return !(v.equals("0") || v.equals("false") || v.equals("off") || v.equals("no"));
     }
 
     public MatchingSubmitResult submit(MatchingOrderCommand command) {
+        if (!gatewayEnabled) {
+            return MatchingSubmitResult.refuse(
+                    "fix_gateway_off",
+                    "FIX order entry is switched off (FIX_GATEWAY_ENABLED); no order was sent to matching",
+                    false);
+        }
         if (command.tif == null || command.tif.isBlank()) {
             return MatchingSubmitResult.refuse("tif_missing", "TimeInForce is missing; svc-fix does not invent GTC", false);
         }

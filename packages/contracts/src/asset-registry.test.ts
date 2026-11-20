@@ -62,6 +62,43 @@ describe('parseAssetEdit', () => {
     });
   });
 
+  it('takes a network contract and https links where known, and refuses a link that is not https', () => {
+    const known = {
+      ...edit,
+      networks: [
+        {
+          networkId: 'test-net-a',
+          label: 'TEST network A',
+          contract: '0x7e57',
+          links: [{ label: 'TEST explorer', url: 'https://example.com/x' }],
+        },
+        edit.networks[1],
+      ],
+    };
+    expect(parseAssetEdit(known).ok).toBe(true);
+    for (const url of ['http://example.com/x', 'javascript:alert(1)', 'https://', 'https:// example.com']) {
+      const bad = { ...known, networks: [{ ...known.networks[0], links: [{ label: 'TEST', url }] }, edit.networks[1]] };
+      expect(parseAssetEdit(bad), url).toMatchObject({ ok: false, code: ASSET_EDIT_INVALID });
+    }
+    expect(parseAssetEdit({ ...known, networks: [{ ...known.networks[0], contract: ' ' }, edit.networks[1]] })).toMatchObject({
+      ok: false,
+      code: ASSET_EDIT_INVALID,
+    });
+  });
+
+  it('hashes an edit without contract or links as before, and a contract changes the hash', () => {
+    const parsed = (input: unknown) => {
+      const r = parseAssetEdit(input);
+      if (!r.ok) throw new Error(r.message);
+      return r.value;
+    };
+    const plain = parsed(edit);
+    const withContract = parsed({ ...edit, networks: [{ ...edit.networks[0], contract: '0x7e57' }, edit.networks[1]] });
+    expect(assetEditPayloadHash(withContract)).not.toBe(assetEditPayloadHash(plain));
+    const withNothing = { ...plain, networks: plain.networks.map((n) => ({ ...n, contract: undefined, links: undefined })) };
+    expect(assetEditPayloadHash(withNothing)).toBe(assetEditPayloadHash(plain));
+  });
+
   it('refuses duplicate networks, duplicate actions, a blank reason and unknown fields', () => {
     const dupNet = { ...edit, networks: [edit.networks[0], edit.networks[0]] };
     expect(parseAssetEdit(dupNet)).toMatchObject({ ok: false, code: ASSET_EDIT_INVALID });

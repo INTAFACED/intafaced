@@ -29,7 +29,7 @@ function caller(overrides: Partial<ProtocolRouterDeps>) {
     ammFactoryAddress: () => FACTORY,
     tokensQuoteToken: () => '0x00000000000000000000000000000000000b0b00',
     ...overrides,
-  } as unknown as ProtocolRouterDeps;
+  } as ProtocolRouterDeps;
   return { reads, tokens: createProtocolRouter(deps).createCaller(anonymous()).tokens };
 }
 type Tokens = ReturnType<typeof caller>['tokens'];
@@ -80,7 +80,7 @@ describe('protocol.tokens.page for an address in no pool', () => {
       transferLogs: async (token: Address) => (holderReads.push(`transfers:${token}`), []),
       totalSupply: async (token: Address) => (holderReads.push(`supply:${token}`), 0n),
       balanceOf: async (token: Address) => (holderReads.push(`balance:${token}`), 0n),
-    } as unknown as TokenLogsChain;
+    } as TokenLogsChain;
     const tokens = createTokensRouter({
       chain,
       factory: () => FACTORY as Address,

@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { cashOutCopy } from './cash-out-copy';
 import { date, funds, useBankRead } from './components';
 import { cashOutReceiptSchema, cashOutRequestSchema, type CashOutQuote, type CashOutReceipt, type CashOutRequest } from './contracts';

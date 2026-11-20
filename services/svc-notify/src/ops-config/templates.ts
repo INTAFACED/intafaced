@@ -241,7 +241,7 @@ export class MessageTemplates {
         ? (await this.store.latest()).find((r) => r.key === input.key)
         : await this.store.version(input.key, input.version);
     if (!row) throw new OpsConfigError('notify.template_unset');
-    return { sample: true as const, ...renderTemplateRow(row, { ...sampleValues(input.key), ...(input.values ?? {}) }) };
+    return { sample: true as const, ...renderTemplateRow(row, { ...sampleValues(input.key), ...input.values }) };
   }
 
   async set(

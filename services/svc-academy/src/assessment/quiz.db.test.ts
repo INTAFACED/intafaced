@@ -249,7 +249,11 @@ describe('staff-published timed quizzes (AC-quizzes-03)', () => {
   it('a staff quiz sets the item rule to score: Complete refuses until an attempt passes', async () => {
     const academy = service();
     await publish(academy, { ...TIMED, timeLimitSeconds: null });
-    expect((await academy.courseOutline({ userId: USER, itemSlug: SLUG })).items[1]).toMatchObject({ rule: 'score', ruleMet: false });
+    expect((await academy.courseOutline({ userId: USER, itemSlug: SLUG })).items[1]).toMatchObject({
+      type: 'quiz',
+      rule: 'score',
+      ruleMet: false,
+    });
     await expect(academy.markCurriculumComplete({ userId: USER, itemSlug: SLUG })).rejects.toMatchObject({
       code: 'academy.completion_rule_unmet',
     });

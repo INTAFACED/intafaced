@@ -35,7 +35,7 @@ import { barSpanMs, coverageOf, type Bar, type BarSize } from './bars.js';
 import { logOf } from './log.js';
 import { metricsOf } from './metrics.js';
 import type { FeePort, HistoryPort } from './ports.js';
-import { simulateSignalRules, type MarginAccount } from './simulate.js';
+import { simulateSignalRules, type EquityStop, type MarginAccount } from './simulate.js';
 import { sectionsOf, verdictOf } from './verdict.js';
 import { checksOf, returnOf } from './checks.js';
 import { z } from 'zod';
@@ -95,6 +95,8 @@ export interface StrategyAtVersion {
   readonly modules: QuantSignalRules | null;
   /** The version's risk block. A bar backtest does not apply it, and a result says so when any limit is set. */
   readonly risk: { readonly maxDrawdown: string; readonly maxNotional: string; readonly kill: string };
+  /** The strategy's risk screen floor (AL-risk-01), the same for every version; null when it is blank. */
+  readonly equityStop?: EquityStop | null;
 }
 
 /** Everything that decides a result, checked, with the derived run key (ENGINE BT-1). */
@@ -121,6 +123,7 @@ export interface PreparedBacktest {
   /** A holdout refusal waits until no stored run answers the key: a stored run reads back after the owner moves the holdout. */
   readonly holdout: { readonly enforced: boolean; readonly fromMs: number | null; readonly refusal: QuantError | null };
   readonly ignoredInputs: readonly string[];
+  readonly equityStop: EquityStop | null;
 }
 
 function instantOf(name: string, raw: string): number {
@@ -273,6 +276,7 @@ export async function prepareBacktest(
     account,
     holdout,
     ignoredInputs: SERVICE_ONLY_INPUTS.filter((name) => input[name] !== undefined),
+    equityStop: strategy.equityStop ?? null,
   };
   // The split and the holdout choice are part of the window.
   const windowHash = split || holdout.enforced ? hash([fromMs, toMs, split, holdout.enforced]) : hash([fromMs, toMs]);
@@ -280,7 +284,9 @@ export async function prepareBacktest(
   // changes them read back the stored run, judged as it was, and stay one variant.
   // A margin account changes the trades, so its leverage and the owner's levels are part of the key; a cash run's is as before.
   const margin = account ? [account.rules] : [];
-  const paramsHash = hash([ENGINE_VERSION, rules, prepared.fillTiming, formatAmount(prepared.cash), prepared.riskSet, ...margin]);
+  // The floor changes the trades, so it is part of the key; a run with none keeps the key it had before the floor existed.
+  const floor = prepared.equityStop ? [{ floor: formatAmount(prepared.equityStop.floor), policy: prepared.equityStop.policy }] : [];
+  const paramsHash = hash([ENGINE_VERSION, rules, prepared.fillTiming, formatAmount(prepared.cash), prepared.riskSet, ...margin, ...floor]);
   const costsHash = hash([fee.version, feeRole, prepared.feeBps, formatAmount(prepared.slippageBps), prepared.delayBars]);
   return { ...prepared, key: `${BAR_BACKTEST_KEY_PREFIX}${strategy.id}:v${strategy.version}:${windowHash}:${paramsHash}:${costsHash}` };
 }
@@ -352,6 +358,7 @@ const storedBacktestSchema = quantBacktestResultSchema
     offsetRun: quantBacktestResultSchema.shape.offsetRun.optional(),
     account: quantBacktestResultSchema.shape.account.default(null),
     marginEvents: quantBacktestResultSchema.shape.marginEvents.default([]),
+    riskEvents: quantBacktestResultSchema.shape.riskEvents.default([]),
     checkThresholds: quantCheckThresholdsSchema.default(NO_JUDGEMENT.checks),
   });
 export type StoredBacktest = z.infer<typeof storedBacktestSchema>;
@@ -391,6 +398,7 @@ export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[], vari
       slippageBps: prepared.slippageBps,
       delayBars: prepared.delayBars,
       account: prepared.account,
+      equityStop: prepared.equityStop,
     });
   const ran = simulate(bars);
   // The sensitivity run: the same rules and costs from the window's second traded bar, by position, so a window that
@@ -436,6 +444,7 @@ export function runOnBars(prepared: PreparedBacktest, bars: readonly Bar[], vari
     checkThresholds: prepared.checks,
     account: prepared.account?.rules ?? null,
     marginEvents: [...ran.marginEvents],
+    riskEvents: [...ran.riskEvents],
     simulated: true,
     live: false,
     claimLabel: 'Historical simulation — not a forecast',
