@@ -9,8 +9,8 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 const address = vi.fn();
 const readFundingNotices = vi.hoisted(() => vi.fn());
-vi.mock('../session/session', async (original) => ({
-  ...(await original<typeof import('../session/session')>()),
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
   useSession: () => ({ userId: 'u1', api: {} }),
 }));
 // The funding notice banner reads on its own; FundingNotices.render.test.tsx covers it.

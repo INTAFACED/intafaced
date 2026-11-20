@@ -1,6 +1,6 @@
 import { Failure, Loading } from '../../shared/ui';
 import { CopyButton } from '../../screens/account/CopyButton';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { AccountDetailsList } from './AccountDetails';
 import { IncomeSorter } from './IncomeSorter';
 import { amount, date, NoRows, ResourceView, Section, useBankRead, useSpaces, type ActionSpec } from './components';

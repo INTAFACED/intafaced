@@ -2,7 +2,7 @@ import { copy, Text } from './copy';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { usePreferences } from '../../shared/preferences';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { MutationDialog, type ActionSpec, type BankActionContext } from './components';
 import { BankRoutes } from './rooms';
 import { RepeatBuy } from './repeat-buy';

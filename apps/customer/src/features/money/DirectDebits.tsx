@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Button, Dialog, EmptyState, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { amount, date, useBankRead } from './components';
 import { directDebitWrites, type DirectDebitCollection, type DirectDebitMandate, type DirectDebitsView } from './contracts';
 import { DepthPanel, DisabledActions } from './DepthParts';

@@ -519,3 +519,36 @@ export const founderLimitRequestListSchema = z
   })
   .strict();
 export type FounderLimitRequestList = z.infer<typeof founderLimitRequestListSchema>;
+
+/**
+ * M-money-out-01, `merchantControl.reserve`: the reserve rule and what is recorded against it. The rolling reserve is
+ * recorded on each settlement but no ledger recipe books it, so nothing is withheld (`recorded_not_withheld`).
+ * `payoutsRefused`: a merchant with an effective reserve rule has fresh payouts refused until the recipe exists.
+ */
+export const RESERVE_HOLDING = 'recorded_not_withheld' as const;
+
+export const merchantReserveViewSchema = z
+  .object({
+    merchantId: z.string().guid(),
+    rule: z
+      .object({ rollingReserveBps: z.number().int().min(0), holdDays: z.number().int().min(0) })
+      .strict()
+      .nullable(),
+    holding: z.literal(RESERVE_HOLDING),
+    payoutsRefused: z.boolean(),
+    assets: z.array(
+      z
+        .object({
+          assetCode: payAssetCodeSchema,
+          /** Sum of recorded reserve still inside its hold window. Decimal string. Not held on the ledger. */
+          recordedAmount: payAmountStringSchema,
+          entries: z.number().int().nonnegative(),
+          nextReleaseAt: payTimestampSchema.nullable(),
+          lastReleaseAt: payTimestampSchema.nullable(),
+        })
+        .strict(),
+    ),
+    readAt: payTimestampSchema,
+  })
+  .strict();
+export type MerchantReserveView = z.infer<typeof merchantReserveViewSchema>;

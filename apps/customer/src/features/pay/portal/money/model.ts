@@ -1,6 +1,6 @@
 import { formatAmount, parseAmount } from '../../../../shared/money';
 import { dec, roundScaled, toFixedString } from '../../../../data/decimal';
-import type { StatementLine, StatementPage } from './schemas';
+import type { PayStatementLine as StatementLine, PayStatementPage as StatementPage } from '@intafaced/contracts/pay-portal-reads';
 import type {
   Approval,
   AssetAmount,

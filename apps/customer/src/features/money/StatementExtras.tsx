@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../shared/ui';
 import { ServiceOffNotice, NOT_CONNECTED_CODES, type NotConnectedCode } from '../../shared/service-off';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { letterRequestSchema, taxStatementsSchema, type LineTotal } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { statementExtrasCopy } from './statement-extras-copy';

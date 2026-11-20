@@ -81,6 +81,11 @@ impl Pool {
         }
     }
 
+    /// The URL it connects to, for a worker that opens its own connection.
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state
             .lock()

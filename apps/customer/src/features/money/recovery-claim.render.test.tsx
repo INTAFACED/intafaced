@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { recoveryClaimMessage } from '@intafaced/contracts/identity-recovery';
-import { makeRecoveryKey, readRecoveryKey, signWithRecoveryKey } from '../account/recovery-keys';
+import { makeRecoveryKey, readRecoveryKey, signWithRecoveryKey } from '../account';
 import { refusalCodes } from './RecoveryClaim';
 
 // TEST data only. The heir's claim room (RC-identity-08, J-identity-05 #7): what `bank.recovery.estates` answers decides
@@ -28,7 +28,10 @@ const api = {
     return Promise.resolve(world.mutate.shift());
   },
 };
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: HEIR, api }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ userId: HEIR, api }),
+}));
 
 import { RecoveryClaim } from './RecoveryClaim';
 

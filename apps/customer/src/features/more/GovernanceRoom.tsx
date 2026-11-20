@@ -9,7 +9,7 @@ import { usePreferences } from '../../shared/preferences';
 import { Button, DataTable, EmptyState, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea } from './common';
 import { governanceRoomCopy } from './governance-room-copy';
-import { VOTING_TYPES } from './TokenVoting';
+import { TOKEN_VOTING_TYPES } from '@intafaced/contracts/token-governance';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type T = ReturnType<typeof governanceRoomCopy.forLocale>['t'];
@@ -439,7 +439,7 @@ function ProposalForm({
         <label className="field">
           <span>{t('votingType')}</span>
           <select value={votingType} onChange={(e) => setVotingType(e.target.value)}>
-            {VOTING_TYPES.map((type) => (
+            {TOKEN_VOTING_TYPES.map((type) => (
               <option key={type} value={type}>
                 {t(type)}
               </option>
