@@ -465,6 +465,38 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'The grid could not start',
     body: 'Its levels could not all be placed, so every placed order was cancelled and the reserve was released.',
   },
+  'trade.bots_grid_wallet_required': {
+    title: 'Connect your wallet',
+    body: 'The bot trades on your own venue account, so connect the wallet that holds it. Nothing was created.',
+  },
+  'trade.bots_grid_builder_fee_unapproved': {
+    title: 'Approve our builder fee first',
+    body: 'Every sell the grid places carries our builder fee, so your wallet approves it once on your venue account. Nothing was created.',
+  },
+  'trade.bots_grid_wallet_rejected': {
+    title: 'You rejected the signature',
+    body: 'Your wallet did not sign the agent permission, so the bot placed nothing. Create it again to sign.',
+  },
+  'trade.bots_grid_wallet_failed': {
+    title: 'Your wallet did not answer',
+    body: 'Nothing was signed, so the bot placed nothing. Check your wallet and try again.',
+  },
+  'trade.bots_grid_not_signing': {
+    title: 'The agent permission is no longer asked for',
+    body: 'Refresh to see the bot as it is now. Nothing more was sent.',
+  },
+  'trade.bots_grid_venue_unreadable': {
+    title: 'The venue could not be read',
+    body: 'Your balance on the venue could not be read just now, so nothing was created. Try again in a moment.',
+  },
+  'trade.bots_grid_agent_key_unset': {
+    title: 'Grids on the venue are not set up',
+    body: 'The platform has not set up the key a grid signs with, so no grid runs on the venue. Nothing was created.',
+  },
+  'trade.bots_grid_withdraw_not_permitted': {
+    title: 'A bot can’t withdraw',
+    body: 'Its agent permission can’t withdraw. You withdraw from the venue with your own wallet. Nothing was moved.',
+  },
   'trade.grid_tick_failed': {
     title: 'The grid could not check its orders',
     body: 'It tries again on its next check. Your reserve and orders stay as they are.',
