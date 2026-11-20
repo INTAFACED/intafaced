@@ -6,3 +6,5 @@
 @import '@fontsource-variable/geist/index.css';
 @import '@fontsource-variable/geist-mono/index.css';
 @import '@fontsource-variable/bricolage-grotesque/index.css';
+/* The Volt direction's wide grotesk (its width axis, 62% to 125%), for its figures and type. */
+@import '@fontsource-variable/archivo/wdth.css';

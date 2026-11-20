@@ -1,5 +1,6 @@
 import './money.css';
 import './ember.css';
+import './volt.css';
 import type { ScreenProps } from '../../app/screen-types';
 import BalanceEntries from './BalanceEntries';
 import Activity from './Activity';

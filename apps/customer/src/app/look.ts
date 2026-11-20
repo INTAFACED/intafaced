@@ -70,11 +70,12 @@ export function resolveAccent(search: string): LookAccent | null {
 /**
  * The look directions the owner chooses between (intafaced issue 9227): `?direction=<id>` draws that direction's own
  * material, type and layout over the look (`data-direction` on the root), `?direction=off` forgets it. Remembered like
- * the accent and off by default, so nobody sees a direction without asking for it.
+ * the accent and off by default; it sets `data-direction` only while the look is on, so nobody sees a direction
+ * without asking for it. Everything a direction changes is scoped to `[data-direction='<id>']`.
  */
 const DIRECTION_KEY = 'intafaced.look.direction';
 /** Held equal to `directions` in `@intafaced/ui/lit` by look.test.ts. */
-export const LOOK_DIRECTIONS = ['ember'] as const;
+export const LOOK_DIRECTIONS = ['ember', 'volt'] as const;
 export type LookDirection = (typeof LOOK_DIRECTIONS)[number];
 
 const isDirection = (v: string | null | undefined): v is LookDirection => v != null && (LOOK_DIRECTIONS as readonly string[]).includes(v);
@@ -109,7 +110,7 @@ export function applyLook(root: HTMLElement = document.documentElement, search: 
   if (accent) root.dataset.accent = accent;
   else delete root.dataset.accent;
   const direction = resolveDirection(search);
-  if (direction) root.dataset.direction = direction;
+  if (look && direction) root.dataset.direction = direction;
   else delete root.dataset.direction;
   return look;
 }

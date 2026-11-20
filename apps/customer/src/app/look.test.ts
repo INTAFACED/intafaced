@@ -67,6 +67,18 @@ describe('the Lit glass switch', () => {
     expect(resolveDirection('?direction=neon')).toBeNull();
   });
 
+  it('keeps a direction asked without the look until the look is on', () => {
+    const root = document.createElement('html');
+    applyLook(root, '?direction=volt');
+    expect(root.dataset.direction).toBeUndefined();
+    expect(lookDirection(root)).toBeNull();
+    applyLook(root, '?look=lit');
+    expect(root.dataset.direction).toBe('volt');
+    expect(lookDirection(root)).toBe('volt');
+    applyLook(root, '?direction=off');
+    expect(root.dataset.direction).toBeUndefined();
+  });
+
   it('knows the same directions as the kit', () => {
     expect([...LOOK_DIRECTIONS]).toEqual([...directions]);
   });

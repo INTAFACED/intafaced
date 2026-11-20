@@ -12,3 +12,4 @@ import '@intafaced/ui/lit/components.css';
 import '@intafaced/ui/a11y/a11y.css';
 import '@intafaced/ui/lit/templates.css';
 import './look-ember.css';
+import './volt.css';

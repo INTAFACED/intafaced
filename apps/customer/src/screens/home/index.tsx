@@ -47,6 +47,7 @@ import type { NeedsYouShown } from './work-list';
 import { CustomiseHome } from './CustomiseHome';
 import { LitSphere } from './LitSphere';
 import { EmberMoney } from './EmberMoney';
+import { VoltStack } from './VoltStack';
 import { lookDirection } from '../../app/look';
 import { HomeNotices } from './Notices';
 import { HomeInbox } from './HomeInbox';
@@ -317,7 +318,10 @@ function HomeSimple() {
   const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
   // The Ember direction (look preview only, intafaced issue 9227): the balance and the money object come first, the
   // inbox after the actions, and the cards stand in for the holdings rows and the sphere.
-  const ember = lookDirection() === 'ember';
+  const direction = lookDirection();
+  const ember = direction === 'ember';
+  // The Volt direction draws its card stack where the lit sphere and the holdings rows stand.
+  const volt = direction === 'volt';
 
   return (
     <div data-testid="if-home" className="if-home">
@@ -356,7 +360,9 @@ function HomeSimple() {
                 return <WorkList key={id} hidden={hideBalances} onShown={setNeedsYou} />;
               case 'holdings':
                 // On the launch model the holdings are the parts of the total above, each read from its own source.
-                return launch || ember ? null : portfolio.status === 'loading' ? (
+                return launch || ember ? null : volt ? (
+                  <VoltStack key={id} portfolio={portfolio} hidden={hideBalances} />
+                ) : portfolio.status === 'loading' ? (
                   // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't
                   // arrive late and push the rows below it down
                   <Fragment key={id}>

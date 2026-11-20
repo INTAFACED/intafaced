@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '../../apps/customer/tests/real-app/journey.mjs';
 import { deskPath, fundedTrader, signIn } from '../../apps/customer/tests/real-app/desk.mjs';
+import { fund } from '../../apps/customer/tests/real-app/stack.mjs';
 
 const out = process.env.LOOK_OPTIONS_OUT;
 
@@ -20,16 +21,19 @@ const out = process.env.LOOK_OPTIONS_OUT;
 export const DIRECTIONS = [
   { id: 'today', query: 'look=off&accent=off', solid: false, schemes: ['dark'] },
   { id: 'lit-glass', query: 'look=lit&accent=blue', solid: false },
+  { id: 'emerald-solid', query: 'look=lit&accent=emerald', solid: true },
   // the real directions (intafaced #9227): each its own Home, money object, tab bar and material, and the Buy flow
   { id: 'ember', query: 'look=lit&accent=off&direction=ember', solid: false, screens: ['home', 'money', 'buy'] },
-  { id: 'emerald-solid', query: 'look=lit&accent=emerald', solid: true },
+  { id: 'volt', query: 'look=lit&accent=off&direction=volt', solid: false, screens: ['home', 'money', 'buy'] },
 ];
 export const SCREENS = [
   { id: 'home', path: '/home' },
   { id: 'desk', path: deskPath('BTC/USDT') },
   { id: 'money', path: '/money' },
-  { id: 'buy', path: '/trade/buy' },
+  // The simple buy, as Home's Buy opens it, with an amount typed so its quote and its action are live.
+  { id: 'buy', path: '/trade/buy', amount: '100' },
 ];
+const DEFAULT_SCREENS = ['home', 'desk', 'money'];
 export const SIZES = [
   { id: 'phone', width: 390, height: 844 },
   { id: 'computer', width: 1440, height: 900 },
@@ -45,6 +49,8 @@ test('look options', async ({ page }) => {
   expect(out, 'LOOK_OPTIONS_OUT names the folder').toBeTruthy();
   fs.mkdirSync(out, { recursive: true });
   const who = await fundedTrader(page, 'look', '2500');
+  // Some TEST BTC too, through the same real ledger, so the screens show cash and crypto, as a customer's would.
+  expect(fund(who.email, 'BTC', '0.015').tx).toBeTruthy();
   await signIn(page, who);
   const shots = [];
   for (const d of only('LOOK_OPTIONS_DIRECTIONS', DIRECTIONS)) {
@@ -57,10 +63,16 @@ test('look options', async ({ page }) => {
       }, d.solid);
       for (const size of only('LOOK_OPTIONS_SIZES', SIZES)) {
         await page.setViewportSize({ width: size.width, height: size.height });
-        for (const s of only('LOOK_OPTIONS_SCREENS', SCREENS).filter((x) => (d.screens ?? ['home', 'desk', 'money']).includes(x.id))) {
+        for (const s of only('LOOK_OPTIONS_SCREENS', SCREENS).filter((x) => (d.screens ?? DEFAULT_SCREENS).includes(x.id))) {
           const res = await page.goto(s.path);
           expect(res?.status() ?? 0, `${s.path} answered`).toBeLessThan(400);
           await page.waitForLoadState('networkidle').catch(() => {});
+          if (s.amount) {
+            const amount = page.getByRole('textbox', { name: /^Amount in/ }).first();
+            await amount.fill(s.amount);
+            await amount.blur();
+            await page.waitForLoadState('networkidle').catch(() => {});
+          }
           await page.evaluate(() => document.fonts.ready);
           const root = await page.evaluate(() => ({ ...document.documentElement.dataset }));
           // one direction asked for: its own folder, so the names drop the direction (`<screen>--<size>--<scheme>.png`)
