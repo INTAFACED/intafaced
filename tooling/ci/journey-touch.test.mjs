@@ -28,8 +28,11 @@ import {
   namedJourneyIds,
   pathKind,
   stackImporters,
+  CRATE,
+  PR_MAX_FILES,
+  pullPick,
 } from './journey-touch.mjs';
-import { JOURNEYS_WORKFLOW, JOURNEY_TEST, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
+import { JOURNEYS_WORKFLOW, JOURNEY_TEST, fullVerdict, isSharedSetup, judgeTouchedRun, sealPull } from './journey-seal.mjs';
 import { reachSelect } from './journey-reach-map.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -476,20 +479,24 @@ const seal = ({
   });
 const fullRun = { states: {}, ran: FULL };
 const partial = { states: {}, ran: ['J-bank-13.pw.mjs'] };
+// What a change no recorded run narrows runs when the head's journey files and the map can't be read (this io reads
+// neither): the CANARY (pullPick), never the full suite.
+const canaryRun = { states: {}, ran: CANARY };
 
-test('planted 1: a shared-setup pull request with only a partial run fails the seal; with a clean full run it passes', async () => {
+test('planted 1: a shared-setup pull request whose run misses its bounded set fails the seal; with the set run clean it passes, and no full run is asked for', async () => {
   const files = ['tooling/scripts/local-test-market.mjs'];
   const bad = await seal({ files, runs: [run(1)], reports: { 1: partial } });
   assert.equal(bad.ok, false);
   assert.equal(bad.fullOk, false);
-  assert.match(bad.lines.join('\n'), /is not a full run/);
-  const good = await seal({ files, runs: [run(1)], reports: { 1: fullRun } });
+  assert.match(bad.lines.join('\n'), /no finished Real-app journeys run on this exact head ran J-cex-spot-01\.pw\.mjs/);
+  const good = await seal({ files, runs: [run(1)], reports: { 1: canaryRun } });
   assert.equal(good.ok, true, good.lines.join('\n'));
+  assert.doesNotMatch(good.lines.join('\n'), /full run: /);
 });
 
 test('planted 2: a product pull request whose run misses a journey it touches fails the seal; with every one run it passes', async () => {
   // Product code: no map says which journeys reach it, and the head's journey files can't be read (this io has no
-  // journeyFiles), so even a title that names a journey can't narrow it: it touches every journey and needs the full run.
+  // journeyFiles), so even a title that names a journey can't narrow it: it runs its bounded set, the CANARY.
   const product = ['services/svc-bank/src/cards.ts', 'apps/customer/src/features/bank/Cards.tsx'];
   const bad = await seal({
     title: 'svc-bank: cards (J-bank-13 #1 #2)',
@@ -497,15 +504,15 @@ test('planted 2: a product pull request whose run misses a journey it touches fa
     runs: [run(1)],
     reports: { 1: { ...partial, states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' } } },
   });
-  assert.equal(bad.ok, false, 'green named steps in a targeted run do not cover the journeys product code can reach');
+  assert.equal(bad.ok, false, 'green named steps in a targeted run do not cover the bounded set product code runs');
   assert.equal(bad.stepsOk, true);
   assert.equal(bad.fullOk, false);
-  assert.match(bad.lines.join('\n'), /it changes what can reach any journey/);
+  assert.match(bad.lines.join('\n'), /no recorded run narrows/);
   const good = await seal({
     title: 'svc-bank: cards (J-bank-13 #1 #2)',
     files: product,
     runs: [run(1)],
-    reports: { 1: { ...fullRun, states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' } } },
+    reports: { 1: { ...canaryRun, states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' } } },
   });
   assert.equal(good.ok, true, good.lines.join('\n'));
   // Journey test files only: the run must hold each changed file.
@@ -607,7 +614,8 @@ test('planted 3 (theo-01): a named-journey product pull request merges on its ow
     io: namedIo,
   });
   assert.equal(byBranch.ok, true, byBranch.lines.join('\n'));
-  // Naming no journey, or adding a root build file, still needs the full run.
+  // Naming no journey, with no map to narrow it, runs the bounded set (the CANARY), never the full suite; a run of other
+  // journeys doesn't cover it.
   const unnamed = await seal({
     title: 'svc-bank: cards',
     files: product,
@@ -616,15 +624,26 @@ test('planted 3 (theo-01): a named-journey product pull request merges on its ow
     io: namedIo,
   });
   assert.equal(unnamed.ok, false);
-  assert.match(unnamed.lines.join('\n'), /it changes what can reach any journey/);
+  assert.match(unnamed.lines.join('\n'), /no recorded run narrows/);
+  // A root build file beside it: the bounded set, the named journey and the CANARY; main's full run after the merge
+  // judges the rest.
   const lock = await seal({
     title,
     files: [...product, 'pnpm-lock.yaml'],
     runs: [run(1)],
-    reports: { 1: { states, ran } },
+    reports: { 1: { states, ran: [...ran, ...CANARY] } },
     io: namedIo,
   });
-  assert.equal(lock.ok, false);
+  assert.equal(lock.ok, true, lock.lines.join('\n'));
+  assert.match(lock.lines.join('\n'), /pnpm-lock\.yaml: a root build or environment file.*the journeys it names \(J-bank-13\)/);
+  const lockShort = await seal({
+    title,
+    files: [...product, 'pnpm-lock.yaml'],
+    runs: [run(1)],
+    reports: { 1: { states, ran: ['J-agents-12.pw.mjs', ...CANARY] } },
+    io: namedIo,
+  });
+  assert.equal(lockShort.ok, false, 'a run without the named journey does not cover the bounded set');
   // The head's journey files can't be read: no narrowing.
   const blind = await seal({
     title,
@@ -729,38 +748,50 @@ test('planted 4 (theo-01 part 2): a named stack-file pull request seals on the l
   assert.match(short.lines.join('\n'), /ran J-wallet-05\.pw\.mjs/);
   const broke = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: async () => red('J-wallet-05#1') });
   assert.equal(broke.ok, false, 'the stack change breaking an importer holds it');
-  // Fail closed: the full run stays what is needed, and this run is not one.
-  const short4 = async () => ({ ...clean, missing: ['J-bank-14.pw.mjs'] });
+  // Unnarrowed (the texts can't be read, or the io can't read them, or the stack itself beside it): the bounded set, the
+  // named journey and the CANARY, never the full suite; a run without them is held.
   const blind = await seal({
     ...opts,
-    reports: { 1: { states, ran } },
-    verdict: short4,
+    reports: { 1: { states, ran: [...ran, ...CANARY] } },
+    verdict: async () => clean,
     io: { ...io, journeyTexts: async () => Promise.reject(new Error('HTTP 502')) },
   });
-  assert.equal(blind.ok, false);
-  assert.match(blind.lines.join('\n'), /local-stack-services\/bank\.mjs/);
-  const noIo = await seal({ ...opts, reports: { 1: { states, ran } }, verdict: short4, io: namedIo });
-  assert.equal(noIo.ok, false, 'an io with no way to read texts narrows nothing');
+  assert.equal(blind.ok, true, blind.lines.join('\n'));
+  assert.match(blind.lines.join('\n'), /local-stack-services\/bank\.mjs.*main's full run after the merge judges the rest/);
+  const blindShort = await seal({
+    ...opts,
+    reports: { 1: { states, ran } },
+    verdict: async () => clean,
+    io: { ...io, journeyTexts: async () => Promise.reject(new Error('HTTP 502')) },
+  });
+  assert.equal(blindShort.ok, false, 'a run without the CANARY does not cover the bounded set');
+  const noIo = await seal({ ...opts, reports: { 1: { states, ran: [...ran, ...CANARY] } }, verdict: async () => clean, io: namedIo });
+  assert.equal(noIo.ok, true, 'an io with no way to read texts narrows nothing: the bounded set');
+  assert.doesNotMatch(noIo.lines.join('\n'), /using them/);
   const stackWide = await seal({
     ...opts,
-    files: [...files, 'tooling/scripts/local-test-stack.mjs'],
-    reports: { 1: { states, ran } },
-    verdict: short4,
+    files: [...files, 'tooling/scripts/local-test-world.mjs'],
+    reports: { 1: { states, ran: ['J-wallet-05.pw.mjs'] } },
+    verdict: async () => clean,
   });
-  assert.equal(stackWide.ok, false, 'a stack-wide file still needs the full run');
-  // Naming no journey: as before.
-  const unnamed = await seal({ ...opts, title: 'svc-bank: cards', reports: { 1: { states: {}, ran } }, verdict: short4 });
+  assert.equal(stackWide.ok, false, 'a stack-wide file runs the bounded set, which this run misses');
+  // Naming no journey: the bounded set is the CANARY (no journey files read), which this run misses.
+  const unnamed = await seal({ ...opts, title: 'svc-bank: cards', reports: { 1: { states: {}, ran } }, verdict: async () => clean });
   assert.equal(unnamed.ok, false);
-  // A revert of a stack file still needs the full run as shared setup.
-  const asRevert = await seal({
-    ...opts,
-    title: 'Revert "svc-bank: cards (J-bank-13 #1)"',
-    body: 'Reverts INTAFACED/intafaced#1',
-    files: [STACK],
-    reports: { 1: { states: {}, ran } },
-    verdict: short4,
-  });
-  assert.equal(asRevert.ok, false, 'a revert is judged as it was before this part');
+  assert.match(unnamed.lines.join('\n'), /J-cex-spot-01\.pw\.mjs/);
+  // A revert of a stack file (shared setup) takes the ordinary scope: its title names J-bank-13, so the journeys using
+  // the stack file.
+  const asRevert = (r) =>
+    seal({
+      ...opts,
+      title: 'Revert "svc-bank: cards (J-bank-13 #1)"',
+      body: 'Reverts INTAFACED/intafaced#1',
+      files: [STACK],
+      reports: { 1: { states: {}, ran: r } },
+      verdict: async () => clean,
+    });
+  assert.equal((await asRevert(ran.slice(0, 2))).ok, false, 'a revert of shared setup is held to what its run was given');
+  assert.equal((await asRevert(ran)).ok, true, 'and seals once it ran');
 });
 
 // ---- 14 Nov 2026 (project-state rows d64, d68): the four paths that sent named journey pull requests to all 32 shards ----
@@ -914,9 +945,16 @@ test('planted 6: a named helper or stack change seals on its list, and is held w
   assert.equal(sShort.ok, false, 'a run without the whole canary is held');
   const sBroke = await seal({ ...stack, reports: { 1: { states, ran: canaryRan } }, verdict: async () => red('J-p2p-01#1') });
   assert.equal(sBroke.ok, false, 'a red canary holds it');
-  const short4 = async () => ({ ...clean, missing: ['J-bank-14.pw.mjs'] });
-  const unnamed = await seal({ ...stack, title: 'stack: x', reports: { 1: { states: {}, ran: canaryRan } }, verdict: short4 });
-  assert.equal(unnamed.ok, false, 'unnamed: the full run is still needed');
+  // Unnamed: its bounded set (the CANARY; no full run since project-state#3377), held whole.
+  const unnamed = await seal({ ...stack, title: 'stack: x', reports: { 1: { states: {}, ran: canaryRan } }, verdict: partial });
+  assert.equal(unnamed.ok, true, unnamed.lines.join('\n'));
+  const unnamedShort = await seal({
+    ...stack,
+    title: 'stack: x',
+    reports: { 1: { states: {}, ran: canaryRan.slice(0, 3) } },
+    verdict: partial,
+  });
+  assert.equal(unnamedShort.ok, false, 'unnamed: a run without the whole canary is held');
 });
 
 // A root deploy file (compose, .env.example): `pnpm local:stack` never reads one, so a named journey build
@@ -998,14 +1036,14 @@ test('the seal still needs every titled step passing: a clean full run with a ti
   assert.equal(v.stepsOk, false);
 });
 
-test("GitHub's Revert form of a product change needs no run; a revert of shared setup still needs the full run", async () => {
+test("GitHub's Revert form of a product change needs no run; a revert of shared setup still needs its bounded set run", async () => {
   const revert = { title: 'Revert "svc-bank: cards"', body: 'Reverts INTAFACED/intafaced#7400' };
   assert.equal((await seal({ ...revert, files: ['services/svc-bank/src/cards.ts'], runs: [], reports: {} })).ok, true);
   assert.equal((await seal({ ...revert, files: ['tooling/scripts/local-test-market.mjs'], runs: [], reports: {} })).ok, false);
   assert.equal(
-    (await seal({ ...revert, files: ['tooling/scripts/local-test-market.mjs'], runs: [run(1)], reports: { 1: fullRun } })).ok,
+    (await seal({ ...revert, files: ['tooling/scripts/local-test-market.mjs'], runs: [run(1)], reports: { 1: canaryRun } })).ok,
     true,
-    'a revert of shared setup with its clean full run seals (its runs are read)',
+    'a revert of shared setup with its bounded set run clean seals (its runs are read)',
   );
   assert.equal(
     (await seal({ title: 'Revert "svc-bank: cards"', body: 'undo', files: ['services/svc-bank/src/cards.ts'], runs: [], reports: {} })).ok,
@@ -1028,7 +1066,7 @@ test('the seal: a factory-only pull request (#8284’s file set) merges with no 
   const app = [...factory, 'services/svc-bank/src/cards.ts'];
   assert.equal((await seal({ files: app, runs: [], reports: {} })).ok, false, 'planted: app code beside them needs its run');
   assert.equal((await seal({ files: app, runs: [run(1)], reports: { 1: partial } })).ok, false, 'and a partial run is not it');
-  assert.equal((await seal({ files: app, runs: [run(1)], reports: { 1: fullRun } })).ok, true, 'a clean full run seals it');
+  assert.equal((await seal({ files: app, runs: [run(1)], reports: { 1: canaryRun } })).ok, true, 'a clean run of its bounded set seals it');
   const journey = [...factory, 'apps/customer/tests/real-app/J-bank-13.pw.mjs'];
   const title = 'test(journeys): J-bank-13 #1';
   const own = { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' }, ran: ['J-bank-13.pw.mjs'] };
@@ -1040,7 +1078,12 @@ test('the seal: a factory-only pull request (#8284’s file set) merges with no 
   const sealed = await seal({ title, files: journey, runs: [run(1)], reports: { 1: own } });
   assert.equal(sealed.ok, true, sealed.lines.join('\n'));
   const fixture = [...factory, 'apps/customer/tests/real-app/world-restore.mjs'];
-  assert.equal((await seal({ files: fixture, runs: [run(1)], reports: { 1: partial } })).ok, false, 'a journey helper needs the full run');
+  assert.equal(
+    (await seal({ files: fixture, runs: [run(1)], reports: { 1: partial } })).ok,
+    false,
+    'a journey helper needs its bounded set',
+  );
+  assert.equal((await seal({ files: fixture, runs: [run(1)], reports: { 1: canaryRun } })).ok, true, 'and seals on it');
 });
 
 // ---- U4 C3 piece 1: a pull request runs what it touches, with no dispatch ----
@@ -1054,7 +1097,13 @@ test('--json --files-from: a pull request file list, judged against this checkou
       execFileSync('node', [join(ROOT, 'tooling/ci/journey-touch.mjs'), '--json', '--files-from', f], { cwd: ROOT, encoding: 'utf8' }),
     );
   };
-  assert.equal(run(['services/svc-bank/src/a.ts']).mode, 'full', 'product code: the full suite');
+  const product = run(['services/svc-bank/src/a.ts']);
+  assert.deepEqual(
+    [product.mode, product.files],
+    ['files', [...CANARY].sort()],
+    'product code, no map: its bounded set, never the full suite',
+  );
+  assert.match(product.bounded, /main's full run after the merge judges the rest/);
   const files = run(['.github/workflows/ci.yml', 'apps/customer/tests/real-app/J-bank-13.pw.mjs']);
   assert.deepEqual([files.mode, files.files], ['files', ['J-bank-13.pw.mjs']], 'a journey test file: only it');
   assert.equal(run(['.github/workflows/ci.yml', 'services/svc-bank/src/a.test.ts']).mode, 'none', 'nothing a journeys run reads');
@@ -1218,44 +1267,6 @@ test('an empty report (nothing to run) seals nothing and blocks nothing', async 
     verdictOf: async () => ({ red: [], missing: [] }),
   });
   assert.equal(alone.ok, false, 'an empty run does not prove a touched file');
-});
-
-test('CI review: an empty run (nothing to run, or a draft) never stands in for the full run product code needs', async () => {
-  const { readReport } = await import('./journey-verdict.mjs');
-  const spec = (title, file) => ({ title, file, tests: [{ status: 'expected' }] });
-  const named = readReport({
-    suites: [{ file: 'J-a-01.pw.mjs', specs: [spec('J-a-01 #1', 'J-a-01.pw.mjs'), spec('J-b-01 #1', 'J-b-01.pw.mjs')] }],
-  });
-  const empty = readReport({ suites: [], errors: [], stats: { expected: 0, unexpected: 0 } });
-  const inputs = { baseline: { run: { number: 100, id: 1, sha: 'c'.repeat(40) }, steps: [] }, money: {}, reports: new Map() };
-  const read = () => ({ named, passedSince: {}, issues: {}, problems: [], shas: {} });
-  const HEAD = 'a'.repeat(40);
-  const REPO = 'INTAFACED/intafaced';
-  const run = {
-    id: 9,
-    head_sha: HEAD,
-    path: JOURNEYS_WORKFLOW,
-    status: 'completed',
-    conclusion: 'success',
-    created_at: '2026-11-08T05:00:00Z',
-    run_started_at: '2026-11-08T05:00:00Z',
-    head_repository: { full_name: REPO },
-    repository: { full_name: REPO },
-  };
-  // The seal's own full-run rule, with its real verdict: a green run whose report ran no journey file is short of
-  // every file, so it is passed over, and with no full run the seal fails.
-  const v = await judgeFullRun({
-    sha: HEAD,
-    repo: REPO,
-    shared: [],
-    because: 'it changes product code',
-    runs: [run],
-    reportOf: async () => empty,
-    verdictOf: async (report, r) => fullVerdict({ repo: REPO, report, run: r, inputs, read }),
-  });
-  assert.equal(v.ok, false);
-  assert.match(v.lines.join('\n'), /none has finished/);
-  assert.match(v.lines.join('\n'), /not a full run \(no step from 2 journey file/);
 });
 
 test('root Markdown runs no journeys because nothing the journeys run executes reads a root Markdown file (CI review on c8dccd77)', () => {
@@ -1773,12 +1784,183 @@ test('replay, the seal: each of the 4 named pull requests no longer seals on a r
       },
     });
     assert.equal(out.ok, false, `#${c.number}: ${out.lines.join('\n')}`);
-    // Held for the full run the map asks for, not for anything else in the fake (the old named line ends "main's full
-    // run judges the rest"). #8139's stack file goes full with its product code, so its reason is the stack file's.
-    const why = /full run: it changes (what can reach any journey|the journey stack's shared setup)/;
+    // Held for the bounded set the map leaves it (its always-run list and the CANARY besides its named journey), not for
+    // anything else in the fake (the old named line ends "main's full run judges the rest"). #8139's stack file goes
+    // unnarrowed with its product code, so its reason is the stack file's.
+    const why = /touched journeys: .*(no recorded run narrows|past a pull request's)/;
     assert.match(out.lines.join('\n'), why, `#${c.number}: ${out.lines.join('\n')}`);
     assert.doesNotMatch(out.lines.join('\n'), /main's full run judges the rest/, `#${c.number}`);
     // The same run on a head that touched nothing else would have sealed: the named rule's own lines are clean.
     for (const s of Object.keys(states)) assert.match(out.lines.join('\n'), new RegExp(`${s}: passed`), `#${c.number}: ${s}`);
   }
+});
+
+// ---- project-state#3377: no pull request runs the full suite (pullPick) ----
+
+const BOUND_HEAD = new Set([...CANARY, 'J-bank-13.pw.mjs', 'J-agents-12.pw.mjs', 'J-new-01.pw.mjs', 'J-wallet-05.pw.mjs']);
+const BOUND_MAP = {
+  v: 1,
+  mode: 'reach',
+  runs: [{ id: 1 }, { id: 2 }, { id: 3 }],
+  journeys: [...BOUND_HEAD].filter((f) => f !== 'J-new-01.pw.mjs'),
+  full: { 'J-agents-12.pw.mjs': 'no run speaks for it' },
+};
+const boundReach = { map: BOUND_MAP, behind: 0, journeyFiles: BOUND_HEAD, mode: 'reach' };
+
+test('pullPick: a pick within the bound stands; a full change runs its changed and named journeys, the always-run list and the CANARY', () => {
+  const small = journeyTouch(['apps/customer/tests/real-app/J-bank-13.pw.mjs']);
+  assert.equal(
+    pullPick(['apps/customer/tests/real-app/J-bank-13.pw.mjs'], small, { reach: boundReach }),
+    small,
+    'within the bound: as it is',
+  );
+  // Planted, the past mistake: a script beside a journey file, which journeyTouch calls full (19 Nov 2026: 110 of 147
+  // merged pull requests ran full); the pull request's run is its bounded set.
+  const paths = ['tooling/scripts/local-test-market.mjs', 'apps/customer/tests/real-app/J-bank-13.pw.mjs'];
+  const touch = journeyTouch(paths);
+  assert.equal(touch.mode, 'full', 'what it reaches: every journey');
+  const named = namedInputs({ ids: ['J-wallet-05'], journeyFiles: BOUND_HEAD });
+  const pick = pullPick(paths, touch, { reach: boundReach, named });
+  assert.equal(pick.mode, 'files');
+  assert.deepEqual(
+    pick.files,
+    [...new Set([...CANARY, 'J-agents-12.pw.mjs', 'J-bank-13.pw.mjs', 'J-new-01.pw.mjs', 'J-wallet-05.pw.mjs'])].sort(),
+  );
+  assert.match(
+    pick.bounded,
+    /tooling\/scripts\/local-test-market\.mjs: the journey stack’s shared setup.*the journeys it names \(J-wallet-05\).*the 1 journey file\(s\) it changes.*the 2 journey file\(s\) the map can't speak for and the CANARY; main's full run after the merge judges the rest/,
+  );
+  assert.deepEqual(pick.mainJudges, ['tooling/scripts/local-test-market.mjs']);
+  // A removed journey file runs nothing; a map that can't be used adds no always-run list, never the full suite.
+  const gone = pullPick(paths, touch, { atHead: () => false, reach: { ...boundReach, behind: null } });
+  assert.deepEqual(gone.files, [...CANARY].sort());
+  // Unknown head files: the CANARY as it is.
+  assert.deepEqual(pullPick(['Cargo.lock'], journeyTouch(['Cargo.lock'])).files, [...CANARY].sort());
+  // Planted: a head without the CANARY files still asks for them (the run can't plan and the seal holds), never an
+  // empty set that runs nothing.
+  const bare = pullPick(['Cargo.lock'], journeyTouch(['Cargo.lock']), {
+    reach: { ...boundReach, journeyFiles: new Set(['J-bank-13.pw.mjs']) },
+  });
+  for (const f of CANARY) assert.ok(bare.files.includes(f), f);
+});
+
+test('pullPick: a pick past PR_MAX_FILES runs the bounded set, and keeps the journeys it names', () => {
+  assert.equal(PR_MAX_FILES, 100);
+  const many = Array.from({ length: PR_MAX_FILES + 1 }, (_, i) => `J-many-${String(i).padStart(3, '0')}.pw.mjs`);
+  const head = new Set([...BOUND_HEAD, ...many]);
+  const touch = { mode: 'files', full: [], files: many, reach: ['services/svc-bank/src/a.ts: 101 journey file(s) reach it'] };
+  const named = namedInputs({ ids: ['J-bank-13'], journeyFiles: head });
+  const reach = { ...boundReach, map: { ...BOUND_MAP, journeys: [...BOUND_MAP.journeys, ...many] }, journeyFiles: head };
+  const pick = pullPick(['services/svc-bank/src/a.ts'], touch, { reach, named });
+  assert.ok(pick.files.length <= PR_MAX_FILES);
+  assert.ok(pick.files.includes('J-bank-13.pw.mjs'), 'the named journey stays');
+  assert.match(pick.bounded, /101 journey files, past a pull request's 100/);
+  const at = touch.files.slice(0, PR_MAX_FILES);
+  assert.deepEqual(pullPick(['x'], { ...touch, files: at }).files, at, 'exactly at the bound: as it is');
+});
+
+test("the lint config, the lint plugins and the agents' files run no journeys; a crate is its service (project-state#3377 item 3)", () => {
+  // Planted, the past mistake: on 19 Nov 2026 each of these was "a path no rule places", so a full run.
+  for (const p of [
+    '.oxlintrc.json',
+    'tooling/lint/oxlint-plugin-garden/absent-rule.js',
+    '.claude/skills/verify-intafaced/SKILL.md',
+    '.claude/rules/design.md',
+  ])
+    assert.equal(pathKind(p).kind, 'none', p);
+  assert.equal(journeyTouch(['.oxlintrc.json', 'tooling/lint/x.js', '.claude/settings.json']).mode, 'none');
+  // The lint plugins and the skills are named by journey helpers and the stack only in comments, never read.
+  const readers = execFileSync(
+    'git',
+    [
+      'grep',
+      '-lE',
+      'tooling/lint|\\.oxlintrc|\\.claude/',
+      '--',
+      'apps/customer/tests/real-app',
+      'tooling/scripts/local-*.mjs',
+      '.github/actions',
+      'tooling/profiles',
+      'tooling/infra',
+    ],
+    {
+      cwd: ROOT,
+      encoding: 'utf8',
+    },
+  )
+    .split('\n')
+    .filter(Boolean);
+  for (const f of readers)
+    for (const line of readFileSync(join(ROOT, f), 'utf8')
+      .split('\n')
+      .filter((l) => /tooling\/lint|\.oxlintrc|\.claude\//.test(l)))
+      assert.match(line.trim(), /^(\/\/|\*|\/\*)/, `${f} names one outside a comment: ${line.trim()}`);
+  // A crate is read as its service by the map.
+  assert.deepEqual(CRATE.exec('crates/svc-tax/src/wire.rs').slice(1), ['svc-tax', 'src/wire.rs']);
+  assert.equal(CRATE.test('crates/service-kit/src/lib.rs'), false, 'the shared kit is no one service');
+  const k = pathKind('crates/svc-tax/src/wire.rs');
+  assert.equal(k.product, true);
+  assert.equal(k.as, 'services/svc-tax/src/wire.rs');
+  const map = {
+    v: 1,
+    mode: 'reach',
+    runs: [{ id: 1 }, { id: 2 }, { id: 3 }],
+    journeys: ['J-tax-01.pw.mjs', 'J-bank-13.pw.mjs'],
+    full: {},
+    services: { 'services/svc-tax': [0] },
+  };
+  const t = journeyTouch(['crates/svc-tax/src/wire.rs'], () => true, { map, behind: 0, journeyFiles: new Set(map.journeys) });
+  assert.deepEqual([t.mode, t.files], ['files', ['J-tax-01.pw.mjs']], "the crate runs its service's journeys");
+});
+
+test("real-app-journeys.yml: a pull request's run is never the full suite", () => {
+  const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
+  assert.doesNotMatch(t, /scope=full/, 'no full scope for a pull request');
+  assert.doesNotMatch(t, /journey-retries/, 'the retries of a full pull-request run are gone with it');
+  assert.match(t, /only\+=\(--pull\)/, 'the planner caps a pull request at PR_MAX_SHARDS');
+  assert.match(t, /a pull request's journeys run is never the full suite/, 'an empty target on a pull request fails the touch job');
+  assert.match(t, /journey-touch\.mjs" --fallback/, 'what cannot be judged runs the CANARY');
+  // Every `full()` call in the pick step now runs the CANARY: no line there writes an empty target for a run.
+  const pick = t.slice(t.indexOf('- name: What this run runs'), t.indexOf('- name: One journeys run per head'));
+  assert.doesNotMatch(pick.slice(pick.indexOf('if [ "$SAME_REPO" != true ]')), /echo "mode=run"; echo "target="; \}/);
+});
+
+// The bar of project-state#3377: every pull request merged on 19 Nov 2026 (147, fixtures/journey-touch-19-nov.json),
+// replayed through the touch job's rules with the committed map and this checkout's journey files: none would run the
+// full suite or need more than 12 shards (planned with every step at UNTIMED_STEP_MS, as the planner counts an untimed
+// file), each still runs every journey it names, and a planted copy of the old rule (journeyTouch alone) fails.
+test('replay, 19 Nov 2026: no merged pull request picks the full suite or more than 12 shards, and each keeps the journeys it names', async () => {
+  const { loadMap } = await import('./journey-reach-map.mjs');
+  const { PR_MAX_SHARDS, UNTIMED_STEP_MS, planShards, shardTarget, stepCounts, targetedShards } =
+    await import('../scripts/journey-shards.mjs');
+  const { prs } = JSON.parse(readFileSync(new URL('./fixtures/journey-touch-19-nov.json', import.meta.url), 'utf8'));
+  assert.equal(prs.length, 147);
+  const dir = join(ROOT, 'apps/customer/tests/real-app');
+  const journeyFiles = new Set(readdirSync(dir).filter((f) => JOURNEY_TEST.test(`apps/customer/tests/real-app/${f}`)));
+  const steps = stepCounts(dir, [...journeyFiles]);
+  const durations = new Map([...journeyFiles].map((f) => [f, Math.max(1, steps.get(f)) * UNTIMED_STEP_MS]));
+  const reach = { map: loadMap(), behind: 0, journeyFiles, subscribes: () => false, head: null, mode: 'reach' };
+  const atHead = (p) => !RUN_FILE.test(p) || journeyFiles.has(RUN_FILE.exec(p)[1]);
+  const limit = 40 * 60_000;
+  let full = 0;
+  let worst = 0;
+  for (const pr of prs) {
+    const named = namedInputs({ ids: namedJourneyIds({ title: pr.title, branch: pr.branch }), journeyFiles });
+    const touch = journeyTouch(pr.paths, atHead, reach, named);
+    if (touch.mode === 'full') full += 1;
+    const pick = pullPick(pr.paths, touch, { atHead, reach, named });
+    assert.notEqual(pick.mode, 'full', `#${pr.number}`);
+    for (const f of named?.files ?? []) if (pick.mode !== 'none') assert.ok(pick.files.includes(f), `#${pr.number} keeps ${f}`);
+    if (pick.mode === 'none') continue;
+    const files = pick.files.filter((f) => durations.has(f));
+    const n = targetedShards(files, durations, shardTarget(durations), limit, true);
+    const plan = planShards(files, durations, n);
+    const longest = Math.max(...plan.map((b) => b.ms));
+    assert.ok(n <= 12, `#${pr.number}: ${n} shards`);
+    assert.ok(longest <= limit, `#${pr.number}: a shard of ${Math.round(longest / 60_000)} minutes`);
+    worst = Math.max(worst, n);
+  }
+  // The planted twin: the old rule sent most of these to the full suite (the reader's replay: 110 of 149).
+  assert.ok(full > 60, `the old rule picks full for ${full} of 147`);
+  assert.ok(worst <= PR_MAX_SHARDS);
 });

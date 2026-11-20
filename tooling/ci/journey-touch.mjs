@@ -7,7 +7,7 @@
  * shards, on nearly every branch to be safe, and runners became the factory's binding constraint.)
  *
  * Each changed path is one of three kinds, and the most demanding kind among a pull request's paths decides:
- *   - full: the pull request needs a clean full run on its exact head. The journey stack's shared setup (SHARED_SETUP in
+ *   - full: the change can reach any journey (a pull request runs pullPick's bounded set for it). The journey stack's shared setup (SHARED_SETUP in
  *     journey-seal.mjs), every script under tooling/scripts (the stack, the TEST market maker, the seed, world-restore,
  *     the shard planner and the scripts journeys import), the journeys workflow and its actions, the seal and this file,
  *     the journeys verdict and the baseline, build and environment files, every doc the journeys run can read (DOCS_READ:
@@ -60,6 +60,11 @@
  *     one, so a script the run starts using comes off the list or turns its pull request red).
  * A path that matches none of the rules is full.
  *
+ * Full names what the change can reach, never what a pull request runs: no pull request runs the full suite. A full
+ * change, or a pick past PR_MAX_FILES, runs the bounded set (pullPick: its changed and named journeys, the map's
+ * always-run list and the CANARY), in at most 12 shards (journey-shards.mjs PR_MAX_SHARDS); main's full run after the
+ * merge judges the rest, as OWNER 249 (3) says. The seal holds the pull request to the same set.
+ *
  *   node tooling/ci/journey-touch.mjs --base origin/main     (this checkout's branch against a base; prints what to run)
  *   node tooling/ci/journey-touch.mjs --files a b c          (named paths)
  *   node tooling/ci/journey-touch.mjs --json --files-from f  (one path a line; JSON { mode, full, files }; real-app-journeys.yml's plan)
@@ -67,6 +72,8 @@
  *   node tooling/ci/journey-touch.mjs --reuse               (env TARGET, HEAD_SHA: the target less what runs by hand, or
  *                                                              this pull request's earlier run, on that head already run;
  *                                                              real-app-journeys.yml's reuse step)
+ *   node tooling/ci/journey-touch.mjs --fallback            (the CANARY's files: a pull request's run whose paths can't
+ *                                                              be judged; real-app-journeys.yml's pick step)
  *   node tooling/ci/journey-touch.mjs --dispatch            (env JOURNEYS_TARGET: a run by hand's input with every file of
  *                                                              each journey it names; real-app-journeys.yml's pick step)
  *   … --title <t> --branch <b>                                (the journeys the pull request names; with --reach, the
@@ -79,7 +86,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
-import { subscribesVia, builtMap, headWanted, loadMap, newerMap, reachSelect, readHead, runsBehind } from './journey-reach-map.mjs';
+import {
+  REACH_MAP_MODE,
+  alwaysRun,
+  builtMap,
+  headWanted,
+  loadMap,
+  mapProblem,
+  newerMap,
+  reachSelect,
+  readHead,
+  runsBehind,
+  subscribesVia,
+} from './journey-reach-map.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
 export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
@@ -93,8 +112,6 @@ export const printable = (p) => String(p).replace(/[\u0000-\u001f\u007f]/g, '?')
 export const JOURNEY_CI = [
   'tooling/ci/journey-seal.mjs',
   'tooling/ci/journey-touch.mjs',
-  // The touch job's Retries step: which shards of a pull request's full run retry a failed test once.
-  'tooling/ci/journey-retries.mjs',
   'tooling/ci/journey-verdict.mjs',
   'tooling/ci/journey-verdict.test.mjs',
   // The scoreboard's shard download ("Merge the shards").
@@ -229,6 +246,10 @@ const NONE_RULES = [
   (p) => /^[^/]+\.md$/.test(p),
   // A doc outside DOCS_READ (that list is full, and is checked first).
   (p) => p.startsWith('docs/'),
+  // The linter's config and plugins (.oxlintrc.json, tooling/lint) and the agents' skills and rules (.claude): CI's lint
+  // and the agents read them; no journey, stack script or app build does (a journey helper names a lint rule only in a
+  // comment). (Before 20 Nov 2026 each was "a path no rule places", so a full run: 15 of the 110 full picks on 19 Nov.)
+  (p) => p === '.oxlintrc.json' || p.startsWith('tooling/lint/') || p.startsWith('.claude/'),
   // The published SDKs (sdks/python): no journey, stack script or service imports or reads them; the SDK's drift test
   // (packages/sdk-ts/src/drift.test.ts) and the generator (tooling/scripts/sdk-from-openapi.ts) are their judges.
   // (#8321 ran all 32 shards for sdks/python/openapi/payments.openapi.json, a path no rule placed, 14 Nov 2026.)
@@ -236,6 +257,11 @@ const NONE_RULES = [
 ];
 
 const PRODUCT = 'product code, and no map recorded from real runs says which journeys reach it yet';
+
+/** A Rust service's crate (`crates/svc-tax/src/wire.rs`): the same service as `services/svc-tax`, so the touched-journeys
+ *  map reads it as that service's path. The workspace's shared files (Cargo.lock, crates/service-kit) are no one
+ *  service's, so they stay unplaced and a pull request runs its bounded set (pullPick). */
+export const CRATE = /^crates\/(svc-[a-z0-9-]+)\/(.+)$/;
 
 /** A journey id as the seal reads one in a title (journey-seal.mjs JOURNEY_ID). */
 const JOURNEY_ID = /\bJ-[a-z0-9]+(?:-[a-z0-9]+)*-\d+\b/gi;
@@ -439,6 +465,9 @@ function kindOf(p) {
   for (const [re, why] of FULL_RULES) if (re.test(p)) return { kind: 'full', why };
   if (NONE_RULES.some((r) => r(p))) return { kind: 'none' };
   if (/^(apps|services|packages)\//.test(p)) return { kind: 'full', why: PRODUCT, product: true };
+  // A Rust service's crate is that service: the map reads it as the service's own path (CRATE).
+  const crate = CRATE.exec(p);
+  if (crate) return { kind: 'full', why: PRODUCT, product: true, as: `services/${crate[1]}/${crate[2]}` };
   return { kind: 'full', why: 'a path no rule places, so the safe default' };
 }
 
@@ -459,10 +488,14 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
   const product = [];
   const stack = [];
   const files = new Set();
+  // A crate's path as the pull request spells it, for the lines that name it (CRATE).
+  const spelled = new Map();
   for (const p of [...new Set(paths ?? [])].sort()) {
     const k = pathKind(p);
-    if (k.kind === 'full' && k.product) product.push(p);
-    else if (k.stack) stack.push({ path: printable(p), why: k.why });
+    if (k.kind === 'full' && k.product) {
+      product.push(k.as ?? p);
+      if (k.as) spelled.set(k.as, p);
+    } else if (k.stack) stack.push({ path: printable(p), why: k.why });
     else if (k.kind === 'full') full.push({ path: printable(p), why: k.why });
     else if (k.kind === 'file' && atHead(p)) files.add(k.file);
   }
@@ -470,7 +503,7 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
   let byName;
   if (product.length && named && !reach) {
     // Judged on the journeys it names (theo-01 part 1); another full path still makes the whole change full.
-    if (full.length) for (const p of product) full.push({ path: printable(p), why: PRODUCT });
+    if (full.length) for (const p of product) full.push({ path: printable(spelled.get(p) ?? p), why: PRODUCT });
     else {
       for (const f of named.files) files.add(f);
       byName = `it names ${named.ids.join(', ')}, so its ${product.length} product path(s) run ${named.files.join(', ')}, and main's full run judges the rest`;
@@ -493,8 +526,8 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
         for (const f of named.files) files.add(f);
         byName = `it names ${named.ids.join(', ')}, so its ${product.length} product path(s) run ${named.files.join(', ')} and the ${sel.files.length} journey file(s) the touched-journeys map says reach them`;
       }
-    } else for (const p of product) full.push({ path: printable(p), why: printable(sel.why) });
-  } else for (const p of product) full.push({ path: printable(p), why: PRODUCT });
+    } else for (const p of product) full.push({ path: printable(spelled.get(p) ?? p), why: printable(sel.why) });
+  } else for (const p of product) full.push({ path: printable(spelled.get(p) ?? p), why: PRODUCT });
   // Decided last, so any other full path, product code included, makes the stack files full with it.
   const importers = stack.length && !full.length ? (named?.importers?.(stack.map((x) => x.path)) ?? null) : null;
   if (importers) {
@@ -513,6 +546,50 @@ export function journeyTouch(paths, atHead = () => true, reach = null, named = n
       ...(importers ? { stack: stack.map((x) => x.path), importers } : {}),
     };
   return because && !full.length ? { ...out, reach: because } : out;
+}
+
+/**
+ * The most journey files a pull request's own run takes. A pick past it runs the bounded set instead (pullPick). About
+ * 100 files are about 240 minutes of journeys (main's full run: about 891 minutes over some 365 files), which
+ * journey-shards.mjs packs into its PR_MAX_SHARDS of 12 with every shard clear of its limit.
+ */
+export const PR_MAX_FILES = 100;
+
+/**
+ * What a pull request's own journeys run runs, from journeyTouch's answer `touch` for its changed `paths`: never the full
+ * suite. A pick of PR_MAX_FILES journey files or fewer stands as it is. A change journeyTouch calls full (a path the
+ * map can't narrow, shared setup, a script, the workflow, a path no rule places), or one whose pick is past the bound,
+ * runs the bounded set: the journey files it changes (`atHead`, as journeyTouch reads them), the journeys it names
+ * (`named`, namedInputs), the journeys the map can't speak for (alwaysRun, when the map in `reach` is usable) and the
+ * CANARY, which boot the whole stack and the app and prove it still serves other areas; main's full run after the
+ * merge judges the rest, and main-bisect reverts a red there (OWNER 249 (3): "a PR runs only the journeys it touches,
+ * the full suite runs on main after a merge"). `mainJudges` lists the paths that put it there. (Failure it prevents:
+ * in the 48 hours to 20 Nov 2026, 174 of 233 merged pull requests picked the full run, about 1,400 runner-minutes each,
+ * and pull requests' journeys runs took about 317,000 of the repository's 400,000 runner-minutes a day; no full run on
+ * a pull request in the 7 days before is on record catching a break outside its change's reach.)
+ */
+export function pullPick(paths, touch, { atHead = () => true, reach = null, named = null } = {}) {
+  const over = touch.mode === 'files' && touch.files.length > PR_MAX_FILES;
+  if (touch.mode !== 'full' && !over) return touch;
+  const journeyFiles = named?.journeyFiles ?? reach?.journeyFiles ?? null;
+  const known = journeyFiles instanceof Set;
+  const mapOk = Boolean(reach) && known && !mapProblem(reach.map, reach.behind, reach.mode ?? REACH_MAP_MODE);
+  const always = mapOk ? alwaysRun(reach.map, journeyFiles) : [];
+  const own = [...new Set(paths ?? [])]
+    .map((p) => [p, pathKind(p)])
+    .filter(([p, k]) => k.kind === 'file' && atHead(p))
+    .map(([, k]) => k.file);
+  // The CANARY is asked for whether or not the head holds it: a CANARY file gone from the head is a run that can't plan
+  // and a seal that holds, never a bounded set that runs nothing.
+  const files = withSiblings([...own, ...(named?.files ?? []), ...always, ...CANARY], known ? journeyFiles : null);
+  const cause = over
+    ? `the journeys its paths reach are ${touch.files.length} journey files, past a pull request's ${PR_MAX_FILES}`
+    : `${touch.full.length} path(s) no recorded run narrows (${touch.full
+        .slice(0, 3)
+        .map((x) => `${x.path}: ${x.why}`)
+        .join('; ')}${touch.full.length > 3 ? `; ${touch.full.length - 3} more` : ''})`;
+  const bounded = `${cause}, so it runs ${named ? `the journeys it names (${named.ids.join(', ')}), ` : ''}${own.length ? `the ${own.length} journey file(s) it changes, ` : ''}the ${always.length} journey file(s) the map can't speak for and the CANARY; main's full run after the merge judges the rest`;
+  return { mode: 'files', full: [], files, bounded: printable(bounded), mainJudges: touch.full.map((x) => x.path) };
 }
 
 /** A run by hand's title (real-app-journeys.yml `run-name`): the journeys it was given, or `full`. */
@@ -836,6 +913,12 @@ async function main() {
   const args = process.argv.slice(2);
   if (args[0] === '--reuse') return reuseMain();
   if (args[0] === '--dispatch') return console.log(dispatchTarget(process.env.JOURNEYS_TARGET, checkoutJourneyFiles()));
+  // --fallback: the CANARY with every file of each of its journeys, for a pull request's run when its paths can't be
+  // read or judged (real-app-journeys.yml's pick step): never the full suite.
+  if (args[0] === '--fallback')
+    return console.log(
+      pullPick([], { mode: 'full', full: [], files: [] }, { named: null, reach: { journeyFiles: checkoutJourneyFiles() } }).files.join(' '),
+    );
   let paths;
   let atHead = (p) => existsSync(p);
   const b = args.indexOf('--base');
@@ -891,16 +974,16 @@ async function main() {
     journeyFiles: checkoutJourneyFiles(),
     importers: texts ? (stack) => stackImporters(stack, texts) : null,
   });
-  const t = journeyTouch(paths, atHead, reach, named);
+  // What a pull request runs: never the full suite (pullPick).
+  const t = pullPick(paths, journeyTouch(paths, atHead, reach, named), { atHead, reach, named });
   if (t.named && args.includes('--json')) console.error(`journey-touch: ${t.named}`);
+  if (t.bounded && args.includes('--json')) console.error(`journey-touch: ${t.bounded}`);
   if (args.includes('--json')) return console.log(JSON.stringify(t));
-  if (t.mode === 'full') {
-    console.log('full: this change needs a clean full Real-app journeys run on its exact head (no journeys input), because of:');
-    for (const x of t.full.slice(0, 20)) console.log(`  ${x.path}: ${x.why}`);
-    if (t.full.length > 20) console.log(`  … ${t.full.length - 20} more`);
-  } else if (t.mode === 'files') {
+  if (t.mode === 'files') {
     for (const l of t.reach ?? []) console.log(`  reach: ${l}`);
     if (t.named) console.log(`  named: ${t.named}`);
+    if (t.bounded) console.log(`  bounded: ${t.bounded}`);
+    for (const p of (t.mainJudges ?? []).slice(0, 20)) console.log(`  main's full run judges: ${printable(p)}`);
     console.log(`files: gh workflow run real-app-journeys.yml -R INTAFACED/intafaced --ref <branch> -f journeys="${t.files.join(' ')}"`);
   } else console.log('none: no journeys run executes or reads what this change touches');
 }
