@@ -1,3 +1,4 @@
+import type { RefusalOf } from '@intafaced/contracts/procedure-mount';
 import {
   type ApprovalRepository,
   type StoredApproval,
@@ -261,6 +262,10 @@ export function organisationOf(input: { name?: unknown; folder?: unknown; descri
   if (description.length > 500) throw new QuantError('quant.params_invalid', 'description — longer than 500 characters');
   return { name, folder, description };
 }
+
+/** svc-quant's one reader of its refusals for a record-mounted call: the `QuantError` `toTrpc` sent, by its code. */
+export const quantRefusal: RefusalOf = (err) =>
+  err instanceof TRPCError && err.cause instanceof QuantError ? { code: err.cause.code, error: err } : undefined;
 
 export function toTrpc(err: unknown): never {
   if (err instanceof QuantError) {
