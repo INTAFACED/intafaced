@@ -275,6 +275,21 @@ test('doctor: worth driving only when every check holds; each failure names its 
   assert.deepEqual(failing({ ...healthy, launch: null }), ['readied']);
 });
 
+test('doctor: a TEST adapter the start left off is healthy, whatever LOCAL_STACK_USER_VENUE is; a wanted one that is DOWN fails', () => {
+  // The stack's own rows (local-test-stack.mjs status): a venue the switch does not ask for reads "off (not started)".
+  const venues = (a, b) =>
+    `${TABLE}  test-venue (TEST)  14632       ${a}\n  test-venue-b (TEST)  14633       ${b}\n  test-wallet-provider (TEST)  14634  9  ok (TEST)\n`;
+  const off = '-       off (not started)';
+  const up = '7       ok (TEST)';
+  const down = '7       DOWN (0)';
+  const at = (text) => ({ ...healthy, status: { code: 0, text } });
+  assert.deepEqual(failing(at(venues(off, off))), [], 'switch unset: both venues off');
+  assert.deepEqual(failing(at(venues(up, off))), [], 'switch on: the second venue off');
+  assert.deepEqual(failing(at(venues(up, up))), [], 'switch two');
+  assert.deepEqual(failing(at(venues(down, off))), ['health'], 'switch on: the first venue down');
+  assert.equal(doctorChecks(at(venues(up, down))).find((c) => c.name === 'health').detail, 'test-venue-b DOWN (0)');
+});
+
 test('stack identity: Postgres pid and start time, null when unreadable', () => {
   assert.equal(stackId('87121\n/s/data/postgres\n1794855383\n15460\n'), '87121@1794855383');
   assert.equal(stackId(''), null);
