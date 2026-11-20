@@ -18,6 +18,7 @@ import { venueRefusal } from '../venue-wallet/VenueWalletRoom';
 import { createEmbeddedWalletApi } from './embedded-wallet-api';
 import { embeddedWalletCopy, type EmbeddedWalletCopyKey } from './embedded-wallet-copy';
 import { embeddedWalletClient, type ClientFailure } from './provider-client';
+import { VenueDeposit } from './VenueDeposit';
 import { TradingSession } from './TradingSession';
 
 /**
@@ -85,6 +86,8 @@ export function clientRefusal(failure: ClientFailure, provider: ProtocolEmbedded
       return { variant: 'refused', title: t('refusedTitle'), body: t('refusedBody', { provider: name }), reference: 'provider_refused' };
     case 'unsupported':
       return { variant: 'refused', title: t('unsupportedTitle'), body: t('unsupportedBody'), reference: 'passkey_unsupported' };
+    case 'chain':
+      return { variant: 'refused', title: t('chainTitle'), body: t('chainBody'), reference: 'chain_refused' };
     case 'spent':
       return { variant: 'refused', title: t('spentTitle'), body: t('spentBody', { provider: name }), reference: 'wallet.export_spent' };
     default:
@@ -332,6 +335,13 @@ export function EmbeddedWalletRoom() {
                   t={t}
                 />
               ) : null}
+              <VenueDeposit
+                api={api}
+                wallet={wallet}
+                client={client}
+                gasSponsorCode={read?.gasSponsor.code ?? GAS_SPONSOR_UNSET}
+                providerFailure={(failure) => clientRefusal(failure, provider, t).body}
+              />
               <section aria-label={t('ownTitle')}>
                 <h2>{t('ownTitle')}</h2>
                 <p>{t('ownNote', { provider: name })}</p>
