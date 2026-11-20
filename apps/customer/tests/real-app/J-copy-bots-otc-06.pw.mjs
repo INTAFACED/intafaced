@@ -116,17 +116,17 @@ async function venueLeadOrder(leader, key, symbol, side, amount, n) {
   });
 }
 /** The TEST maker rests one order on this file's own market at the one price. */
-async function makerOrder(symbol, side, amount) {
+async function makerOrder(symbol, side, amount, price = VPRICE) {
   const answer = await otherTraderRun(MAKER, {
     kind: 'place_order',
     symbol,
     side,
     type: 'limit',
     amount,
-    price: VPRICE,
+    price,
     timeInForce: 'GTC',
     reduceOnly: false,
-    clientOrderKey: `order:${J}:maker:${run.read().tag}:${side}`,
+    clientOrderKey: `order:${J}:maker:${run.read().tag}:${side}:${price}`,
     builderFee: null,
   });
   expect(answer, JSON.stringify(answer).slice(0, 300)).toMatchObject({ accepted: true });
@@ -240,7 +240,9 @@ async function venueStart(page) {
 
   // The leader buys, and the driver copies the leader's own amount onto the sub-account (a spot buy: no builder fee).
   // The maker's ask holds exactly the two buys.
+  // An assistant's order is judged against the book's mid, so the book holds both sides: a small bid under the ask.
   await makerOrder(symbol, 'sell', '0.6');
+  await makerOrder(symbol, 'buy', '0.01', '99');
   await venueLeadOrder(vLeader, leaderKey, symbol, 'buy', '0.3', 1);
   await expect
     .poll(async () => (await copiedPositions(follower, vFollowId)).filter((p) => toUnits(p.open) > 0n).length, {
@@ -251,6 +253,8 @@ async function venueStart(page) {
   // The leader sells, and the driver copies the sell: a venue fill of ours that carries our builder fee.
   const before = await onVenue('/balances', owner, view.subAccount);
   await makerOrder(symbol, 'buy', '1');
+  // The two buys took the whole ask; a small ask over the bid gives the copied sell a mid to be judged by.
+  await makerOrder(symbol, 'sell', '0.01', '101');
   await venueLeadOrder(vLeader, leaderKey, symbol, 'sell', '0.2', 2);
   const copiedSell = async () => (await myCopyFees(follower)).rows.find((r) => r.followId === vFollowId && r.side === 'sell');
   let sell;
