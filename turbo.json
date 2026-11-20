@@ -101,7 +101,6 @@
       "outputs": [],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/academy-ambassadors-pay/**",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
         "$TURBO_ROOT$/packages/exchange-contract/**",
         "$TURBO_ROOT$/packages/greeks-adapter/**",
@@ -114,7 +113,6 @@
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-academy/**",
         "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
@@ -134,7 +132,6 @@
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/academy-ambassadors-pay/**",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
         "$TURBO_ROOT$/packages/exchange-contract/**",
         "$TURBO_ROOT$/packages/greeks-adapter/**",
@@ -147,7 +144,6 @@
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-academy/**",
         "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
@@ -238,7 +234,6 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/admin/**",
-        "$TURBO_ROOT$/packages/academy-ambassadors-pay/**",
         "$TURBO_ROOT$/packages/auth/**",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
         "$TURBO_ROOT$/packages/contracts/**",
@@ -256,7 +251,6 @@
         "$TURBO_ROOT$/packages/ui/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
-        "$TURBO_ROOT$/services/svc-academy/**",
         "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
@@ -315,22 +309,6 @@
         "$TURBO_ROOT$/packages/quant-honesty/**",
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/services/svc-edge/**",
-        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
-        "!$TURBO_ROOT$/**/*.tsbuildinfo"
-      ]
-    },
-    "@intafaced/service-kit#typecheck": {
-      "dependsOn": ["^build"],
-      "outputs": [],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/academy-ambassadors-pay/**",
-        "$TURBO_ROOT$/packages/events/**",
-        "$TURBO_ROOT$/packages/i18n/**",
-        "$TURBO_ROOT$/packages/ledger-client/**",
-        "$TURBO_ROOT$/packages/safe-regex/**",
-        "$TURBO_ROOT$/packages/telemetry/**",
-        "$TURBO_ROOT$/services/svc-academy/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -419,7 +397,6 @@
       "outputs": [],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/academy-ambassadors-pay/**",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
         "$TURBO_ROOT$/packages/exchange-contract/**",
         "$TURBO_ROOT$/packages/greeks-adapter/**",
@@ -428,7 +405,6 @@
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-academy/**",
         "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-campaigns/**",
         "$TURBO_ROOT$/services/svc-market/**",
@@ -444,7 +420,6 @@
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/academy-ambassadors-pay/**",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
         "$TURBO_ROOT$/packages/exchange-contract/**",
         "$TURBO_ROOT$/packages/greeks-adapter/**",
@@ -453,7 +428,6 @@
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-academy/**",
         "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-campaigns/**",
         "$TURBO_ROOT$/services/svc-market/**",

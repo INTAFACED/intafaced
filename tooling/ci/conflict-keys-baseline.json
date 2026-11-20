@@ -2,63 +2,6 @@
   "about": "Every INSERT … ON CONFLICT (<target>) on main when tooling/ci/conflict-keys.mjs landed (18 Nov 2026) that leaves another unique key of its table unabsorbed, one entry per insert and key, with its verdict: safe and why, or a race with its bug issue. Read from the code by four reviewers and spot-checked; races are not yet reproduced. The list only shrinks: fix a race, then remove its entry. New code takes the fix the check prints, never a new entry here.",
   "entries": [
     {
-      "file": "services/svc-academy/src/academy-service.ts",
-      "table": "cert_grants",
-      "target": "(user_id, cert_id)",
-      "constraint": "cert_grants_idempotency_uq",
-      "verdict": "race",
-      "issue": 8907,
-      "why": "idempotency_key is certIdempotencyKey(user,cert) = `cert:<user>:<cert>` (certs/progress.ts:83), the same inputs as the target, and insertCertGrant takes no lock. Two concurrent grants/programme reads for the same learner+cert (the race the comment at academy-service.ts:3601 and :3214 says it absorbs) both insert; the loser raises 23505 cert_grants_idempotency_uq instead of DO NOTHING."
-    },
-    {
-      "file": "services/svc-academy/src/academy-service.ts",
-      "table": "cert_grants",
-      "target": "(user_id, cert_id)",
-      "constraint": "cert_grants_public_id_uq",
-      "verdict": "safe",
-      "why": "public_id is randomPublicId() (certs/public-id.ts:12, random bytes) generated fresh in the VALUES at academy-service.ts:3229, so a duplicate of this row never shares it."
-    },
-    {
-      "file": "services/svc-academy/src/curriculum/courses.ts",
-      "table": "course_items",
-      "target": "(id)",
-      "constraint": "course_items_position_uq",
-      "verdict": "safe",
-      "why": "Same course-row FOR UPDATE lock (courses.ts:406/:629) serialises outline saves; the other course_items writer, lessons.ts:319 duplicate(), takes lockItem `FOR UPDATE OF c, i` on the same course row (lessons.ts:504) and shifts positions through negatives first. Positions written here are distinct per section."
-    },
-    {
-      "file": "services/svc-academy/src/curriculum/courses.ts",
-      "table": "course_sections",
-      "target": "(id)",
-      "constraint": "course_sections_position_uq",
-      "verdict": "safe",
-      "why": "writeOutline runs only inside saveOutline after this.lock() takes `SELECT ... FROM academy.courses ... FOR UPDATE OF c` (courses.ts:406, :629); positions are first moved to negatives (courses.ts:493-494) and new ones are 0..n distinct. The only other section writer is the copy at courses.ts:205 (new course, also under lock)."
-    },
-    {
-      "file": "services/svc-academy/src/learning/customer-store.ts",
-      "table": "cert_enrollments",
-      "target": "(user_id, path_slug) WHERE left_atisnull",
-      "constraint": "cert_enrollments_leave_request_uq",
-      "verdict": "safe",
-      "why": "This insert writes no leave_request_id (customer-store.ts:248-250), so it is NULL and outside the partial index WHERE leave_request_id IS NOT NULL."
-    },
-    {
-      "file": "services/svc-academy/src/purchases/course-purchases.ts",
-      "table": "access_grant_events",
-      "target": "(key)",
-      "constraint": "access_grant_events_pkey",
-      "verdict": "safe",
-      "why": "n is MAX(n)+1 computed after the INSERT ... ON CONFLICT DO UPDATE on access_grants (course-purchases.ts:473-478), which row-locks that grant for the transaction; every other access_grant_events writer locks the same grant row first (learner-desk.ts:88 FOR UPDATE, :506 FOR UPDATE, grantAccess upsert). A duplicate of the purchase is also stopped by the `WHERE state='confirmed'` UPDATE guard at :460-464."
-    },
-    {
-      "file": "services/svc-academy/src/purchases/course-purchases.ts",
-      "table": "access_grant_events",
-      "target": "(key)",
-      "constraint": "access_grant_events_pkey",
-      "verdict": "safe",
-      "why": "revoke() first runs `UPDATE academy.access_grants ... RETURNING id` (course-purchases.ts:557-561), row-locking the grant before MAX(n)+1; all other writers of access_grant_events lock that grant row too (see learner-desk.ts:88, :506), and the `WHERE state='refunding'` guard at :547-551 stops a duplicate refund."
-    },
-    {
       "file": "services/svc-agents/src/coach/coach-run.ts",
       "table": "coach_runs",
       "target": "(user_id, request_id)",

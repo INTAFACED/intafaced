@@ -73,6 +73,31 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
       }
     }
   }
+
+  // A Rust service (`crates/svc-<x>`) sends a recipe through its client's `.post_recipe(`: in a file that calls it, each
+  // string literal naming a recipe is a caller. Its tests (the `#[cfg(test)]` module, and `tests/`) are not production.
+  const cratesRoot = join(repoRoot, 'crates');
+  const rustSources = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) return rustSources(path);
+      return entry.name.endsWith('.rs') ? [path] : [];
+    });
+  for (const service of existsSync(cratesRoot) ? readdirSync(cratesRoot) : []) {
+    const src = join(cratesRoot, service, 'src');
+    if (!service.startsWith('svc-') || !existsSync(src)) continue;
+    for (const full of rustSources(src)) {
+      const text = (readFileSync(full, 'utf8').split('#[cfg(test)]')[0] ?? '').replace(/\/\/.*$/gm, '');
+      if (!/\.post_recipe\(/.test(text)) continue;
+      const rel = relative(repoRoot, full).replace(/\\/g, '/');
+      for (const [, name] of text.matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g)) {
+        if (name === undefined || !Object.hasOwn(recipes, name)) continue;
+        const list = found.get(name) ?? [];
+        if (!list.includes(rel)) list.push(rel);
+        found.set(name, list);
+      }
+    }
+  }
   return found;
 }
 

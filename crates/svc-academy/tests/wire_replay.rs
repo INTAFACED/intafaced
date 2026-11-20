@@ -1,4 +1,4 @@
-//! The wire replay. `fixtures/wire-replay.golden.json` is a copy of `services/svc-academy/src/wire-replay.golden.json`:
+//! The wire replay. `fixtures/wire-replay.golden.json` is what the TypeScript service's `wire-replay.golden.json` held:
 //! what the TypeScript router answered to every call with four inputs (valid, absent, wrong type, an extra key) from
 //! four callers (anonymous, `academy:read`, `academy:write`, an operator with two-factor), over a database that is down
 //! (`store-down`) and over a service whose every method refuses `academy.room_not_found` (`refuses`), and every
@@ -475,20 +475,4 @@ fn the_door_answers_as_the_typescript_router_did() {
             .map_or(0, |(_, (n, _))| *n);
         assert_eq!(left, 0, "{strict} still owes {left} answers");
     }
-}
-
-/// Until the switch the TypeScript replay may rewrite its golden file; the copy here stays the same file.
-#[test]
-fn the_golden_is_the_typescript_replays() {
-    let ts = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../services/svc-academy/src/wire-replay.golden.json"
-    );
-    let Ok(source) = std::fs::read_to_string(ts) else {
-        return;
-    };
-    assert!(
-        source == GOLDEN,
-        "tests/fixtures/wire-replay.golden.json differs from {ts}: copy it again"
-    );
 }

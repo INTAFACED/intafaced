@@ -1,7 +1,8 @@
 //! The svc-academy process: `svc-academy` serves; `svc-academy migrate [--down]` applies (or reverses) the academy
 //! schema's migrations.
 //!
-//! It is not wired into compose or the stack yet: the TypeScript service serves the Academy until the switch.
+//! Compose runs it from its own image (`crates/svc-academy/Dockerfile`), `svc-academy-migrate` first; the local test
+//! stack builds it and starts it the same way. It replaced the TypeScript service (`services/svc-academy`).
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;
