@@ -5,6 +5,7 @@
  * `changelogOutput`); a response that does not match is refused, never shown.
  */
 import { z } from 'zod';
+import { NOTIFY_CHANGELOG_AREA_IDS, notifyNoticeEntrySchema as entrySchema } from '@intafaced/contracts/notify-public-notices';
 import type { ApiClient, ApiResult } from './api';
 
 const impact = z.enum(['none', 'minor', 'major', 'critical']);
@@ -56,47 +57,9 @@ export const statusFeedSchema = z.object({
 });
 export type StatusFeed = z.infer<typeof statusFeedSchema>;
 
-export const CHANGELOG_AREA_IDS = [
-  'trading',
-  'market_data',
-  'account',
-  'wallet',
-  'payments',
-  'webhooks',
-  'websocket',
-  'fix',
-  'authentication',
-] as const;
-export type ChangelogAreaId = (typeof CHANGELOG_AREA_IDS)[number];
-
-const changelogSchema = z.object({
-  area: z.enum(CHANGELOG_AREA_IDS),
-  breaking: z.boolean(),
-  endpoints: z.array(z.string()),
-  scopes: z.array(z.string()),
-  addedOn: day.nullable(),
-  releaseOn: day.nullable(),
-  before: z.string().nullable(),
-  after: z.string().nullable(),
-  migrationNote: z.string().nullable(),
-  retired: z.array(z.string()),
-});
-export const entrySchema = z.object({
-  id: z.string().guid(),
-  kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog', 'fee_change']),
-  title: z.string(),
-  body: z.string(),
-  status: z.enum(['draft', 'published']),
-  publishedAt: z.string().nullable(),
-  startsAt: z.string().nullable(),
-  endsAt: z.string().nullable(),
-  version: z.number().int(),
-  changelog: changelogSchema.nullable(),
-  /** The founders' category an announcement is filed under, as filed (SP-status-03). Absent from an older svc-notify. */
-  category: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
-  /** A changelog read in a chosen language: the language this entry's title and body are in. Absent on other reads. */
-  language: z.string().optional(),
-});
+/** One notice entry and the changelog's areas, from `@intafaced/contracts/notify-public-notices`. */
+export { NOTIFY_CHANGELOG_AREA_IDS as CHANGELOG_AREA_IDS, entrySchema };
+export type ChangelogAreaId = (typeof NOTIFY_CHANGELOG_AREA_IDS)[number];
 export type ChangelogEntry = z.infer<typeof entrySchema>;
 
 const upcomingSchema = z.object({

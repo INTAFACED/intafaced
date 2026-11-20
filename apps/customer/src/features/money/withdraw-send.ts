@@ -1,56 +1,19 @@
-import { z } from 'zod';
+import type { z } from 'zod';
+import { payWithdrawLimitsSchema, payWithdrawNetworkRulesSchema, payWithdrawQuoteSchema } from '@intafaced/contracts/pay-money-room';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { decimalSchema, parseAmount } from '../../shared/money';
+import { parseAmount } from '../../shared/money';
 import { withdrawalSchema, type WithdrawalRecord } from './withdrawal-reads';
 
-// hand-declared-ok: svc-pay declares these answers in its router (`withdrawal.limits`, `withdrawal.quote`), not in a
-// browser-safe @intafaced/contracts export. Amounts are decimal strings, kept as strings and compared as scaled bigints.
-const amount = z
-  .string()
-  .regex(/^\d+(\.\d{1,18})?$/)
-  .pipe(decimalSchema);
-
-/** svc-pay `withdrawal.limits`: the owner-set figures for the caller's tier, what 24 hours used, and the most one send may be now. */
-export const withdrawLimitsSchema = z.object({
-  tier: z.string(),
-  assetId: z.string(),
-  perTx: amount,
-  rolling24h: amount,
-  used24h: amount,
-  remaining: z.object({ perTx: amount, rolling24h: amount }),
-  maxNow: amount,
-});
-export type WithdrawLimits = z.infer<typeof withdrawLimitsSchema>;
-
-/** svc-pay `withdrawal.quote`: the fee parts, net amount, total debit and expiry for one withdrawal. */
-export const withdrawQuoteSchema = z.object({
-  quoteRef: z.string(),
-  assetId: z.string(),
-  networkId: z.string(),
-  amount,
-  feeMode: z.enum(['on_top', 'deducted']),
-  fees: z.array(z.object({ kind: z.string(), amount })),
-  feeTotal: amount,
-  netAmount: amount,
-  totalDebit: amount,
-  feeSource: z.string(),
-  quotedAt: z.string().datetime({ offset: true }),
-  expiresAt: z.string().datetime({ offset: true }),
-  expired: z.boolean(),
-  acceptedBy: z.string().nullable(),
-});
-export type WithdrawQuote = z.infer<typeof withdrawQuoteSchema>;
-
-/** svc-pay `withdrawal.networkRules` (W-withdraw-02): the owner's minimum, maximum and step for one asset on one network, and its tag rule. */
-export const withdrawNetworkRulesSchema = z.object({
-  assetId: z.string(),
-  networkId: z.string(),
-  minimum: amount,
-  maximum: amount,
-  step: amount,
-  tag: z.enum(['none', 'required']),
-});
-export type WithdrawNetworkRules = z.infer<typeof withdrawNetworkRulesSchema>;
+// svc-pay `withdrawal.limits`, `withdrawal.quote` and `withdrawal.networkRules` (W-withdraw-02), from
+// `@intafaced/contracts/pay-money-room`. Amounts are decimal strings, kept as strings and compared as scaled bigints.
+export {
+  payWithdrawLimitsSchema as withdrawLimitsSchema,
+  payWithdrawNetworkRulesSchema as withdrawNetworkRulesSchema,
+  payWithdrawQuoteSchema as withdrawQuoteSchema,
+} from '@intafaced/contracts/pay-money-room';
+export type WithdrawLimits = z.infer<typeof payWithdrawLimitsSchema>;
+export type WithdrawQuote = z.infer<typeof payWithdrawQuoteSchema>;
+export type WithdrawNetworkRules = z.infer<typeof payWithdrawNetworkRulesSchema>;
 
 /** Where an amount stands against a network's rules: inside them, or the rule it breaks. A malformed amount is the field's to say. */
 export function rulesProblem(value: string, rules: WithdrawNetworkRules): 'nrBelow' | 'nrAbove' | 'nrOffStep' | null {
@@ -78,14 +41,14 @@ export const WALLET_RAIL = 'crypto-native';
 export function createWithdrawSend(api: ApiClient) {
   return {
     limits(assetId: string, signal?: AbortSignal): Promise<ApiResult<WithdrawLimits>> {
-      return api.query('pay', 'withdrawal.limits', { assetId }, withdrawLimitsSchema, { signal });
+      return api.query('pay', 'withdrawal.limits', { assetId }, payWithdrawLimitsSchema, { signal });
     },
     networkRules(assetId: string, networkId: string, signal?: AbortSignal): Promise<ApiResult<WithdrawNetworkRules>> {
-      return api.query('pay', 'withdrawal.networkRules', { assetId, networkId }, withdrawNetworkRulesSchema, { signal });
+      return api.query('pay', 'withdrawal.networkRules', { assetId, networkId }, payWithdrawNetworkRulesSchema, { signal });
     },
     /** Stores a quote under `quoteRef` and moves nothing. The same reference and terms read the same quote back. */
     quote(input: { quoteRef: string; assetId: string; networkId: string; amount: string }): Promise<ApiResult<WithdrawQuote>> {
-      return api.mutate('pay', 'withdrawal.quote', input, withdrawQuoteSchema);
+      return api.mutate('pay', 'withdrawal.quote', input, payWithdrawQuoteSchema);
     },
     /**
      * The send itself, with the short step-up token as this one call's bearer. The network and the accepted quote go with it

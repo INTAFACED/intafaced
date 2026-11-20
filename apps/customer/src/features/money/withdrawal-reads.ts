@@ -1,88 +1,27 @@
 import { z } from 'zod';
+import {
+  type PAY_WITHDRAWAL_SHOWN,
+  payCanceledWithdrawalSchema,
+  type payWithdrawalHistoryItemSchema,
+  payWithdrawalHistoryPageSchema,
+  payWithdrawalSchema,
+} from '@intafaced/contracts/pay-money-room';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
-import { decimalSchema } from '../../shared/money';
 import { withdrawalCopy } from './withdrawal-copy';
 
-/** svc-pay's customer vocabulary for a withdrawal (`withdrawals/status.ts`). */
-export const WITHDRAWAL_SHOWN = [
-  'requested',
-  'pending_review',
-  'approved',
-  'held',
-  'dispatching',
-  'broadcast',
-  'confirming',
-  'settled',
-  'rejected',
-  'canceled',
-  'failed',
-  'needs_review',
-] as const;
-
-// Published svc-pay withdrawalView. A record is a projection, not a balance
-// book, a delivery receipt or settlement evidence for another original action.
-export const withdrawalSchema = z.object({
-  id: z.string().guid(),
-  userId: z.string().guid(),
-  assetId: z.string().min(1).max(16),
-  amount: z
-    .string()
-    .regex(/^\d+(\.\d{1,18})?$/)
-    .pipe(decimalSchema),
-  rail: z.string(),
-  destination: z.object({ kind: z.string(), ref: z.string() }),
-  clientRef: z.string(),
-  railRef: z.string().nullable(),
-  attempts: z.number().int(),
-  failureCode: z.string().nullable(),
-  status: z.enum(['pending', 'held', 'sent', 'failed']),
-  createdAt: z.string().datetime({ offset: true }),
-  // W-withdraw-07: the row in the customer vocabulary (a held row split by its dispatch journal), and whether a cancel would
-  // run now. Optional so an older svc-pay without them still reads; without `cancellable` the page offers Cancel on a
-  // requested withdrawal only, which is what an older svc-pay cancels.
-  customerStatus: z.enum(WITHDRAWAL_SHOWN).optional(),
-  cancellable: z.boolean().optional(),
-});
-export type WithdrawalRecord = z.infer<typeof withdrawalSchema>;
-export type WithdrawalShown = (typeof WITHDRAWAL_SHOWN)[number];
-// svc-pay's answer to `withdrawal.cancel`: the cancelled row, and whether a hold went back (`null`: unknown on a repeat).
-const canceledSchema = withdrawalSchema.extend({ customerStatus: z.literal('canceled'), holdReleased: z.boolean().nullable() });
-export type CanceledWithdrawal = z.infer<typeof canceledSchema>;
-/** One page of `withdrawal.history` (W-withdraw-06): the person's own withdrawals newest first, in the customer vocabulary. */
-export const withdrawalHistoryItemSchema = z.object({
-  id: z.string().guid(),
-  userId: z.string().guid(),
-  assetId: z.string().min(1).max(16),
-  amount: z
-    .string()
-    .regex(/^\d+(\.\d{1,18})?$/)
-    .pipe(decimalSchema),
-  rail: z.string(),
-  destination: z.object({ kind: z.string(), ref: z.string() }),
-  clientRef: z.string(),
-  railRef: z.string().nullable(),
-  attempts: z.number().int(),
-  status: z.enum(WITHDRAWAL_SHOWN),
-  failure: z.object({ code: z.string(), known: z.boolean(), message: z.string() }).nullable(),
-  returned: z.boolean(),
-  /** What came back, when anything did, and whether it is back in available yet. An older svc-pay sends none. */
-  returnedFunds: z
-    .object({
-      amount: z
-        .string()
-        .regex(/^\d+(\.\d{1,18})?$/)
-        .pipe(decimalSchema),
-      reasonCode: z.string().nullable(),
-      credited: z.boolean(),
-    })
-    .nullable()
-    .optional(),
-  createdAt: z.string().datetime({ offset: true }),
-});
-const withdrawalHistoryPageSchema = z.object({ items: z.array(withdrawalHistoryItemSchema), next: z.string().min(1).max(200).nullable() });
-export type WithdrawalHistoryItem = z.infer<typeof withdrawalHistoryItemSchema>;
+// svc-pay's published withdrawalView and history page, from `@intafaced/contracts/pay-money-room`. A record is a projection,
+// not a balance book, a delivery receipt or settlement evidence for another original action.
+export {
+  PAY_WITHDRAWAL_SHOWN as WITHDRAWAL_SHOWN,
+  payWithdrawalHistoryItemSchema as withdrawalHistoryItemSchema,
+  payWithdrawalSchema as withdrawalSchema,
+} from '@intafaced/contracts/pay-money-room';
+export type WithdrawalRecord = z.infer<typeof payWithdrawalSchema>;
+export type WithdrawalShown = (typeof PAY_WITHDRAWAL_SHOWN)[number];
+export type CanceledWithdrawal = z.infer<typeof payCanceledWithdrawalSchema>;
+export type WithdrawalHistoryItem = z.infer<typeof payWithdrawalHistoryItemSchema>;
 export type ReturnedFunds = NonNullable<WithdrawalHistoryItem['returnedFunds']>;
-export type WithdrawalHistoryPage = z.infer<typeof withdrawalHistoryPageSchema>;
+export type WithdrawalHistoryPage = z.infer<typeof payWithdrawalHistoryPageSchema>;
 /** What the person filters History by. `null` is every coin, or every status. */
 export type WithdrawalHistoryFilter = { assetId: string | null; status: WithdrawalShown | null };
 /** Rows asked for per page. svc-pay has no default page size, so the page says it; older rows come by the cursor. */
@@ -133,7 +72,7 @@ export function createWithdrawalReads(api: ApiClient, userId: string | null, cur
         ...(filter.status ? { status: filter.status } : {}),
         ...(after ? { after } : {}),
       };
-      const result = await api.query('pay', 'withdrawal.history', input, withdrawalHistoryPageSchema, { signal });
+      const result = await api.query('pay', 'withdrawal.history', input, payWithdrawalHistoryPageSchema, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       if (!result.ok) return result;
@@ -157,7 +96,9 @@ export function createWithdrawalReads(api: ApiClient, userId: string | null, cur
       if (denied) return denied;
       const parsed = withdrawalIdSchema.safeParse(withdrawalId);
       if (!parsed.success) return refuse('error', 'withdrawal.input_invalid', 'invalidId');
-      const result = await api.query('pay', 'withdrawal.history', { id: parsed.data, limit: 1 }, withdrawalHistoryPageSchema, { signal });
+      const result = await api.query('pay', 'withdrawal.history', { id: parsed.data, limit: 1 }, payWithdrawalHistoryPageSchema, {
+        signal,
+      });
       const departed = admission(signal);
       if (departed) return departed;
       if (!result.ok) return result;
@@ -171,7 +112,7 @@ export function createWithdrawalReads(api: ApiClient, userId: string | null, cur
       if (denied) return denied;
       const parsed = withdrawalIdSchema.safeParse(withdrawalId);
       if (!parsed.success) return refuse('error', 'withdrawal.input_invalid', 'invalidId');
-      const result = await api.query('pay', 'withdrawal.get', { withdrawalId: parsed.data }, withdrawalSchema, { signal });
+      const result = await api.query('pay', 'withdrawal.get', { withdrawalId: parsed.data }, payWithdrawalSchema, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       // A named missing original is different from an absent route. Preserve
@@ -188,7 +129,7 @@ export function createWithdrawalReads(api: ApiClient, userId: string | null, cur
       if (denied) return denied;
       const parsed = withdrawalIdSchema.safeParse(withdrawalId);
       if (!parsed.success) return refuse('error', 'withdrawal.input_invalid', 'invalidId');
-      const result = await api.mutate('pay', 'withdrawal.cancel', { withdrawalId: parsed.data }, canceledSchema);
+      const result = await api.mutate('pay', 'withdrawal.cancel', { withdrawalId: parsed.data }, payCanceledWithdrawalSchema);
       const departed = admission();
       if (departed) return departed;
       if (result.ok && (result.data.userId !== userId || result.data.id.toLowerCase() !== parsed.data))
