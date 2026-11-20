@@ -1681,9 +1681,12 @@ export class UserVenueDoor {
     ) {
       invalid('signature must be { digest, signature, signedBy }');
     }
-    // A definite answer is already recorded: the same stored bytes are sent again (the venue answers its first answer, and
-    // a lost or "already used" answer never replaces the recorded one), and the answer is marked as the stored response.
-    const replayed = row.signature !== null && row.lastOutcome?.definite === true;
+    // A definite answer is already recorded: that answer is the stored response, and nothing goes to the venue again. A
+    // signed action is sent once: a venue that has since pruned the nonce answers "nonce too low", which is no
+    // answer about the action it already applied.
+    if (row.signature !== null && row.lastOutcome?.definite === true) {
+      return { actionKey: key, outcome: row.lastOutcome, readBack: null, replayed: true };
+    }
     // One request sends a key at a time: a second one at the same moment is told to retry, never raced to the venue.
     const at = this.deps.now();
     if (!(await this.deps.store.claimSend(principal.userId, key, at, new Date(at.getTime() + SEND_CLAIM_MS)))) {
@@ -1694,7 +1697,7 @@ export class UserVenueDoor {
       );
     }
     try {
-      return { ...(await this.send(principal, key, row, signature)), replayed };
+      return { ...(await this.send(principal, key, row, signature)), replayed: false };
     } finally {
       await this.deps.store.releaseSend(principal.userId, key);
     }
@@ -1727,6 +1730,15 @@ export class UserVenueDoor {
               : p.venueClientOrderId
                 ? { venueClientOrderId: p.venueClientOrderId }
                 : { nonce: p.nonce };
+    // These bytes were signed before and have no definite answer: the action may be live. An order the venue can be
+    // asked about by its key is read back first, and one the venue has is that answer, never sent again.
+    if (row.signature && p.intent.kind === 'place_order' && p.venueClientOrderId) {
+      const read = await this.orderState(principal.userId, signed);
+      if (read.state === 'accepted') {
+        const settled = (await this.deps.store.find(principal.userId, key))?.lastOutcome;
+        if (settled?.definite) return { actionKey: key, outcome: settled, readBack: null };
+      }
+    }
     let answered: VenueSubmitOutcome;
     try {
       const venue = await this.venue();
@@ -1740,6 +1752,11 @@ export class UserVenueDoor {
         return { actionKey: key, outcome, readBack: readBackOf(outcome) };
       }
       throw error;
+    }
+    // A nonce answer to bytes signed before is no answer about the first send: the venue may have applied it and then
+    // pruned its nonce (Hyperliquid keeps the newest 100, for two days). It stays not definite, to be read back.
+    if (row.signature && answered.definite && !answered.accepted && answered.refusal.code === 'nonce_rejected') {
+      answered = { definite: false, reason: 'already_submitted' };
     }
     // A definite outcome already recorded is never replaced by a not-definite one: that is the answer.
     const outcome = await this.deps.store.recordOutcome(principal.userId, key, answered, this.deps.now());

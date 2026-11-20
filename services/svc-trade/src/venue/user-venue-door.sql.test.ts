@@ -134,10 +134,17 @@ describe('UserVenueDoor on SqlPreparedActionStore (Postgres) against the TEST si
     const landed = await d.submit(principal, p.actionKey, await sign(p.prepared));
     expect(landed.outcome).toMatchObject({ definite: true, accepted: true });
 
+    // A definite answer is recorded: a re-submit is that answer, and nothing goes to the venue again, so a
+    // lost answer there can neither be sent for nor replace it.
     loseNextAnswer = true;
-    const later = await d.submit(principal, p.actionKey, await sign(p.prepared));
-    expect(loseNextAnswer).toBe(false);
-    expect(later.outcome).toEqual(landed.outcome);
+    try {
+      const later = await d.submit(principal, p.actionKey, await sign(p.prepared));
+      expect(loseNextAnswer).toBe(true);
+      expect(later).toMatchObject({ replayed: true, readBack: null });
+      expect(later.outcome).toEqual(landed.outcome);
+    } finally {
+      loseNextAnswer = false;
+    }
     expect((await store.find(USER, p.actionKey))?.lastOutcome).toEqual(landed.outcome);
   });
 
