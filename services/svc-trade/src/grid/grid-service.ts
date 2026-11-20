@@ -172,7 +172,7 @@ export interface GridExitsView {
 }
 
 /** The status reason a price exit stops a grid with. */
-export const PRICE_EXIT_REASON = 'price_exit';
+const PRICE_EXIT_REASON = 'price_exit';
 
 export const GRID_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.bots.grid.withdrawProfit' as const;
 
