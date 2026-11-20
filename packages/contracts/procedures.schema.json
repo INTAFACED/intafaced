@@ -21954,6 +21954,1136 @@
         }
       ]
     },
+    "quant.lifecycle.get": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "lifecycle.get",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "strategyVersion"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "stage": {
+            "type": "string",
+            "enum": ["draft", "backtested", "validated", "paper", "candidate", "live", "paused", "stopped", "killed", "retired"]
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "enum": ["draft", "backtested", "validated", "paper", "candidate", "live", "paused", "stopped", "killed", "retired"]
+                },
+                "to": {
+                  "type": "string",
+                  "enum": ["draft", "backtested", "validated", "paper", "candidate", "live", "paused", "stopped", "killed", "retired"]
+                },
+                "at": {
+                  "type": "string"
+                },
+                "runIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": ["from", "to", "at", "runIds"],
+              "additionalProperties": false
+            }
+          },
+          "decisions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "decision": {
+                  "type": "string",
+                  "enum": ["approved", "rejected"]
+                },
+                "at": {
+                  "type": "string"
+                },
+                "runIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "criteria": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "enum": ["paperMinutes", "maxDrawdownPercent"]
+                      },
+                      "value": {
+                        "type": ["string", "null"]
+                      }
+                    },
+                    "required": ["name", "value"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["decision", "at", "runIds", "criteria"],
+              "additionalProperties": false
+            }
+          },
+          "gate": {
+            "type": "object",
+            "properties": {
+              "approved": {
+                "type": "boolean"
+              },
+              "unset": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["paperMinutes", "maxDrawdownPercent"]
+                }
+              },
+              "checks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "check": {
+                      "type": "string",
+                      "enum": ["outOfSample", "riskLimits", "paperDuration", "maxDrawdown"]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["met", "not_met", "not_set"]
+                    },
+                    "criterion": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "enum": ["paperMinutes", "maxDrawdownPercent"]
+                            },
+                            "value": {
+                              "type": ["string", "null"]
+                            }
+                          },
+                          "required": ["name", "value"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "observed": {
+                      "type": ["string", "null"]
+                    },
+                    "runId": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": ["check", "status", "criterion", "observed", "runId"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["approved", "unset", "checks"],
+            "additionalProperties": false
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["strategyId", "strategyVersion", "stage", "stages", "decisions", "gate", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1.5
+          }
+        }
+      ]
+    },
+    "quant.lifecycle.promote": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "lifecycle.promote",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.gate_criteria_unset": "PRECONDITION_FAILED",
+        "quant.stage_transition_invalid": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "strategyVersion", "seq"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": ["approved", "rejected"]
+              },
+              "at": {
+                "type": "string"
+              },
+              "runIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "criteria": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "enum": ["paperMinutes", "maxDrawdownPercent"]
+                    },
+                    "value": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": ["name", "value"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["decision", "at", "runIds", "criteria"],
+            "additionalProperties": false
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "enum": ["draft", "backtested", "validated", "paper", "candidate", "live", "paused", "stopped", "killed", "retired"]
+                  },
+                  "to": {
+                    "type": "string",
+                    "enum": ["draft", "backtested", "validated", "paper", "candidate", "live", "paused", "stopped", "killed", "retired"]
+                  },
+                  "at": {
+                    "type": "string"
+                  },
+                  "runIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["from", "to", "at", "runIds"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lifecycle": {
+            "type": "object",
+            "properties": {
+              "strategyId": {
+                "type": "string"
+              },
+              "strategyVersion": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "stage": {
+                "type": "string",
+                "enum": ["draft", "backtested", "validated", "paper", "candidate", "live", "paused", "stopped", "killed", "retired"]
+              },
+              "stages": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string",
+                      "enum": ["draft", "backtested", "validated", "paper", "candidate", "live", "paused", "stopped", "killed", "retired"]
+                    },
+                    "to": {
+                      "type": "string",
+                      "enum": ["draft", "backtested", "validated", "paper", "candidate", "live", "paused", "stopped", "killed", "retired"]
+                    },
+                    "at": {
+                      "type": "string"
+                    },
+                    "runIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["from", "to", "at", "runIds"],
+                  "additionalProperties": false
+                }
+              },
+              "decisions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "decision": {
+                      "type": "string",
+                      "enum": ["approved", "rejected"]
+                    },
+                    "at": {
+                      "type": "string"
+                    },
+                    "runIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "criteria": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "enum": ["paperMinutes", "maxDrawdownPercent"]
+                          },
+                          "value": {
+                            "type": ["string", "null"]
+                          }
+                        },
+                        "required": ["name", "value"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["decision", "at", "runIds", "criteria"],
+                  "additionalProperties": false
+                }
+              },
+              "gate": {
+                "type": "object",
+                "properties": {
+                  "approved": {
+                    "type": "boolean"
+                  },
+                  "unset": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["paperMinutes", "maxDrawdownPercent"]
+                    }
+                  },
+                  "checks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "check": {
+                          "type": "string",
+                          "enum": ["outOfSample", "riskLimits", "paperDuration", "maxDrawdown"]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["met", "not_met", "not_set"]
+                        },
+                        "criterion": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "enum": ["paperMinutes", "maxDrawdownPercent"]
+                                },
+                                "value": {
+                                  "type": ["string", "null"]
+                                }
+                              },
+                              "required": ["name", "value"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "observed": {
+                          "type": ["string", "null"]
+                        },
+                        "runId": {
+                          "type": ["string", "null"]
+                        }
+                      },
+                      "required": ["check", "status", "criterion", "observed", "runId"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["approved", "unset", "checks"],
+                "additionalProperties": false
+              },
+              "asOf": {
+                "type": "string"
+              }
+            },
+            "required": ["strategyId", "strategyVersion", "stage", "stages", "decisions", "gate", "asOf"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["decision", "stage", "lifecycle"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "seq": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "seq": -1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1
+          }
+        }
+      ]
+    },
+    "quant.notify.get": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "notify.get",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["inapp", "email", "sms", "push"]
+            }
+          },
+          "updatedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["strategyId", "channels", "updatedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        }
+      ]
+    },
+    "quant.notify.set": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "notify.set",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.notify_channel_unavailable": "BAD_REQUEST",
+        "quant.params_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "channels": {
+            "maxItems": 8,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 20
+            }
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "channels"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["inapp", "email", "sms", "push"]
+            }
+          },
+          "updatedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["strategyId", "channels", "updatedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "channels": ["email"]
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "channels": []
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "channels": "email"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "channels": ["a", "b", "c", "d", "e", "f", "g", "h", "i"]
+          }
+        }
+      ]
+    },
+    "quant.risk.get": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "risk.get",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "caps": {
+            "type": "object",
+            "properties": {
+              "depositPercent": {
+                "type": ["string", "null"]
+              },
+              "maxPositionNotional": {
+                "type": ["string", "null"]
+              },
+              "maxDailyLoss": {
+                "type": ["string", "null"]
+              },
+              "equityFloor": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["depositPercent", "maxPositionNotional", "maxDailyLoss", "equityFloor"],
+            "additionalProperties": false
+          },
+          "floorPolicy": {
+            "type": "string",
+            "enum": ["reduce_only", "close_out"]
+          },
+          "unset": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["depositPercent", "maxPositionNotional", "maxDailyLoss", "equityFloor"]
+            }
+          },
+          "trading": {
+            "type": "object",
+            "properties": {
+              "on": {
+                "type": "boolean"
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "offByNewVersion": {
+                "type": "boolean"
+              }
+            },
+            "required": ["on", "version", "offByNewVersion"],
+            "additionalProperties": false
+          },
+          "latestVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["strategyId", "caps", "floorPolicy", "unset", "trading", "latestVersion", "updatedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "accountId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "accountId": "not-a-uuid"
+          }
+        }
+      ]
+    },
+    "quant.risk.set": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "risk.set",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.risk_cap_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "caps": {
+            "type": "object",
+            "properties": {
+              "depositPercent": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "maxPositionNotional": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "maxDailyLoss": {
+                "type": "string",
+                "maxLength": 40
+              },
+              "equityFloor": {
+                "type": "string",
+                "maxLength": 40
+              }
+            },
+            "required": ["depositPercent", "maxPositionNotional", "maxDailyLoss", "equityFloor"]
+          },
+          "floorPolicy": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "caps", "floorPolicy"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "caps": {
+            "type": "object",
+            "properties": {
+              "depositPercent": {
+                "type": ["string", "null"]
+              },
+              "maxPositionNotional": {
+                "type": ["string", "null"]
+              },
+              "maxDailyLoss": {
+                "type": ["string", "null"]
+              },
+              "equityFloor": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["depositPercent", "maxPositionNotional", "maxDailyLoss", "equityFloor"],
+            "additionalProperties": false
+          },
+          "floorPolicy": {
+            "type": "string",
+            "enum": ["reduce_only", "close_out"]
+          },
+          "unset": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["depositPercent", "maxPositionNotional", "maxDailyLoss", "equityFloor"]
+            }
+          },
+          "trading": {
+            "type": "object",
+            "properties": {
+              "on": {
+                "type": "boolean"
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "offByNewVersion": {
+                "type": "boolean"
+              }
+            },
+            "required": ["on", "version", "offByNewVersion"],
+            "additionalProperties": false
+          },
+          "latestVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["strategyId", "caps", "floorPolicy", "unset", "trading", "latestVersion", "updatedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "caps": {
+              "depositPercent": "10",
+              "maxPositionNotional": "",
+              "maxDailyLoss": "",
+              "equityFloor": ""
+            },
+            "floorPolicy": "reduce_only"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "caps": {
+              "depositPercent": "10"
+            },
+            "floorPolicy": "reduce_only"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "caps": {
+              "depositPercent": 10,
+              "maxPositionNotional": "",
+              "maxDailyLoss": "",
+              "equityFloor": ""
+            },
+            "floorPolicy": ""
+          }
+        }
+      ]
+    },
+    "quant.risk.trading": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "risk.trading",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.risk_cap_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "on": {
+            "type": "boolean"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "on"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "caps": {
+            "type": "object",
+            "properties": {
+              "depositPercent": {
+                "type": ["string", "null"]
+              },
+              "maxPositionNotional": {
+                "type": ["string", "null"]
+              },
+              "maxDailyLoss": {
+                "type": ["string", "null"]
+              },
+              "equityFloor": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["depositPercent", "maxPositionNotional", "maxDailyLoss", "equityFloor"],
+            "additionalProperties": false
+          },
+          "floorPolicy": {
+            "type": "string",
+            "enum": ["reduce_only", "close_out"]
+          },
+          "unset": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["depositPercent", "maxPositionNotional", "maxDailyLoss", "equityFloor"]
+            }
+          },
+          "trading": {
+            "type": "object",
+            "properties": {
+              "on": {
+                "type": "boolean"
+              },
+              "version": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "offByNewVersion": {
+                "type": "boolean"
+              }
+            },
+            "required": ["on", "version", "offByNewVersion"],
+            "additionalProperties": false
+          },
+          "latestVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["strategyId", "caps", "floorPolicy", "unset", "trading", "latestVersion", "updatedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "on": true
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "on": false
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "on": "yes"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1"
+          }
+        }
+      ]
+    },
     "tax.basisOverride.remove": {
       "service": "svc-tax",
       "module": "tax",

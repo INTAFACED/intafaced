@@ -1,11 +1,10 @@
 import {
-  quantLifecycleSchema,
-  quantPromoteOutputSchema,
   type QuantGateCheckResult,
   type QuantGateCriterion,
   type QuantLifecycle,
   type QuantStrategyDetail,
 } from '@intafaced/contracts/quant-algo';
+import { QUANT_LIFECYCLE_GET, QUANT_LIFECYCLE_PROMOTE } from '@intafaced/contracts/quant-strategy-settings-procedures';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -50,7 +49,7 @@ function VersionLifecycle({ strategyId, version }: { strategyId: string; version
   const [failure, setFailure] = useState<Failed | null>(null);
   const [outcome, setOutcome] = useState<'approved' | 'rejected' | null>(null);
   const read = useResource(
-    (signal) => api.query('quant', 'lifecycle.get', { strategyId, strategyVersion: version }, quantLifecycleSchema, { signal }),
+    (signal) => api.call(QUANT_LIFECYCLE_GET, { strategyId, strategyVersion: version }, { signal }),
     `quant-lifecycle:${strategyId}:${version}:${revision}`,
   );
   async function promote(seq: number) {
@@ -58,7 +57,7 @@ function VersionLifecycle({ strategyId, version }: { strategyId: string; version
     setBusy(true);
     setFailure(null);
     setOutcome(null);
-    const res = await api.mutate('quant', 'lifecycle.promote', { strategyId, strategyVersion: version, seq }, quantPromoteOutputSchema);
+    const res = await api.call(QUANT_LIFECYCLE_PROMOTE, { strategyId, strategyVersion: version, seq });
     setBusy(false);
     if (!res.ok) return setFailure(res);
     setOutcome(res.data.decision.decision);
