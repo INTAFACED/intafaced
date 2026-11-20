@@ -68,6 +68,7 @@ import { WITHDRAW_RETURN_UNBOUND_CODE, assertWithdrawReturnBound } from './withd
 import { WITHDRAW_FEE_UNBOUND_CODE, assertWithdrawFeeBound } from './withdraw-fee-binding.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
+import { balancesInput, portfolioS2sInput, txByIdInput, txByKeyInput } from './door-inputs.js';
 import { REGISTRY_REFUSALS } from './ledger/supported-assets.js';
 
 /**
@@ -172,18 +173,6 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
   if (err instanceof z.ZodError) return { status: 400, body: { message: err.message } };
   return { status: 500, body: { message: 'Ledger request failed' } };
 }
-
-const balancesInput = z.object({
-  ownerType: z.enum(['user', 'subaccount', 'module', 'house', 'treasury']),
-  ownerId: z.string(),
-});
-
-const portfolioS2sInput = balancesInput.extend({
-  chainAccount: z
-    .string()
-    .regex(/^0x[0-9a-fA-F]{40}$/)
-    .optional(),
-});
 
 export interface PortfolioIndexerCompose {
   readonly url?: string;
@@ -378,8 +367,6 @@ export async function handleS2sTransactionsExist(ledger: LedgerService, body: un
   return ledger.transactionsExist(body);
 }
 
-const txByKeyInput = z.object({ idempotencyKey: z.string().min(1).max(512) });
-
 /**
  * Was this idempotency key already booked? A read, never a post.
  *
@@ -401,8 +388,6 @@ export async function handleS2sTxByKey(ledger: LedgerService, body: unknown) {
     reason: tx.reason,
   };
 }
-
-const txByIdInput = z.object({ txId: z.string().guid() });
 
 /**
  * Fetch one booked transaction by its id. A read, never a post. The twin of
