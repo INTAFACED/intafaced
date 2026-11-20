@@ -19637,6 +19637,1147 @@
         }
       ]
     },
+    "p2p.merchants.acceptAdvertiserTerms": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "merchants.acceptAdvertiserTerms",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p",
+        "person": true
+      },
+      "refusals": {
+        "p2p.config_unset": "PRECONDITION_FAILED",
+        "p2p.terms_version_stale": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["version"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "acceptedAt": {
+            "type": "string"
+          }
+        },
+        "required": ["version", "acceptedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "version": "TEST-2026-11"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "version": ""
+          }
+        }
+      ]
+    },
+    "p2p.merchants.advertiserTerms": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchants.advertiserTerms",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.config_unset": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "acceptedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["version", "acceptedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.merchants.apiAccess": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchants.apiAccess",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "eligible": {
+            "type": "boolean"
+          },
+          "credential": {
+            "type": "string",
+            "enum": ["session", "api_key"]
+          },
+          "merchantStatus": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["applied", "approved", "rejected", "suspended", "withdrawn"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "keyPlane": {
+            "type": "string",
+            "const": "identity"
+          },
+          "rateLimitPlane": {
+            "type": "string",
+            "const": "edge"
+          },
+          "disputeResolution": {
+            "type": "string",
+            "const": "interactive_human_only"
+          }
+        },
+        "required": ["eligible", "credential", "merchantStatus", "keyPlane", "rateLimitPlane", "disputeResolution"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.merchants.decide": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "merchants.decide",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.merchant_reason_required": "BAD_REQUEST",
+        "p2p.merchant_not_found": "NOT_FOUND",
+        "p2p.merchant_transition_invalid": "CONFLICT",
+        "p2p.merchant_ineligible": "BAD_REQUEST",
+        "action_approval.identity_unwired": "PRECONDITION_FAILED",
+        "action_approval.missing": "PRECONDITION_FAILED",
+        "action_approval.consume_failed": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "to": {
+            "type": "string",
+            "enum": ["approved", "rejected", "suspended"]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "confirmOperatorId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["userId", "to", "reason"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["applied", "approved", "rejected", "suspended", "withdrawn"]
+          },
+          "appliedCompletionRate": {
+            "type": "number"
+          },
+          "appliedTradesTotal": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "appliedAt": {
+            "type": "string"
+          },
+          "decidedAt": {
+            "type": ["string", "null"]
+          },
+          "confirmOperatorId": {
+            "type": "string"
+          }
+        },
+        "required": ["userId", "status", "appliedCompletionRate", "appliedTradesTotal", "appliedAt", "decidedAt", "confirmOperatorId"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "to": "suspended",
+            "reason": "Lost a dispute",
+            "approvalId": "appr-1",
+            "operationId": "op-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "to": "withdrawn",
+            "reason": "x"
+          }
+        }
+      ]
+    },
+    "p2p.merchants.history": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchants.history",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.merchant_history_limit_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["userId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "seq": {
+              "type": "string"
+            },
+            "fromStatus": {
+              "type": "string"
+            },
+            "toStatus": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "actorId": {
+              "type": "string"
+            },
+            "actorScope": {
+              "type": "string"
+            },
+            "createdAt": {
+              "type": "string"
+            }
+          },
+          "required": ["seq", "fromStatus", "toStatus", "reason", "actorId", "actorScope", "createdAt"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "22222222-2222-4222-8222-222222222222",
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "not-an-id",
+            "limit": 50
+          }
+        }
+      ]
+    },
+    "p2p.merchants.me": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchants.me",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["applied", "approved", "rejected", "suspended", "withdrawn"]
+              },
+              "appliedCompletionRate": {
+                "type": "number"
+              },
+              "appliedTradesTotal": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "appliedAt": {
+                "type": "string"
+              },
+              "decidedAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["userId", "status", "appliedCompletionRate", "appliedTradesTotal", "appliedAt", "decidedAt"],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.merchants.myOfferCeiling": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchants.myOfferCeiling",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "maxAmount": {
+            "type": ["string", "null"]
+          },
+          "band": {
+            "type": "string",
+            "enum": ["standard", "merchant"]
+          },
+          "limitMode": {
+            "type": "string",
+            "enum": ["unset", "unlimited", "capped"]
+          },
+          "merchantStatus": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["applied", "approved", "rejected", "suspended", "withdrawn"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["maxAmount", "band", "limitMode", "merchantStatus"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.merchants.offerLimits": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchants.offerLimits",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "standardMax": {
+            "type": ["string", "null"]
+          },
+          "merchantMax": {
+            "type": ["string", "null"]
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "posture": {
+            "type": "string",
+            "enum": ["unset", "unlimited", "configured"]
+          },
+          "standardMode": {
+            "type": "string",
+            "enum": ["unset", "unlimited", "capped"]
+          },
+          "merchantMode": {
+            "type": "string",
+            "enum": ["unset", "unlimited", "capped"]
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": ["standardMax", "merchantMax", "configured", "posture", "standardMode", "merchantMode", "summary"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.merchants.postingEligibility": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchants.postingEligibility",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "fiatCurrency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          }
+        },
+        "required": ["fiatCurrency"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string",
+            "enum": ["thresholds", "none", "unset", "invalid"]
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "enum": ["kyc_tier", "completed_orders", "completion_rate"]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["met", "not_met", "unknown"]
+                },
+                "current": {
+                  "type": ["string", "null"]
+                },
+                "required": {
+                  "type": ["string", "null"]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "state", "current", "required", "reason"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["fiatCurrency", "policy", "checks"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "fiatCurrency": "EUR"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "fiatCurrency": "EURO"
+          }
+        }
+      ]
+    },
+    "p2p.merchants.presence": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchants.presence",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["online", "offline", "scheduled"]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "start": {
+                  "type": "string"
+                },
+                "end": {
+                  "type": "string"
+                }
+              },
+              "required": ["day", "start", "end"],
+              "additionalProperties": false
+            }
+          },
+          "onBoard": {
+            "type": "boolean"
+          },
+          "nextChangeAt": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["mode", "timezone", "windows", "onBoard", "nextChangeAt", "updatedAt"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "times": "nextChangeAt and updatedAt are ISO 8601 date-times, or null"
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.merchants.setPresence": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "merchants.setPresence",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.schedule_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["online", "offline", "scheduled"]
+          },
+          "timezone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "windows": {
+            "maxItems": 28,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 7
+                },
+                "start": {
+                  "type": "string",
+                  "maxLength": 5
+                },
+                "end": {
+                  "type": "string",
+                  "maxLength": 5
+                }
+              },
+              "required": ["day", "start", "end"]
+            }
+          }
+        },
+        "required": ["mode"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["online", "offline", "scheduled"]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "day": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "start": {
+                  "type": "string"
+                },
+                "end": {
+                  "type": "string"
+                }
+              },
+              "required": ["day", "start", "end"],
+              "additionalProperties": false
+            }
+          },
+          "onBoard": {
+            "type": "boolean"
+          },
+          "nextChangeAt": {
+            "type": ["string", "null"]
+          },
+          "updatedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["mode", "timezone", "windows", "onBoard", "nextChangeAt", "updatedAt"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "times": "nextChangeAt and updatedAt are ISO 8601 date-times, or null"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "mode": "scheduled",
+            "timezone": "Europe/Berlin",
+            "windows": [
+              {
+                "day": 1,
+                "start": "09:00",
+                "end": "17:00"
+              }
+            ]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "mode": "away"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "mode": "scheduled",
+            "windows": [
+              {
+                "day": 8,
+                "start": "09:00",
+                "end": "17:00"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "p2p.merchants.stats": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchants.stats",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ordersTotal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "completed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "cancelled": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "disputed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "completionRate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cancelRate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avgReleaseSecs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "avgPaySecs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "volume": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "asset": {
+                  "type": "string"
+                },
+                "fiatCurrency": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "fiatAmount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["asset", "fiatCurrency", "amount", "fiatAmount"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "ordersTotal",
+          "completed",
+          "cancelled",
+          "disputed",
+          "completionRate",
+          "cancelRate",
+          "avgReleaseSecs",
+          "avgPaySecs",
+          "volume"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.merchants.submitApplication": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "merchants.submitApplication",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.merchant_ineligible": "BAD_REQUEST",
+        "p2p.merchant_exists": "CONFLICT"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["applied", "approved", "rejected", "suspended", "withdrawn"]
+          },
+          "appliedCompletionRate": {
+            "type": "number"
+          },
+          "appliedTradesTotal": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "appliedAt": {
+            "type": "string"
+          },
+          "decidedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["userId", "status", "appliedCompletionRate", "appliedTradesTotal", "appliedAt", "decidedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.merchants.todos": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "merchants.todos",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": ["payment_required", "release_required", "counterparty_action", "dispute_open"]
+                },
+                "tradeId": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": ["buyer", "seller"]
+                },
+                "status": {
+                  "type": "string"
+                },
+                "asset": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "fiatCurrency": {
+                  "type": "string"
+                },
+                "fiatAmount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "deadlineAt": {
+                  "type": ["string", "null"]
+                },
+                "link": {
+                  "type": "string"
+                }
+              },
+              "required": ["kind", "tradeId", "role", "status", "asset", "amount", "fiatCurrency", "fiatAmount", "deadlineAt", "link"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "orders": "each deadline is an ISO 8601 date-time or null, and each link is the order page of one trade"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 20
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        }
+      ]
+    },
+    "p2p.merchants.withdraw": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "merchants.withdraw",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.merchant_reason_required": "BAD_REQUEST",
+        "p2p.merchant_not_found": "NOT_FOUND",
+        "p2p.merchant_transition_invalid": "CONFLICT",
+        "p2p.merchant_ineligible": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["reason"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["applied", "approved", "rejected", "suspended", "withdrawn"]
+          },
+          "appliedCompletionRate": {
+            "type": "number"
+          },
+          "appliedTradesTotal": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "appliedAt": {
+            "type": "string"
+          },
+          "decidedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["userId", "status", "appliedCompletionRate", "appliedTradesTotal", "appliedAt", "decidedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "reason": "Trading less"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "reason": ""
+          }
+        }
+      ]
+    },
     "p2p.reputation.appeal": {
       "service": "svc-p2p",
       "module": "p2p",
