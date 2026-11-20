@@ -1023,8 +1023,10 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   await ledgerUnchanged(who, run.read().ledger);
 });
 
-/** One of the stack's TEST seed commands (`tooling/scripts/local-test-seed.mjs`), on this stack. */
-// oxlint-disable-next-line garden/no-copied-journey-function -- only a journey file may name the seed script (local-test-seed.test.mjs), so it cannot move into a helper
+/**
+ * One of the stack's TEST seed commands (`tooling/scripts/local-test-seed.mjs`), on this stack. It stays a copy here:
+ * only a journey file may name the seed script (local-test-seed.test.mjs), so no helper can hold it.
+ */
 function seed(...args) {
   return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), ...args, '--state', localStackState()], {
     cwd: ROOT,
