@@ -43821,7 +43821,7 @@
         {
           "verdict": "accept",
           "input": {
-            "token": "tok-1"
+            "token": "placeholder-share-token"
           }
         },
         {

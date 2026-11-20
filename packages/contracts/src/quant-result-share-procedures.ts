@@ -136,7 +136,7 @@ export const QUANT_RESULT_SHARE_PUBLIC = defineProcedure({
   input: z.object({ token: z.string() }),
   output: quantPublicResultSchema,
   samples: [
-    { verdict: 'accept', input: { token: 'tok-1' } },
+    { verdict: 'accept', input: { token: 'placeholder-share-token' } },
     { verdict: 'accept', input: { token: '' } },
     { verdict: 'refuse', input: {} },
     { verdict: 'refuse', input: { token: 7 } },
