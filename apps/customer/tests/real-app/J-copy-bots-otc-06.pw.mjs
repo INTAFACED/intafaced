@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, journeyState, signOutBrowser, toUnits } from './stack.mjs';
+import { api, journeyState, restartService, signOutBrowser, toUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow, userIdOf } from './copy.mjs';
 import { confirmStepUp, testPasskey } from './p2p.mjs';
@@ -182,6 +182,8 @@ async function venueStart(page) {
   const vLeaderName = `Journey Costs Venue ${tag}`;
   // A TEST spot market of this file's own, and a TEST maker funded on it in its coin and in USDC.
   const { symbol, base } = await ownSpotMarket(J, 'JC6', 'V');
+  // An assistant trades only the markets the stack lists; this restart adds this file's own (put back after the start).
+  await restartService('trade', { LOCAL_STACK_AGENT_MARKETS_ADD: symbol });
   for (const [asset, amount] of [
     [base, '10'],
     ['USDC', '1000'],
@@ -290,7 +292,11 @@ test(`${J} #1 as a follower opens activity after a copied fill: one row for the 
     await expect(copiedOrders(await openFollow(page, leaderRef))).toHaveCount(2, { timeout: 2_000 });
   }).toPass({ timeout: 60_000 });
   // The venue start, where the copied fill carries our builder fee.
-  await venueStart(page);
+  try {
+    await venueStart(page);
+  } finally {
+    await restartService('trade', { LOCAL_STACK_AGENT_MARKETS_ADD: null });
+  }
   const { vSymbol, vLeader, vLeaderName, vOwner, vSub, vSellFill, vBalancesBefore } = run.read();
   const vLeaderId = await userIdOf(vLeader);
 
