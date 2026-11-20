@@ -4,7 +4,7 @@ import type {
   AcademyReportCentreTask,
   AcademyReportCentreTasks,
 } from '@intafaced/contracts/academy-analytics';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * The Academy's numbers and reports centre on the founder console (AC-analytics-01, AC-analytics-02; J-academy-16).

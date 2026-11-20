@@ -11,7 +11,7 @@ import type {
   SupportTicketEvent,
   SupportTicketPropertyChange,
 } from '@intafaced/contracts';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { SupportChartsLookup } from '@intafaced/contracts/support-charts-lookup';
 import type { BulkPolicyView } from './bulk';
 import type { SupportRatingSummary } from './ratings';

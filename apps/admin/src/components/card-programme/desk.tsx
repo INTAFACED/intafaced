@@ -13,7 +13,7 @@ import {
   type Setting,
 } from '@/lib/card-programme/model';
 import type { ProgrammeFigures } from '@/lib/card-programme/read';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import {
   BulkForm,
   CardholderForm,

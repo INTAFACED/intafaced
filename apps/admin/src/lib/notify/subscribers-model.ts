@@ -3,7 +3,7 @@
  * this deployment, the delivery rows of one published notice (one per subscriber and channel), the two subscribe
  * safeguards (owner values on the status page) and founder imports. Pure and browser safe.
  */
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { isRecord } from '@intafaced/contracts/guards';
 
 export const SUBSCRIBER_STATES = ['unconfirmed', 'active', 'unsubscribed'] as const;

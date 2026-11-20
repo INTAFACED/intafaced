@@ -1,5 +1,5 @@
 import type { AcademyCourse, AcademyCourseDetail, AcademyCourseList, AcademyTopicList } from '@intafaced/contracts/academy-courses';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * The Academy course desk (AC-course-structure-01): the courses staff created, one course with its history, and the
