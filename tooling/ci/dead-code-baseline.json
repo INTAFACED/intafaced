@@ -3873,7 +3873,5 @@
   "tooling/scripts/tooling-tests.mjs#NEEDS_BUILD",
   "tooling/scripts/tooling-tests.mjs#tapCounts",
   "tooling/scripts/tooling-tests.mjs#testFiles",
-  "tooling/scripts/verify-look.config.mjs",
-  "tooling/scripts/verify-look.pw.mjs",
   "tooling/tracker/features.mjs"
 ]

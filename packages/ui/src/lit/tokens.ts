@@ -271,7 +271,11 @@ export const litLight: Partial<RoleMap> = {
   'status-stale': '#8A5A00',
 };
 
-/** The light colours per accent. Blue's values are the ones written in `lit`. */
+/**
+ * The colours per accent. Blue's values are the ones written in `lit`. Ember and emerald also tint the dark page and
+ * panels (warm black; green black), the atmosphere each direction has in the owner's taste map (26 Oct 2026), so
+ * the directions differ in more than the spark. The light block comes later and keeps light neutral.
+ */
 export const accentSets: Record<Accent, Partial<RoleMap>> = {
   blue: {},
   ember: {
@@ -282,6 +286,11 @@ export const accentSets: Record<Accent, Partial<RoleMap>> = {
     'accent-text': '#FF8A4C',
     'accent-fill': '#B3430A',
     'accent-fill-2': '#7A2B05',
+    page: '#0A0604',
+    'page-2': '#100A06',
+    'solid-bg': '#150E0A',
+    'solid-bg-raised': '#1F1510',
+    'solid-bg-sunken': '#080503',
   },
   violet: {
     accent: '#A35CFF',
@@ -300,6 +309,11 @@ export const accentSets: Record<Accent, Partial<RoleMap>> = {
     'accent-text': '#2EE0A0',
     'accent-fill': '#0F7A55',
     'accent-fill-2': '#0A5A3E',
+    page: '#030806',
+    'page-2': '#06100C',
+    'solid-bg': '#0A1511',
+    'solid-bg-raised': '#111F19',
+    'solid-bg-sunken': '#030705',
   },
 };
 
@@ -367,6 +381,69 @@ const typeVars = (flatMode: boolean) => {
   return out;
 };
 
+/**
+ * Today's names drawn in the look's roles. A room not yet on a template reads `--if-*` and the older `--color-*` names,
+ * so with only the roles above it kept today's skin under the look (intafaced issue 9188: Home, the desk and Money showed
+ * almost nothing of it). Each entry points at a role, never a value, so the accent, light and Solid surfaces blocks
+ * reach those rooms too. Up and down stay today's, and their tints are mixed from them, so the red-for-up preference keeps working. Emitted on
+ * `:root[data-look]`, above the app's own light-theme overrides of the same names.
+ */
+const todayInLookRoles: Record<string, string> = {
+  '--if-bg': 'var(--lit-page)',
+  '--if-panel': 'var(--lit-solid-bg)',
+  '--if-field': 'var(--lit-solid-bg-raised)',
+  '--if-hover': 'var(--lit-solid-bg-raised)',
+  '--if-raised': 'var(--lit-solid-bg-raised)',
+  '--if-pill-active': 'color-mix(in srgb, var(--lit-text-1) 14%, var(--lit-solid-bg))',
+  '--if-popover': 'var(--lit-solid-bg-raised)',
+  '--if-menu': 'var(--lit-solid-bg-raised)',
+  '--if-tooltip': 'var(--lit-solid-bg-raised)',
+  '--if-line': 'var(--lit-line-strong)',
+  '--if-line-strong': 'var(--lit-line-strong)',
+  '--if-line-stronger': 'color-mix(in srgb, var(--lit-text-1) 24%, transparent)',
+  '--if-line-popup': 'var(--lit-line-strong)',
+  '--if-grid': 'var(--lit-line)',
+  '--if-fg': 'var(--lit-text-1)',
+  '--if-fg-2': 'var(--lit-text-2)',
+  '--if-fg-3': 'var(--lit-text-3)',
+  '--if-fg-disabled': 'var(--lit-text-disabled)',
+  '--if-overlay-hover': 'color-mix(in srgb, var(--lit-text-1) 12%, transparent)',
+  '--if-overlay-press': 'color-mix(in srgb, var(--lit-text-1) 18%, transparent)',
+  '--if-overlay-disabled': 'color-mix(in srgb, var(--lit-text-1) 6%, transparent)',
+  '--if-lime': 'var(--lit-accent-fill)',
+  '--if-lime-hover': 'color-mix(in srgb, var(--lit-accent-fill) 85%, var(--lit-on-accent))',
+  '--if-lime-press': 'var(--lit-accent-fill-2)',
+  '--if-on-lime': 'var(--lit-on-accent)',
+  '--if-lime-soft': 'color-mix(in srgb, var(--lit-accent) 16%, transparent)',
+  '--if-accent-text': 'var(--lit-accent-text)',
+  '--if-focus': 'var(--lit-focus)',
+  '--if-alloc-1': 'var(--lit-accent)',
+  '--if-warn-text': 'var(--lit-warn-text)',
+  '--if-error-text': 'var(--lit-error-text)',
+  '--if-scrim': 'var(--lit-scrim)',
+  // Tints of today's up and down, so the red-for-up swap still reaches them.
+  '--if-up-bg': 'color-mix(in srgb, var(--if-up) 22%, transparent)',
+  '--if-down-bg': 'color-mix(in srgb, var(--if-down) 22%, transparent)',
+  '--if-up-bg-soft': 'color-mix(in srgb, var(--if-up) 12%, transparent)',
+  '--if-font-ui': 'var(--lit-font-ui)',
+  '--if-r-md': 'var(--lit-radius-control)',
+  '--if-r-lg': 'var(--lit-radius-panel)',
+  '--color-background': 'var(--lit-page)',
+  '--color-shell': 'var(--lit-page-2)',
+  '--color-surface': 'var(--lit-solid-bg)',
+  '--color-surface-raised': 'var(--lit-solid-bg-raised)',
+  '--color-selected': 'color-mix(in srgb, var(--lit-accent) 14%, var(--lit-solid-bg))',
+  '--color-accent': 'var(--lit-accent-fill)',
+  '--color-text': 'var(--lit-text-1)',
+  '--color-muted': 'var(--lit-text-2)',
+  '--color-unavailable-text': 'var(--lit-text-2)',
+  '--color-mix-secondary': 'var(--lit-text-3)',
+  '--color-divider': 'var(--lit-line-strong)',
+  '--color-border': 'var(--lit-line-strong)',
+  '--color-search-border': 'var(--lit-line-strong)',
+  '--color-destination-border': 'var(--lit-line-strong)',
+};
+
 const L = `:root:where([data-look='${LIT_LOOK}'])`;
 
 /** The exact text of lit.css. */
@@ -419,6 +496,11 @@ ${decl(roleVars(solid)).replace(/^/gm, '  ')}
 /* Pro density. */
 ${L.replace('])', "][data-mode='pro'])")} {
 ${decl(roleVars(pro))}
+}
+
+/* Today's names in the look's roles (todayInLookRoles). */
+:root[data-look='${LIT_LOOK}'] {
+${decl(todayInLookRoles)}
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
-import { applyLook, isLook, resolveLook } from './look';
+import { accents } from '@intafaced/ui/lit';
+import { resolvePreviewScheme } from '../shared/preferences';
+import { LOOK_ACCENTS, applyLook, isLook, resolveAccent, resolveLook } from './look';
 
 describe('the Lit glass switch', () => {
   beforeEach(() => localStorage.clear());
@@ -25,5 +27,29 @@ describe('the Lit glass switch', () => {
 
   it('ignores unknown looks', () => {
     expect(resolveLook('?look=neon')).toBeNull();
+  });
+
+  it('draws dark unless the light preview was asked for, and forgets it with ?scheme=dark', () => {
+    expect(resolvePreviewScheme('')).toBe('dark');
+    expect(resolvePreviewScheme('?scheme=sepia')).toBe('dark');
+    expect(resolvePreviewScheme('?scheme=light')).toBe('light');
+    expect(resolvePreviewScheme('')).toBe('light');
+    expect(resolvePreviewScheme('?scheme=dark')).toBe('dark');
+    expect(resolvePreviewScheme('')).toBe('dark');
+  });
+
+  it('sets the asked accent on the root, remembers it, and drops it with ?accent=off', () => {
+    const root = document.createElement('html');
+    applyLook(root, '?look=lit&accent=ember');
+    expect(root.dataset.accent).toBe('ember');
+    applyLook(root, '');
+    expect(root.dataset.accent).toBe('ember');
+    applyLook(root, '?accent=off');
+    expect(root.dataset.accent).toBeUndefined();
+    expect(resolveAccent('?accent=neon')).toBeNull();
+  });
+
+  it('knows the same accents as the kit', () => {
+    expect([...LOOK_ACCENTS]).toEqual([...accents]);
   });
 });
