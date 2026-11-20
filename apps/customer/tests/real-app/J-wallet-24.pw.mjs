@@ -71,7 +71,7 @@ const deposit = (page) => page.locator('[data-panel="venue-deposit"]');
 async function openDeposit(page, who, credential) {
   await device(page, [credential]);
   await openRoom(page, who);
-  await expect(deposit(page).getByRole('heading', { name: 'Deposit to the venue' })).toBeVisible({ timeout: 20_000 });
+  await expect(deposit(page).getByRole('heading', { name: 'Deposit to the venue', exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(deposit(page).getByTestId('wallet-balances-as-of')).toBeVisible({ timeout: 20_000 });
 }
 
@@ -91,7 +91,7 @@ test(`${J} #1 opens Deposit to the venue: the chain and asset the venue's bridge
   const phone = await device(page);
   const who = await signUp(page, 'jwallet24');
   await openRoom(page, who);
-  await page.getByRole('button', { name: 'Create my wallet' }).click();
+  await page.getByRole('button', { name: 'Create my wallet', exact: true }).click();
   const shownAddress = page.locator('[data-embedded-address]');
   await expect(shownAddress).toHaveText(/^0x[0-9a-fA-F]{40}$/, { timeout: 20_000 });
   const { wallet } = await recorded(who);
@@ -200,7 +200,7 @@ test(`${J} #4 deposits TEST USDC and signs: one signed transfer to the venue's b
     await expect(shown).toHaveText(/^0x[0-9a-f]{64}$/, { timeout: 30_000 });
     const sent = await shown.textContent();
     // Pending: the chain holds it, not yet mined, and the page says it waits for the chain.
-    await expect(deposit(page).getByText('Waiting for TEST chain to include it.')).toBeVisible();
+    await expect(deposit(page).getByText('Waiting for TEST chain to include it.', { exact: true })).toBeVisible();
     const pending = await chainRpc('eth_getTransactionByHash', [sent]);
     expect(pending, 'the TEST chain holds the sent transaction').toBeTruthy();
     expect(pending.blockNumber).toBeNull();
@@ -250,7 +250,7 @@ test(`${J} #5 picks the TEST asset the venue's bridge doesn't take on that chain
   const asked = sends(page);
   await openDeposit(page, who, credential);
   const before = await chainWallet(address);
-  await deposit(page).getByLabel('Asset').selectOption(ROUTED);
+  await deposit(page).getByRole('combobox').selectOption(ROUTED);
   const way = deposit(page).locator('[data-asset-way="other_route"]');
   await expect(way).toContainText(
     `${ROUTED} is not taken on TEST chain. The venue takes it by another route: ${ROUTED_NETWORK}. Nothing was signed.`,
@@ -275,7 +275,7 @@ test(`${J} #6 picks the TEST asset for which the venue publishes no route: named
     const before = await chainWallet(address);
     const published = (await venueRecord(address, '/deposit-routes')).value.find((r) => r.asset === UNROUTED);
     expect(published).toEqual({ asset: UNROUTED, network: null, how: null });
-    await deposit(page).getByLabel('Asset').selectOption(UNROUTED);
+    await deposit(page).getByRole('combobox').selectOption(UNROUTED);
     await expect(deposit(page).locator('[data-asset-way="not_offered"]')).toHaveText(
       `${UNROUTED} is not taken on TEST chain. Not offered: the venue publishes no route for ${UNROUTED}. Nothing was signed.`,
     );
