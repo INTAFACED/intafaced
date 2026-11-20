@@ -30881,6 +30881,133 @@
         }
       ]
     },
+    "notify.channels": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "notify.channels",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:read",
+        "module": "notify"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "type": "string",
+              "enum": ["inapp", "email", "push", "sms"]
+            },
+            "configured": {
+              "type": "boolean"
+            },
+            "available": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": ["string", "null"]
+            },
+            "requires": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "socket": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": ["channel", "configured", "available", "reason", "requires", "socket"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "notify.deliveries": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "notify.deliveries",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:read",
+        "module": "notify"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "notificationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["notificationId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "type": "string",
+              "enum": ["inapp", "email", "push", "sms"]
+            },
+            "status": {
+              "type": "string",
+              "enum": ["pending", "accepted", "refused", "failed", "abandoned"]
+            },
+            "attempts": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "attemptedAt": {
+              "type": ["string", "null"]
+            },
+            "acceptedAt": {
+              "type": ["string", "null"]
+            },
+            "refusalCode": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": ["channel", "status", "attempts", "attemptedAt", "acceptedAt", "refusalCode"],
+          "additionalProperties": false
+        }
+      },
+      "accept": {
+        "atMostEight": "at most eight delivery rows"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "notificationId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "notificationId": "not-an-id"
+          }
+        }
+      ]
+    },
     "notify.inboxPolicy": {
       "service": "svc-notify",
       "module": "notify",
@@ -30969,6 +31096,456 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "notify.markAllRead": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "notify.markAllRead",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:write",
+        "module": "notify"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "marked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["marked"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "notify.markRead": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "notify.markRead",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:write",
+        "module": "notify"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ids": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            }
+          }
+        },
+        "required": ["ids"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "marked": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["marked"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "ids": ["33333333-3333-4333-8333-333333333333"]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "ids": []
+          }
+        }
+      ]
+    },
+    "notify.pushKey": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "notify.pushKey",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "publicKey": {
+                "type": "string"
+              },
+              "unsetCode": {
+                "type": "null"
+              }
+            },
+            "required": ["publicKey", "unsetCode"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "publicKey": {
+                "type": "null"
+              },
+              "unsetCode": {
+                "type": "string",
+                "const": "notify.push_key_unset"
+              }
+            },
+            "required": ["publicKey", "unsetCode"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "accept": {
+        "keyShape": "a set key is 16 to 256 URL-safe base64 characters"
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "notify.registerTarget": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "notify.registerTarget",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:write",
+        "module": "notify"
+      },
+      "refusals": {
+        "notify.verify_ttl_unset": "PRECONDITION_FAILED",
+        "notify.verify_code_pepper_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "channel": {
+                "type": "string",
+                "const": "email"
+              },
+              "address": {
+                "type": "string",
+                "maxLength": 320,
+                "format": "email",
+                "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+              },
+              "locale": {
+                "type": "string",
+                "maxLength": 16
+              }
+            },
+            "required": ["channel", "address"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "channel": {
+                "type": "string",
+                "const": "sms"
+              },
+              "address": {
+                "type": "string",
+                "pattern": "^\\+[1-9]\\d{6,14}$"
+              },
+              "locale": {
+                "type": "string",
+                "maxLength": 16
+              }
+            },
+            "required": ["channel", "address"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "channel": {
+                "type": "string",
+                "const": "push"
+              },
+              "address": {
+                "type": "string",
+                "minLength": 8,
+                "maxLength": 4096
+              },
+              "locale": {
+                "type": "string",
+                "maxLength": 16
+              }
+            },
+            "required": ["channel", "address"]
+          }
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["sent", "refused", "failed"]
+          },
+          "channel": {
+            "type": "string",
+            "enum": ["email", "push", "sms"]
+          },
+          "code": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": "string"
+          }
+        },
+        "required": ["status", "channel", "code", "expiresAt"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "codeOnlyWhenRefused": "a refused registration names its refusal code; a sent or failed one names none"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "channel": "sms",
+            "address": "+447700900000"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "channel": "sms",
+            "address": "07700900000"
+          }
+        }
+      ]
+    },
+    "notify.removeTarget": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "notify.removeTarget",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:write",
+        "module": "notify"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": ["email", "push", "sms"]
+          }
+        },
+        "required": ["channel"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": ["removed"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "channel": "push"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "channel": "inapp"
+          }
+        }
+      ]
+    },
+    "notify.targets": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "notify.targets",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:read",
+        "module": "notify"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "type": "string",
+              "enum": ["email", "push", "sms"]
+            },
+            "address": {
+              "type": "string"
+            },
+            "locale": {
+              "type": "string"
+            },
+            "verifiedAt": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": ["channel", "address", "locale", "verifiedAt"],
+          "additionalProperties": false
+        }
+      },
+      "accept": {
+        "atMostThree": "at most one target per out-of-app channel, so at most three"
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "notify.unreadCount": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "notify.unreadCount",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:read",
+        "module": "notify"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["count"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "notify.verifyTarget": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "notify.verifyTarget",
+      "access": {
+        "caller": "scope",
+        "scope": "notify:write",
+        "module": "notify"
+      },
+      "refusals": {
+        "notify.verify_code_pepper_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": ["email", "push", "sms"]
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{6}$"
+          }
+        },
+        "required": ["channel", "code"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "verified": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["verified", "code"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "noCodeWhenVerified": "a verified address carries no refusal code, and a code is never empty"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "channel": "email",
+            "code": "123456"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "channel": "email",
+            "code": "12345"
+          }
         }
       ]
     },

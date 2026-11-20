@@ -1,15 +1,16 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import {
+  accountChannelsHold,
+  accountDeliveriesHold,
   accountInboxSchema,
-  accountMarkedOneSchema,
+  accountMarkedOneHolds,
   accountNotificationSchema,
-  accountNotifyChannelsSchema,
-  accountNotifyDeliveriesSchema,
   accountNotifyOutOfAppSchema,
   accountNotifyPrefsSchema,
-  accountNotifyTargetsSchema,
+  accountTargetsHold,
 } from '@intafaced/contracts/notify-account-room';
+import { NOTIFY_CHANNELS, NOTIFY_DELIVERIES, NOTIFY_MARK_READ, NOTIFY_TARGETS } from '@intafaced/contracts/notify-procedures';
 import { customerRoomHref } from '../../app/navigation';
 import { useResource, type Resource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
@@ -22,9 +23,6 @@ import './notifications.css';
 const notification = accountNotificationSchema;
 const outOfApp = accountNotifyOutOfAppSchema;
 const preferences = accountNotifyPrefsSchema;
-const channels = accountNotifyChannelsSchema;
-const targets = accountNotifyTargetsSchema;
-const deliveries = accountNotifyDeliveriesSchema;
 type Notification = z.infer<typeof notification>;
 type OutOfApp = z.infer<typeof outOfApp>;
 
@@ -95,7 +93,7 @@ function NotificationRoom({ userId }: { userId: string }) {
       return;
     running.current = true;
     setBusy(true);
-    const outcome = await api.mutate('notify', 'notify.markRead', { ids: [id] }, accountMarkedOneSchema);
+    const outcome = await api.call(NOTIFY_MARK_READ, { ids: [id] }, { accept: accountMarkedOneHolds });
     running.current = false;
     if (!mounted.current) return;
     setBusy(false);
@@ -238,7 +236,7 @@ function DeliveryDetails({ item }: { item: Notification }) {
   const { api } = useSession();
   const { t, Copy, requestedLocale } = copy.useCopy();
   const records = useResource(
-    (signal) => api.query('notify', 'notify.deliveries', { notificationId: item.id }, deliveries, { signal }),
+    (signal) => api.call(NOTIFY_DELIVERIES, { notificationId: item.id }, { signal, accept: accountDeliveriesHold }),
     `deliveries:${item.userId}:${item.id}`,
   );
   return (
@@ -320,11 +318,11 @@ function NotificationSettings({ userId }: { userId: string }) {
     };
   }, []);
   const status = useResource(
-    (signal) => api.query('notify', 'notify.channels', undefined, channels, { signal }),
+    (signal) => api.call(NOTIFY_CHANNELS, undefined, { signal, accept: accountChannelsHold }),
     `notification-channels:${userId}:${revision}`,
   );
   const target = useResource(
-    (signal) => api.query('notify', 'notify.targets', undefined, targets, { signal }),
+    (signal) => api.call(NOTIFY_TARGETS, undefined, { signal, accept: accountTargetsHold }),
     `notification-targets:${userId}:${revision}`,
   );
   const prefs = useResource(

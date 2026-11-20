@@ -5,6 +5,19 @@
  */
 import { NOTIFY_INBOX_POLICY } from '@intafaced/contracts/notify-inbox-policy';
 import {
+  NOTIFY_CHANNELS,
+  NOTIFY_DELIVERIES,
+  NOTIFY_MARK_ALL_READ,
+  NOTIFY_MARK_READ,
+  NOTIFY_PUSH_KEY,
+  NOTIFY_REGISTER_TARGET,
+  NOTIFY_REMOVE_TARGET,
+  NOTIFY_TARGETS,
+  NOTIFY_UNREAD_COUNT,
+  NOTIFY_VERIFY_TARGET,
+} from '@intafaced/contracts/notify-procedures';
+import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
+import {
   ALERT_CONDITIONS,
   ALERT_KINDS,
   ALERT_SOURCES,
@@ -24,23 +37,13 @@ import {
   createWatchRuleReplySchema,
   deleteAlertReplySchema,
   notificationSchema,
-  notifyChannelsSchema,
-  notifyCountSchema,
-  notifyDeliverySchema,
   notifyListSchema,
-  notifyMarkedSchema,
-  notifyOutOfAppSchema,
   notifyPrefsSchema,
-  notifyPushKeySchema,
-  notifyRemovedSchema,
-  notifyTargetsSchema,
   priceAlertSchema,
-  registerResultSchema,
   setAlertActiveReplySchema,
   setCategoryPrefReplySchema,
   stopWatchRuleReplySchema,
   updateAlertReplySchema,
-  verifyResultSchema,
   watchRuleSchema,
   watchRulesSchema,
   webhookAttemptSchema,
@@ -60,8 +63,6 @@ export {
   alertTriggerSchema,
   notificationSchema,
   priceAlertSchema,
-  registerResultSchema,
-  verifyResultSchema,
   watchRuleSchema,
 };
 
@@ -86,7 +87,7 @@ export function listNotifications(api: ApiClient, args: ListArgs, signal?: Abort
 }
 
 export async function unreadCount(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<number>> {
-  const result = await api.query('notify', 'notify.unreadCount', undefined, notifyCountSchema, { signal });
+  const result = await api.call(NOTIFY_UNREAD_COUNT, undefined, { signal });
   return result.ok ? { ok: true, data: result.data.count } : result;
 }
 
@@ -98,20 +99,20 @@ export async function inboxPolicy(api: ApiClient, signal?: AbortSignal): Promise
 }
 
 export function markRead(api: ApiClient, ids: readonly string[]): Promise<ApiResult<{ marked: number }>> {
-  return api.mutate('notify', 'notify.markRead', { ids }, notifyMarkedSchema);
+  return api.call(NOTIFY_MARK_READ, { ids: [...ids] });
 }
 
 export function markAllRead(api: ApiClient): Promise<ApiResult<{ marked: number }>> {
-  return api.mutate('notify', 'notify.markAllRead', {}, notifyMarkedSchema);
+  return api.call(NOTIFY_MARK_ALL_READ, undefined);
 }
 
-export type OutOfAppChannel = z.infer<typeof notifyOutOfAppSchema>;
-export type ChannelRow = z.infer<typeof notifyChannelsSchema>[number];
+export type OutOfAppChannel = ProcedureInput<typeof NOTIFY_REMOVE_TARGET>['channel'];
+export type ChannelRow = ProcedureOutput<typeof NOTIFY_CHANNELS>[number];
 export type MutePref = z.infer<typeof notifyPrefsSchema>[number];
-export type TargetRow = z.infer<typeof notifyTargetsSchema>[number];
+export type TargetRow = ProcedureOutput<typeof NOTIFY_TARGETS>[number];
 
-export type RegisterResult = z.infer<typeof registerResultSchema>;
-export type VerifyResult = z.infer<typeof verifyResultSchema>;
+export type RegisterResult = ProcedureOutput<typeof NOTIFY_REGISTER_TARGET>;
+export type VerifyResult = ProcedureOutput<typeof NOTIFY_VERIFY_TARGET>;
 
 /** Save an address for a channel and ask the service to send it a six-digit code. A new request replaces the earlier code. */
 export function registerTarget(
@@ -120,33 +121,25 @@ export function registerTarget(
   address: string,
   locale: string,
 ): Promise<ApiResult<RegisterResult>> {
-  return api.mutate(
-    'notify',
-    'notify.registerTarget',
-    { channel, address, locale },
-    registerResultSchema.refine((row) => row.channel === channel, 'Wrong registration channel'),
-  );
+  return api.call(NOTIFY_REGISTER_TARGET, { channel, address, locale }, { accept: (row) => row.channel === channel });
 }
 export const verifyTarget = (api: ApiClient, channel: OutOfAppChannel, code: string): Promise<ApiResult<VerifyResult>> =>
-  api.mutate('notify', 'notify.verifyTarget', { channel, code }, verifyResultSchema);
+  api.call(NOTIFY_VERIFY_TARGET, { channel, code });
 export const removeTarget = (api: ApiClient, channel: OutOfAppChannel): Promise<ApiResult<{ removed: boolean }>> =>
-  api.mutate('notify', 'notify.removeTarget', { channel }, notifyRemovedSchema);
+  api.call(NOTIFY_REMOVE_TARGET, { channel });
 
-export type Delivery = z.infer<typeof notifyDeliverySchema>;
+export type Delivery = ProcedureOutput<typeof NOTIFY_DELIVERIES>[number];
 /** What happened to one of the signed-in person's notifications on each channel. An id that is not theirs returns an empty list. */
 export const deliveries = (api: ApiClient, notificationId: string, signal?: AbortSignal): Promise<ApiResult<Delivery[]>> =>
-  api.query('notify', 'notify.deliveries', { notificationId }, z.array(notifyDeliverySchema).max(8), { signal });
+  api.call(NOTIFY_DELIVERIES, { notificationId }, { signal });
 
-export const channelStatus = (api: ApiClient, signal?: AbortSignal) =>
-  api.query('notify', 'notify.channels', undefined, notifyChannelsSchema, { signal });
+export const channelStatus = (api: ApiClient, signal?: AbortSignal) => api.call(NOTIFY_CHANNELS, undefined, { signal });
 export const mutePrefs = (api: ApiClient, signal?: AbortSignal) =>
   api.query('notify', 'notify.mutePrefs', undefined, notifyPrefsSchema, { signal });
-export type PushKey = z.infer<typeof notifyPushKeySchema>;
+export type PushKey = ProcedureOutput<typeof NOTIFY_PUSH_KEY>;
 /** The push gateway's public application key a browser needs to subscribe; null while push delivery is not configured. */
-export const pushKey = (api: ApiClient, signal?: AbortSignal) =>
-  api.query('notify', 'notify.pushKey', undefined, notifyPushKeySchema, { signal });
-export const targets = (api: ApiClient, signal?: AbortSignal) =>
-  api.query('notify', 'notify.targets', undefined, notifyTargetsSchema, { signal });
+export const pushKey = (api: ApiClient, signal?: AbortSignal) => api.call(NOTIFY_PUSH_KEY, undefined, { signal });
+export const targets = (api: ApiClient, signal?: AbortSignal) => api.call(NOTIFY_TARGETS, undefined, { signal });
 export function setMute(api: ApiClient, channel: OutOfAppChannel, muted: boolean): Promise<ApiResult<MutePref[]>> {
   return api.mutate(
     'notify',

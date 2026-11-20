@@ -755,8 +755,6 @@
   "apps/customer/src/screens/notifications/notify-api.ts#availableChannels",
   "apps/customer/src/screens/notifications/notify-api.ts#notificationSchema",
   "apps/customer/src/screens/notifications/notify-api.ts#priceAlertSchema",
-  "apps/customer/src/screens/notifications/notify-api.ts#registerResultSchema",
-  "apps/customer/src/screens/notifications/notify-api.ts#verifyResultSchema",
   "apps/customer/src/screens/notifications/notify-api.ts#watchRuleSchema",
   "apps/customer/src/screens/notifications/use-notifications.ts#UNREAD_INTERVAL_MS",
   "apps/customer/src/screens/notifications/use-notifications.ts#useMarketNames",
