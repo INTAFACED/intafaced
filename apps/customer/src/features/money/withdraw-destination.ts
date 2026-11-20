@@ -1,17 +1,14 @@
 import { useEffect, useState } from 'react';
-import { z } from 'zod';
+import type { z } from 'zod';
+import { payWithdrawDestinationSchema } from '@intafaced/contracts/pay-money-room';
 import { useSession } from '../session';
 
 /** The rail svc-pay records for a send to another account's platform address (W-withdraw-14). */
 export const INTERNAL_RAIL = 'internal';
 
-// hand-declared-ok: svc-pay declares `withdrawal.destination`'s output in its router; there is no contracts schema for it.
 /** svc-pay `withdrawal.destination`: where an address leads. It never names the other account. */
-export const withdrawDestinationSchema = z.union([
-  z.object({ kind: z.enum(['internal', 'self', 'external']) }),
-  z.object({ kind: z.literal('unavailable'), reason: z.enum(['expired', 'unavailable']) }),
-]);
-export type WithdrawDestination = z.infer<typeof withdrawDestinationSchema>;
+export { payWithdrawDestinationSchema as withdrawDestinationSchema } from '@intafaced/contracts/pay-money-room';
+export type WithdrawDestination = z.infer<typeof payWithdrawDestinationSchema>;
 
 export type DestinationRead = { state: 'idle' } | { state: 'checking' } | { state: 'failed' } | ({ state: 'known' } & WithdrawDestination);
 
@@ -34,7 +31,7 @@ export function useWithdrawDestination(address: string): DestinationRead {
     // A short pause, so a pasted address is asked about once and typing does not ask on every key.
     const timer = setTimeout(() => {
       void api
-        .query('pay', 'withdrawal.destination', { destination: { kind: 'crypto', ref } }, withdrawDestinationSchema, {
+        .query('pay', 'withdrawal.destination', { destination: { kind: 'crypto', ref } }, payWithdrawDestinationSchema, {
           signal: controller.signal,
         })
         .then((result) => {
