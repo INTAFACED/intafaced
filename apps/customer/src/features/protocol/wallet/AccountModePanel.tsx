@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { z } from 'zod';
+import { marginModesSchema, type MarginModes } from '@intafaced/contracts/trade-margin-modes';
 import type { ApiResult } from '../../../shared/api';
 import { usePreferences } from '../../../shared/preferences';
 import { Button, Failure, Panel } from '../../../shared/ui';
@@ -7,13 +7,6 @@ import { futuresRefusal } from '../../../screens/trade/futures/refusals';
 import { useApi } from '../../session';
 import { conventionPath } from './PortfolioPanel';
 import { portfolioCopy } from './portfolio-copy';
-
-/** svc-trade's `GET /api/v1/futures/margin-modes`: every named mode, whether it is offered, and its typed refusal. */
-// hand-declared-ok: svc-trade's REST answers are declared in its handlers, not in @intafaced/contracts.
-const marginModesSchema = z.object({
-  modes: z.array(z.object({ mode: z.string(), offered: z.boolean(), code: z.string().nullable(), reason: z.string().nullable() })),
-});
-type MarginModes = z.infer<typeof marginModesSchema>;
 
 /**
  * Accounts' account mode (D-portfolio-wallet-05, J-dex-protocol-06 #7): Standard is the one mode on our own book, with a
