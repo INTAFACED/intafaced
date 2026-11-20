@@ -1,6 +1,5 @@
 import { copy as moreCopy, t as copyText, Text } from './copy';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { z } from 'zod';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Panel, Tabs } from '../../shared/ui';
@@ -13,7 +12,15 @@ import { AcademyVideos } from './AcademyVideos';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyPublic } from './AcademyPublic';
 import { CertificateShelf, CertificateVerifyPage } from './AcademyCertificates';
-import { ACADEMY_CERT_DEFINITIONS, ACADEMY_CERT_PROGRESS } from '@intafaced/contracts/academy-learner-procedures';
+import { replyAccepted } from '@intafaced/contracts/procedure';
+import {
+  ACADEMY_CERT_DEFINITIONS,
+  ACADEMY_CERT_PROGRESS,
+  ACADEMY_ENROLL_CERT_PATH,
+  ACADEMY_GRANT_CERT,
+  academyCertGrantSchema,
+  type AcademyCertGrant,
+} from '@intafaced/contracts/academy-learner-procedures';
 import { AcademyLearning, definitionsHold, progressFits, lessonHref, selectedCertificate, rememberCertificate } from './AcademyLearning';
 import { academyLearningCopy } from './academy-learning-copy';
 import { AcademyCoursePage, AcademyHub } from './AcademyHub';
@@ -152,29 +159,9 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
     </div>
   );
 }
-const uuid = z.string().guid();
-const grantReceipt = z
-  .object({
-    grant: z.object({
-      userId: uuid,
-      certId: z.string(),
-      grantedAt: z
-        .string()
-        .datetime({ offset: true })
-        .refine((value) => Number.isFinite(Date.parse(value))),
-      idempotencyKey: z.string(),
-    }),
-    alreadyGranted: z.boolean(),
-    xp: z.discriminatedUnion('emitted', [
-      z.object({ emitted: z.literal(true), idempotencyKey: z.string(), xpDelta: z.number().int().safe().positive() }),
-      z.object({ emitted: z.literal(false), reason: z.string() }),
-    ]),
-    perks: z.discriminatedUnion('status', [
-      z.object({ status: z.literal('real'), sot: z.literal('svc-identity'), academyHoldsPerkMoney: z.literal(false) }),
-      z.object({ status: z.literal('refuse'), message: z.string(), code: z.string() }),
-    ]),
-  })
-  .refine((r) => !r.xp.emitted || r.xp.idempotencyKey === `academy.cert:${r.grant.idempotencyKey}`);
+/** The grant this screen asked for: this account's, for the certificate chosen, under its one grant key. */
+const grantIsMine = (userId: string | null | undefined, certId: string) => (r: AcademyCertGrant) =>
+  r.grant.userId === userId && r.grant.certId === certId && r.grant.idempotencyKey === `cert:${userId}:${certId}`;
 function Certificates({ action, selected, setSelected }: { action: AcademyAction; selected: string; setSelected: (id: string) => void }) {
   const api = useApi(),
     { userId } = useSession();
@@ -207,8 +194,8 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
       },
     );
   const receipt = action.result?.ok
-    ? grantReceipt
-        .refine((r) => r.grant.userId === userId && r.grant.certId === selected && r.grant.idempotencyKey === `cert:${userId}:${selected}`)
+    ? academyCertGrantSchema
+        .refine((r) => replyAccepted(ACADEMY_GRANT_CERT, r) && grantIsMine(userId, selected)(r))
         .safeParse(action.result.data)
     : null;
   const definitions = useResource(
@@ -270,13 +257,10 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
                 ),
                 run: async (canDispatch) => {
                   if (!canDispatch() || !unchanged(expected)) return changed();
-                  return api.mutate(
-                    'academy',
-                    'enrollCertPath',
+                  return api.call(
+                    ACADEMY_ENROLL_CERT_PATH,
                     { pathSlug: expected.enrolPath },
-                    z
-                      .object({ userId: uuid, pathSlug: z.string(), enrolledAt: z.string().datetime({ offset: true }) })
-                      .refine((r) => r.userId === expected.userId && r.pathSlug === expected.enrolPath),
+                    { accept: (r) => r.userId === expected.userId && r.pathSlug === expected.enrolPath },
                   );
                 },
                 done: () => {
@@ -375,16 +359,10 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
                               },
                             );
                           dispatched = true;
-                          return api.mutate(
-                            'academy',
-                            'grantCert',
+                          return api.call(
+                            ACADEMY_GRANT_CERT,
                             { certId: expected.selected },
-                            grantReceipt.refine(
-                              (r) =>
-                                r.grant.userId === expected.userId &&
-                                r.grant.certId === expected.selected &&
-                                r.grant.idempotencyKey === `cert:${expected.userId}:${expected.selected}`,
-                            ),
+                            { accept: grantIsMine(expected.userId, expected.selected) },
                           );
                         },
                         done: () => {

@@ -11037,6 +11037,154 @@
         }
       ]
     },
+    "academy.endSession": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "endSession",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:write",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.session_not_found": "NOT_FOUND",
+        "academy.not_host": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["sessionId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "roomId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "title": {
+            "type": "string"
+          },
+          "hostId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["scheduled", "live", "ended", "cancelled"]
+          },
+          "startsAt": {
+            "type": "string"
+          },
+          "endsAt": {
+            "type": ["string", "null"]
+          },
+          "streamProvider": {
+            "type": ["string", "null"]
+          },
+          "sceneFingerprint": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["id", "roomId", "title", "hostId", "status", "startsAt", "endsAt", "streamProvider", "sceneFingerprint"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "sessionId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "sessionId": "not-an-id"
+          }
+        }
+      ]
+    },
+    "academy.enrollCertPath": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "enrollCertPath",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:write",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.path_not_found": "NOT_FOUND",
+        "academy.enrolment_closed": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "pathSlug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["pathSlug"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "pathSlug": {
+            "type": "string"
+          },
+          "enrolledAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["userId", "pathSlug", "enrolledAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "pathSlug": "foundations"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "pathSlug": ""
+          }
+        }
+      ]
+    },
     "academy.followDiscussionPost": {
       "service": "svc-academy",
       "module": "academy",
@@ -11097,6 +11245,162 @@
           "input": {
             "postId": "22222222-2222-4222-8222-222222222222",
             "on": "yes"
+          }
+        }
+      ]
+    },
+    "academy.grantCert": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "grantCert",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:write",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.cert_not_found": "NOT_FOUND",
+        "academy.cert_incomplete": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "certId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["certId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "grant": {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "certId": {
+                "type": "string"
+              },
+              "grantedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "idempotencyKey": {
+                "type": "string"
+              }
+            },
+            "required": ["userId", "certId", "grantedAt", "idempotencyKey"],
+            "additionalProperties": false
+          },
+          "alreadyGranted": {
+            "type": "boolean"
+          },
+          "xp": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "emitted": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "idempotencyKey": {
+                    "type": "string"
+                  },
+                  "xpDelta": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["emitted", "idempotencyKey", "xpDelta"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "emitted": {
+                    "type": "boolean",
+                    "const": false
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": ["emitted", "reason"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "perks": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "real"
+                  },
+                  "sot": {
+                    "type": "string",
+                    "const": "svc-identity"
+                  },
+                  "academyHoldsPerkMoney": {
+                    "type": "boolean",
+                    "const": false
+                  }
+                },
+                "required": ["status", "sot", "academyHoldsPerkMoney"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "refuse"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "code": {
+                    "type": "string"
+                  }
+                },
+                "required": ["status", "message", "code"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": ["grant", "alreadyGranted", "xp", "perks"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "xpKeyedByGrant": "XP sent for a grant is keyed academy.cert:<the grant key>"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "certId": "foundations"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "certId": ""
           }
         }
       ]
@@ -12370,6 +12674,185 @@
         }
       ]
     },
+    "academy.room": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "room",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:read",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.room_not_found": "NOT_FOUND",
+        "academy.sessions_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "roomId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": ["roomId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "room": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "access": {
+                "type": "string",
+                "enum": ["free", "staked", "invite"]
+              },
+              "minStake": {
+                "type": "string"
+              },
+              "capacity": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "hostId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              }
+            },
+            "required": ["id", "slug", "name", "kind", "access", "minStake", "capacity", "hostId"],
+            "additionalProperties": false
+          },
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "roomId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "hostId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["scheduled", "live", "ended", "cancelled"]
+                },
+                "startsAt": {
+                  "type": "string"
+                },
+                "endsAt": {
+                  "type": ["string", "null"]
+                },
+                "streamProvider": {
+                  "type": ["string", "null"]
+                },
+                "sceneFingerprint": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": ["id", "roomId", "title", "hostId", "status", "startsAt", "endsAt", "streamProvider", "sceneFingerprint"],
+              "additionalProperties": false
+            }
+          },
+          "pinnedLessons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slug": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["playbook", "workbook", "lesson"]
+                },
+                "path": {
+                  "type": "string",
+                  "enum": ["foundations", "markets", "builder", "sovereign"]
+                },
+                "order": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "summary": {
+                  "type": "string"
+                },
+                "estimatedMinutes": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["slug", "title", "kind", "path", "order", "summary", "estimatedMinutes"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["room", "sessions", "pinnedLessons"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "stakeIsAmount": "every room's minStake is an unsigned exact decimal (`unsignedAmountSchema`)"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "roomId": "22222222-2222-4222-8222-222222222222",
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "roomId": "not-an-id"
+          }
+        }
+      ]
+    },
     "academy.rooms": {
       "service": "svc-academy",
       "module": "academy",
@@ -12640,6 +13123,91 @@
           }
         },
         "required": ["session", "occupancy"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "sessionId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "sessionId": "not-an-id"
+          }
+        }
+      ]
+    },
+    "academy.startSession": {
+      "service": "svc-academy",
+      "module": "academy",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "startSession",
+      "access": {
+        "caller": "scope",
+        "scope": "academy:write",
+        "module": "academy"
+      },
+      "refusals": {
+        "academy.session_not_found": "NOT_FOUND",
+        "academy.not_host": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["sessionId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "roomId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "title": {
+            "type": "string"
+          },
+          "hostId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["scheduled", "live", "ended", "cancelled"]
+          },
+          "startsAt": {
+            "type": "string"
+          },
+          "endsAt": {
+            "type": ["string", "null"]
+          },
+          "streamProvider": {
+            "type": ["string", "null"]
+          },
+          "sceneFingerprint": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["id", "roomId", "title", "hostId", "status", "startsAt", "endsAt", "streamProvider", "sceneFingerprint"],
         "additionalProperties": false
       },
       "samples": [
