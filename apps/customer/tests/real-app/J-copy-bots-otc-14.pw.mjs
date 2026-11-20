@@ -1,5 +1,4 @@
 // World: book, restart
-// Market: live
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
@@ -386,7 +385,7 @@ function person() {
 async function gridMarket() {
   const s = run.read();
   if (s.market) return s.market;
-  const market = await ownSpotMarket(J, 'JGB', 'a');
+  const market = await ownSpotMarket(J, 'JGB', 'A');
   run.write({ ...run.read(), market });
   return market;
 }
