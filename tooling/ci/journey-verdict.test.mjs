@@ -15,6 +15,7 @@ import {
   HISTORY_VERSION,
   issueProblem,
   judge,
+  moneyCodeDirs,
   moneyRule,
   passesSince,
   priorSetAside,
@@ -325,6 +326,36 @@ test('the money rule: ledger-client and its direct dependants, by slice touches'
     'J-a-01#4': false,
     'J-a-01#5': false,
   });
+});
+
+test('the money rule: a Rust service crate is money, so a service stays money when its TypeScript is deleted', () => {
+  const slices = [
+    { id: 'S1', touches: ['svc-academy', 'customer: more'] },
+    { id: 'S2', touches: ['svc-docs'] },
+  ];
+  const journeys = [
+    {
+      id: 'J-a-01',
+      steps: [
+        { n: 1, slices: ['S1'] },
+        { n: 2, slices: ['S2'] },
+      ],
+    },
+  ];
+  // svc-academy in TypeScript, depending on the ledger client: money.
+  const ts = new Map([['services/svc-academy', { dependencies: { '@intafaced/ledger-client': '*' } }]]);
+  assert.deepEqual(moneyRule({ journeys, slices, manifests: ts }), { 'J-a-01#1': true, 'J-a-01#2': false });
+  // The same service as a Rust crate, its TypeScript gone: still money (the planted fault is the crate entry missing).
+  const rust = new Map([['crates/svc-academy', { name: 'svc-academy', rustService: true }]]);
+  assert.deepEqual(moneyRule({ journeys, slices, manifests: rust }), { 'J-a-01#1': true, 'J-a-01#2': false });
+  assert.deepEqual(moneyRule({ journeys, slices, manifests: new Map() }), { 'J-a-01#1': false, 'J-a-01#2': false });
+  // manifestsAt reads the repository's crates: both Rust services are there, and neither is in the reach's money folders.
+  const read = manifestsAt(fileURLToPath(new URL('../..', import.meta.url)));
+  for (const svc of ['svc-academy', 'svc-tax']) assert.equal(read.get(`crates/${svc}`)?.rustService, true, svc);
+  assert.equal(
+    [...moneyCodeDirs(read)].some((d) => d.startsWith('crates/')),
+    false,
+  );
 });
 
 test('regression state: the newest member line wins, and code blocks are skipped', () => {
