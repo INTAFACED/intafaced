@@ -16,7 +16,7 @@ vi.mock('../../app/location', async (original) => {
   return { ...real, useReturnLocation: () => '/', currentReturnLocation: () => '/' };
 });
 
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { MoreRoutes, SECTION_TABS } from './MoreRoutes';
 import { MORE_ROUTES } from './more-room-routes';
 

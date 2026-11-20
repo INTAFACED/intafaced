@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { assetIdSchema } from './asset-id.js';
 import { signedAmountSchema, unsignedAmountSchema } from './wire-amount.js';
+import { venueGridSchema } from './trade-grid-procedures.js';
 
 export const copyDeskSchema = z.object({
   feeSharePublished: z.boolean(),
@@ -215,7 +216,7 @@ export const gridBotSchema = z.object({
   gridCount: z.number(),
   investment: unsignedAmountSchema,
   reinitCount: z.number(),
-  status: z.enum(['initializing', 'running', 'paused_range', 'initialization_failed', 'stopped']),
+  status: z.enum(['signing', 'initializing', 'running', 'paused_range', 'initialization_failed', 'stopped']),
   statusReason: z.string().nullable(),
   reserve: z.object({ key: z.string(), asset: z.string(), amount: unsignedAmountSchema, releasedAt: z.string().nullable() }).nullable(),
   levels: z.array(
@@ -249,6 +250,12 @@ export const gridBotSchema = z.object({
     z.object({ state: z.literal('set'), percent: signedAmountSchema }),
   ]),
   createdAt: z.string(),
+  /** A grid on the person's own venue account (svc-trade venue-grid.ts): the venue and the agent permission it trades under. */
+  venue: venueGridSchema.shape.venue.optional(),
+  /** The grid agent permission the wallet is asked to sign, while the bot is signing. */
+  next: venueGridSchema.shape.next.optional(),
+  /** The fees the venue charged on the bot's fills, by asset: its own and our builder fee. */
+  fees: venueGridSchema.shape.fees.optional(),
 });
 
 /** A grid profit withdrawal receipt: the stored withdrawal row (trade.bots.grid.withdrawProfit, CB-bots-05). */
@@ -413,3 +420,24 @@ export const venueFollowCheckSchemaOf = <F extends z.ZodTypeAny>(follow: F) =>
     z.object({ followId: z.string(), follow }),
     z.object({ followId: z.string(), follow: z.null(), quoteAsset: z.string(), maxAggregateExposure: unsignedAmountSchema }),
   ]);
+
+/** `copy.myLeadApplication` (null: none yet) and `copy.applyToLead`: the person's own application to lead (J-copy-bots-otc-04). */
+export const leadApplicationSchema = z.object({
+  applicationId: z.string(),
+  state: z.enum(['submitted', 'under_review', 'approved', 'disapproved']),
+  displayName: z.string(),
+  submittedAt: z.string(),
+  reason: z.string().nullable(),
+  reapplyAfter: z.string().nullable().default(null),
+});
+
+const leadDecimal = z.string().regex(/^\d+(\.\d+)?$/);
+/** `copy.leadEligibility`: what applying to lead is measured by (J-copy-bots-otc-04 #1). */
+export const leadEligibilitySchema = z.object({
+  following: z.object({ leaderRef: z.string().nullable(), displayName: z.string() }).nullable(),
+  threshold: leadDecimal.nullable(),
+  venue: z.discriminatedUnion('state', [
+    z.object({ state: z.enum(['off', 'none', 'unreadable']) }),
+    z.object({ state: z.literal('read'), owner: z.string(), test: z.boolean(), usdc: leadDecimal, asOf: z.string() }),
+  ]),
+});

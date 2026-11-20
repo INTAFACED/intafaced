@@ -29,7 +29,7 @@ import {
   withdrawLimitRequest,
 } from './limit-requests.js';
 import { computePricing, PricingConfigError, resolvePricingRule, type PricingLayer, type PricingRule } from './pricing.js';
-import type { PricingQuoteView } from './schemas.js';
+import type { PayPricingQuote } from '@intafaced/contracts';
 import {
   dayKey,
   effectiveCaps,
@@ -164,7 +164,7 @@ export class ControlService {
     amount: string;
     monthlyVolume?: string;
     conversion?: boolean;
-  }): Promise<PricingQuoteView> {
+  }): Promise<PayPricingQuote> {
     const control = await loadMerchantControl(this.sql, input.merchantId);
     const resolved = resolvePricingRule(
       await loadApplicableRules(this.sql, input.merchantId, control.tier?.id ?? null, input.assetCode),

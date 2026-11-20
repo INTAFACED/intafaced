@@ -7,61 +7,47 @@ import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session';
 import type { Listing } from './trade-api';
+import {
+  alertEvaluationSchema,
+  alertListSchema,
+  cancelAlertReplySchema,
+  createAlertReplySchema,
+  evaluateAlertReplySchema,
+  priceAlertSchema,
+} from '@intafaced/contracts/notify-room';
 import { priceAlertsCopy as copy } from './price-alerts-copy';
+import { readMarker, storageKey, type Marker, type Stored } from './price-alert-marker';
 import './price-alerts.css';
 
 // Alert targets permit arbitrary decimal precision. The 18-place money parser
 // would silently change a threshold; prices never pass through a JS number.
 const validPrice = (value: string) => /^\+?\d+(?:\.\d+)?$/.test(value.trim()) && /[1-9]/.test(value.trim());
-const positive = z.string().min(1).max(64).refine(validPrice);
-const sourcedPrice = z.string().min(1).refine(validPrice);
-const date = z.string().datetime({ offset: true });
-const alertSchema = z
-  .object({
-    id: z.string().guid(),
-    userId: z.string(),
-    marketId: z.string().min(1).max(64),
-    kind: z.enum(['price', 'funding', 'liquidation_proximity', 'whale']),
-    direction: z.enum(['above', 'below']),
-    targetPrice: positive,
-    status: z.enum(['active', 'fired', 'cancelled', 'expired', 'stopped']),
-    firedAt: date.nullable(),
-    createdAt: date,
-    // Added by C-alerts-scan-01. This panel only manages level alerts (no condition, or above/below a level); a crossing alert
-    // is kept on the alerts page, because its evaluation depends on the side the price was last seen on.
-    condition: z.enum(['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than']).optional(),
+const positive = priceAlertSchema.shape.targetPrice.refine(validPrice);
+/** A watch as svc-notify answers it, narrowed to what this panel shows: a positive target, and a fired watch has its time. */
+// This panel only manages level alerts (no condition, or above/below a level); a crossing alert is kept on the alerts page,
+// because its evaluation depends on the side the price was last seen on.
+const alertSchema = priceAlertSchema
+  .pick({
+    id: true,
+    userId: true,
+    marketId: true,
+    kind: true,
+    direction: true,
+    status: true,
+    firedAt: true,
+    createdAt: true,
+    condition: true,
   })
+  .extend({ targetPrice: positive })
   .refine((row) => row.status !== 'fired' || row.firedAt !== null);
-const evaluation = z
-  .object({
-    markSource: z.enum(['dark', 'live']),
-    canFire: z.boolean(),
-    code: z.enum(['alert.price_unavailable', 'alerts.whale_mark_dark', 'channel.not_configured', 'channel.disabled']).nullable(),
-  })
-  .refine((row) => (row.canFire ? row.markSource === 'live' && row.code === null : row.code !== null));
+const evaluation = alertEvaluationSchema.refine((row) =>
+  row.canFire ? row.markSource === 'live' && row.code === null : row.code !== null,
+);
 type Alert = z.infer<typeof alertSchema>;
 type Evaluation = z.infer<typeof evaluation>;
 type Review =
   | { action: 'create'; direction: Alert['direction']; targetPrice: string; evaluation: Evaluation }
   | { action: 'cancel' | 'check'; row: Alert; evaluation: Evaluation };
-const markerSchema = z.object({
-  requestId: z.string().guid(),
-  action: z.enum(['create', 'cancel', 'check']),
-  marketId: z.string().min(1).max(64),
-  alertId: z.string().guid().nullable(),
-  createdAt: date,
-});
-type Marker = z.infer<typeof markerSchema>;
-type Stored = { marker: Marker | null; failed: boolean };
-const storageKey = (userId: string) => 'intafaced.customer.alert-unconfirmed.v1:' + userId;
-function readMarker(key: string): Stored {
-  try {
-    const raw = localStorage.getItem(key);
-    return { marker: raw === null ? null : markerSchema.parse(JSON.parse(raw)), failed: false };
-  } catch {
-    return { marker: null, failed: true };
-  }
-}
 const signature = (value: unknown) => JSON.stringify(value);
 const sameWatch = (row: Alert, original: Alert) =>
   row.id === original.id &&
@@ -125,8 +111,8 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
   const { t, Copy, languageFor } = copy.useCopy();
   const [limit, setLimit] = useState(50);
   const owned = alertSchema.refine((row) => row.userId === userId);
-  const listSchema = z
-    .object({ items: z.array(owned).max(100), evaluation })
+  const listSchema = alertListSchema
+    .extend({ items: z.array(owned).max(100), evaluation })
     .refine(({ items }) => new Set(items.map((row) => row.id)).size === items.length);
   const read = useResource(
     (signal) =>
@@ -273,7 +259,7 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
         let outcome: ApiResult<unknown>;
         let next: typeof result = null;
         if (original.action === 'create') {
-          const response = z.object({
+          const response = createAlertReplySchema.extend({
             alert: owned.refine(
               (row) =>
                 row.kind === 'price' &&
@@ -296,8 +282,8 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
         } else {
           const returned = owned.refine((row) => sameWatch(row, original.row));
           if (original.action === 'cancel') {
-            const response = z
-              .object({ cancelled: z.boolean(), alert: returned.nullable() })
+            const response = cancelAlertReplySchema
+              .extend({ alert: returned.nullable() })
               .refine((data) => data.cancelled === (data.alert?.status === 'cancelled'));
             const answer = await api.mutate('notify', 'notify.cancelAlert', { id: original.row.id }, response);
             outcome = answer;
@@ -307,29 +293,9 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
                 row: answer.data.alert,
               };
           } else {
-            const response = z
-              .object({
-                alert: returned.nullable(),
-                evaluation,
-                outcome: z.discriminatedUnion('kind', [
-                  z.object({ kind: z.literal('hold'), markPrice: sourcedPrice }),
-                  z.object({ kind: z.literal('fire'), markPrice: sourcedPrice }),
-                  z.object({
-                    kind: z.literal('refuse'),
-                    code: z.enum([
-                      'alert.price_unavailable',
-                      'alert.not_active',
-                      'alert.invalid_price',
-                      'alert.portfolio_view_unpublished',
-                      'alert.kind_unpublished',
-                      'alerts.whale_mark_dark',
-                      'channel.not_configured',
-                      'channel.disabled',
-                    ]),
-                    detail: z.string(),
-                  }),
-                ]),
-              })
+            const response = evaluateAlertReplySchema
+              .extend({ alert: returned.nullable(), evaluation })
+              .refine((data) => data.outcome.kind === 'refuse' || validPrice(data.outcome.markPrice))
               .refine(
                 (data) =>
                   data.alert !== null ||

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { competitionBoardSchema, type CampaignView, type CompetitionBoard } from '@intafaced/contracts/campaigns-catalogue';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { StatRow } from './depth-kit';

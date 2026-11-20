@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { Button, DataTable, EmptyState, Field, Loading, Panel } from '../../shared/ui';
