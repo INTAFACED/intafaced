@@ -13,12 +13,12 @@ export type LookId = 'lit';
  * `?look=off` forgets it. Remembered like the look, off by default. One entry per direction.
  */
 const DIRECTION_KEY = 'intafaced.look.direction';
-export const LOOK_DIRECTIONS = ['lit-glass'] as const;
+const LOOK_DIRECTIONS = ['lit-glass'] as const;
 export type LookDirection = (typeof LOOK_DIRECTIONS)[number];
 const isDirection = (v: string | null): v is LookDirection => v !== null && (LOOK_DIRECTIONS as readonly string[]).includes(v);
 
 /** Reads `?look=<direction>` (and remembers it) or the remembered direction; `?look=lit` and `?look=off` forget it. */
-export function resolveDirection(search: string): LookDirection | null {
+function resolveDirection(search: string): LookDirection | null {
   const asked = new URLSearchParams(search).get('look');
   try {
     if (isDirection(asked)) localStorage.setItem(DIRECTION_KEY, asked);
