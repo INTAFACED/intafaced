@@ -1,0 +1,251 @@
+{
+  "nodes": [
+    {
+      "t": "object",
+      "shape": [
+        ["idempotencyKey", 1],
+        ["module", 2],
+        ["reason", 3],
+        ["entries", 4],
+        ["meta", 15],
+        ["correlationId", 19]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "array", "el": 5, "checks": [{ "k": "min_length", "n": 2 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["account", 6],
+        ["direction", 13],
+        ["amount", 14]
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 7],
+        ["ownerId", 8],
+        ["assetId", 9],
+        ["kind", 10],
+        ["purpose", 11]
+      ],
+      "checks": [{ "k": "super", "id": "owner_id_space" }]
+    },
+    { "t": "enum", "values": ["user", "subaccount", "module", "house", "treasury"] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 16 }
+      ]
+    },
+    { "t": "enum", "values": ["available", "hold", "escrow", "stake", "collateral"] },
+    { "t": "optional", "in": 12 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "enum", "values": ["debit", "credit"] },
+    {
+      "t": "string",
+      "checks": [{ "k": "regex", "src": "/^\\d{1,20}(\\.\\d{1,18})?$/", "msg": "entry amounts are unsigned decimal strings" }]
+    },
+    { "t": "optional", "in": 16 },
+    { "t": "record", "key": 17, "value": 18 },
+    { "t": "string" },
+    { "t": "unknown" },
+    { "t": "optional", "in": 20 },
+    { "t": "string" },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 22],
+        ["ownerId", 23]
+      ]
+    },
+    { "t": "enum", "values": ["user", "subaccount", "module", "house", "treasury"] },
+    { "t": "string" },
+    { "t": "object", "shape": [["idempotencyKey", 25]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 512 }
+      ]
+    },
+    { "t": "object", "shape": [["txId", 27]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 22],
+        ["ownerId", 23],
+        ["chainAccount", 29]
+      ]
+    },
+    { "t": "optional", "in": 30 },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^0x[0-9a-fA-F]{40}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["confirmOperatorId", 32],
+        ["approvalId", 35],
+        ["operationId", 36]
+      ]
+    },
+    { "t": "optional", "in": 33 },
+    { "t": "nullable", "in": 34 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["confirmOperatorId", 38],
+        ["approvalId", 41],
+        ["operationId", 42]
+      ]
+    },
+    { "t": "optional", "in": 39 },
+    { "t": "nullable", "in": 40 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "object", "shape": [["txId", 44]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["businessKey", 46]], "catchall": "strict" },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 512 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["assetId", 48],
+        ["from", 50],
+        ["to", 52],
+        ["before", 54]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "refine", "id": "from_before_to", "path": ["to"], "msg": "from must be before to" }]
+    },
+    { "t": "optional", "in": 49 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 32 }] },
+    { "t": "optional", "in": 51 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 53 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 55 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "regex", "src": "/^[1-9]\\d{0,18}$/" },
+        { "k": "refine", "id": "seq_within_int8", "msg": "past the largest sequence the ledger can hold" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["prefix", 57],
+        ["after", 58]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "regex", "src": "/^(user|subaccount|module|house|treasury):(.{1,128})$/" }] },
+    { "t": "optional", "in": 59 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    { "t": "object", "shape": [], "catchall": "strict" },
+    { "t": "object", "shape": [["accountId", 62]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    }
+  ],
+  "inputs": {
+    "post": 0,
+    "balance": 6,
+    "balances": 21,
+    "txByKey": 24,
+    "txById": 26,
+    "portfolio": 28,
+    "unfreeze": 31,
+    "reconcile": 37,
+    "txGet": 43,
+    "trace": 45,
+    "txList": 47,
+    "accountSearch": 56,
+    "stats": 60,
+    "metadataRead": 61
+  }
+}

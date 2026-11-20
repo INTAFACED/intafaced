@@ -1,0 +1,1217 @@
+{
+  "cases": [
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - DATABASE_POOL_MAX: Invalid input: expected number, received NaN\n  - RECONCILE_CRON_MINUTES: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "HTTP_PORT": "4101",
+        "SERVICE_NAME": "svc-ledger-b",
+        "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "refuse"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger-b",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4101,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "refuse",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "refuse",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "warn"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LEDGER_IDEMPOTENCY_CONFLICT_MODE: Invalid option: expected one of \"detect\"|\"refuse\""
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "15",
+        "LEDGER_RECONCILE_RAIL_CARD_SANDBOX_URL": "https://rail.test/s",
+        "LEDGER_RECONCILE_OPEN_ITEMS_CARD_SANDBOX_URL": "http://localhost:9/o"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 15,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {
+            "card-sandbox": "https://rail.test/s"
+          },
+          "openItemsUrls": {
+            "card-sandbox": "http://localhost:9/o"
+          }
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_RECONCILE_RAIL_card_URL": "https://rail.test/s"
+      },
+      "answer": {
+        "refused": "LEDGER_RECONCILE_RAIL_card_URL: not a rail id"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_RECONCILE_RAIL_CARD_SANDBOX_URL": "http://rail.test/s"
+      },
+      "answer": {
+        "refused": "LEDGER_RECONCILE_RAIL_CARD_SANDBOX_URL: must be https (plain http only for a loopback host)"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "0"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - RECONCILE_CRON_MINUTES: Too small: expected number to be >=1"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "   "
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - RECONCILE_CRON_MINUTES: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "often"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - RECONCILE_CRON_MINUTES: Invalid input: expected number, received NaN"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": ""
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": "1"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS: Too small: expected number to be >=1000"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": "9999999999"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS: Too big: expected number to be <=3600000"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_RECONCILE_MAX_STALE_HOURS": "1.5"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LEDGER_RECONCILE_MAX_STALE_HOURS: Invalid input: expected int, received number"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_RECONCILE_MAX_STALE_HOURS": "48"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 48,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": "0"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - RECONCILE_MAX_CONSECUTIVE_INCOMPLETE: Too small: expected number to be >=1"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": "3"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_CUSTODY_LAYER": "on"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "on",
+            "LEDGER_POSTING_ENABLED": true
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_CUSTODY_LAYER": "off"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_CUSTODY_LAYER": ""
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_CUSTODY_LAYER": "maybe"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LEDGER_CUSTODY_LAYER: LEDGER_CUSTODY_LAYER must be \"on\" or \"off\", got \"maybe\""
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_POSTING_ENABLED": "false"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": false
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_POSTING_ENABLED": " YES "
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_POSTING_ENABLED": ""
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": false
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_CLOCK_SKEW_BOUND_MS": "5000"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true,
+            "LEDGER_CLOCK_SKEW_BOUND_MS": "5000"
+          },
+          "clockSkewBoundMs": 5000,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_CLOCK_SKEW_BOUND_MS": ""
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true,
+            "LEDGER_CLOCK_SKEW_BOUND_MS": ""
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "IDENTITY_URL": "http://identity:4002"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true,
+            "IDENTITY_URL": "http://identity:4002"
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "IDENTITY_URL": "identity"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - IDENTITY_URL: Invalid URL"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL": "https://example.test/snap"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true,
+            "LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL": "https://example.test/snap"
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL": "http://127.0.0.1:9/snap"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true,
+            "LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL": "http://127.0.0.1:9/snap"
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL": "http://example.test/snap"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL: must be https (plain http only for a loopback host)"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL": ""
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "accept-both",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "off",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "JWT_ACCESS_SECRET": "short-placeholder",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - INTERNAL_SERVICE_SECRET: Invalid input: expected string, received undefined\n  - JWT_ACCESS_SECRET: Too small: expected string to have >=32 characters"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "JWT_ACCESS_TTL_SECONDS": "30",
+        "JWT_ISSUER": "other",
+        "JWT_AUDIENCE": "aud"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - JWT_ACCESS_TTL_SECONDS: Too small: expected number to be >=60"
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "S2S_AUTH_MODE": "dual",
+        "INTERNAL_SERVICE_BODY_BIND": "require"
+      },
+      "answer": {
+        "ok": {
+          "env": {
+            "NODE_ENV": "test",
+            "APP_ENV": "dev",
+            "LOG_LEVEL": "info",
+            "SERVICE_NAME": "svc-ledger",
+            "LAUNCH_DROP": "0",
+            "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+            "DATABASE_POOL_MAX": 10,
+            "DATABASE_SSL": false,
+            "REDIS_URL": "redis://localhost:6379",
+            "NATS_URL": "nats://localhost:4222",
+            "NATS_STREAM_PREFIX": "INTAFACED",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_ENABLED": true,
+            "HTTP_HOST": "0.0.0.0",
+            "HTTP_PORT": 4001,
+            "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+            "INTERNAL_SERVICE_BODY_BIND": "require",
+            "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+            "JWT_ACCESS_TTL_SECONDS": 900,
+            "JWT_REFRESH_TTL_SECONDS": 2592000,
+            "JWT_ISSUER": "intafaced",
+            "JWT_AUDIENCE": "intafaced.api",
+            "S2S_AUTH_MODE": "dual",
+            "LEDGER_IDEMPOTENCY_CONFLICT_MODE": "detect",
+            "RECONCILE_CRON_MINUTES": 5,
+            "LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS": 600000,
+            "LEDGER_RECONCILE_MAX_STALE_HOURS": 24,
+            "RECONCILE_MAX_CONSECUTIVE_INCOMPLETE": 3,
+            "LEDGER_CUSTODY_LAYER": "off",
+            "LEDGER_POSTING_ENABLED": true
+          },
+          "clockSkewBoundMs": null,
+          "idempotencyConflictMode": "detect",
+          "railStatementUrls": {},
+          "openItemsUrls": {}
+        }
+      }
+    },
+    {
+      "env": {
+        "NODE_ENV": "test",
+        "DATABASE_URL": "postgres://ledger:ledger@localhost:5432/ledger",
+        "INTERNAL_SERVICE_SECRET": "placeholder-ledger-env-internal-secret-long",
+        "JWT_ACCESS_SECRET": "placeholder-ledger-env-access-secret-long-x",
+        "DATABASE_POOL_MAX": "10",
+        "RECONCILE_CRON_MINUTES": "5",
+        "HTTP_PORT": "eighty"
+      },
+      "answer": {
+        "refused": "Invalid environment for process:\n  - HTTP_PORT: Invalid input: expected number, received NaN"
+      }
+    }
+  ]
+}
