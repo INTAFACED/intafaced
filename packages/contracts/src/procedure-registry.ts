@@ -378,6 +378,7 @@ import {
   TOKEN_BUYBACK_RUNS,
   TOKEN_BURNED_SUPPLY,
 } from './token-procedures.js';
+import { TRADE_BUILDER_ACCOUNT_MODE } from './trade-builder-mode-procedures.js';
 import { COPY_MY_COPY_FEES } from './trade-copy-procedures.js';
 import { GRID_SUBMIT_PERMISSION } from './trade-grid-procedures.js';
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
@@ -736,6 +737,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   TOKEN_TREASURY,
   TOKEN_BUYBACK_RUNS,
   TOKEN_BURNED_SUPPLY,
+  TRADE_BUILDER_ACCOUNT_MODE,
   COPY_MY_COPY_FEES,
   GRID_SUBMIT_PERMISSION,
   WS_SBE_CONSUMERS,

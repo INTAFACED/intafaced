@@ -10,6 +10,7 @@ import {
   ordersTakenTogether,
   type AsOf,
   type MaybeKnown,
+  type VenueBuilderAccountMode,
   type VenueBuilderTotals,
   type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
@@ -360,8 +361,13 @@ export interface SimSwitches {
   unpublishedTakerFeeBps: Amount;
   /** The venue publishes no settlement or other fees beside its trading fees (J-derivatives-12 #2); it still charges them. */
   otherFeesUnpublished: boolean;
+  /** The venue publishes no account mode its builder addresses must be in to accrue builder fees (J-ops-console-28). */
+  builderModeRequirementUnpublished: boolean;
   loseAnswers: number;
 }
+
+/** As the venue it stands for publishes: "Builder code addresses must be in standard mode to accrue builder fees". */
+const TEST_VENUE_BUILDER_REQUIRED_MODE: VenueAccountMode = 'standard';
 
 export interface SimOptions {
   readonly id?: string;
@@ -696,6 +702,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       unpublishedMakerFeeBps: parseAmount('2'),
       unpublishedTakerFeeBps: parseAmount('5'),
       otherFeesUnpublished: false,
+      builderModeRequirementUnpublished: false,
       loseAnswers: 0,
       ...options.switches,
     };
@@ -2108,6 +2115,24 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   async builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
     this.up();
     return this.asOf([...(this.builderClaimRecord.get(builder.toLowerCase()) ?? [])]);
+  }
+
+  /**
+   * `builder`'s account mode on the TEST venue (J-ops-console-28): its main account's mode, the one `accountMode` reports
+   * and `/test/account-mode` moves (J-derivatives-29), beside the mode the venue requires for it to accrue builder fees;
+   * the `builderModeRequirementUnpublished` switch leaves the requirement unpublished.
+   */
+  async builderAccountMode(builder: string): Promise<AsOf<VenueBuilderAccountMode>> {
+    this.up();
+    const b = builder.toLowerCase();
+    const state = this.account({ venueId: this.venue.id, owner: b, subAccount: null });
+    return this.asOf({
+      builder: b,
+      mode: state.modeTest.unreported ? { known: false } : { known: true, value: state.mode },
+      required: this.switches.builderModeRequirementUnpublished
+        ? { known: false }
+        : { known: true, value: TEST_VENUE_BUILDER_REQUIRED_MODE },
+    });
   }
 
   /**
