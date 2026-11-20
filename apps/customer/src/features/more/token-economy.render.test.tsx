@@ -1,3 +1,6 @@
+import { replyAccepted } from '@intafaced/contracts/procedure';
+import { TOKEN_EMISSION_SCHEDULE, TOKEN_REVENUE_SHARE_HISTORY } from '@intafaced/contracts/token-procedures';
+import type { z } from 'zod';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -11,11 +14,9 @@ import {
   EmissionScheduleView,
   SupplyView,
   YieldHistoryView,
-  emissionScheduleSchema,
   type BuybackRateRead,
   type EmissionScheduleRead,
   type MintedRead,
-  type YieldHistoryRead,
 } from './TokenEconomy';
 
 const ready = <T,>(data: T) => ({ resource: { status: 'ready' as const, data }, reload: () => undefined });
@@ -25,10 +26,10 @@ const schedule = (data: EmissionScheduleRead, minted: MintedRead = { minted: nul
       <EmissionScheduleView schedule={ready(data)} minted={ready(minted)} />
     </SessionProvider>,
   );
-const yields = (data: YieldHistoryRead) =>
+const yields = (data: z.input<typeof TOKEN_REVENUE_SHARE_HISTORY.output>) =>
   renderToStaticMarkup(
     <SessionProvider>
-      <YieldHistoryView read={ready(data)} />
+      <YieldHistoryView read={ready(TOKEN_REVENUE_SHARE_HISTORY.output.parse(data))} />
     </SessionProvider>,
   );
 const supply = (
@@ -95,7 +96,7 @@ describe('token economy: emission schedule', () => {
     const out = schedule({ ...unset, reason: 'token.params_invalid' });
     expect(out).toContain('cannot be read');
     expect(out).not.toContain('not set');
-    expect(emissionScheduleSchema.safeParse({ ...unset, reason: null }).success).toBe(false);
+    expect(replyAccepted(TOKEN_EMISSION_SCHEDULE, TOKEN_EMISSION_SCHEDULE.output.parse({ ...unset, reason: null }))).toBe(false);
   });
 });
 
