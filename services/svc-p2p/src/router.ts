@@ -81,7 +81,6 @@ import { refuseLiveOffersUntilOwnerKms } from './instrument-kms.js';
 import { AdvertiserTermsError } from './advertiser-terms.js';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
 import { cancelReasonOf } from './cancel-reasons.js';
-import { P2P_CANCEL_REASONS, P2P_CANCELLED_BY } from '@intafaced/contracts/p2p-cancel';
 
 export type P2pRouterOptions = {
   /** Natural-person ids from `P2P_MODERATOR_USER_IDS`. Empty = unconfigured. */
