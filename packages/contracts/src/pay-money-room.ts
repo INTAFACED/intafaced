@@ -173,13 +173,28 @@ export const payAllowlistEntrySchema = z.object({
   lastUsedAt: stamp.nullable(),
 });
 
+/**
+ * What a change would do, in the wording of its op: an entry's group, asset, address and label (`add`, `delete`), the
+ * one-time policy (`onetime_policy`), or nothing (`mode_off`). Strict, so one shape is never read as another.
+ */
+const payAllowlistSubjectSchema = z.union([
+  z.strictObject({
+    group: z.enum(['internal_wallet', 'external_wallet', 'contract']),
+    assetId: z.string(),
+    address: z.string(),
+    label: z.string(),
+  }),
+  z.strictObject({ enabled: z.boolean(), assetId: z.string(), maxAmount: z.string() }),
+  z.strictObject({}),
+]);
+
 export const PAY_ALLOWLIST_CHANGE_STATUSES = ['waiting', 'approved', 'cancelled', 'rejected', 'failed'] as const;
 export const payAllowlistChangeSchema = z.object({
   id,
   userId: id,
   op: z.enum(['add', 'delete', 'mode_off', 'onetime_policy']),
   entryId: id.nullable(),
-  subject: z.record(z.string(), z.unknown()),
+  subject: payAllowlistSubjectSchema,
   requestHash: z.string().regex(/^[0-9a-f]{64}$/),
   teamAccountId: id,
   requiredApprovals: z.number().int().min(1),
@@ -199,7 +214,10 @@ export const payAllowlistPolicySchema = z.object({
   userId: id,
   enabled: z.boolean(),
   assetId: assetIdSchema.nullable(),
-  maxAmount: amount.nullable(),
+  maxAmount: z
+    .string()
+    .regex(/^\d+(\.\d{1,18})?$/)
+    .nullable(),
   setAt: stamp.nullable(),
 });
 
