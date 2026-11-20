@@ -27,6 +27,7 @@ import {
   BLUEPRINT_EXPORT,
   BLUEPRINT_ERASE,
 } from './blueprint-procedures.js';
+import { EXECUTION_SPINE } from './execution-procedures.js';
 import { FIX_ADAPTER_STATUS, FIX_DROP_COPY_FILL } from './fix-procedures.js';
 import { IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET } from './identity-api-version-procedures.js';
 import { IDENTITY_RECIPIENTS_LIST, IDENTITY_RECIPIENTS_ADD, IDENTITY_RECIPIENTS_REMOVE } from './identity-recipients-procedures.js';
@@ -244,6 +245,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   BLUEPRINT_MENTORS,
   BLUEPRINT_EXPORT,
   BLUEPRINT_ERASE,
+  EXECUTION_SPINE,
   FIX_ADAPTER_STATUS,
   FIX_DROP_COPY_FILL,
   IDENTITY_API_VERSION_GET,
