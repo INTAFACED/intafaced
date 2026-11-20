@@ -10,7 +10,7 @@ import { signIn } from './desk.mjs';
 import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain, walletSection } from './dex.mjs';
 import { api, fund, journeyState, signOutBrowser, signUpInBrowser, STACK_PORTS, stackUrl, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
-import { testDeposit, venueForThisFile } from './venue.mjs';
+import { chainBalance, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
 import { chainEth, chainReceipt, chainUsd, mineBlocks, rewardFunds } from './reward-funds.mjs';
 
 // J-campaigns-02, in the running app (docs/roadmap/journeys.json): finish a task campaign and receive the reward.
@@ -382,9 +382,9 @@ test(`${J} #1 does the first step by its real event, a deposit of TEST USDC from
   await expect(depositing.getByTestId('venue-deposit')).toHaveText(`The venue credited ${DEPOSIT} TEST USDC.`, { timeout: 60_000 });
   await depositing.context().close();
 
-  // The venue's own record of the deposit: the step counts from it, at the moment the venue saw it.
-  const venueRead = await (await api(me)).get(`/api/v1/venue/deposits?owner=${wallet}`);
-  const credited = venueRead.body.value.filter((d) => d.status === 'credited');
+  // The venue's own record of the deposit, read from the TEST venue itself, never through our door: the step counts from
+  // it, at the moment the venue saw it.
+  const credited = (await venueRecord(wallet, '/deposits')).value.filter((d) => d.status === 'credited');
   expect(credited).toHaveLength(1);
   expect(credited[0]).toMatchObject({ asset: ASSET, amount: DEPOSIT });
   await waitForProgress(me, campaign.id, 1);
@@ -626,6 +626,8 @@ test(`${J} #6 opens My Rewards and the connected wallet's activity: the reward o
   await waitForProgress(me, hold.id, 1);
   await call(me, 'POST', 'tasks.claim', { campaignId: hold.id });
   await expect.poll(async () => (await progressOf(me, hold.id)).reward.state, { timeout: 30_000 }).toBe('owed');
+  // The wallet's TEST USD as the chain itself reports it while the reward is owed: nothing of it has arrived yet.
+  const walletBefore = await chainBalance(TOKEN_USD.address, wallet);
   await signIn(page, me);
   const owedHub = await openHub(page);
   const owedRow = hubRow(owedHub, hold.id);
@@ -667,6 +669,9 @@ test(`${J} #6 opens My Rewards and the connected wallet's activity: the reward o
   await expect(activity).toHaveCount(1, { timeout: 60_000 });
   // As the chain reports it: received, the exact amount the receipt's transfer carries, confirmed.
   const transfer = receipt.transfers.find((t) => t.to === wallet);
+  // The chain's own balance of the wallet moved by exactly that transfer, the reward's amount, once.
+  expect(await chainBalance(TOKEN_USD.address, wallet)).toBe(walletBefore + transfer.value);
+  expect(transfer.value).toBe(usdUnits(REWARD));
   const shown = (Number(transfer.value) / 1e6).toString();
   await expect(activity).toContainText(`You received ${shown}`);
   await expect(activity).toContainText('Confirmed');
