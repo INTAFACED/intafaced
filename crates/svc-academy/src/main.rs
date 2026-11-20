@@ -21,12 +21,15 @@ use svc_academy::curriculum::{internal::ServiceAuth, spine};
 use svc_academy::db::Store;
 use svc_academy::door::{AcademyDoor, DoorConfig, system_now};
 use svc_academy::env::{self, AcademyEnv};
+use svc_academy::identity_approvals::IdentityApprovals;
 use svc_academy::learner::purchases::chain::RpcChain;
 use svc_academy::learner::purchases::clients::{IdentityWallets, LedgerHttp, RefundHttp};
 use svc_academy::lobbies::clients::{HttpHostRights, HttpStake};
 use svc_academy::lobbies::stream::stream_from_env;
 use svc_academy::migrate;
 use svc_academy::ports::{JetStreamBus, PaymentSettings, Ports};
+use svc_academy::programme::ambassadors::check_laws;
+use svc_academy::programme::paper::flag::TradePaperFlags;
 use svc_academy::settings::Settings;
 use svc_academy::slices;
 
@@ -151,12 +154,32 @@ fn door(
         env.str("S2S_SIGNING_KID"),
         env.str("S2S_SIGNING_KEY"),
     )?;
+    // As `index.ts`: identity consumes operator approvals whenever IDENTITY_URL is set (it has a default).
+    if let Some(identity) = env.str("IDENTITY_URL") {
+        ports.approvals = Box::new(IdentityApprovals::new(
+            identity,
+            &str_of("INTERNAL_SERVICE_SECRET"),
+            fetch.clone(),
+            service_kit::s2s::system_seconds,
+        ));
+    }
+    // svc-trade's public paper flags, only when TRADE_URL is set; unset, a drill claiming paper refuses unverified.
+    if let Some(trade) = env.str("TRADE_URL") {
+        ports.paper_flags = Box::new(TradePaperFlags::new(
+            trade,
+            env.int("ACADEMY_PAPER_MARKETS_LIMIT"),
+            fetch.clone(),
+        ));
+    }
+    let settings = Settings(env.json.clone());
+    // As `index.ts`, which parses both ambassador pay laws at load: a malformed one stops the boot.
+    check_laws(&settings).map_err(|r| format!("{} [{}]", r.message, r.code))?;
     let door = AcademyDoor::new(DoorConfig {
         edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
         env: env.raw.clone(),
         store: Store::Pool(Pool::new(&str_of("DATABASE_URL"), pool_max)),
         ports,
-        settings: Settings(env.json.clone()),
+        settings,
         now: system_now,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
