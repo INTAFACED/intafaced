@@ -1,0 +1,85 @@
+/*
+ * The Volt direction on Money: only under data-direction="volt"; nothing here applies by default.
+ * The headline becomes the money object, a matte black card holding the total in the wide grotesk with its cents a step
+ * back and the cash and crypto split; the first action beside it carries the screen's one spark. Role tokens only;
+ * unlayered so it overrides Money's own sheet (in `@layer components`).
+ */
+[data-direction='volt'] .money-head {
+  align-items: stretch;
+}
+[data-direction='volt'] .money-head__main {
+  /* the card is dark in both schemes, so the text names it reads are re-pointed at the object's own colours */
+  --if-fg: var(--lit-object-fg);
+  --if-fg-2: color-mix(in srgb, var(--lit-object-fg) 70%, transparent);
+  --color-fg: var(--lit-object-fg);
+  --color-fg-2: color-mix(in srgb, var(--lit-object-fg) 70%, transparent);
+  --color-fg-3: color-mix(in srgb, var(--lit-object-fg) 62%, transparent);
+  --color-muted: color-mix(in srgb, var(--lit-object-fg) 70%, transparent);
+  --color-up-text: var(--lit-up);
+  --color-down-text: var(--lit-down);
+  --if-up-text: var(--lit-up);
+  --if-down-text: var(--lit-down);
+  position: relative;
+  flex: 1 1 auto;
+  max-inline-size: 36rem;
+  min-block-size: 13rem;
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 1.5rem 1.375rem;
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-object-bg);
+  color: var(--lit-object-fg);
+  box-shadow: var(--lit-object-shadow);
+}
+[data-direction='volt'] .money-label {
+  font-size: var(--lit-type-micro-size);
+  letter-spacing: var(--lit-type-micro-tracking);
+  text-transform: uppercase;
+  color: var(--if-fg-2);
+}
+[data-direction='volt'] .money-total {
+  block-size: auto;
+  margin-block-start: auto;
+  padding-block-start: 2rem;
+}
+[data-direction='volt'] .money-total [data-slot='hero-number'] {
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-weight: 600;
+  font-size: clamp(2.5rem, 11vw, 4rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+[data-direction='volt'] .money-total [data-slot='hero-number'] ::part(fraction),
+[data-direction='volt'] .money-total [data-slot='hero-number'] ::part(decimal) {
+  color: color-mix(in srgb, var(--lit-object-fg) 55%, transparent);
+  font-weight: 500;
+}
+[data-direction='volt'] .money-split {
+  margin-block-start: 0.75rem;
+  color: var(--if-fg-2);
+}
+
+/* The assets list: stone slabs. */
+[data-direction='volt'] .money-card {
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+  border-color: transparent;
+}
+[data-direction='volt'] .money-actions [data-slot='button'] {
+  border-radius: var(--lit-radius-key);
+}
+
+/* Phone: the actions as one row of equal keys. */
+@media (max-width: 767px) {
+  [data-direction='volt'] .money-actions {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: var(--if-space-2);
+  }
+  [data-direction='volt'] .money-actions [data-slot='button'] {
+    padding-inline: 0.5rem;
+  }
+}

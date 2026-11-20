@@ -14,3 +14,4 @@ import '@intafaced/ui/lit/templates.css';
 // the look directions the owner chooses from (look.ts), each scoped to its own data-direction
 import '@intafaced/ui/lit/directions/lit-glass.css';
 import './look-ember.css';
+import './volt.css';

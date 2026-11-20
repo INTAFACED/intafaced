@@ -86,7 +86,17 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
   });
 
   it('colour roles hold one value type in every skin (image roles are named in contracts)', () => {
-    const imageRoles = new Set(['field', 'sheen', 'glass-bg', 'primary-bg', 'secondary-bg', 'key-bg', 'key-lit-bg']);
+    const imageRoles = new Set([
+      'field',
+      'sheen',
+      'glass-bg',
+      'primary-bg',
+      'secondary-bg',
+      'key-bg',
+      'key-lit-bg',
+      'object-bg',
+      'object-spark-bg',
+    ]);
     const isImage = (x: string) => /gradient\(/.test(x);
     for (const r of roleNames) {
       if (imageRoles.has(r)) continue;
@@ -191,6 +201,43 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
   });
 });
 
+describe('look directions: each keeps the lit budgets in both schemes', () => {
+  const surfaces = ['solid-bg', 'solid-bg-raised', 'solid-bg-sunken', 'page', 'refusal-bg'] as const;
+  const textRoles = ['text-1', 'text-2', 'text-3', 'accent-text', 'up-text', 'down-text', 'warn-text', 'error-text'] as const;
+  // as lit.css cascades: the dark set only while the light preview is off, `both` in either scheme, the light set last
+  const schemesOf = (d: (typeof directions)[number]) => {
+    const set = directionSets[d];
+    return [
+      ['dark', { ...lit, ...set.both, ...set.dark }],
+      ['light', { ...lit, ...litLight, ...set.both, ...set.light }],
+    ] as const;
+  };
+
+  it.each(directions)("%s only re-values known roles, and re-points today's names only to roles", (d) => {
+    const known = new Set<string>(roleNames);
+    const set = directionSets[d];
+    for (const k of [...Object.keys(set.dark), ...Object.keys(set.both), ...Object.keys(set.light)]) expect(known.has(k), k).toBe(true);
+    for (const v of Object.values(set.today ?? {})) expect(v).toMatch(/^(var|color-mix)\(/);
+  });
+
+  it.each(directions)('%s: text roles meet 4.5:1 on every solid surface in both schemes', (d) => {
+    for (const [scheme, m] of schemesOf(d))
+      for (const t of textRoles)
+        for (const s of surfaces) expect(contrast(m[t], m[s]), `${scheme} ${t} on ${s}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(directions)('%s: text on its fill, the risk band and the focus ring hold in both schemes', (d) => {
+    for (const [scheme, m] of schemesOf(d)) {
+      expect(contrast(m['on-accent'], m['accent-fill']), scheme).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(m['legal-fg'], m['legal-bg']), scheme).toBeGreaterThanOrEqual(7);
+      expect(contrast(m['legal-border'], m['legal-bg']), scheme).toBeGreaterThanOrEqual(3);
+      expect(contrast(m.focus, m['solid-bg']), scheme).toBeGreaterThanOrEqual(3);
+      expect(m.focus, scheme).not.toBe(m.accent);
+      for (const r of ['legal-bg', 'legal-fg', 'legal-border', 'refusal-bg', 'refusal-fg'] as const) expect(m[r], r).not.toBe(m.accent);
+    }
+  });
+});
+
 describe('lit directions keep the same contrast floors in both schemes', () => {
   const surfaces = ['solid-bg', 'solid-bg-raised', 'solid-bg-sunken', 'page', 'refusal-bg'] as const;
   const textRoles = ['text-1', 'text-2', 'text-3', 'accent-text', 'up-text', 'down-text', 'warn-text', 'error-text'] as const;
@@ -259,6 +306,7 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
       '@fontsource-variable/geist/index.css',
       '@fontsource-variable/geist-mono/index.css',
       '@fontsource-variable/bricolage-grotesque/index.css',
+      '@fontsource-variable/archivo/wdth.css',
     ]);
   });
   it('the font roles lead with the families those packages declare', () => {
