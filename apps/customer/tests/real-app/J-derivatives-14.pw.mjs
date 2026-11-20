@@ -5,7 +5,7 @@ import { test, expect } from './journey.mjs';
 import { EDGE, api, journeyState } from './stack.mjs';
 import { keyHolder, makeKey, signPrepared as signWith, withKey } from './developer.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { openVenueDesk, otherTraderKey, otherTraderRun, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
+import { openVenueDesk, otherTraderKey, otherTraderRun, testDeposit, venueAccount, venueForThisFile, venueRecord } from './venue.mjs';
 import { venueAt, venueNow } from './venue-door.mjs';
 
 // J-derivatives-14, "I build against the derivatives API and FIX" (docs/roadmap/journeys.json): a developer's program
@@ -215,7 +215,9 @@ test(`${J} #4 reads open interest, risk-limit tiers, insurance and ADL data: rat
   test.setTimeout(180_000);
   const s = state();
   const venue = await venueNow();
-  const name = (n) => `${J}-${RUN}-${test.info().retry}-${n}`;
+  // Fresh TEST traders each attempt, so a stack that kept an earlier run's positions still sees three more long and one more short.
+  const attempt = `${RUN}-${test.info().retry}-${Date.now().toString(36)}`;
+  const name = (n) => `${J}-${attempt}-${n}`;
   const before = await read(s, `/api/v1/venue/open-interest?symbol=${SYMBOL}`);
   expect(before).toMatchObject({ symbol: SYMBOL, reason: null, test: true });
 
@@ -283,11 +285,20 @@ test(`${J} #4 reads open interest, risk-limit tiers, insurance and ADL data: rat
   expect(fund).toMatchObject({ venueName: venue.name });
   expect(fund.value).toEqual(venueFund.value);
   const adl = await read(s, `/api/v1/venue/adl-disclosure`);
-  expect(adl).toMatchObject({ venueName: venue.name });
-  expect(adl.rules).toMatchObject({ version: expect.any(String), text: expect.any(String) });
-  const alerts = await read(s, '/api/v1/venue/liquidation-alerts');
-  expect(Array.isArray(alerts.value)).toBe(true);
-  // A public alert names no account.
+  const venueRules = (await venueAt('/adl-rules', {})).value;
+  expect(venueRules).toBeTruthy();
+  expect(adl).toMatchObject({ venueName: venue.name, rules: { version: venueRules.version, text: venueRules.text } });
+  // The venue auto-deleverages one of the three longs at 100: its public alert reaches the key with no account in it,
+  // the same alerts the venue itself publishes for XDEV-PERP.
+  const deleveraged = otherTraderKey(name('long-1')).address.toLowerCase();
+  await venueAt('/test/deleverage', { account: await venueAccount(deleveraged), symbol: SYMBOL, price: '100' });
+  const alerts = await read(s, `/api/v1/venue/liquidation-alerts?symbol=${SYMBOL}`);
+  const venueAlerts = (await venueAt('/liquidation-alerts', { symbol: SYMBOL, limit: 50 })).value;
+  const pub = (a) => ({ kind: a.kind, symbol: a.symbol, side: a.side, size: a.size, price: a.price, alertedAt: a.alertedAt });
+  expect(alerts.value).toEqual(venueAlerts.map(pub));
+  expect(alerts.value).toContainEqual(
+    expect.objectContaining({ kind: 'deleverage', symbol: SYMBOL, side: 'long', size: '1', price: '100' }),
+  );
   for (const a of alerts.value) expect(Object.keys(a).sort()).toEqual(['alertedAt', 'kind', 'price', 'side', 'size', 'symbol']);
 });
 

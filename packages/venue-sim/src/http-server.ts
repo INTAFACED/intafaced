@@ -590,6 +590,16 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     priceBandBps: parseAmount('500'),
     listedBy: VENUE_LISTED,
     oracle: {},
+    // TEST: liquidated as XBIL-PERP is, so the venue publishes its liquidation and auto-deleveraging alerts here.
+    liquidation: {
+      feeRate: parseAmount('0.01'),
+      priceRule:
+        "TEST rule: when the mark price reaches a position's liquidation price, the venue closes half the position at the " +
+        'mark, and the rest at the next mark it sets; it takes no order, leverage or margin change on the position in between.',
+      feeRule:
+        "TEST rule: a liquidation fee of 1% of each part's value at the mark, capped at the margin that part leaves, paid " +
+        "into the venue's TEST insurance fund.",
+    },
   },
 ];
 
