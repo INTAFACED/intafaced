@@ -11,7 +11,7 @@
  * carry the choice (the service refuses it on a stop, an OCO, a bracket or an OTO), so the others are not offered.
  */
 import { feeDiscountLadderSchema, tokenAccessSchema } from '@intafaced/contracts/token-fee-discount';
-import { TOKEN_ACCESS_OF } from '@intafaced/contracts/token-procedures';
+import { TOKEN_ACCESS_OF, TOKEN_FEE_DISCOUNT_GET } from '@intafaced/contracts/token-procedures';
 import { feeTokenTermsSchema, publishedFeeTokenSchema } from '@intafaced/contracts/trade-desk-reads';
 import type { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../../shared/api';
@@ -41,7 +41,7 @@ export const feeTokenFetcher =
     if (!terms || !signedIn) return { ok: true, data: { terms, access: null, accessRefused: null, ladder: null } };
     const [access, ladder] = await Promise.all([
       api.call(TOKEN_ACCESS_OF, undefined, { signal, accept: (access) => tokenAccessSchema.safeParse(access).success }),
-      api.query('token', 'feeDiscount.get', undefined, feeDiscountLadderSchema, { signal }),
+      api.call(TOKEN_FEE_DISCOUNT_GET, undefined, { signal, accept: (row) => feeDiscountLadderSchema.safeParse(row).success }),
     ]);
     return {
       ok: true,
@@ -49,7 +49,8 @@ export const feeTokenFetcher =
         terms,
         access: access.ok ? { staked: access.data.staked, discountBps: access.data.feeDiscountBps } : null,
         accessRefused: access.ok ? null : (access.code ?? 'unavailable'),
-        ladder: ladder.ok ? (ladder.data.schedule?.tiers ?? null) : null,
+        // The record keeps the stored row's own shape; this desk reads it as the ladder its check above accepted.
+        ladder: ladder.ok ? (feeDiscountLadderSchema.parse(ladder.data).schedule?.tiers ?? null) : null,
       },
     };
   };
