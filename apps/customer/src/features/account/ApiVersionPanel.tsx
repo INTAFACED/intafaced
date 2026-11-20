@@ -113,32 +113,17 @@ export function ApiVersionPanel() {
       {API_DEPRECATIONS.length === 0 ? (
         <p>{t('deprecationsNone')}</p>
       ) : (
-        <table data-testid="api-version__deprecations">
-          <thead>
-            <tr>
-              <th scope="col">{t('colField')}</th>
-              <th scope="col">{t('colReplacement')}</th>
-              <th scope="col">{t('colSince')}</th>
-              <th scope="col">{t('colRemoval')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {API_DEPRECATIONS.map((d) => (
-              <tr key={d.id}>
-                <th scope="row">
-                  <code>
-                    {d.method} {d.path} {d.field}
-                  </code>
-                </th>
-                <td>
-                  <code>{d.replacement}</code>
-                </td>
-                <td>{d.deprecatedIn}</td>
-                <td>{d.sunset ?? t('removalNotSet')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ul data-testid="api-version__deprecations">
+          {API_DEPRECATIONS.map((d) => (
+            <li key={d.id}>
+              <code>
+                {d.method} {d.path} {d.field}
+              </code>{' '}
+              · {t('colReplacement')}: <code>{d.replacement}</code> · {t('colSince')} {d.deprecatedIn} · {t('colRemoval')}:{' '}
+              {d.sunset ?? t('removalNotSet')}
+            </li>
+          ))}
+        </ul>
       )}
       <p className="muted">{t('deprecationsNote')}</p>
     </section>

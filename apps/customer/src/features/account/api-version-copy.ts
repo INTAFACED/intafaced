@@ -18,7 +18,6 @@ const messages = {
   loading: 'Reading the account default',
   deprecationsTitle: 'Deprecated fields',
   deprecationsNone: 'No field is deprecated.',
-  colField: 'Field',
   colReplacement: 'Use instead',
   colSince: 'Deprecated in',
   colRemoval: 'Removal date',
