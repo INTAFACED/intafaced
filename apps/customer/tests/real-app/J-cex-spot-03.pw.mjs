@@ -28,6 +28,7 @@ import {
   venueRecord,
 } from './venue.mjs';
 import { otherVenueTrader, venueBook, VENUE_SPOT } from './venue-reads.mjs';
+import { minuteStart } from './clock.mjs';
 
 // J-cex-spot-03 on the person's own venue account (B1, project-state #1789), in the running app against the stack's TEST
 // venue simulator. One test per step, titled "J-cex-spot-03 #<n>", run in order on one TEST account: #1 makes the verified
@@ -664,8 +665,8 @@ test(`${J} #7 picks good-till-date with an expiry, then a past time: the review 
   await expect(expires).toBeVisible();
   const price = await awayBid();
   const form = buyForm(page);
-  await form.getByRole('textbox', { name: 'Price' }).fill(price);
-  await form.getByRole('textbox', { name: 'Amount' }).fill('0.001');
+  await form.getByRole('textbox', { name: 'Price', exact: true }).fill(price);
+  await form.getByRole('textbox', { name: 'Amount', exact: true }).fill('0.001');
 
   // A past time: refused in words, the Buy button off, and nothing is sent, signed or kept by our engine.
   const sent = writes(page);
@@ -676,23 +677,18 @@ test(`${J} #7 picks good-till-date with an expiry, then a past time: the review 
   const asked = wallet.requests.length;
   await expires.fill(localField(Date.now() - 3600_000));
   await expect(page.getByText('Pick a time in the future.', { exact: true })).toBeVisible();
-  const buy = form.getByRole('button', { name: 'Buy BTC' });
+  const buy = form.getByRole('button', { name: 'Buy BTC', exact: true });
   await expect(buy).toBeDisabled();
   await buy.click({ force: true });
   await expect(reviewSheet(page)).toHaveCount(0);
-  await page.waitForTimeout(500);
-  expect(sent, 'a past time sends nothing to the venue').toEqual([]);
-  expect(kept, 'and nothing to our engine').toEqual([]);
-  expect(wallet.requests.length, 'and the wallet is asked for nothing').toBe(asked);
-  expect(await openOrders(owner)).toEqual([]);
 
-  // The next whole minute at least 60 seconds away (the field is to the minute): the review shows that expiry.
-  const at = Math.ceil((Date.now() + 60_000) / 60_000) * 60_000;
+  // A whole minute at least 60 seconds away (the field is to the minute): the review shows that expiry.
+  const at = minuteStart(Date.now() + 120_000);
   const atIso = new Date(at).toISOString();
   await expires.fill(localField(at));
   await expect(page.getByText('Pick a time in the future.', { exact: true })).toHaveCount(0);
   const answer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/preview' && r.request().method() === 'POST');
-  await form.getByRole('textbox', { name: 'Amount' }).fill('0.002');
+  await form.getByRole('textbox', { name: 'Amount', exact: true }).fill('0.002');
   expect((await answer).status()).toBe(200);
   await expect(buy).toBeEnabled();
   await buy.click();
@@ -703,6 +699,12 @@ test(`${J} #7 picks good-till-date with an expiry, then a past time: the review 
   await expect(line(review, 'expires')).toHaveText(picked);
   await expect(line(review, 'expires')).toHaveAttribute('data-expire-at', atIso);
   await expect(line(review, 'expiry-engine')).toContainText('At the expiry INTAFACED cancels whatever is unfilled on the venue');
+
+  // Nothing was sent, signed or kept for the past time: everything since was a preview and this review.
+  expect(sent, 'a past time sends nothing to the venue').toEqual([]);
+  expect(kept, 'and nothing to our engine').toEqual([]);
+  expect(wallet.requests.length, 'and the wallet is asked for nothing').toBe(asked);
+  expect(await openOrders(owner)).toEqual([]);
 
   // The agent permission our engine cancels with, approved once in the person's wallet from the review.
   const permission = review.getByRole('region', { name: 'Agent permission', exact: true });
@@ -719,7 +721,7 @@ test(`${J} #7 picks good-till-date with an expiry, then a past time: the review 
   // Confirm: our engine keeps the order and its expiry, and the person's wallet signs the order itself, once.
   const signing = wallet.requests.length;
   const created = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/venue/spot-orders' && r.request().method() === 'POST');
-  await review.getByRole('button', { name: 'Confirm buy' }).click();
+  await review.getByRole('button', { name: 'Confirm buy', exact: true }).click();
   const made = await created;
   expect(made.status(), JSON.stringify(await made.json().catch(() => null)).slice(0, 300)).toBe(201);
   expect(made.request().postDataJSON()).toMatchObject({ kind: 'gtd', side: 'buy', quantity: '0.002', entryPrice: price, expireAt: atIso });
