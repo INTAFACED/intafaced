@@ -552,3 +552,49 @@ export const merchantReserveViewSchema = z
   })
   .strict();
 export type MerchantReserveView = z.infer<typeof merchantReserveViewSchema>;
+
+/** `merchantControl.pricing.preview`: the fee one payment would pay under the rule chain in force, with the band it fell in. */
+export const payPricingQuoteSchema = z
+  .object({
+    ruleId: z.string().guid(),
+    appliedLayer: z.enum(['global', 'tier', 'merchant']),
+    ruleChain: z.array(
+      z.object({ layer: z.enum(['global', 'tier', 'merchant']), ruleId: z.string().guid(), version: payVersionSchema }).strict(),
+    ),
+    monthlyVolumeBefore: payAmountStringSchema,
+    bandFrom: payAmountStringSchema,
+    feeBps: payBpsSchema,
+    flatFee: payAmountStringSchema.nullable(),
+    spreadBps: payBpsSchema.nullable(),
+    roundingBeneficiary: z.enum(['platform', 'merchant']),
+    roundingMode: z.enum(['ceil', 'floor']),
+    bpsFee: payAmountStringSchema,
+    feeBeforeClamp: payAmountStringSchema,
+    fee: payAmountStringSchema,
+    spread: payAmountStringSchema.nullable(),
+    net: z.string().regex(/^-?\d+(\.\d{1,18})?$/),
+  })
+  .strict();
+export type PayPricingQuote = z.infer<typeof payPricingQuoteSchema>;
+
+/** `merchantControl.usage`: each cap in force with what is used and left of it. Counts travel as digit strings too. */
+export const payControlUsageSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    tierId: payRiskTierIdSchema.nullable(),
+    asOf: payTimestampSchema,
+    rows: z.array(
+      z
+        .object({
+          kind: z.enum(['per_payment', 'daily_intake', 'monthly_intake', 'daily_payout', 'beneficiaries_per_day']),
+          assetCode: payAssetCodeSchema.nullable(),
+          limit: payAmountStringSchema,
+          used: payAmountStringSchema.nullable(),
+          remaining: payAmountStringSchema.nullable(),
+          resetsAt: payTimestampSchema.nullable(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type PayControlUsage = z.infer<typeof payControlUsageSchema>;
