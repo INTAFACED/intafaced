@@ -1102,17 +1102,20 @@ jobs:
 
       # A journey that failed leaves the shard green (the run's verdict judges it), so the logs print then too: otherwise a
       # flaky step's service-side cause goes with the runner (#8044: svc-ledger did not answer, and nothing kept why).
+      # A step that failed and passed on its retry counts as `flaky`, not `unexpected`, so both print (#9235: two
+      # J-cex-spot-16 sign-ins waited over 5 s on identity, and no log was kept). 200 lines covered about a minute of
+      # identity, too little to reach a failure minutes before the shard ended (#8299), so each log keeps 2000.
       - name: Stack logs on failure
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
         run: |
-          if [ "$JOB_STATUS" = success ] && ! jq -e '(.stats.unexpected // 0) > 0' "$JOURNEY_REPORT" >/dev/null 2>&1; then
+          if [ "$JOB_STATUS" = success ] && ! jq -e '((.stats.unexpected // 0) + (.stats.flaky // 0)) > 0' "$JOURNEY_REPORT" >/dev/null 2>&1; then
             exit 0
           fi
           for f in "$LOCAL_STACK_STATE"/logs/*.log; do
             [ -f "$f" ] || continue
-            echo "::group::$f"; tail -200 "$f" || true; echo "::endgroup::"
+            echo "::group::$f"; tail -2000 "$f" || true; echo "::endgroup::"
           done
 
       - name: Stop the stack
