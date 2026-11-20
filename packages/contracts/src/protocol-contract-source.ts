@@ -64,14 +64,21 @@ export type ContractSource = z.infer<typeof contractSourceSchema>;
  */
 export const ABI_TUPLE_DEPTH = 8;
 
+/** One function parameter as the ABI states it; a tuple's `components` are parameters again. */
+export interface AbiParam {
+  name: string;
+  type: string;
+  components?: AbiParam[] | undefined;
+}
+
 /** Each depth is named (`id`), so the record's export writes it once under `$defs` and every input and output refers to it. */
-const abiParamAt = (depth: number): z.ZodObject =>
+const abiParamAt = (depth: number): z.ZodType<AbiParam> =>
   (depth === 0
     ? z.object({ name: z.string(), type: z.string() }).strict()
     : z.object({ name: z.string(), type: z.string(), components: z.array(abiParamAt(depth - 1)).optional() }).strict()
   ).meta({ id: `ProtocolAbiParamDepth${depth}` });
 
-const abiParam = abiParamAt(ABI_TUPLE_DEPTH) as unknown as z.ZodType<{ name: string; type: string; components?: unknown[] }>;
+const abiParam = abiParamAt(ABI_TUPLE_DEPTH);
 
 export const contractFunctionSchema = z
   .object({

@@ -3,6 +3,7 @@ import { decodeAbiParameters, encodeFunctionData, getAddress, type Abi, type Abi
 import {
   CONTRACT_ARGUMENT_INVALID,
   CONTRACT_FUNCTION_UNKNOWN,
+  type AbiParam,
   type ContractFunction,
   type ContractSource,
 } from '@intafaced/contracts/protocol-contract-source';
@@ -143,7 +144,7 @@ const canonicalType = (param: AbiParameter): string =>
 
 export const functionSignature = (fn: AbiFunction): string => `${fn.name}(${fn.inputs.map(canonicalType).join(',')})`;
 
-const wireParam = (param: AbiParameter): { name: string; type: string; components?: unknown[] } => {
+const wireParam = (param: AbiParameter): AbiParam => {
   const components = (param as { components?: readonly AbiParameter[] }).components;
   return { name: param.name ?? '', type: param.type, ...(components ? { components: components.map(wireParam) } : {}) };
 };
