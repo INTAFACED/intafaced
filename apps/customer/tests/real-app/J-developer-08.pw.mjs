@@ -2,7 +2,7 @@
 import http from 'node:http';
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, journeyState } from './stack.mjs';
-import { keyHolder, makeKey, withKey } from './developer.mjs';
+import { VERSION_PIN, keyHolder, makeKey, withKey } from './developer.mjs';
 
 // J-developer-08, in the running app (docs/roadmap/journeys.json): see what my key did. One test per step, titled
 // "J-developer-08 #<n>", written by an independent test-writer from the step's own words (OWNER 212); the builder makes
@@ -43,7 +43,7 @@ function callFrom(localAddress, key, path) {
         path: url.pathname,
         method: 'GET',
         localAddress,
-        headers: { origin: ORIGIN, authorization: `Bearer ${key}`, 'x-jd8-note': HEADER_MARK },
+        headers: { origin: ORIGIN, authorization: `Bearer ${key}`, 'x-jd8-note': HEADER_MARK, ...VERSION_PIN },
       },
       (res) => {
         res.resume();
