@@ -100,7 +100,7 @@ test(`${J} #1 opens /market: listings with terms, a listing-type switch and four
   run.write({ listingId: listing.id });
   const listingId = listing.id;
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Market', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Market', level: 1, exact: true })).toBeVisible();
   const catalogue = (await marketRead(null, 'listings', { limit: 50 })).body.result.data;
   const mine = catalogue.find((row) => row.id === listingId);
   expect(mine, 'the run listing is in the public catalogue').toBeDefined();
@@ -160,7 +160,7 @@ test(`${J} #1 opens /market: listings with terms, a listing-type switch and four
 
   // Four entry points, each linking to its owning room. All four rooms are built (the copy room's sections), so each door
   // names no blocker, and following it opens that room's own section with its own heading.
-  const doors = page.getByRole('navigation', { name: 'More in the Market' });
+  const doors = page.getByRole('navigation', { name: 'More in the Market', exact: true });
   await expect(doors.getByRole('link')).toHaveCount(4);
   await expect(doors).not.toContainText(/blocked|not built|coming soon|unavailable/i);
   for (const [name, note, tab, heading, href] of [
@@ -170,7 +170,7 @@ test(`${J} #1 opens /market: listings with terms, a listing-type switch and four
     ['Signal marketplace', 'Follow a listed signal.', 'Signal', 'Signal leaders', '/trade/copy?tab=signal'],
   ]) {
     await page.goto('/market');
-    const entry = page.getByRole('navigation', { name: 'More in the Market' }).getByRole('listitem').filter({ hasText: name });
+    const entry = page.getByRole('navigation', { name: 'More in the Market', exact: true }).getByRole('listitem').filter({ hasText: name });
     await expect(entry).toHaveText(`${name}${note}`);
     const door = entry.getByRole('link', { name, exact: true });
     await expect(door).toHaveAttribute('href', href);
