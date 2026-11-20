@@ -846,7 +846,7 @@ try {
       continue;
     }
     if (sv.rust) {
-      // svc-tax runs its Rust binary, which the stack builds from its crate (ensureTaxBinary).
+      // A Rust service (svc-tax, svc-academy) runs its binary, which the stack builds from its crate (ensureRustBinaries).
       assert.equal(existsSync(join(repo, 'crates', `svc-${sv.name}`, 'Cargo.toml')), true, `no crates/svc-${sv.name}/Cargo.toml`);
       continue;
     }
