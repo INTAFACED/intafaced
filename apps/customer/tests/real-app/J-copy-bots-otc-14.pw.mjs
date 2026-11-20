@@ -7,6 +7,7 @@ import { ledgerRead } from './ledger-door.mjs';
 import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import {
+  continueInWallet,
   otherTraderKey,
   otherTraderRun,
   openVenuePage,
@@ -573,6 +574,8 @@ test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first tw
   expect(rejected.status, JSON.stringify(rejected.body).slice(0, 300)).toBe(200);
   const botId = rejected.body.result.data.botId;
   expect(rejected.body.result.data).toMatchObject({ status: 'signing', venue: { owner: s.owner, agentName: 'grid-bots', test: true } });
+  // The plain-words sheet comes first; the wallet is asked only once the person continues, and they reject there.
+  await continueInWallet(page);
   await expect(page.getByText('You rejected the signature', { exact: true })).toBeVisible();
   expect(wallet.requests).toHaveLength(1);
   // What the wallet was asked to sign names the bot's own agent key: the permission, not an order.
@@ -587,6 +590,7 @@ test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first tw
   expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
   expect(made.request.clientRequestId).toBe(rejected.request.clientRequestId);
   expect(made.body.result.data.botId).toBe(botId);
+  await continueInWallet(page);
   await expect(page).toHaveURL(new RegExp(`bot=${encodeURIComponent(botId)}`), { timeout: 30_000 });
   await expect(page.getByTestId('grid-status')).toHaveText('Bot running', { timeout: 30_000 });
   expect(wallet.requests).toHaveLength(2);
