@@ -950,6 +950,10 @@ async function insertEvent(
     note?: string | null;
   },
 ): Promise<SupportTicketEvent> {
+  // The next sequence is MAX + 1, so two writers on one ticket must not read MAX at once: the ticket row lock queues
+  // them (a grounding read and a charts lookup opened together each land, numbered in turn, instead of one failing the
+  // (ticket_id, sequence) unique index). A caller that already holds this ticket's row lock takes it again at no cost.
+  await tx`SELECT 1 FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE`;
   const rows = PgEvent.array().parse(
     await tx`
     INSERT INTO support.ticket_events (ticket_id, sequence, kind, actor_id, actor_role, from_status, to_status, note)

@@ -29,7 +29,7 @@ import { railWords } from './destination';
 import { LifecycleTrail } from './Trail';
 import type { Settlement, SettlementStatus } from '../schemas';
 import { settlementStatuses } from '../schemas';
-import type { SettlementLine } from './schemas';
+import type { PaySettlementLine as SettlementLine } from '@intafaced/contracts/pay-merchant-reads';
 
 type FullSnapshot = Extract<NonNullable<Settlement['pricingSnapshot']>, { ruleId: string }>;
 export const settlementHref = (id: string) => `/pay/settlements/${encodeURIComponent(id)}`;

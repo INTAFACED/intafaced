@@ -24,7 +24,7 @@ import { statementCard, statementColumns } from './Statement';
 import { pictureCount, usePayoutPicture, type PayoutPicture } from './payout-picture';
 import { defaultStatementRange, payoutRowState } from './model';
 import type { Approval } from '../schemas';
-import type { HeldClearing } from './schemas';
+import type { PayHeldClearing as HeldClearing } from '@intafaced/contracts/pay-merchant-reads';
 import { uiCopy } from '../ui/copy';
 
 const WEEK = 7 * 86_400_000;

@@ -235,8 +235,35 @@ impl AcademyDoor {
     }
 
     /// Closes the database pool (`sql.end()`).
+    /// The database, for the service's own background work (outbox drain, sweeps).
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// What the service asks outside itself, for its background work.
+    pub fn ports(&self) -> &Ports {
+        &self.ports
+    }
+
+    /// The owner settings, for its background work.
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
     pub fn end(&self) {
         self.store.end();
+    }
+
+    /// One pass of the purchase reconciler (`reconcileCoursePurchases`): up to 100 open purchases and 100 set aside.
+    pub fn reconcile_course_purchases(
+        &self,
+        on_error: &mut dyn FnMut(&str, &Refusal),
+    ) -> Result<usize, Refusal> {
+        crate::learner::purchases::CoursePurchases {
+            pool: &self.store,
+            deps: crate::learner::purchases::Deps::of(&self.ports),
+        }
+        .reconcile(100, on_error)
     }
 
     /// Answers one request under a fresh request id.

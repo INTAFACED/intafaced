@@ -8,7 +8,7 @@ import {
   payDepositTravelRuleViewSchema,
   type PayDepositTravelRuleView,
 } from '@intafaced/contracts/pay-custody-deposit';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema } from '../../shared/money';
 import type { ApiClient, ApiResult } from '../../shared/api';

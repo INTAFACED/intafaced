@@ -1,6 +1,14 @@
 import { t as copyText, Text } from './copy';
 import { useEffect, useState, type ReactNode } from 'react';
 import { z } from 'zod';
+import {
+  tokenAccessViewSchema,
+  tokenBurnedSupplySchema,
+  tokenProposalClosedSchema,
+  tokenProposalViewSchema,
+  tokenStakeViewSchema,
+  tokenTallySchema,
+} from '@intafaced/contracts/token-governance';
 import { useApi, useSession } from '../session/session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
@@ -17,7 +25,6 @@ import { TokenEconomyPanels } from './TokenEconomy';
 import {
   ChoiceBallot,
   ChoiceTallyView,
-  VOTING_TYPES,
   VotingPower,
   choiceTallySchema,
   powerSchema,
@@ -25,82 +32,27 @@ import {
   type BallotOutcome,
   type ProposalPower,
 } from './TokenVoting';
+import {
+  ballotSchema,
+  choiceSchema,
+  iso,
+  pendingActionSchema,
+  proposalIdSchema,
+  voteSchema,
+  type Ballot,
+  type SavedBallot,
+  type VoteChoice,
+} from './token-ballot';
 import './token-governance.css';
-const uuid = z.string().guid();
-/** The service stores `gov:proposal:<space>:<author>:<n>`; older rows keep their uuid. */
-const proposalIdSchema = z.union([
-  uuid,
-  z
-    .string()
-    .max(512)
-    .regex(/^gov:proposal:[^:\s]+:[^:\s]+:[1-9]\d*$/),
-]);
-const stakeSchema = z.object({
-  id: uuid,
-  userId: uuid,
-  amount: decimalSchema,
-  tier: z.enum(['flex', 'm3', 'm12']),
-  startedAt: z.string(),
-  unlocksAt: z.string().nullable(),
-  status: z.enum(['pending', 'active', 'unstaking', 'closed']),
-});
-const proposalSchema = z.object({
-  id: proposalIdSchema,
-  kind: z.enum(['listing', 'fee_param', 'curriculum', 'grant']),
-  body: z.record(z.string(), z.unknown()),
-  status: z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled', 'closed_ranked']),
-  opensAt: z.string(),
-  closesAt: z.string(),
-  createdAt: z.string(),
-  title: z.string().nullable().optional(),
-  authorId: z.string().nullable().optional(),
-  votingType: z.enum(VOTING_TYPES).default('basic'),
-  choices: z.array(z.string()).nullable().default(null),
-});
-const tally = z.object({
+const stakeSchema = tokenStakeViewSchema.extend({ amount: decimalSchema });
+const proposalSchema = tokenProposalViewSchema.extend({ id: proposalIdSchema });
+const tally = tokenTallySchema.extend({
   forWeight: decimalSchema,
   againstWeight: decimalSchema,
   abstainWeight: decimalSchema,
   totalWeight: decimalSchema,
-  voterCount: z.number().int().nonnegative(),
 });
-const iso = z
-  .string()
-  .datetime({ offset: true })
-  .refine((value) => Number.isFinite(Date.parse(value)));
 const governanceProposal = proposalSchema.extend({ opensAt: iso, closesAt: iso, createdAt: iso });
-const choiceSchema = z.enum(['for', 'against', 'abstain']);
-type VoteChoice = z.infer<typeof choiceSchema>;
-const voteSchema = z.object({
-  id: uuid,
-  proposalId: proposalIdSchema,
-  userId: uuid,
-  weight: decimalSchema.refine((value) => {
-    try {
-      return parseAmount(value) > 0n;
-    } catch {
-      return false;
-    }
-  }),
-  choice: choiceSchema,
-  castAt: iso,
-});
-const ballotSchema = z
-  .object({
-    markerId: uuid,
-    actor: uuid,
-    proposalId: proposalIdSchema,
-    choice: choiceSchema,
-    status: z.enum(['unknown', 'recorded', 'refused']),
-    receipt: voteSchema.optional(),
-  })
-  .refine((b) =>
-    b.status === 'recorded'
-      ? Boolean(b.receipt && b.receipt.proposalId === b.proposalId && b.receipt.userId === b.actor && b.receipt.choice === b.choice)
-      : b.receipt === undefined,
-  );
-type Ballot = z.infer<typeof ballotSchema>;
-type SavedBallot = { status: 'empty' } | { status: 'unreadable' } | { status: 'ready'; data: Ballot };
 /** A tier arrives as a short code ("m3"); people read "3 months". An unknown tier is shown as sent. */
 const tierLabel = (tier: string): string => (tier === 'flex' || tier === 'm3' || tier === 'm12' ? copyText(`token.tier.${tier}`) : tier);
 const ballotKey = (actor: string) => `intafaced:token:ballot:${actor}`;
@@ -214,7 +166,7 @@ function governanceRefusal(reason: Extract<ApiResult<never>, { ok: false }>['rea
   }));
 }
 function proposalDetailSchema(id: string) {
-  return governanceProposal.extend({ tally, choiceTally: choiceTallySchema.nullable().default(null) }).refine((p) => {
+  return governanceProposal.extend({ tally, choiceTally: choiceTallySchema.nullable() }).refine((p) => {
     try {
       // A multi-choice proposal has no for/against: its weight is in the choice tally.
       if (p.votingType !== 'basic')
@@ -243,10 +195,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
     [status, setStatus] = useState('all'),
     [limit, setLimit] = useState(50);
   const access = useResource(
-      (signal) =>
-        api.query('token', 'accessOf', undefined, z.object({ staked: decimalSchema, tier: z.string(), feeDiscountBps: z.number().int() }), {
-          signal,
-        }),
+      (signal) => api.query('token', 'accessOf', undefined, tokenAccessViewSchema.extend({ staked: decimalSchema }), { signal }),
       `token-access:${userId}`,
     ),
     stakes = useResource(
@@ -263,7 +212,7 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
       `token-stakes:${userId}:${status}:${limit}`,
     ),
     burned = useResource(
-      (signal) => api.query('token', 'burnedSupply', undefined, z.object({ burned: decimalSchema }), { signal }),
+      (signal) => api.query('token', 'burnedSupply', undefined, tokenBurnedSupplySchema.extend({ burned: decimalSchema }), { signal }),
       `token-burn:${userId}`,
     );
   return (
@@ -554,9 +503,9 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
         if (!canDispatch() || !api.canWrite()) return governanceRefusal('aborted', 'changed');
         let context: Ballot;
         try {
-          const pending = z
-            .object({ id: uuid, reference: z.literal(id) })
-            .parse(JSON.parse(localStorage.getItem(`intafaced:more:pending:${actor}:token`) ?? 'null'));
+          const pending = pendingActionSchema(id).parse(
+            JSON.parse(localStorage.getItem(`intafaced:more:pending:${actor}:token`) ?? 'null'),
+          );
           const previous = ballotFor(actor);
           if (previous.status === 'unreadable' || (previous.status === 'ready' && previous.data.status === 'unknown'))
             return governanceRefusal('aborted', 'changed');
@@ -737,9 +686,7 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                           'token',
                           'closeProposal',
                           { proposalId: id },
-                          proposalSchema
-                            .extend({ tally, execute: z.literal('token.governance_execute_unwired').nullable() })
-                            .refine((closed) => closed.id === id),
+                          tokenProposalClosedSchema.extend({ id: proposalIdSchema, tally }).refine((closed) => closed.id === id),
                         ),
                       done: refresh,
                     })

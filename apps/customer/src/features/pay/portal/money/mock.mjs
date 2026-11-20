@@ -299,6 +299,7 @@ export function createMoneyMock(ctx) {
     const end = inRange.at(-1) ?? before;
     const items = [...inRange].reverse().map((l) => ({
       id: hex('ff', l.index),
+      merchantId: MERCHANT_ID,
       at: iso(l.at),
       assetId,
       kind: l.kind,
@@ -612,7 +613,7 @@ export function createMoneyMock(ctx) {
                         version: '1',
                       })),
                       payoutFee: { kind: 'not_charged' },
-                      version: 'v1',
+                      version: '1',
                     },
                     {
                       id: 'test-tier-b',
@@ -629,7 +630,7 @@ export function createMoneyMock(ctx) {
                       // A tier with no fee and no payout fee of its own: the page reads "Not set" for both.
                       fees: [],
                       payoutFee: null,
-                      version: 'v1',
+                      version: '1',
                     },
                     {
                       id: 'test-tier-c',
@@ -643,7 +644,9 @@ export function createMoneyMock(ctx) {
                         { kind: 'beneficiaries_per_day', limit: 25 },
                       ],
                       reserve: null,
-                      version: 'v1',
+                      fees: [],
+                      payoutFee: null,
+                      version: '1',
                     },
                   ],
                 }
@@ -659,10 +662,14 @@ export function createMoneyMock(ctx) {
                   events: control.pricing.map((r, i) => ({
                     ruleId: `dd00000${i + 1}-0000-4000-8000-000000000001`,
                     layer: r.layer,
+                    scopeId: r.scopeId,
                     assetCode: r.assetCode,
                     bands: r.bands,
                     spreadBps: r.spreadBps,
-                    version: 'v1',
+                    roundingBeneficiary: r.roundingBeneficiary,
+                    minFee: null,
+                    maxFee: null,
+                    version: '1',
                     createdAt: iso(now - 60 * DAY),
                     supersededAt: null,
                   })),

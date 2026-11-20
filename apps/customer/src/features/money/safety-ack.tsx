@@ -12,7 +12,7 @@ import {
 } from '@intafaced/contracts/support-safety';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { safetyCopy } from './safety-copy';
 
 /**

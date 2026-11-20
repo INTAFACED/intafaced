@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { z, type ZodType } from 'zod';
+import {
+  startedAlertsSchema,
+  startedHistorySchema,
+  startedKycSchema,
+  startedPasskeysSchema,
+} from '@intafaced/contracts/started-checklist-reads';
+import type { ZodType } from 'zod';
 import { useSession } from '../../features/session/session';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
 import { useResource, type Resource } from '../../shared/resource';
@@ -20,15 +26,6 @@ import {
   type Step,
   type StepStatus,
 } from './started';
-
-// Only the fields the checklist reads. The full screens (Verification, Security, Price alerts) hold the strict
-// contracts; here an extra field must not make a done step look undone.
-const kycAnswer = z.object({ tier: z.string(), records: z.array(z.object({ status: z.string() }).passthrough()) }).passthrough();
-const passkeysAnswer = z.array(z.object({ credentialId: z.string() }).passthrough());
-const alertsAnswer = z.object({ items: z.array(z.object({ kind: z.string(), status: z.string() }).passthrough()) }).passthrough();
-const historyAnswer = z
-  .object({ items: z.array(z.object({ id: z.string() }).passthrough()), nextCursor: z.string().nullable().optional() })
-  .passthrough();
 
 /** The answer Home already holds; every other step reads its own. */
 export interface StartedInputs {
@@ -71,9 +68,15 @@ function useEver(enabled: boolean, name: string, filter: { kind: readonly string
     if (!enabled || !userId) return authoredRefusal('aborted', { key: 'beforeDispatch' });
     let cursor: string | undefined;
     for (let page = 0; page < EVER_PAGES; page++) {
-      const result = await api.query('bank', 'activity.list', { ...filter, limit: 1, ...(cursor ? { cursor } : {}) }, historyAnswer, {
-        signal,
-      });
+      const result = await api.query(
+        'bank',
+        'activity.list',
+        { ...filter, limit: 1, ...(cursor ? { cursor } : {}) },
+        startedHistorySchema,
+        {
+          signal,
+        },
+      );
       if (!result.ok) return result;
       if (result.data.items.length > 0) return { ok: true, data: { found: true } };
       if (!result.data.nextCursor) return { ok: true, data: { found: false } };
@@ -103,9 +106,9 @@ function ever(resource: Resource<{ found: boolean }>, verify: StepStatus): EverR
  * browser changes no step. A read that fails is `unknown`, never `done`.
  */
 export function useGetStarted({ portfolio }: StartedInputs, enabled: boolean): Step[] {
-  const kyc = useProbe(enabled, 'kyc', 'identity', 'kyc.status', { limit: 10 }, kycAnswer);
-  const passkeys = useProbe(enabled, 'passkeys', 'identity', 'webauthn.list', { limit: 10 }, passkeysAnswer);
-  const alerts = useProbe(enabled, 'alerts', 'notify', 'notify.alerts', { limit: 100 }, alertsAnswer);
+  const kyc = useProbe(enabled, 'kyc', 'identity', 'kyc.status', { limit: 10 }, startedKycSchema);
+  const passkeys = useProbe(enabled, 'passkeys', 'identity', 'webauthn.list', { limit: 10 }, startedPasskeysSchema);
+  const alerts = useProbe(enabled, 'alerts', 'notify', 'notify.alerts', { limit: 100 }, startedAlertsSchema);
   const moneyIn = useEver(enabled, 'money-in', { kind: MONEY_IN, direction: 'in' });
   // A conversion is a first trade too; Activity only names it apart (svc-bank `convert`).
   const trades = useEver(enabled, 'trade', { kind: ['trade', 'convert'] });
