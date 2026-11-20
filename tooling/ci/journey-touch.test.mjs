@@ -32,7 +32,7 @@ import {
   PR_MAX_FILES,
   pullPick,
 } from './journey-touch.mjs';
-import { JOURNEYS_WORKFLOW, JOURNEY_TEST, fullVerdict, isSharedSetup, judgeTouchedRun, sealPull } from './journey-seal.mjs';
+import { JOURNEYS_WORKFLOW, JOURNEY_TEST, isSharedSetup, judgeTouchedRun, sealPull } from './journey-seal.mjs';
 import { reachSelect } from './journey-reach-map.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
