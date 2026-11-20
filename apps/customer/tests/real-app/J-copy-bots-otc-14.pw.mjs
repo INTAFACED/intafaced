@@ -93,7 +93,7 @@ test(`${J} starts: signed in, verified to the owner's level, a TEST wallet with 
   const { builder } = await venueStatus(who);
   expect(builder, 'the stack publishes our TEST builder fee').toBeTruthy();
   await signedOnVenue(venue, key, { kind: 'approve_builder_fee', builder: builder.address, maxFeeBps: builder.feeBps });
-  run.reset({ who, walletKey, owner, since: new Date().toISOString(), ledger: await (await api(who)).balances() });
+  run.reset({ who, walletKey, owner, since: new Date().toISOString() });
 });
 
 test(`${J} #1 opens Bots: the hub with one status and one link per bot type, each refusal in words; My bots from the server even in a new browser`, async ({
@@ -489,6 +489,9 @@ test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first tw
 }) => {
   test.setTimeout(300_000);
   const s = person();
+  // Our ledger as the grid starts: #1's TWAP trades our own TEST book, so the grid's figure is read here, before it acts.
+  run.write({ ...run.read(), ledger: await (await api(s.who)).balances() });
+  s.ledger = run.read().ledger;
   const gridsBefore = await gridList(s.who);
   const market = await gridMarket();
   await bookAt(MID);
