@@ -1,4 +1,5 @@
 import { keyRateLimitSchema, type KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
+import { parseApiVersion, type ApiVersion } from '@intafaced/contracts/api-versions';
 import { AuthError, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 import { forwardedPrincipalHeaders } from './forward-principal-signature.js';
@@ -82,6 +83,11 @@ export interface ExchangeResult {
    * stated none (no tier set). The gateway refuses a null limit with `edge.limits_unset`; it never meters on a guess.
    */
   keyRateLimit?: KeyRateLimit | null;
+  /**
+   * Set only for an opened API key: the account's default API version as identity stated it, or null when none is set
+   * (or identity stated one this edge does not implement). `api-version.ts` applies it to a call with no version header.
+   */
+  apiVersionDefault?: ApiVersion | null;
 }
 
 export interface ExchangeOptions {
@@ -231,6 +237,8 @@ export interface ApiKeyExchanged {
   requireNonEmptyIpAllowlist?: boolean;
   /** Null when identity stated no limit for the key (blank tiers), or stated one this edge cannot read. */
   rateLimit: KeyRateLimit | null;
+  /** The account default API version; null when not set, or not one this edge implements. */
+  apiVersionDefault: ApiVersion | null;
 }
 
 /**
@@ -355,6 +363,7 @@ export async function exchangeApiKeyOutcome(
     ...(optionalFlag(data, 'requireSignature', 'require_signature') ? { requireSignature: true } : {}),
     ...(optionalFlag(data, 'requireNonEmptyIpAllowlist', 'require_non_empty_ip_allowlist') ? { requireNonEmptyIpAllowlist: true } : {}),
     rateLimit: rateLimitFromExchange(data),
+    apiVersionDefault: parseApiVersion((data as { apiVersionDefault?: unknown } | null)?.apiVersionDefault),
   };
   return { kind: 'opened', exchanged };
 }
@@ -397,6 +406,7 @@ export async function exchangePrincipal(
   let token = bearerFrom(headers);
   if (!token) return { headers: forward, principal: null, rejected: null };
   let keyRateLimit: KeyRateLimit | null | undefined;
+  let apiVersionDefault: ApiVersion | null | undefined;
   const presentedApiKey = looksLikeApiKey(token);
 
   if (presentedApiKey) {
@@ -482,6 +492,7 @@ export async function exchangePrincipal(
     }
     token = exchanged.accessToken;
     keyRateLimit = exchanged.rateLimit;
+    apiVersionDefault = exchanged.apiVersionDefault;
   }
 
   // From here a key has been opened by identity. A refusal is named only from identity's own code; without
@@ -533,7 +544,13 @@ export async function exchangePrincipal(
     forwardedPrincipalHeaders(principal, { edgeSecret: options.edgeSecret, ed25519: options.ed25519, region: options.region, now }),
   );
 
-  return { headers: forward, principal, rejected: null, ...(keyRateLimit === undefined ? {} : { keyRateLimit }) };
+  return {
+    headers: forward,
+    principal,
+    rejected: null,
+    ...(keyRateLimit === undefined ? {} : { keyRateLimit }),
+    ...(apiVersionDefault === undefined ? {} : { apiVersionDefault }),
+  };
 }
 
 /** The `rateLimit` identity put in the exchange answer. Absent, null or a shape this edge cannot read: no limit. */
