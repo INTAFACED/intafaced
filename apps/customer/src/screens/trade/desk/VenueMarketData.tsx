@@ -111,130 +111,137 @@ export function VenueMarketPanel({
         {t('Venue market')} <TestMark test={test} />
       </h2>
       <ReadProblem failure={failure} venueName={venueName} />
-      <dl className="protocol-facts" data-testid="venue-ticker">
-        <div>
-          <dt>{t('Last price')}</dt>
-          <dd className="numeric" data-testid="venue-last" data-trade-id={last?.tradeId}>
+      <dl className="dk-stats dk-venue-ticker" data-testid="venue-ticker">
+        <div className="dk-stat">
+          <dt className="dk-stat-label">{t('Last price')}</dt>
+          <dd className="dk-stat-value numeric" data-testid="venue-last" data-trade-id={last?.tradeId}>
             {last ? `${price(last.price)} ${market.quoteAsset}` : t('No print')}
           </dd>
         </div>
-        <div>
-          <dt>{t('Best bid')}</dt>
-          <dd className="numeric" data-testid="venue-best-bid">
+        <div className="dk-stat">
+          <dt className="dk-stat-label">{t('Best bid')}</dt>
+          <dd className="dk-stat-value numeric" data-testid="venue-best-bid">
             {bid ? price(bid.price) : t('Side empty')}
           </dd>
         </div>
-        <div>
-          <dt>{t('Best ask')}</dt>
-          <dd className="numeric" data-testid="venue-best-ask">
+        <div className="dk-stat">
+          <dt className="dk-stat-label">{t('Best ask')}</dt>
+          <dd className="dk-stat-value numeric" data-testid="venue-best-ask">
             {ask ? price(ask.price) : t('Side empty')}
           </dd>
         </div>
-        <div>
-          <dt>{t('Market data as of')}</dt>
-          <dd data-testid="venue-market-as-of">{book.data ? asOfText(book.data.asOf) : '…'}</dd>
+        <div className="dk-stat">
+          <dt className="dk-stat-label">{t('Market data as of')}</dt>
+          <dd className="dk-stat-value" data-testid="venue-market-as-of">
+            {book.data ? asOfText(book.data.asOf) : '…'}
+          </dd>
         </div>
       </dl>
 
-      {/* A flex column, as today's desk chart is (ChartPanel): the canvas takes the height the bar and Buy/Sell leave. */}
-      <div className="dk-chart dk-chart--venue" data-testid="venue-chart">
-        <div className="dk-chart-bar">
-          <div className="dk-chips" role="group" aria-label={d('Chart intervals')}>
-            {CHART_INTERVALS.map((id) => (
-              <button key={id} type="button" aria-pressed={interval === id} onClick={() => setChartInterval(id)}>
-                {intervalLabel(id)}
-              </button>
-            ))}
+      {/* The chart with the book and tape beside it, as today's desk sets them. */}
+      <div className="dk-venue-market">
+        <div className="dk-venue-chart">
+          {/* A flex column, as today's desk chart is (ChartPanel): the canvas takes the height the bar and Buy/Sell leave. */}
+          <div className="dk-chart dk-chart--venue" data-testid="venue-chart">
+            <div className="dk-chart-bar">
+              <div className="dk-chips" role="group" aria-label={d('Chart intervals')}>
+                {CHART_INTERVALS.map((id) => (
+                  <button key={id} type="button" aria-pressed={interval === id} onClick={() => setChartInterval(id)}>
+                    {intervalLabel(id)}
+                  </button>
+                ))}
+              </div>
+              {chartTools}
+            </div>
+            <div className="dk-chart-canvas">
+              {chart === null ? (
+                <p className="muted" role="status">
+                  {t('Reading the venue')}
+                </p>
+              ) : chart.length === 0 ? (
+                <StateBlock kind="empty" title={d('No trades in this period')} />
+              ) : (
+                <PriceChart
+                  candles={chart}
+                  mode="candles"
+                  interval={interval}
+                  resetKey={`${market.symbol}:${interval}`}
+                  tickSize={market.tickSize}
+                  orderLines={[]}
+                  fills={[]}
+                  timeZone={zoneName(timeZone)}
+                  labels={labels}
+                  onHost={chartOrders ? setHost : undefined}
+                />
+              )}
+            </div>
+            {chartTrade}
           </div>
-          {chartTools}
+          {/* Below the chart's fixed-height box: the ticket and reviews would otherwise take the chart's own height. */}
+          {chartOrders?.(chart !== null && chart.length > 0 ? host : null)}
         </div>
-        <div className="dk-chart-canvas">
-          {chart === null ? (
-            <p className="muted" role="status">
-              {t('Reading the venue')}
-            </p>
-          ) : chart.length === 0 ? (
-            <StateBlock kind="empty" title={d('No trades in this period')} />
-          ) : (
-            <PriceChart
-              candles={chart}
-              mode="candles"
-              interval={interval}
-              resetKey={`${market.symbol}:${interval}`}
-              tickSize={market.tickSize}
-              orderLines={[]}
-              fills={[]}
-              timeZone={zoneName(timeZone)}
-              labels={labels}
-              onHost={chartOrders ? setHost : undefined}
-            />
-          )}
-        </div>
-        {chartTrade}
-      </div>
-      {/* Below the chart's fixed-height box: the ticket and reviews would otherwise take the chart's own height. */}
-      {chartOrders?.(chart !== null && chart.length > 0 ? host : null)}
 
-      <Tabs value={tab} onValueChange={(x) => setTab(x as typeof tab)} data-testid="venue-book-tape">
-        <TabsList divider className="dk-tabs">
-          <TabsTab value="book">{t('Order book')}</TabsTab>
-          <TabsTab value="tape">{t('Last trades')}</TabsTab>
-        </TabsList>
-        <TabsPanel value="book">
-          {book.data ? (
-            <DataTable
-              label={t('Order book')}
-              headers={[t('Side'), t('Price col', { quote: market.quoteAsset }), t('Size col', { base: market.baseAsset })]}
-            >
-              {[
-                ...[...book.data.value.asks].reverse().map((l) => ({ side: 'ask' as const, ...l })),
-                ...book.data.value.bids.map((l) => ({ side: 'bid' as const, ...l })),
-              ].map((l) => (
-                <tr key={`${l.side}:${l.price}`} data-testid="venue-book-row" data-side={l.side}>
-                  <td>{l.side === 'bid' ? t('Bid') : t('Ask')}</td>
-                  <td className="numeric" data-testid="venue-book-price">
-                    {price(l.price)}
-                  </td>
-                  <td className="numeric" data-testid="venue-book-amount">
-                    {price(l.amount)}
-                  </td>
-                </tr>
-              ))}
-            </DataTable>
-          ) : (
-            <p className="muted" role="status">
-              {t('Reading the venue')}
-            </p>
-          )}
-        </TabsPanel>
-        <TabsPanel value="tape">
-          {tape.data && tape.data.value.length === 0 ? (
-            <p className="muted">{t('No print')}</p>
-          ) : tape.data ? (
-            <DataTable
-              label={t('Last trades')}
-              headers={[t('Time'), t('Side'), t('Price col', { quote: market.quoteAsset }), t('Size col', { base: market.baseAsset })]}
-            >
-              {tape.data.value.map((p) => (
-                <tr key={p.tradeId} data-testid="venue-tape-row" data-trade-id={p.tradeId} data-side={p.takerSide ?? 'unknown'}>
-                  <td>{new Date(p.tradedAt).toLocaleTimeString('en-GB', { timeZone: zoneName(timeZone), hourCycle: 'h23' })}</td>
-                  <td>{p.takerSide === 'buy' ? t('Taker buy') : p.takerSide === 'sell' ? t('Taker sell') : t('Side not published')}</td>
-                  <td className="numeric" data-testid="venue-tape-price">
-                    {price(p.price)}
-                  </td>
-                  <td className="numeric" data-testid="venue-tape-amount">
-                    {price(p.amount)}
-                  </td>
-                </tr>
-              ))}
-            </DataTable>
-          ) : (
-            <p className="muted" role="status">
-              {t('Reading the venue')}
-            </p>
-          )}
-        </TabsPanel>
-      </Tabs>
+        <Tabs value={tab} onValueChange={(x) => setTab(x as typeof tab)} data-testid="venue-book-tape" className="dk-venue-book">
+          <TabsList divider className="dk-tabs">
+            <TabsTab value="book">{t('Order book')}</TabsTab>
+            <TabsTab value="tape">{t('Last trades')}</TabsTab>
+          </TabsList>
+          <TabsPanel value="book">
+            {book.data ? (
+              <DataTable
+                label={t('Order book')}
+                headers={[t('Side'), t('Price col', { quote: market.quoteAsset }), t('Size col', { base: market.baseAsset })]}
+              >
+                {[
+                  ...[...book.data.value.asks].reverse().map((l) => ({ side: 'ask' as const, ...l })),
+                  ...book.data.value.bids.map((l) => ({ side: 'bid' as const, ...l })),
+                ].map((l) => (
+                  <tr key={`${l.side}:${l.price}`} data-testid="venue-book-row" data-side={l.side}>
+                    <td>{l.side === 'bid' ? t('Bid') : t('Ask')}</td>
+                    <td className="numeric" data-testid="venue-book-price">
+                      {price(l.price)}
+                    </td>
+                    <td className="numeric" data-testid="venue-book-amount">
+                      {price(l.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </DataTable>
+            ) : (
+              <p className="muted" role="status">
+                {t('Reading the venue')}
+              </p>
+            )}
+          </TabsPanel>
+          <TabsPanel value="tape">
+            {tape.data && tape.data.value.length === 0 ? (
+              <p className="muted">{t('No print')}</p>
+            ) : tape.data ? (
+              <DataTable
+                label={t('Last trades')}
+                headers={[t('Time'), t('Side'), t('Price col', { quote: market.quoteAsset }), t('Size col', { base: market.baseAsset })]}
+              >
+                {tape.data.value.map((p) => (
+                  <tr key={p.tradeId} data-testid="venue-tape-row" data-trade-id={p.tradeId} data-side={p.takerSide ?? 'unknown'}>
+                    <td>{new Date(p.tradedAt).toLocaleTimeString('en-GB', { timeZone: zoneName(timeZone), hourCycle: 'h23' })}</td>
+                    <td>{p.takerSide === 'buy' ? t('Taker buy') : p.takerSide === 'sell' ? t('Taker sell') : t('Side not published')}</td>
+                    <td className="numeric" data-testid="venue-tape-price">
+                      {price(p.price)}
+                    </td>
+                    <td className="numeric" data-testid="venue-tape-amount">
+                      {price(p.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </DataTable>
+            ) : (
+              <p className="muted" role="status">
+                {t('Reading the venue')}
+              </p>
+            )}
+          </TabsPanel>
+        </Tabs>
+      </div>
     </section>
   );
 }
