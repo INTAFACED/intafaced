@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { VenueRefusalError, type UserVenue } from '@intafaced/venue-contracts';
-import { TEST_VENUE_MARKETS, TestVenueSimulator } from '@intafaced/venue-sim';
+import { TEST_VENUE_MARKETS, TestVenueSimulator, startTestVenueServer } from '@intafaced/venue-sim';
+import { HttpUserVenue } from '../venue/http-user-venue.js';
 import { partial } from '@intafaced/service-kit/testing';
 import { BuilderModeError, checkBuilderModes, parseAlertContact, type BuilderModeAlert, type BuilderModeDeps } from './builder-mode.js';
 import { MemoryBuilderModeAlertStore } from './builder-mode-store.js';
@@ -181,5 +182,40 @@ describe('checkBuilderModes', () => {
     await expect(checkBuilderModes({ ...deps, doors: [] })).rejects.toMatchObject({ code: 'trade.user_venue_off' });
     await expect(checkBuilderModes({ ...deps, builder: null })).rejects.toBeInstanceOf(BuilderModeError);
     await expect(checkBuilderModes({ ...deps, builder: null })).rejects.toMatchObject({ code: 'trade.builder_address_unset' });
+  });
+});
+
+describe('checkBuilderModes over HTTP to the TEST venue server', () => {
+  it('reads the mode and the requirement through the HTTP client, and the down switch reads unknown', async () => {
+    const { server, sim, url } = await startTestVenueServer({ host: '127.0.0.1', port: 0, appEnv: 'test', chainId: 84532 });
+    try {
+      const store = new MemoryBuilderModeAlertStore();
+      const deps: BuilderModeDeps = {
+        doors: [{ venue: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }), connectedVenueId: null }],
+        builder: BUILDER,
+        contact: CONTACT,
+        store,
+        onOpened: () => {},
+        onCleared: () => {},
+        now: () => new Date(),
+      };
+      sim.setAccountMode(BUILDER, 'unified');
+      const out = await checkBuilderModes(deps);
+      expect(out.venues[0]).toMatchObject({
+        venueId: sim.venue.id,
+        mode: { status: 'read', mode: 'unified' },
+        required: { status: 'published', mode: 'standard' },
+        verdict: 'not_collected',
+      });
+      expect(out.venues[0]!.mode.status === 'read' && out.venues[0]!.mode.asOf instanceof Date).toBe(true);
+      expect(store.rows).toHaveLength(1);
+      await fetch(`${url}/test/account-switches`, { method: 'POST', body: JSON.stringify({ owner: BUILDER, down: true }) });
+      expect((await checkBuilderModes(deps)).venues[0]).toMatchObject({
+        mode: { status: 'unknown', code: 'venue_down' },
+        verdict: 'unknown',
+      });
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
   });
 });
