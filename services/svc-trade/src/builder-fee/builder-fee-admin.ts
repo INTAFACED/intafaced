@@ -26,7 +26,7 @@ const builderModeRefusalOf: RefusalOf = (err) => {
   return { code: err.code, error: new TRPCError({ code, message: `${err.message} [${err.code}]`, cause: err }) };
 };
 
-export function builderAccountModeWire(view: BuilderAccountModeView) {
+function builderAccountModeWire(view: BuilderAccountModeView) {
   return {
     asOf: view.asOf.toISOString(),
     builder: view.builder,

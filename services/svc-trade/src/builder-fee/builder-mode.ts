@@ -44,7 +44,7 @@ export interface BuilderModeAlert {
   readonly clearedMode: string | null;
 }
 
-export const ALERT_CONTACT_UNSET = 'trade.builder_mode_alert_contact_unset' as const;
+const ALERT_CONTACT_UNSET = 'trade.builder_mode_alert_contact_unset' as const;
 
 export type BuilderModeAlerting =
   | { readonly status: 'on'; readonly contact: string }
@@ -102,7 +102,7 @@ export interface BuilderModeCheck {
 }
 
 /** The verdict of one read: a mode that wasn't read is unknown whatever the venue requires. */
-export function verdictOf(mode: BuilderModeRead, required: BuilderModeRequired): BuilderModeVerdict {
+function verdictOf(mode: BuilderModeRead, required: BuilderModeRequired): BuilderModeVerdict {
   if (mode.status === 'unknown' || required.status === 'unknown') return 'unknown';
   if (required.status === 'not_published') return 'not_published';
   return mode.mode === required.mode ? 'required_mode' : 'not_collected';
