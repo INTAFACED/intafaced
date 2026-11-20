@@ -13,7 +13,7 @@ describe('buildChannels', () => {
         { channel: 'email', muted: true },
         { channel: 'sms', muted: false },
       ],
-      [{ channel: 'email', address: 'a@b.co', verifiedAt: '2026-10-01T00:00:00.000Z' }],
+      [{ channel: 'email', address: 'a@b.co', locale: 'en', verifiedAt: '2026-10-01T00:00:00.000Z' }],
     );
     expect(view.email).toEqual({
       facts: { ready: true, muted: true, target: { verified: true } },
@@ -31,7 +31,7 @@ describe('buildChannels', () => {
   });
 
   it('marks a saved address with no confirmation time as unconfirmed', () => {
-    const view = buildChannels([], [], [{ channel: 'sms', address: '+447700900000', verifiedAt: null }]);
+    const view = buildChannels([], [], [{ channel: 'sms', address: '+447700900000', locale: 'en', verifiedAt: null }]);
     expect(view.sms.facts.target).toEqual({ verified: false });
   });
 });
