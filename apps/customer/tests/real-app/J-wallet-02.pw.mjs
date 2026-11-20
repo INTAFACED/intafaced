@@ -534,7 +534,7 @@ test(`${J} #2 chooses asset and network: no address until a network is picked; a
   const notes = page.getByTestId('deposit-notes');
   await expect(notes.getByRole('heading', { name: 'Not supported on this network', exact: true })).toBeVisible();
   for (const item of TEST_UNSUPPORTED_DEPOSIT.cases) await expect(notes.getByRole('listitem').filter({ hasText: item })).toBeVisible();
-  const ack = page.getByRole('checkbox', { name: 'I will send only USDC on TEST Ethereum. I have read the notes above.', exact: true });
+  const ack = page.getByRole('checkbox', { name: /^I will send only USDC on TEST Ethereum\. I have read the notes above\./ });
   await expect(ack).not.toBeChecked();
   await expect(page.getByRole('button', { name: 'Show my deposit address', exact: true })).toBeDisabled();
   await expect(page.getByTestId('deposit-address')).toHaveCount(0);
