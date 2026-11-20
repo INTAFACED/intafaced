@@ -1910,7 +1910,11 @@ async function startNodeService(def) {
   // svc-academy) runs its binary (ensureRustBinaries); every other one is Node.
   // A Node service records which of its own files ran, for the touched-journeys map (service-reach.mjs).
   const node = !def.java && !def.rust ? nodeServiceReach(codeReachDir(STATE), def.name, env) : null;
-  const argv = def.java ? [javaBin(), '-cp', FIX_JAR, def.java.main] : def.rust ? [rustBin(def.name)] : [process.execPath, ...node.flags, entry];
+  const argv = def.java
+    ? [javaBin(), '-cp', FIX_JAR, def.java.main]
+    : def.rust
+      ? [rustBin(def.name)]
+      : [process.execPath, ...node.flags, entry];
   const cwd = def.rust ? rustCrate(def.name) : path.join(REPO, 'services', `svc-${def.name}`);
   const pid = startProc(def.name, argv, node ? node.env : env, cwd, { build });
   if (def.name === 'ops') {
