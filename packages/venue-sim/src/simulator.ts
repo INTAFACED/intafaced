@@ -10,6 +10,7 @@ import {
   ordersTakenTogether,
   type AsOf,
   type MaybeKnown,
+  type VenueBuilderAccountMode,
   type VenueBuilderTotals,
   type UserVenueBuilderClaim,
   type PlaceUserOrderIntent,
@@ -354,8 +355,19 @@ export interface SimSwitches {
   unpublishedTakerFeeBps: Amount;
   /** The venue publishes no settlement or other fees beside its trading fees (J-derivatives-12 #2); it still charges them. */
   otherFeesUnpublished: boolean;
+  /** The venue publishes no account mode its builder addresses must be in to accrue builder fees (J-ops-console-28). */
+  builderModeRequirementUnpublished: boolean;
   loseAnswers: number;
 }
+
+/**
+ * The account modes an address can be in on the TEST venue, by the names the venue it stands for gives them
+ * (J-ops-console-28): standard, unified, portfolio margin. A new address is in standard mode.
+ */
+export const TEST_VENUE_ACCOUNT_MODES = ['standard', 'unified', 'portfolio_margin'] as const;
+export type TestVenueAccountMode = (typeof TEST_VENUE_ACCOUNT_MODES)[number];
+/** As the venue it stands for publishes: "Builder code addresses must be in standard mode to accrue builder fees". */
+export const TEST_VENUE_BUILDER_REQUIRED_MODE: TestVenueAccountMode = 'standard';
 
 export interface SimOptions {
   readonly id?: string;
@@ -594,6 +606,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   /** Builder fee claims, by builder address, oldest first: the venue's own claim record (J-derivatives-17). */
   private readonly builderClaimRecord = new Map<string, UserVenueBuilderClaim[]>();
   private builderClaimCounter = 0;
+  /** Each address's account mode that is not standard, by lowercase address (J-ops-console-28); absent is standard. */
+  private readonly accountModes = new Map<string, TestVenueAccountMode>();
   private readonly claimIdPrefix: string;
   private venueOrderCounter = 0;
   /** Each market's own state and largest order, changed by the TEST controls. */
@@ -679,6 +693,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       unpublishedMakerFeeBps: parseAmount('2'),
       unpublishedTakerFeeBps: parseAmount('5'),
       otherFeesUnpublished: false,
+      builderModeRequirementUnpublished: false,
       loseAnswers: 0,
       ...options.switches,
     };
@@ -2065,6 +2080,34 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   async builderClaims(builder: string): Promise<AsOf<readonly UserVenueBuilderClaim[]>> {
     this.up();
     return this.asOf([...(this.builderClaimRecord.get(builder.toLowerCase()) ?? [])]);
+  }
+
+  /**
+   * `builder`'s account mode on the TEST venue and the mode the venue requires for it to accrue builder fees
+   * (J-ops-console-28); the `builderModeRequirementUnpublished` switch leaves the requirement unpublished.
+   */
+  async builderAccountMode(builder: string): Promise<AsOf<VenueBuilderAccountMode>> {
+    this.up();
+    const b = builder.toLowerCase();
+    return this.asOf({
+      builder: b,
+      mode: { known: true, value: this.accountModes.get(b) ?? 'standard' },
+      required: this.switches.builderModeRequirementUnpublished
+        ? { known: false }
+        : { known: true, value: TEST_VENUE_BUILDER_REQUIRED_MODE },
+    });
+  }
+
+  /** TEST control: moves `owner`'s account to `mode` (J-ops-console-28). Never part of `UserVenue`. */
+  setAccountMode(owner: string, mode: TestVenueAccountMode): void {
+    const o = owner.toLowerCase();
+    if (mode === 'standard') this.accountModes.delete(o);
+    else this.accountModes.set(o, mode);
+  }
+
+  /** TEST: `owner`'s account mode, for the per-account switch's answer. */
+  accountModeOf(owner: string): TestVenueAccountMode {
+    return this.accountModes.get(owner.toLowerCase()) ?? 'standard';
   }
 
   /**

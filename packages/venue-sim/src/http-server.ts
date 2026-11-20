@@ -23,7 +23,13 @@ import {
   VENUE_CANDLE_INTERVALS,
 } from '@intafaced/venue-contracts';
 import type { TestVenueTypedData } from './signing.js';
-import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketConfig } from './simulator.js';
+import {
+  TEST_VENUE_ACCOUNT_MODES,
+  TEST_VENUE_FIGURE_STALE_AFTER_MS,
+  TestVenueSimulator,
+  type SimMarketConfig,
+  type TestVenueAccountMode,
+} from './simulator.js';
 
 /**
  * THE TEST VENUE SIMULATOR OVER LOOPBACK HTTP — one `TestVenueSimulator` as an outside process, so "venue down" is a
@@ -39,6 +45,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
  *        /order-history {account}, /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce}, /deposits {account},
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
+ *        /builder-account-mode {builder}   the address's account mode and the mode required to accrue builder fees
  *        /leverage {account,symbol}, /leverage-change {account,symbol,leverageBps,marginMode},
  *        /isolated-margin {account,symbol}, /account-summary {account}, /book {symbol,depth},
  *        /fee-status {account?}   the published fee tiers, and with an account its tier, counted volume and rates
@@ -52,10 +59,13 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/deficit {account,asset,amount,lossRef}     a loss past margin booked as a deficit: the balance may go below zero
  *        /test/stake {account,asset,amount,stakeRef}      a TEST stake: free into locked, reported in the balance's lockedBy.staked
- *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?}   each fee a MaybeKnown<Amount>
- *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
+ *        /test/switches {venueDown?,unlistPerpetuals?,declaredAgentPermissionReach?,amendsInPlace?,cancelsPerAction?,scheduledCancelMinLeadMs?,withdrawalFee?,networkFee?,withdrawalArrivalSeconds?,withdrawalsHeld?,depositExplorerTxUrl?,otherFeesUnpublished?,builderModeRequirementUnpublished?}   each fee a MaybeKnown<Amount>
+ *        /test/account-switches {owner,down?,accountMode?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
- *                                                         `down` refuses every call on that owner's account venue_down;
+ *                                                         `down` refuses every call on that owner's account venue_down
+ *                                                         (and the read of its account mode as a builder);
+ *                                                         `accountMode` moves it to 'standard', 'unified' or
+ *                                                         'portfolio_margin' (J-ops-console-28);
  *                                                         `loseAnswers` applies the next N submits and answers each
  *                                                         `definite: false` (timeout); `failAfterSend` applies the next N
  *                                                         submits and answers each HTTP 500; `submitDelayMs` holds each submit
@@ -868,7 +878,10 @@ function ownerOf(body: Record<string, unknown>): string | null {
   return a && typeof a.owner === 'string' ? a.owner.toLowerCase() : null;
 }
 
-function setAccountSwitches(sim: TestVenueSimulator, body: Record<string, unknown>): AccountSwitches & { owner: string } {
+function setAccountSwitches(
+  sim: TestVenueSimulator,
+  body: Record<string, unknown>,
+): AccountSwitches & { owner: string; accountMode: TestVenueAccountMode } {
   const owner = str(body, 'owner').toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(owner)) throw new VenueWireError('owner must be a 0x address');
   const all = ACCOUNT_SWITCHES.get(sim) ?? new Map<string, AccountSwitches>();
@@ -893,8 +906,13 @@ function setAccountSwitches(sim: TestVenueSimulator, body: Record<string, unknow
   whole('loseAnswers', 100);
   whole('failAfterSend', 100);
   whole('submitDelayMs', 10_000);
+  if (body.accountMode !== undefined) {
+    const mode = TEST_VENUE_ACCOUNT_MODES.find((m) => m === body.accountMode);
+    if (!mode) throw new VenueWireError(`accountMode is one of ${TEST_VENUE_ACCOUNT_MODES.map((m) => `'${m}'`).join(', ')}`);
+    sim.setAccountMode(owner, mode);
+  }
   all.set(owner, s);
-  return { owner, ...s };
+  return { owner, ...s, accountMode: sim.accountModeOf(owner) };
 }
 
 /** One request's answer. Exported so a test can drive it without a socket. */
@@ -917,7 +935,12 @@ export async function answerTestVenue(
     return [400, { error: (err as Error).message }];
   }
   try {
-    const owner = path.startsWith('/test/') ? null : ownerOf(body);
+    // A builder address's own mode read names it as `builder`, so its owner's `down` switch takes that read away too.
+    const owner = path.startsWith('/test/')
+      ? null
+      : path === '/builder-account-mode' && typeof body.builder === 'string'
+        ? body.builder.toLowerCase()
+        : ownerOf(body);
     const mine = owner ? switchesOf(sim, owner) : null;
     if (mine?.down) {
       throw new VenueRefusalError({
@@ -1021,6 +1044,8 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       return sim.builderTotals(str(body, 'builder'));
     case '/builder-claims':
       return sim.builderClaims(str(body, 'builder'));
+    case '/builder-account-mode':
+      return sim.builderAccountMode(str(body, 'builder'));
     case '/leverage':
       return sim.leverage(account(body), str(body, 'symbol'));
     case '/leverage-change': {
@@ -1118,6 +1143,11 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         if (typeof body.withdrawalsHeld !== 'boolean') throw new VenueWireError('withdrawalsHeld must be true or false');
         sim.switches.withdrawalsHeld = body.withdrawalsHeld;
       }
+      if (body.builderModeRequirementUnpublished !== undefined) {
+        if (typeof body.builderModeRequirementUnpublished !== 'boolean')
+          throw new VenueWireError('builderModeRequirementUnpublished must be true or false');
+        sim.switches.builderModeRequirementUnpublished = body.builderModeRequirementUnpublished;
+      }
       if (body.depositExplorerTxUrl === null || typeof body.depositExplorerTxUrl === 'string') {
         const url = body.depositExplorerTxUrl;
         if (url !== null && !/^(https:\/\/|\/(?!\/))/.test(url))
@@ -1138,6 +1168,7 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
         withdrawalsHeld: sim.switches.withdrawalsHeld,
         depositExplorerTxUrl: sim.switches.depositExplorerTxUrl,
         otherFeesUnpublished: sim.switches.otherFeesUnpublished,
+        builderModeRequirementUnpublished: sim.switches.builderModeRequirementUnpublished,
         label: 'TEST',
       };
     }
