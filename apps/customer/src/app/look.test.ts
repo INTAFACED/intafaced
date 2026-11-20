@@ -62,6 +62,10 @@ describe('the Lit glass switch', () => {
     expect(lookDirection(root)).toBe('ember');
     applyLook(root, '?look=off');
     expect(lookDirection(root)).toBeNull();
+    applyLook(root, '?look=lit&direction=lit-glass');
+    expect(lookDirection(root)).toBe('lit-glass');
+    applyLook(root, '');
+    expect(lookDirection(root)).toBe('lit-glass');
     applyLook(root, '?look=lit&direction=off');
     expect(root.dataset.direction).toBeUndefined();
     expect(resolveDirection('?direction=neon')).toBeNull();

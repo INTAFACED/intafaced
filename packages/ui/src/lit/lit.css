@@ -706,6 +706,20 @@
   --if-font-mono: var(--lit-font-figure);
 }
 
+/* Direction lit-glass: dark (only while the light preview is off), its faces, radii and type, then light. */
+:root:where([data-look='lit'][data-direction='lit-glass']:not([data-theme='light'])) {
+  --lit-accent: #3f7dff;
+  --lit-accent-text: #6d9bff;
+  --lit-accent-fill: #2f5cbd;
+}
+
+:root:where([data-look='lit'][data-direction='lit-glass']) {
+}
+
+:root:where([data-look='lit'][data-direction='lit-glass'][data-theme='light']) {
+  --lit-accent-text: #1f56d6;
+}
+
 /* Solid surfaces: the in-app switch, and automatically for more contrast, forced colours or reduced transparency. */
 :root:where([data-look='lit'][data-surfaces='solid']) {
   --lit-field: none;

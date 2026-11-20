@@ -643,7 +643,16 @@ const volt: DirectionSet = {
   },
 };
 
-export const directionSets: Record<Direction, DirectionSet> = { ember, volt };
+/** Lit glass: the look's own roles, with its one blue spark held whatever accent is asked; its glass is drawn by
+ * lit/directions/lit-glass.css from those roles. */
+const litGlass: DirectionSet = {
+  dark: { accent: lit.accent, 'accent-text': lit['accent-text'], 'accent-fill': lit['accent-fill'] },
+  both: {},
+  light: { 'accent-text': litLight['accent-text'] },
+  type: {},
+};
+
+export const directionSets: Record<Direction, DirectionSet> = { ember, volt, 'lit-glass': litGlass };
 
 /** Solid surfaces: no translucency and no blur anywhere; glass layers become opaque panels. */
 export const solid: Partial<RoleMap> = {

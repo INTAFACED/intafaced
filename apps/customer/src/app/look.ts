@@ -75,7 +75,7 @@ export function resolveAccent(search: string): LookAccent | null {
  */
 const DIRECTION_KEY = 'intafaced.look.direction';
 /** Held equal to `directions` in `@intafaced/ui/lit` by look.test.ts. */
-export const LOOK_DIRECTIONS = ['ember', 'volt'] as const;
+export const LOOK_DIRECTIONS = ['ember', 'volt', 'lit-glass'] as const;
 export type LookDirection = (typeof LOOK_DIRECTIONS)[number];
 
 const isDirection = (v: string | null | undefined): v is LookDirection => v != null && (LOOK_DIRECTIONS as readonly string[]).includes(v);

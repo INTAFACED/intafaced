@@ -24,7 +24,7 @@ export const defaultAccent: Accent = 'blue';
  * own material, type and layout on top of the look's roles. Off by default; only `?direction=` sets it (look.ts), and
  * only with the look on.
  */
-export const directions = ['ember', 'volt'] as const;
+export const directions = ['ember', 'volt', 'lit-glass'] as const;
 export type Direction = (typeof directions)[number];
 
 /**

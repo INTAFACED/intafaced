@@ -20,9 +20,10 @@ const out = process.env.LOOK_OPTIONS_OUT;
  */
 export const DIRECTIONS = [
   { id: 'today', query: 'look=off&accent=off', solid: false, schemes: ['dark'] },
-  { id: 'lit-glass', query: 'look=lit&accent=blue', solid: false },
+  { id: 'lit-blue', query: 'look=lit&accent=blue', solid: false },
   { id: 'emerald-solid', query: 'look=lit&accent=emerald', solid: true },
   // the real directions (intafaced #9227): each its own Home, money object, tab bar and material, and the Buy flow
+  { id: 'lit-glass', query: 'look=lit&accent=off&direction=lit-glass', solid: false, screens: ['home', 'money', 'buy'] },
   { id: 'ember', query: 'look=lit&accent=off&direction=ember', solid: false, screens: ['home', 'money', 'buy'] },
   { id: 'volt', query: 'look=lit&accent=off&direction=volt', solid: false, screens: ['home', 'money', 'buy'] },
 ];
@@ -48,6 +49,11 @@ const only = (name, list) => {
 test('look options', async ({ page }) => {
   expect(out, 'LOOK_OPTIONS_OUT names the folder').toBeTruthy();
   fs.mkdirSync(out, { recursive: true });
+  // Headless Chromium reports `prefers-reduced-transparency: reduce`, which turns every glass surface solid (lit.css,
+  // a11y/surfaces.ts): draw what a phone or computer with no such setting shows, as a person sees it. (The pictures of
+  // #9188 were taken without this, so their glass was drawn solid.)
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-transparency', value: 'no-preference' }] });
   const who = await fundedTrader(page, 'look', '2500');
   // Some TEST BTC too, through the same real ledger, so the screens show cash and crypto, as a customer's would.
   expect(fund(who.email, 'BTC', '0.015').tx).toBeTruthy();
@@ -75,6 +81,7 @@ test('look options', async ({ page }) => {
           }
           await page.evaluate(() => document.fonts.ready);
           const root = await page.evaluate(() => ({ ...document.documentElement.dataset }));
+          if (!d.solid) expect(root.surfaces, `${s.path} draws glass`).toBe('glass');
           // one direction asked for: its own folder, so the names drop the direction (`<screen>--<size>--<scheme>.png`)
           const one = only('LOOK_OPTIONS_DIRECTIONS', DIRECTIONS).length === 1;
           const file = `${one ? '' : `${d.id}--`}${s.id}--${size.id}--${scheme}.png`;

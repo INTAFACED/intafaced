@@ -42,7 +42,8 @@
       "types": "./dist/lit/templates/index.d.ts",
       "default": "./dist/lit/templates/index.js"
     },
-    "./lit/templates.css": "./src/lit/templates/templates.css"
+    "./lit/templates.css": "./src/lit/templates/templates.css",
+    "./lit/directions/*.css": "./src/lit/directions/*.css"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
