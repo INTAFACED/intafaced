@@ -238,7 +238,7 @@ test(`${J} #5 the version header applies and is echoed; without one the account 
   await expect(panel.getByRole('heading', { level: 2, name: 'API version', exact: true })).toBeVisible();
   await expect(panel.getByTestId('api-version__default')).toHaveText('Account default: not set');
   for (const version of API_VERSIONS) await expect(panel.getByTestId('api-version__versions')).toContainText(version);
-  await panel.getByLabel('Version to use by default', { exact: true }).selectOption(LATEST_API_VERSION);
+  await panel.getByRole('combobox', { name: 'Version to use by default', exact: true }).selectOption(LATEST_API_VERSION);
   await panel.getByRole('button', { name: 'Set as default', exact: true }).click();
   await expect(panel.getByTestId('api-version__outcome')).toHaveText(`The account default is now ${LATEST_API_VERSION}.`);
   await expect(panel.getByTestId('api-version__default')).toContainText(`Account default: ${LATEST_API_VERSION}`);
