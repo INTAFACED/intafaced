@@ -27,9 +27,10 @@ import {
   quantBacktestResultSchema,
   quantMonteCarloInputSchema,
   quantMonteCarloSchema,
-  quantReportSchema,
   router,
 } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { QUANT_BACKTEST_REPORT } from '@intafaced/contracts/quant-result-share-procedures';
 import { type QuantContext, claimKeyIdempotency } from '../key-api/key-api.js';
 import { type RunResultBody } from '../runs/types.js';
 import { backtestBodyOf, runBacktest } from '../backtest/run.js';
@@ -43,6 +44,7 @@ import { withQuantSpan } from '../tracing.js';
 import { z } from 'zod';
 import {
   environmentInput,
+  quantRefusal,
   toTrpc,
   costEvidence,
   runDetailOutput,
@@ -437,17 +439,18 @@ export function backtestRoutes(core: QuantCore) {
         }
       }),
 
-    /** The print document of one of the caller's own bar backtests (AL-report-03). Derived on read. */
-    report: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ runId: z.string().min(1), ...accountField }))
-      .output(quantReportSchema)
-      .query(async ({ input, ctx }) => {
+    /** The print document of one of the caller's own bar backtests (AL-report-03), mounted from its record. Derived on read. */
+    report: mountRecord(
+      QUANT_BACKTEST_REPORT,
+      async ({ input, ctx }) => {
         try {
           const owned = await ownedBar(accountOf(ctx, input.accountId), input.runId);
           return reportOf(presentBacktest(owned.stored, owned.id));
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }
