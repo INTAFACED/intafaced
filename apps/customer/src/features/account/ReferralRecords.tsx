@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
+import { referralAccrualsSchema, referralEdgeSchema, referralLapseSchema } from '@intafaced/contracts/identity-account-room';
 import { useResource, type Resource } from '../../shared/resource';
-import { decimalSchema, displayAmount, formatAmount, parseAmount } from '../../shared/money';
+import { displayAmount, formatAmount, parseAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
 import { shortReference } from '../../shared/reference';
 import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
@@ -9,40 +10,7 @@ import { useSession } from '../session';
 import { referralCopy as copy } from './referral-copy';
 import './referrals.css';
 
-const date = z.string().datetime({ offset: true });
-const nonblank = z
-  .string()
-  .min(1)
-  .refine((value) => value.trim().length > 0, 'Expected a published identifier');
-// svc-identity stores exact unsigned decimals with at most 18 fractional places.
-const amount = decimalSchema.and(z.string().regex(/^(0|[1-9]\d*)(\.\d{1,18})?$/));
-const accrual = z.object({
-  feeEventId: nonblank,
-  beneficiaryId: z.string().guid(),
-  payerId: z.string().guid(),
-  hop: z.number().int().nonnegative(),
-  rate: amount.refine((value) => parseAmount(value) <= parseAmount('1'), 'Rate exceeds one'),
-  feeAmount: amount,
-  commissionAmount: amount,
-  asset: nonblank,
-  accruedAt: date,
-  sourceModule: z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/),
-});
-const ended = z.object({
-  userId: z.string().uuid(),
-  referrerId: z.string().uuid(),
-  attributedAt: date,
-  lastActivityAt: date,
-  periodSeconds: z.number().int().positive(),
-  lapsedAt: date,
-});
-const lapseSchema = z.object({
-  state: z.enum(['unset', 'none', 'active']),
-  periodSeconds: z.number().int().positive().nullable(),
-  lastActivityAt: date.nullable(),
-  endsAt: date.nullable(),
-  ended: ended.nullable(),
-});
+const lapseSchema = referralLapseSchema;
 type Selection = { feeEventId: string; hop: number };
 const recordKey = (row: Selection) => JSON.stringify([row.feeEventId, row.hop]);
 type DetailKey =
@@ -92,10 +60,10 @@ function OwnerRecords({ userId }: { userId: string }) {
         'identity',
         'affiliates.myReferrer',
         undefined,
-        z
-          .object({ userId: z.string().guid(), referrerId: z.string().guid(), attributedAt: date })
-          .nullable()
-          .refine((row) => !row || (row.userId === userId && row.referrerId !== userId), 'Referral attribution ownership is invalid'),
+        referralEdgeSchema.refine(
+          (row) => !row || (row.userId === userId && row.referrerId !== userId),
+          'Referral attribution ownership is invalid',
+        ),
         { signal },
       ),
     `referral-edge:${userId}:${cycle}`,
@@ -130,12 +98,10 @@ function OwnerRecords({ userId }: { userId: string }) {
         'identity',
         'affiliates.myAccruals',
         { limit },
-        z
-          .object({ rows: z.array(accrual).max(limit) })
-          .refine(
-            (data) => data.rows.every((row) => row.beneficiaryId === userId) && new Set(data.rows.map(recordKey)).size === data.rows.length,
-            'Accrual ownership or record IDs are invalid',
-          ),
+        referralAccrualsSchema(limit).refine(
+          (data) => data.rows.every((row) => row.beneficiaryId === userId) && new Set(data.rows.map(recordKey)).size === data.rows.length,
+          'Accrual ownership or record IDs are invalid',
+        ),
         { signal },
       ),
     `referral-accruals:${userId}:${limit}:${cycle}`,
