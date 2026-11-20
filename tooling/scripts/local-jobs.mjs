@@ -7,7 +7,7 @@
 //   - the pre-push rust:check: cargo's CARGO_BUILD_JOBS and RUST_TEST_THREADS (.githooks/pre-push), unless set already;
 //   - every vitest run: its maxWorkers, through the shared TEST_BUDGET that every package spreads, and the Customer app's config.
 // turbo.json passes it through to the tasks turbo starts.
-export const LOCAL_JOBS = 'INTAFACED_LOCAL_JOBS';
+const LOCAL_JOBS = 'INTAFACED_LOCAL_JOBS';
 
 /** The bound, a whole number of at least 1, or null when unset. Anything else throws, naming the setting. */
 export function localJobs(env = process.env) {
