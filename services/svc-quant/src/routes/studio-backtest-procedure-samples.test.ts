@@ -9,7 +9,7 @@ import {
   signPrincipalHeader,
   type QuantSignalRules,
 } from '@intafaced/contracts';
-import type { ProcedureRecord, ProcedureSample } from '@intafaced/contracts/procedure';
+import type { ProcedureSample, Refusals } from '@intafaced/contracts/procedure';
 import {
   QUANT_BACKTEST_FEE,
   QUANT_BACKTEST_PROCEDURES,
@@ -62,6 +62,9 @@ const RULES: QuantSignalRules = {
 };
 
 const RECORDS = [...QUANT_STUDIO_PROCEDURES, ...QUANT_SANDBOX_PROCEDURES, ...QUANT_BACKTEST_PROCEDURES] as const;
+type AreaRecord = (typeof RECORDS)[number];
+/** A record's refusals read by any code: a code it does not list reads as undefined. */
+const refusalsOf = (record: AreaRecord): Refusals => record.refusals;
 
 /** `index.ts`'s wiring from an empty environment: no database, no fee or history read, no plan. */
 const app = Fastify();
@@ -82,7 +85,7 @@ afterAll(async () => {
   await app.close();
 });
 
-async function send(record: ProcedureRecord, input: unknown) {
+async function send(record: AreaRecord, input: unknown) {
   const url = `/trpc/${record.path}${record.kind === 'query' && input !== undefined ? `?input=${encodeURIComponent(JSON.stringify(input))}` : ''}`;
   return record.kind === 'query'
     ? app.inject({ method: 'GET', url, headers: headers() })
@@ -100,7 +103,7 @@ const namedCode = (body: string): string | undefined =>
 
 const cases = RECORDS.flatMap((record) =>
   record.samples.map((sample: ProcedureSample, i) => ({
-    record: record as ProcedureRecord,
+    record,
     sample,
     label: `${record.name} #${i} ${sample.verdict} ${JSON.stringify(sample.input)}`,
   })),
@@ -116,7 +119,7 @@ describe("svc-quant's studio, sandbox and backtest routes reach each record samp
       // On the empty environment an accepted input still meets a named refusal its record lists, never an input error.
       const code = namedCode(res.body);
       expect(code, res.body).toBeDefined();
-      expect(record.refusals[code!], res.body).toBeDefined();
+      expect(refusalsOf(record)[code!], res.body).toBeDefined();
     }
   });
 });
@@ -170,7 +173,7 @@ describe('each refusal leaves with the status its record lists', () => {
     expect(err, 'the call was refused').not.toBeNull();
     return { status: err!.code, code: err!.cause?.code };
   };
-  const listed = (record: ProcedureRecord, code: string) => ({ status: record.refusals[code], code });
+  const listed = (record: AreaRecord, code: string) => ({ status: refusalsOf(record)[code], code });
 
   it('studio.list and studio.get', async () => {
     const caller = wired();
