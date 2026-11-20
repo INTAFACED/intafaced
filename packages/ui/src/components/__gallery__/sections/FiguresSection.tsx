@@ -5,7 +5,8 @@
 import * as React from 'react';
 import { Clock } from 'lucide-react';
 import { Badge, type BadgeTone } from '../../badge.js';
-import type { Freshness } from '../../freshness.js';
+import { type Freshness, type HeldState, totalFreshness } from '../../freshness.js';
+import { HeldMark } from '../../held-mark.js';
 import { KeyValue } from '../../key-value.js';
 import { HideBalancesProvider } from '../../numbers.js';
 import { Stat } from '../../stat.js';
@@ -42,7 +43,7 @@ export function FiguresSection() {
   return (
     <section className="flex flex-col gap-6 border-t border-line py-8" data-testid="figures-section">
       <h2 className="text-lg font-semibold">
-        Figures: Stat, KeyValue, Badge, StatusChip <span className="text-warn">TEST DATA</span>
+        Figures: Stat, KeyValue, Badge, StatusChip, HeldMark <span className="text-warn">TEST DATA</span>
       </h2>
 
       <Part title="Badge: every tone, soft and outline, both densities">
@@ -115,6 +116,10 @@ export function FiguresSection() {
         </div>
       </Part>
 
+      <Part title="HeldMark: one figure per holder in its four states, side by side, and a total across holders (pinned now 14:05:00 UTC)">
+        <HeldFigures />
+      </Part>
+
       <Part title="KeyValue: inline and stacked, both densities">
         <div className="flex flex-wrap items-start gap-6">
           {DENSITIES.map((density) =>
@@ -142,5 +147,57 @@ export function FiguresSection() {
         </div>
       </Part>
     </section>
+  );
+}
+
+// TEST holders and figures for the HeldMark example: two holders under one header, each part in its own state.
+const HELD_PARTS: Array<{ holder: string; value: string | null; state: HeldState; asOf: string | null; route?: string }> = [
+  { holder: 'Partner account (TEST)', value: '1,000.00 USDC', state: 'known', asOf: LIVE_AT },
+  { holder: 'Venue account (TEST)', value: '500.00 USDC', state: 'stale', asOf: STALE_AT },
+  { holder: 'Card partner (TEST)', value: null, state: 'unknown', asOf: null },
+  {
+    holder: 'Moving (TEST)',
+    value: '250.00 USDC',
+    state: 'transit',
+    asOf: LIVE_AT,
+    route: 'From the partner account to the venue account',
+  },
+];
+const asOfText = (iso: string) => `As of ${iso.slice(11, 19)} UTC`;
+
+function HeldFigures() {
+  const known = HELD_PARTS.filter((part) => part.state !== 'unknown');
+  const total = totalFreshness(HELD_PARTS);
+  const totalKnown = totalFreshness(known);
+  return (
+    <div className="flex flex-wrap items-start gap-10">
+      <ul className="flex w-96 flex-col gap-2" data-testid="held-parts">
+        {HELD_PARTS.map((part) => (
+          <li key={part.holder} className="flex items-baseline justify-between gap-4 border-b border-line pb-2">
+            <span className="flex flex-col gap-0.5">
+              <span className="text-sm">{part.holder}</span>
+              <HeldMark state={part.state} asOf={part.asOf} asOfText={part.asOf ? asOfText(part.asOf) : undefined} route={part.route} />
+            </span>
+            {part.value === null ? (
+              <span className="text-sm text-fg-2">Not known</span>
+            ) : (
+              <span className="if-num text-sm tabular-nums">{part.value}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+      <div className="flex w-80 flex-col gap-3">
+        <div className="flex flex-col gap-1" data-testid="held-total-unknown">
+          <Caption>a total with one part not known</Caption>
+          <span className="text-lg font-medium text-fg-2">Not known</span>
+          <HeldMark state={total.state} asOf={total.asOf} />
+        </div>
+        <div className="flex flex-col gap-1" data-testid="held-total">
+          <Caption>the total of the three parts with a figure, at the oldest time among them</Caption>
+          <span className="if-num text-lg font-medium tabular-nums">1,750.00 USDC</span>
+          <HeldMark state={totalKnown.state} asOf={totalKnown.asOf} asOfText={totalKnown.asOf ? asOfText(totalKnown.asOf) : undefined} />
+        </div>
+      </div>
+    </div>
   );
 }
