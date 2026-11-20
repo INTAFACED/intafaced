@@ -31,7 +31,7 @@ export type ListInput = z.infer<typeof listInputSchema>;
 
 export const FEE_KINDS = ['network'] as const;
 
-export const quoteViewSchema = z.object({
+const quoteViewSchema = z.object({
   quoteRef: z.string(),
   assetId: z.string(),
   networkId: z.string(),
