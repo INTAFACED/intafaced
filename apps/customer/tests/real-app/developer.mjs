@@ -110,3 +110,10 @@ export function blankSigningWindow(blank) {
     else process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW = before;
   }
 }
+
+/** A prepared venue payload (svc-trade's `/api/v1/venue/prepare`), signed by one key: a program's own signing, no SDK. */
+export async function signPrepared(account, prepared) {
+  const t = prepared.typedData;
+  const signature = await account.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  return { digest: prepared.digest, signature, signedBy: account.address.toLowerCase() };
+}

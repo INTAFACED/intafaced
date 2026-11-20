@@ -2,8 +2,8 @@
 import { randomBytes } from 'node:crypto';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, journeyState } from './stack.mjs';
-import { keyHolder, makeKey, withKey } from './developer.mjs';
+import { EDGE, api, journeyState } from './stack.mjs';
+import { keyHolder, makeKey, signPrepared as signWith, withKey } from './developer.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
 import { venueAt, venueNow } from './venue-door.mjs';
@@ -14,7 +14,8 @@ import { venueAt, venueNow } from './venue-door.mjs';
 //
 // The Starts line is made once, as TEST setup: a verified TEST account with a live Trade key made in the browser, its
 // TEST wallet with TEST USDC on its own venue account, and one agent permission the wallet signed for the program's
-// agent key (`approve_agent`, through the person's signed-in session: an API key can never approve an agent). From then
+// agent key and our TEST builder fee (`approve_agent` and `approve_builder_fee`, through the person's signed-in session:
+// an API key can never approve either). From then
 // on every call goes to Edge with the key, and every order is signed by the agent key. The market is XDEV-PERP, the TEST
 // perpetual only this journey trades (packages/venue-sim/src/http-server.ts): no TEST makers' ladder rests on it, so
 // every position on it is one this journey opened. The venue is the record of every figure; the ledger posts nothing.
@@ -45,19 +46,12 @@ async function read(s, path) {
   return res.body;
 }
 
-/** The prepared payload, signed by one key: the program's own signing, no SDK. */
-async function signWith(account, prepared) {
-  const t = prepared.typedData;
-  const signature = await account.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
-  return { digest: prepared.digest, signature, signedBy: account.address.toLowerCase() };
-}
-
 /** Prepare, sign with `signer` and submit one action through the API key, as the program sends it. */
-async function send(s, intent, signer = s.agent) {
+async function send(s, intent, signer = s.agent, actionKey = undefined) {
   const prepared = await withKey(s.key, {
     method: 'POST',
     path: '/api/v1/venue/prepare',
-    body: { owner: s.owner, signer: { role: 'agent', address: signer.address.toLowerCase() }, intent },
+    body: { owner: s.owner, signer: { role: 'agent', address: signer.address.toLowerCase() }, intent, actionKey },
   });
   if (prepared.status !== 200) return { prepared, sent: null };
   const signature = await signWith(signer, prepared.body.prepared);
@@ -82,10 +76,21 @@ const limitBuy = (clientOrderKey, amount, price) => ({
   clientOrderKey,
 });
 
-/** A preview as an answer to compare: its status, and its body without the venue's as-of time. */
+/** What differs between any two answers: the venue's as-of and report times, and the request's own id. */
+const UNSTABLE = new Set(['asOf', 'reportedAt', 'requestId']);
+/** A preview as an answer to compare: its status and body, without what differs between any two answers. */
 function comparable(res) {
-  const { asOf: _asOf, ...rest } = res.body ?? {};
-  return { status: res.status, body: rest };
+  const strip = (v) =>
+    Array.isArray(v)
+      ? v.map(strip)
+      : v && typeof v === 'object'
+        ? Object.fromEntries(
+            Object.entries(v)
+              .filter(([k]) => !UNSTABLE.has(k))
+              .map(([k, x]) => [k, strip(x)]),
+          )
+        : v;
+  return { status: res.status, body: strip(res.body ?? {}) };
 }
 
 /**
@@ -118,6 +123,20 @@ test.beforeAll(async ({ browser }) => {
     const approved = await person.post('/api/v1/venue/submit', { actionKey, signature: await signWith(wallet, prepared.body.prepared) });
     expect(approved.status, JSON.stringify(approved.body)).toBe(200);
     expect(approved.body.outcome).toMatchObject({ definite: true, accepted: true });
+    // The wallet approves our TEST builder fee, as on the desk: every perpetual order carries it.
+    const status = (await person.get('/api/v1/venue/status')).body;
+    expect(status.builder, 'the TEST builder fee is set on the door').toBeTruthy();
+    const feeKey = `approve-builder:${owner}:${J}`;
+    const fee = await person.post('/api/v1/venue/prepare', {
+      owner,
+      signer: { role: 'owner', address: owner },
+      intent: { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
+      actionKey: feeKey,
+    });
+    expect(fee.status, JSON.stringify(fee.body)).toBe(200);
+    const feeSent = await person.post('/api/v1/venue/submit', { actionKey: feeKey, signature: await signWith(wallet, fee.body.prepared) });
+    expect(feeSent.status, JSON.stringify(feeSent.body)).toBe(200);
+    expect(feeSent.body.outcome).toMatchObject({ definite: true, accepted: true });
     run.reset({ who, key, walletKey, agentKey });
   } finally {
     await page.close();
@@ -181,7 +200,9 @@ test(`${J} #3 reads funding, index, mark and price limits: history rows; unpubli
   }
 });
 
-test(`${J} #4 reads open interest, risk-limit tiers, insurance and ADL data: ratio from positions; ladder_unset while the ladder is unpublished`, async () => {
+test(`${J} #4 reads open interest, risk-limit tiers, insurance and ADL data: ratio from positions; ladder_unset while the ladder is unpublished`, async ({
+  page,
+}) => {
   test.setTimeout(180_000);
   const s = state();
   const venue = await venueNow();
@@ -235,6 +256,11 @@ test(`${J} #4 reads open interest, risk-limit tiers, insurance and ADL data: rat
   const unset = await read(s, `/api/v1/venue/risk-limits?symbol=${SYMBOL}`);
   expect(unset).toMatchObject({ symbol: SYMBOL, tiers: null, reason: 'ladder_unset', test: true });
   expect(venueMarket.marginTiers).toEqual({ known: false });
+  // The same public answer as a developer opens it, signed out, in the browser.
+  const opened = await page.goto(`${EDGE}/api/v1/venue/risk-limits?symbol=${SYMBOL}`);
+  expect(opened.status()).toBe(200);
+  for (const part of [`"symbol":"${SYMBOL}"`, '"tiers":null', '"reason":"ladder_unset"'])
+    await expect(page.locator('body')).toContainText(part);
   // A perpetual whose venue publishes its ladder (XRSK-PERP, J-derivatives-02): the venue's own tiers, lowest first.
   const ladder = await read(s, '/api/v1/venue/risk-limits?symbol=XRSK-PERP');
   const rsk = (await venueAt('/markets', {})).value.find((m) => m.symbol === 'XRSK-PERP');
@@ -276,7 +302,13 @@ test(`${J} #7 places and previews orders through our API: the same preview and r
   expect(comparable(noLeverageKey)).toEqual(comparable(noLeverageDesk));
 
   // ── The program sets its leverage through our API, signed by the agent key ────────────────────────────────────────
-  const set = await send(s, { kind: 'update_leverage', symbol: SYMBOL, leverageBps: 50_000, marginMode: 'isolated' });
+  // A leverage change carries no client order id, so the program names its own business key for it.
+  const set = await send(
+    s,
+    { kind: 'update_leverage', symbol: SYMBOL, leverageBps: 50_000, marginMode: 'isolated' },
+    s.agent,
+    `leverage:${s.owner}:${SYMBOL}:5x:${RUN}`,
+  );
   expect(set.prepared.status, JSON.stringify(set.prepared.body)).toBe(200);
   expect(set.sent.status, JSON.stringify(set.sent.body)).toBe(200);
   expect(set.sent.body.outcome).toMatchObject({ definite: true, accepted: true });
