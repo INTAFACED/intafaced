@@ -278,103 +278,108 @@ export function EmbeddedWalletRoom() {
       state={state}
       steps={{ labels: [t('stepCreate'), t('stepPasskey'), t('stepReady')], current }}
       step={
-        <section data-panel="embedded-wallet">
-          {provider ? <p data-embedded-provider>{t('keptBy', { provider: name })}</p> : null}
-          <p>{t('noSeed')}</p>
-          {wallet ? (
-            <>
-              <h2>{t('walletTitle')}</h2>
-              <dl>
-                <div>
-                  <dt>{t('walletAddress')}</dt>
-                  <dd>
-                    <span data-embedded-address>{wallet.address}</span>{' '}
-                    {wallet.test ? (
-                      <Tag tone="neutral" data-test-label>
-                        TEST
-                      </Tag>
-                    ) : null}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{t('walletProvider')}</dt>
-                  <dd>{name}</dd>
-                </div>
-                <div>
-                  <dt>{t('walletId', { provider: name })}</dt>
-                  <dd data-embedded-wallet-id>{wallet.providerWalletId}</dd>
-                </div>
-              </dl>
-              {wallet.test ? <p>{t('testWallet')}</p> : null}
-              <p data-embedded-record>{t('recordNote', { provider: name })}</p>
-              <section aria-label={t('venueTitle')}>
-                <h2>{t('venueTitle')}</h2>
-                {connection ? (
-                  <p>
-                    {t('venueConnected')}{' '}
-                    <time dateTime={connection.expiresAt} data-testid="embedded-venue-expires">
-                      {time(connection.expiresAt)}
-                    </time>
-                  </p>
-                ) : null}
-                {connection && !live ? <p role="status">{t('venueExpired')}</p> : null}
-                <p>{t('venueNote')}</p>
-                {!live ? (
-                  <Button disabled={busy || !client} onClick={() => void connect()}>
-                    {connection ? t('venueSignAgain') : t('venueConnect')}
-                  </Button>
-                ) : null}
-              </section>
-              {userId ? (
-                <TradingSession
-                  api={api}
-                  userId={userId}
-                  wallet={wallet}
-                  client={client}
-                  providerFailure={(failure) => clientRefusal(failure, provider, t).body}
-                  t={t}
-                />
-              ) : null}
-              <VenueDeposit
-                api={api}
-                wallet={wallet}
-                client={client}
-                gasSponsorCode={read?.gasSponsor.code ?? GAS_SPONSOR_UNSET}
-                providerFailure={(failure) => clientRefusal(failure, provider, t).body}
-              />
-              <section aria-label={t('ownTitle')}>
-                <h2>{t('ownTitle')}</h2>
-                <p>{t('ownNote', { provider: name })}</p>
-                {provider?.capabilities.export ? (
-                  <>
-                    <p data-export-once>{t('exportOnce', { provider: name })}</p>
-                    <Button disabled={busy || !client} onClick={() => void exportKey()}>
-                      {t('exportKey')}
+        <>
+          <section data-panel="embedded-wallet">
+            {provider ? <p data-embedded-provider>{t('keptBy', { provider: name })}</p> : null}
+            <p>{t('noSeed')}</p>
+            {wallet ? (
+              <>
+                <h2>{t('walletTitle')}</h2>
+                <dl>
+                  <div>
+                    <dt>{t('walletAddress')}</dt>
+                    <dd>
+                      <span data-embedded-address>{wallet.address}</span>{' '}
+                      {wallet.test ? (
+                        <Tag tone="neutral" data-test-label>
+                          TEST
+                        </Tag>
+                      ) : null}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t('walletProvider')}</dt>
+                    <dd>{name}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('walletId', { provider: name })}</dt>
+                    <dd data-embedded-wallet-id>{wallet.providerWalletId}</dd>
+                  </div>
+                </dl>
+                {wallet.test ? <p>{t('testWallet')}</p> : null}
+                <p data-embedded-record>{t('recordNote', { provider: name })}</p>
+                <section aria-label={t('venueTitle')}>
+                  <h2>{t('venueTitle')}</h2>
+                  {connection ? (
+                    <p>
+                      {t('venueConnected')}{' '}
+                      <time dateTime={connection.expiresAt} data-testid="embedded-venue-expires">
+                        {time(connection.expiresAt)}
+                      </time>
+                    </p>
+                  ) : null}
+                  {connection && !live ? <p role="status">{t('venueExpired')}</p> : null}
+                  <p>{t('venueNote')}</p>
+                  {!live ? (
+                    <Button disabled={busy || !client} onClick={() => void connect()}>
+                      {connection ? t('venueSignAgain') : t('venueConnect')}
                     </Button>
-                  </>
-                ) : (
-                  <p>{t('exportNone', { provider: name })}</p>
-                )}{' '}
-                {provider?.capabilities.recovery ? (
-                  <Button disabled={busy || !client} onClick={() => void addRecovery()}>
-                    {t('recoveryAdd')}
-                  </Button>
-                ) : (
-                  <p>{t('recoveryNone', { provider: name })}</p>
-                )}
-                {notice ? <p role="status">{notice}</p> : null}
-                {exported ? (
-                  <section aria-label={t('exportTitle', { provider: name })} data-provider-export>
-                    <h3>{t('exportTitle', { provider: name })}</h3>
-                    <p>{t('exportWarning')}</p>
-                    <pre data-exported-key>{exported}</pre>
-                    <Button onClick={() => setExported(null)}>{t('exportHide')}</Button>
-                  </section>
+                  ) : null}
+                </section>
+                {userId ? (
+                  <TradingSession
+                    api={api}
+                    userId={userId}
+                    wallet={wallet}
+                    client={client}
+                    providerFailure={(failure) => clientRefusal(failure, provider, t).body}
+                    t={t}
+                  />
                 ) : null}
-              </section>
-            </>
+                <section aria-label={t('ownTitle')}>
+                  <h2>{t('ownTitle')}</h2>
+                  <p>{t('ownNote', { provider: name })}</p>
+                  {provider?.capabilities.export ? (
+                    <>
+                      <p data-export-once>{t('exportOnce', { provider: name })}</p>
+                      <Button disabled={busy || !client} onClick={() => void exportKey()}>
+                        {t('exportKey')}
+                      </Button>
+                    </>
+                  ) : (
+                    <p>{t('exportNone', { provider: name })}</p>
+                  )}{' '}
+                  {provider?.capabilities.recovery ? (
+                    <Button disabled={busy || !client} onClick={() => void addRecovery()}>
+                      {t('recoveryAdd')}
+                    </Button>
+                  ) : (
+                    <p>{t('recoveryNone', { provider: name })}</p>
+                  )}
+                  {notice ? <p role="status">{notice}</p> : null}
+                  {exported ? (
+                    <section aria-label={t('exportTitle', { provider: name })} data-provider-export>
+                      <h3>{t('exportTitle', { provider: name })}</h3>
+                      <p>{t('exportWarning')}</p>
+                      <pre data-exported-key>{exported}</pre>
+                      <Button onClick={() => setExported(null)}>{t('exportHide')}</Button>
+                    </section>
+                  ) : null}
+                </section>
+              </>
+            ) : null}
+          </section>
+          {wallet ? (
+            // Its own panel, beside the wallet's: Deposit to the venue (J-wallet-24).
+            <VenueDeposit
+              api={api}
+              wallet={wallet}
+              client={client}
+              gasSponsorCode={read?.gasSponsor.code ?? GAS_SPONSOR_UNSET}
+              providerFailure={(failure) => clientRefusal(failure, provider, t).body}
+            />
           ) : null}
-        </section>
+        </>
       }
       actions={
         wallet ? null : (

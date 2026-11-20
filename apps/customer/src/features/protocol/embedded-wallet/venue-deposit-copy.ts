@@ -1,15 +1,14 @@
 import { defineCopy } from '../../../shared/i18n';
 
 // Deposit to the venue from the person's own wallet (J-wallet-24). English source; other languages fall back to English.
-// The venue is named by its own display name ({venue}) and its chain by the venue's own name for it ({network}); every
-// term is the venue's, word for word, or "not published". No figure is made up: one the chain does not answer is "not known".
+// The venue's chain is named by the venue's own name for it ({network}); every term is the venue's, word for word, or
+// "not published". No figure is made up: one the chain does not answer is "not known".
 const en = {
   title: 'Deposit to the venue',
-  venueName: 'the venue',
   testVenue: 'TEST venue and TEST chain: TEST figures, no real money.',
-  intro: 'Send from your wallet to {venue}’s deposit address. You sign the transfer with your passkey; INTAFACED moves nothing.',
+  intro: 'Send from your wallet to the venue’s deposit address. You sign the transfer with your passkey; INTAFACED moves nothing.',
   loading: 'Reading the venue’s deposit terms…',
-  noRoute: '{venue} publishes no deposit address, so nothing can be sent from here.',
+  noRoute: 'The venue publishes no deposit address, so nothing can be sent from here.',
   venueDown: 'The venue’s deposit terms could not be read. Nothing was sent.',
   termChain: 'Chain',
   termAsset: 'Asset the venue takes there',
@@ -27,12 +26,12 @@ const en = {
   deposit: 'Deposit',
   checking: 'Checking with the chain…',
   signing: 'Check your passkey on this device…',
-  wayOther: '{asset} is not taken on {network}. {venue} takes it by another route: {route}. Nothing was signed.',
-  wayOtherHow: '{venue} says: {how}',
-  wayNone: '{asset} is not taken on {network}. Not offered: {venue} publishes no route for {asset}. Nothing was signed.',
+  wayOther: '{asset} is not taken on {network}. The venue takes it by another route: {route}. Nothing was signed.',
+  wayOtherHow: 'The venue says: {how}',
+  wayNone: '{asset} is not taken on {network}. Not offered: the venue publishes no route for {asset}. Nothing was signed.',
   stopAmount: 'Type an amount of {asset}, with at most {decimals} decimals. Nothing was signed.',
   stopMinimum:
-    'Refused before signing: {venue}’s minimum deposit is {minimum} {asset}. A smaller deposit is not credited. Nothing was sent.',
+    'Refused before signing: the venue’s minimum deposit is {minimum} {asset}. A smaller deposit is not credited. Nothing was sent.',
   stopUnread: 'Your wallet’s balances could not be read from the chain, so nothing was signed.',
   stopNotEnough: 'Your wallet holds {balance} {asset}, less than this deposit. Nothing was signed.',
   stopNoGas: 'Stopped before signing: your wallet holds no {gas}, the gas token on {network} that pays this transfer’s network fee.',
@@ -46,10 +45,10 @@ const en = {
   sentWaiting: 'Waiting for {network} to include it.',
   networkFee: 'Network fee paid',
   reverted: 'The chain did not carry out the transfer. Your {asset} stayed in your wallet.',
-  confirming: '{venue} is confirming it: {confirmations} of {required}.',
-  notCredited: '{venue} did not credit it: below its minimum.',
-  credited: 'Credited by {venue}.',
-  venueFigure: 'Your {asset} at {venue}',
+  confirming: 'The venue is confirming it: {confirmations} of {required}.',
+  notCredited: 'The venue did not credit it: below its minimum.',
+  credited: 'Credited by the venue.',
+  venueFigure: 'Your {asset} at the venue',
   venueAsOf: 'As of',
   chainRefused: 'The chain refused this transfer before it was sent. Nothing was sent.',
   nonceUnread: 'Your wallet could not be read from the chain, so nothing was signed.',

@@ -10,10 +10,11 @@ import {
   type ChainRead,
   type WalletFunds,
 } from './venue-deposit';
+import type { VenueDepositRoute } from '../venue-wallet/venue-account-api';
 
 // J-wallet-24: what is read from the chain, and what stops a deposit to the venue before anything is signed.
 
-const route = {
+const route: VenueDepositRoute = {
   chainId: 84532,
   token: '0x000000000000000000000000000000000000d011',
   tokenDecimals: 6,

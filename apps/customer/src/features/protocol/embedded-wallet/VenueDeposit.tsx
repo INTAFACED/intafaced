@@ -51,8 +51,6 @@ export function VenueDeposit(props: {
   const door = status.resource.status === 'ready' ? status.resource.data : null;
   const open = door && door.enabled && door.available ? door : null;
   const route: VenueDepositRoute | null = open?.deposit ?? null;
-  // The venue door names no venue, so the room says "the venue" (its TEST label shows below on a test stack).
-  const venueName = t('venueName');
   const read: ChainRead = (method, params) => (client ? client.read(method, params) : Promise.resolve(null));
 
   const funds = usePolled(
@@ -95,7 +93,7 @@ export function VenueDeposit(props: {
   );
   if (status.resource.status === 'failed') return section(<p role="alert">{t('venueDown')}</p>);
   if (!door) return section(<p role="status">{t('loading')}</p>);
-  if (!route) return section(<p role="status">{t('noRoute', { venue: venueName })}</p>);
+  if (!route) return section(<p role="status">{t('noRoute')}</p>);
 
   const network = route.network ?? `chain ${route.chainId}`;
   const gas = gasToken(route.chainId);
@@ -139,7 +137,7 @@ export function VenueDeposit(props: {
       case 'below_minimum':
         return (
           <p role="alert" data-deposit-stop="below_minimum">
-            {t('stopMinimum', { venue: venueName, minimum: plainDecimal(s.minimum), asset: route!.asset })}
+            {t('stopMinimum', { minimum: plainDecimal(s.minimum), asset: route!.asset })}
           </p>
         );
       case 'balance_unknown':
@@ -175,7 +173,7 @@ export function VenueDeposit(props: {
   const venueRead = credit.data;
   return section(
     <>
-      <p>{t('intro', { venue: venueName })}</p>
+      <p>{t('intro')}</p>
       <dl>
         <div>
           <dt>{t('termChain')}</dt>
@@ -237,19 +235,18 @@ export function VenueDeposit(props: {
           {venueRead?.deposit?.status === 'confirming' ? (
             <p role="status" data-deposit-status="confirming">
               {t('confirming', {
-                venue: venueName,
                 confirmations: String(venueRead.deposit.confirmations),
                 required: String(venueRead.deposit.required),
               })}
             </p>
           ) : null}
-          {venueRead?.deposit?.status === 'not_credited' ? <p role="alert">{t('notCredited', { venue: venueName })}</p> : null}
+          {venueRead?.deposit?.status === 'not_credited' ? <p role="alert">{t('notCredited')}</p> : null}
           {venueRead?.deposit?.status === 'credited' ? (
             <div role="status" data-deposit-status="credited">
-              <p>{t('credited', { venue: venueName })}</p>
+              <p>{t('credited')}</p>
               <dl>
                 <div>
-                  <dt>{t('venueFigure', { asset: route.asset, venue: venueName })}</dt>
+                  <dt>{t('venueFigure', { asset: route.asset })}</dt>
                   <dd data-testid="deposit-venue-figure">
                     {plainDecimal(venueRead.figure)} {route.asset}
                   </dd>
@@ -287,13 +284,13 @@ export function VenueDeposit(props: {
           </label>
           {way.kind === 'other_route' ? (
             <div role="status" data-asset-way="other_route">
-              <p>{t('wayOther', { asset, network, venue: venueName, route: way.network })}</p>
-              {way.how ? <p>{t('wayOtherHow', { venue: venueName, how: way.how })}</p> : null}
+              <p>{t('wayOther', { asset, network, route: way.network })}</p>
+              {way.how ? <p>{t('wayOtherHow', { how: way.how })}</p> : null}
             </div>
           ) : null}
           {way.kind === 'not_offered' ? (
             <p role="status" data-asset-way="not_offered">
-              {t('wayNone', { asset, network, venue: venueName })}
+              {t('wayNone', { asset, network })}
             </p>
           ) : null}
           {way.kind === 'bridge' ? (
@@ -313,7 +310,7 @@ export function VenueDeposit(props: {
           ) : null}
         </>
       )}
-      {open?.test ? <p data-test-label>{t('testVenue')}</p> : null}
+      {open?.test ? <p data-deposit-test-label>{t('testVenue')}</p> : null}
     </>,
   );
 }

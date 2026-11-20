@@ -4,8 +4,9 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { api, journeyState, restartService, signOutBrowser, stackUrl, startService, stopService } from './stack.mjs';
-import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
+import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import { venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
+import { device, openRoom, recorded } from './embedded-wallet.mjs';
 
 // J-wallet-22, in the running app: I get my own wallet when I sign up, without a seed phrase. One test per step, titled
 // "J-wallet-22 #<n>", run in order by one signed-up TEST person. The provider is the stack's labelled TEST embedded-wallet
@@ -32,7 +33,6 @@ const PROVIDER = 'TEST wallet provider';
 const KEPT_BY = `Your wallet’s key is kept by ${PROVIDER}. Only you can sign with it, after your passkey.`;
 /** The TEST region AA's reason while it is not served (TEST_BUSINESS_BLOCK_REASON in packages/config jurisdiction.ts). */
 const REGION_REASON = 'TEST region, not served at launch';
-const STATUS = '/api/protocol/trpc/embeddedWallet.status';
 
 test.describe.configure({ mode: 'default' });
 test.use({ baseURL: PASSKEY_ORIGIN });
@@ -64,13 +64,6 @@ function walletState() {
   return s;
 }
 
-/** svc-protocol's record of the person's wallet, through Edge, as the person. */
-async function recorded(who) {
-  const client = await api(who);
-  const { status, body } = await client.get(STATUS);
-  if (status !== 200) throw new Error(`embeddedWallet.status refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
-  return body.result.data;
-}
 async function venueConnections(who) {
   const client = await api(who);
   const { status, body } = await client.get('/api/protocol/trpc/venueWallet.status');
@@ -81,22 +74,6 @@ async function disconnectVenue(who, address) {
   const client = await api(who);
   const { status } = await client.post('/api/protocol/trpc/venueWallet.disconnect', { address });
   expect(status).toBe(200);
-}
-
-/** This page's device, with the given passkeys on it (none: a device that has never held one). */
-async function device(page, credentials = []) {
-  const auth = await virtualAuthenticator(page);
-  for (const credential of credentials)
-    await auth.cdp.send('WebAuthn.addCredential', { authenticatorId: auth.authenticatorId, credential });
-  const held = async () => (await auth.cdp.send('WebAuthn.getCredentials', { authenticatorId: auth.authenticatorId })).credentials;
-  return { ...auth, held };
-}
-
-async function openRoom(page, who) {
-  await signIn(page, who);
-  await page.goto('/wallet');
-  await page.getByRole('button', { name: 'My wallet', exact: true }).click();
-  await expect(page).toHaveURL(/\/wallet\/embedded$/);
 }
 
 const panel = (page) => page.locator('[data-panel="embedded-wallet"]');
@@ -122,7 +99,11 @@ test(`${J} #1 opens Wallet and presses Create my wallet: the provider is named; 
     await expect(blankPage.getByText('No embedded-wallet provider is set, so no wallet can be made. Nothing was made.')).toBeVisible();
     await expect(blankPage.getByText('wallet.embedded_provider_unset')).toBeVisible();
     expect(await blankDevice.held()).toEqual([]);
-    expect(await recorded(who)).toEqual({ provider: null, wallet: null });
+    expect(await recorded(who)).toEqual({
+      provider: null,
+      wallet: null,
+      gasSponsor: { set: false, code: 'wallet.gas_sponsor_unset' },
+    });
   } finally {
     await blankPage.close();
     await restartService('protocol', { LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET: undefined });

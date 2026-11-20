@@ -940,17 +940,17 @@ export async function answerTestVenue(
     if (path === '/submit' && mine && mine.submitDelayMs > 0) await new Promise((r) => setTimeout(r, mine.submitDelayMs));
     if (path === '/submit' && mine && mine.loseAnswers > 0) {
       // Applied, then the answer is lost, as a timeout after the bytes reached the venue.
-      await route(sim, path, body, deposit);
+      await route({ sim, deposit }, path, body);
       mine.loseAnswers -= 1;
       return [200, encodeVenueWire({ definite: false, reason: 'timeout' })];
     }
     if (path === '/submit' && mine && mine.failAfterSend > 0) {
       // Applied, then the venue answers a 5xx: an error after the bytes reached the venue.
-      await route(sim, path, body, deposit);
+      await route({ sim, deposit }, path, body);
       mine.failAfterSend -= 1;
       return [500, { error: 'TEST venue error after the submit was applied (TEST switch)' }];
     }
-    const value = await route(sim, path, body, deposit);
+    const value = await route({ sim, deposit }, path, body);
     return value === undefined ? [404, { error: `no route ${path}` }] : [200, encodeVenueWire(value)];
   } catch (err) {
     if (err instanceof VenueRefusalError) return [422, { refusal: err.refusal }];
@@ -960,11 +960,11 @@ export async function answerTestVenue(
 }
 
 async function route(
-  sim: TestVenueSimulator,
+  at: { sim: TestVenueSimulator; deposit: UserVenueDepositRoute | null },
   path: string,
   body: Record<string, unknown>,
-  deposit: UserVenueDepositRoute | null,
 ): Promise<unknown> {
+  const { sim, deposit } = at;
   switch (path) {
     case '/markets':
       return sim.markets(body.account ? account(body) : null);
@@ -1107,14 +1107,11 @@ async function route(
     }
     case '/test/deposit-route': {
       // TEST: the venue's route for one asset its bridge does not take, in its own words; null withdraws it (J-wallet-24 #5).
-      const route = body.route;
-      if (route !== null && typeof route !== 'object') throw new VenueWireError('route is required: { network, how } or null');
-      sim.setAssetRoute(
-        str(body, 'asset'),
-        route === null
-          ? null
-          : { network: str(route as Record<string, unknown>, 'network'), how: str(route as Record<string, unknown>, 'how') },
-      );
+      const given: unknown = body.route;
+      if (given === null) sim.setAssetRoute(str(body, 'asset'), null);
+      else if (typeof given === 'object' && !Array.isArray(given))
+        sim.setAssetRoute(str(body, 'asset'), { network: str({ ...given }, 'network'), how: str({ ...given }, 'how') });
+      else throw new VenueWireError('route is required: { network, how } or null');
       return { ok: true, label: 'TEST' };
     }
     case '/test/switches': {

@@ -369,7 +369,7 @@ test('signs a venue action’s EIP-712 typed data only after a passkey assertion
 
 test('J-wallet-24: the page reads the chain through the provider, read-only methods only', async () => {
   const calls = [];
-  const provider = createTestWalletProvider({ origins: [ORIGIN], accounts, rpc: async (method, params) => (calls.push(method), '0x1') });
+  const provider = createTestWalletProvider({ origins: [ORIGIN], accounts, rpc: async (method) => (calls.push(method), '0x1') });
   assert.deepEqual((await provider.read({ method: 'eth_getBalance', params: ['0x0', 'latest'] })).body, { result: '0x1' });
   // Anything that signs or sends, or is not a listed read, never reaches the chain.
   for (const method of ['eth_sendRawTransaction', 'eth_sendTransaction', 'eth_sign', 'evm_mine', 'anvil_setBalance'])
