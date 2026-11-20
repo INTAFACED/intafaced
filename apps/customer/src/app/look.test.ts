@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
 import { accents } from '@intafaced/ui/lit';
-import { LOOK_ACCENTS, applyLook, isLook, resolveAccent, resolveLook, resolvePreviewScheme } from './look';
+import { resolvePreviewScheme } from '../shared/preferences';
+import { LOOK_ACCENTS, applyLook, isLook, resolveAccent, resolveLook } from './look';
 
 describe('the Lit glass switch', () => {
   beforeEach(() => localStorage.clear());

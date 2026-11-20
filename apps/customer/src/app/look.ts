@@ -3,6 +3,8 @@
  * back off. Off by default, so every journey on main sees today's app. It only sets `data-look` on the root element;
  * everything the look changes is scoped to `[data-look='lit']`.
  */
+import { remembered, resolvePreviewScheme } from '../shared/preferences';
+
 /** Where the choice is remembered; boot.ts reads it too, to set the look before the first paint. */
 export const LOOK_KEY = 'intafaced.look';
 export type LookId = 'lit';
@@ -45,36 +47,12 @@ export function resolveLook(search: string): LookId | null {
  * or another accent without asking for it; light stays unshipped (preferences.ts draws dark for every stored theme).
  */
 const ACCENT_KEY = 'intafaced.look.accent';
-const SCHEME_KEY = 'intafaced.look.scheme';
 /** Held equal to `accents` in `@intafaced/ui/lit` by look.test.ts. */
 export const LOOK_ACCENTS = ['blue', 'ember', 'violet', 'emerald'] as const;
 export type LookAccent = (typeof LOOK_ACCENTS)[number];
 
-function remembered<T extends string>(search: string, param: string, key: string, values: readonly T[], off: string): T | null {
-  const asked = new URLSearchParams(search).get(param);
-  try {
-    if (asked !== null && (values as readonly string[]).includes(asked)) {
-      localStorage.setItem(key, asked);
-      return asked as T;
-    }
-    if (asked === off) {
-      localStorage.removeItem(key);
-      return null;
-    }
-    const kept = localStorage.getItem(key);
-    return kept !== null && (values as readonly string[]).includes(kept) ? (kept as T) : null;
-  } catch {
-    return asked !== null && (values as readonly string[]).includes(asked) ? (asked as T) : null;
-  }
-}
-
 export function resolveAccent(search: string): LookAccent | null {
   return remembered(search, 'accent', ACCENT_KEY, LOOK_ACCENTS, 'off');
-}
-
-/** `light` only when the light preview was asked for on this device; dark otherwise. */
-export function resolvePreviewScheme(search: string = typeof location === 'undefined' ? '' : location.search): 'light' | 'dark' {
-  return remembered(search, 'scheme', SCHEME_KEY, ['light'] as const, 'dark') ?? 'dark';
 }
 
 /** Called once before the first render. */
