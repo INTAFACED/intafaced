@@ -23146,6 +23146,1814 @@
         }
       ]
     },
+    "quant.team.get": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "team.get",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "collaborators": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "memberId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": ["view", "edit"]
+                },
+                "liveControl": {
+                  "type": "boolean"
+                },
+                "addedAt": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["memberId", "role", "liveControl", "addedAt", "updatedAt"],
+              "additionalProperties": false
+            }
+          },
+          "lock": {
+            "type": "object",
+            "properties": {
+              "held": {
+                "type": "boolean"
+              },
+              "holderId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "mine": {
+                "type": "boolean"
+              },
+              "expiresAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["held", "holderId", "mine", "expiresAt"],
+            "additionalProperties": false
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "grantId": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["grantId", "createdAt", "expiresAt", "active"],
+              "additionalProperties": false
+            }
+          },
+          "reads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "readAt": {
+                  "type": "string"
+                },
+                "reader": {
+                  "type": "string"
+                },
+                "granted": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["readAt", "reader", "granted"],
+              "additionalProperties": false
+            }
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["strategyId", "ownerId", "collaborators", "lock", "grants", "reads", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "accountId": "not-a-uuid"
+          }
+        }
+      ]
+    },
+    "quant.team.grant": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "team.grant",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.grant_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "seconds": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "seconds", "seq"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "collaborators": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "memberId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": ["view", "edit"]
+                },
+                "liveControl": {
+                  "type": "boolean"
+                },
+                "addedAt": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["memberId", "role", "liveControl", "addedAt", "updatedAt"],
+              "additionalProperties": false
+            }
+          },
+          "lock": {
+            "type": "object",
+            "properties": {
+              "held": {
+                "type": "boolean"
+              },
+              "holderId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "mine": {
+                "type": "boolean"
+              },
+              "expiresAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["held", "holderId", "mine", "expiresAt"],
+            "additionalProperties": false
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "grantId": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["grantId", "createdAt", "expiresAt", "active"],
+              "additionalProperties": false
+            }
+          },
+          "reads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "readAt": {
+                  "type": "string"
+                },
+                "reader": {
+                  "type": "string"
+                },
+                "granted": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["readAt", "reader", "granted"],
+              "additionalProperties": false
+            }
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["strategyId", "ownerId", "collaborators", "lock", "grants", "reads", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "seconds": 3600,
+            "seq": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "seconds": 60.5,
+            "seq": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "seconds": 3600,
+            "seq": -1
+          }
+        }
+      ]
+    },
+    "quant.team.lock": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "team.lock",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.permission_denied": "FORBIDDEN",
+        "quant.edit_lock_unset": "PRECONDITION_FAILED",
+        "quant.edit_locked": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "held": {
+            "type": "boolean"
+          },
+          "holderId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mine": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["held", "holderId", "mine", "expiresAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": 1
+          }
+        }
+      ]
+    },
+    "quant.team.open": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "team.open",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["view", "edit"]
+          },
+          "liveControl": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "source": {
+            "type": "string"
+          },
+          "releaseNote": {
+            "type": "string"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "name": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "releaseNote": {
+                  "type": "string"
+                }
+              },
+              "required": ["version", "name", "createdAt", "releaseNote"],
+              "additionalProperties": false
+            }
+          },
+          "lock": {
+            "type": "object",
+            "properties": {
+              "held": {
+                "type": "boolean"
+              },
+              "holderId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "mine": {
+                "type": "boolean"
+              },
+              "expiresAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["held", "holderId", "mine", "expiresAt"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["strategyId", "ownerId", "role", "liveControl", "name", "version", "source", "releaseNote", "versions", "lock"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        }
+      ]
+    },
+    "quant.team.order": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "team.order",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.permission_denied": "FORBIDDEN",
+        "quant.run_not_found": "NOT_FOUND",
+        "quant.paper_manual_order_unsupported": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "runId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "size": {
+            "type": "string",
+            "pattern": "^(?:0|[1-9]\\d{0,17})(?:\\.\\d{1,18})?$"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "runId", "side", "size"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "not": {}
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "runId": "r-1",
+            "side": "buy",
+            "size": "0.5"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "runId": "r-1",
+            "side": "hold",
+            "size": "0.5"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "runId": "r-1",
+            "side": "sell",
+            "size": "-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "runId": "r-1",
+            "side": "sell",
+            "size": 1
+          }
+        }
+      ]
+    },
+    "quant.team.paperRuns": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "team.paperRuns",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "runId": {
+                  "type": "string"
+                },
+                "strategyId": {
+                  "type": "string"
+                },
+                "strategyVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["running", "stopped"]
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "stoppedAt": {
+                  "type": ["string", "null"]
+                },
+                "cash": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "feed": {
+                  "type": "string",
+                  "const": "own_venue"
+                }
+              },
+              "required": ["runId", "strategyId", "strategyVersion", "state", "startedAt", "stoppedAt", "cash", "feed"],
+              "additionalProperties": false
+            }
+          },
+          "counts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "strategyVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "runs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["strategyVersion", "runs"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["runs", "counts"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": ""
+          }
+        }
+      ]
+    },
+    "quant.team.remove": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "team.remove",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "memberId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "memberId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "collaborators": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "memberId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": ["view", "edit"]
+                },
+                "liveControl": {
+                  "type": "boolean"
+                },
+                "addedAt": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["memberId", "role", "liveControl", "addedAt", "updatedAt"],
+              "additionalProperties": false
+            }
+          },
+          "lock": {
+            "type": "object",
+            "properties": {
+              "held": {
+                "type": "boolean"
+              },
+              "holderId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "mine": {
+                "type": "boolean"
+              },
+              "expiresAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["held", "holderId", "mine", "expiresAt"],
+            "additionalProperties": false
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "grantId": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["grantId", "createdAt", "expiresAt", "active"],
+              "additionalProperties": false
+            }
+          },
+          "reads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "readAt": {
+                  "type": "string"
+                },
+                "reader": {
+                  "type": "string"
+                },
+                "granted": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["readAt", "reader", "granted"],
+              "additionalProperties": false
+            }
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["strategyId", "ownerId", "collaborators", "lock", "grants", "reads", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "memberId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "memberId": "not-a-uuid"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1"
+          }
+        }
+      ]
+    },
+    "quant.team.save": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "team.save",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.permission_denied": "FORBIDDEN",
+        "quant.idempotency_conflict": "BAD_REQUEST",
+        "quant.edit_lock_unset": "PRECONDITION_FAILED",
+        "quant.edit_locked": "CONFLICT",
+        "quant.version_not_found": "NOT_FOUND",
+        "quant.release_note_limit_unset": "PRECONDITION_FAILED",
+        "quant.params_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "baseVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "releaseNote": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "baseVersion", "name"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["view", "edit"]
+          },
+          "liveControl": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "source": {
+            "type": "string"
+          },
+          "releaseNote": {
+            "type": "string"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "name": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "releaseNote": {
+                  "type": "string"
+                }
+              },
+              "required": ["version", "name", "createdAt", "releaseNote"],
+              "additionalProperties": false
+            }
+          },
+          "lock": {
+            "type": "object",
+            "properties": {
+              "held": {
+                "type": "boolean"
+              },
+              "holderId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "mine": {
+                "type": "boolean"
+              },
+              "expiresAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["held", "holderId", "mine", "expiresAt"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["strategyId", "ownerId", "role", "liveControl", "name", "version", "source", "releaseNote", "versions", "lock"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "baseVersion": 1,
+            "name": "TEST strategy"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "baseVersion": 2,
+            "name": "TEST strategy",
+            "releaseNote": "TEST note"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "baseVersion": 0,
+            "name": "TEST strategy"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "baseVersion": 1,
+            "name": ""
+          }
+        }
+      ]
+    },
+    "quant.team.set": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "team.set",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.team_member_invalid": "BAD_REQUEST",
+        "quant.quota_profile_unset": "PRECONDITION_FAILED",
+        "quant.quota_unset": "PRECONDITION_FAILED",
+        "quant.quota_exceeded": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "memberId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "role": {
+            "type": "string",
+            "enum": ["view", "edit"]
+          },
+          "liveControl": {
+            "type": "boolean"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "memberId", "role", "liveControl"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "collaborators": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "memberId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": ["view", "edit"]
+                },
+                "liveControl": {
+                  "type": "boolean"
+                },
+                "addedAt": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["memberId", "role", "liveControl", "addedAt", "updatedAt"],
+              "additionalProperties": false
+            }
+          },
+          "lock": {
+            "type": "object",
+            "properties": {
+              "held": {
+                "type": "boolean"
+              },
+              "holderId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "mine": {
+                "type": "boolean"
+              },
+              "expiresAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["held", "holderId", "mine", "expiresAt"],
+            "additionalProperties": false
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "grantId": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                },
+                "active": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["grantId", "createdAt", "expiresAt", "active"],
+              "additionalProperties": false
+            }
+          },
+          "reads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "readAt": {
+                  "type": "string"
+                },
+                "reader": {
+                  "type": "string"
+                },
+                "granted": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["readAt", "reader", "granted"],
+              "additionalProperties": false
+            }
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["strategyId", "ownerId", "collaborators", "lock", "grants", "reads", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "memberId": "22222222-2222-4222-8222-222222222222",
+            "role": "view",
+            "liveControl": false
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "memberId": "22222222-2222-4222-8222-222222222222",
+            "role": "edit",
+            "liveControl": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "memberId": "22222222-2222-4222-8222-222222222222",
+            "role": "admin",
+            "liveControl": false
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "memberId": "",
+            "role": "view",
+            "liveControl": false
+          }
+        }
+      ]
+    },
+    "quant.team.shared": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "team.shared",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "strategies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "strategyId": {
+                  "type": "string"
+                },
+                "ownerId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "role": {
+                  "type": "string",
+                  "enum": ["view", "edit"]
+                },
+                "liveControl": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["strategyId", "ownerId", "name", "version", "role", "liveControl"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["accountId", "strategies"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "accountId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "accountId": "not-a-uuid"
+          }
+        }
+      ]
+    },
+    "quant.team.stop": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "team.stop",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.permission_denied": "FORBIDDEN",
+        "quant.run_not_found": "NOT_FOUND",
+        "quant.backtest_lake_missing": "PRECONDITION_FAILED",
+        "quant.backtest_history_range": "BAD_REQUEST",
+        "quant.cost_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "runId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "runId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "state": {
+            "type": "string",
+            "enum": ["running", "stopped"]
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "stoppedAt": {
+            "type": ["string", "null"]
+          },
+          "cash": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+          },
+          "feed": {
+            "type": "string",
+            "const": "own_venue"
+          },
+          "holdings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "type": "string"
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["symbol", "qty"],
+              "additionalProperties": false
+            }
+          },
+          "costs": {
+            "type": "object",
+            "properties": {
+              "feeRole": {
+                "type": "string",
+                "enum": ["taker", "maker"]
+              },
+              "slippageBps": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "delayBars": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["feeRole", "slippageBps", "delayBars"],
+            "additionalProperties": false
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "barSize": {
+            "type": "string"
+          },
+          "priced": {
+            "type": "boolean"
+          },
+          "pricedThrough": {
+            "type": ["string", "null"]
+          },
+          "trades": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ts": {
+                  "type": "string"
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": ["signal", "stop_loss", "take_profit", "stop_out", "close_out"]
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "barPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "fee": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "slippage": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["ts", "side", "reason", "qty", "barPrice", "price", "fee", "slippage"],
+              "additionalProperties": false
+            }
+          },
+          "equity": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ts": {
+                  "type": "string"
+                },
+                "equity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["ts", "equity"],
+              "additionalProperties": false
+            }
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "symbol": {
+                "type": "string"
+              },
+              "qty": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              }
+            },
+            "required": ["symbol", "qty"],
+            "additionalProperties": false
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "startCash": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "fees": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "net": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "endEquity": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              }
+            },
+            "required": ["startCash", "fees", "net", "endEquity"],
+            "additionalProperties": false
+          },
+          "simulated": {
+            "type": "boolean",
+            "const": true
+          },
+          "live": {
+            "type": "boolean",
+            "const": false
+          },
+          "claimLabel": {
+            "type": "string",
+            "const": "Paper — not live performance"
+          }
+        },
+        "required": [
+          "runId",
+          "strategyId",
+          "strategyVersion",
+          "state",
+          "startedAt",
+          "stoppedAt",
+          "cash",
+          "feed",
+          "holdings",
+          "costs",
+          "symbol",
+          "barSize",
+          "priced",
+          "pricedThrough",
+          "trades",
+          "equity",
+          "position",
+          "totals",
+          "simulated",
+          "live",
+          "claimLabel"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "runId": "r-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "runId": ""
+          }
+        }
+      ]
+    },
+    "quant.team.unlock": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "team.unlock",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.permission_denied": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "held": {
+            "type": "boolean"
+          },
+          "holderId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mine": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["held", "holderId", "mine", "expiresAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "accountId": "not-a-uuid"
+          }
+        }
+      ]
+    },
     "tax.basisOverride.remove": {
       "service": "svc-tax",
       "module": "tax",
