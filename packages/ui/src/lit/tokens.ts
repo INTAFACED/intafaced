@@ -271,7 +271,11 @@ export const litLight: Partial<RoleMap> = {
   'status-stale': '#8A5A00',
 };
 
-/** The light colours per accent. Blue's values are the ones written in `lit`. */
+/**
+ * The colours per accent. Blue's values are the ones written in `lit`. Ember and emerald also tint the dark page and
+ * panels (warm black; green black), the atmosphere each direction has in the owner's taste map (26 Oct 2026), so
+ * the directions differ in more than the spark. The light block comes later and keeps light neutral.
+ */
 export const accentSets: Record<Accent, Partial<RoleMap>> = {
   blue: {},
   ember: {
@@ -282,6 +286,11 @@ export const accentSets: Record<Accent, Partial<RoleMap>> = {
     'accent-text': '#FF8A4C',
     'accent-fill': '#B3430A',
     'accent-fill-2': '#7A2B05',
+    page: '#0A0604',
+    'page-2': '#100A06',
+    'solid-bg': '#150E0A',
+    'solid-bg-raised': '#1F1510',
+    'solid-bg-sunken': '#080503',
   },
   violet: {
     accent: '#A35CFF',
@@ -300,6 +309,11 @@ export const accentSets: Record<Accent, Partial<RoleMap>> = {
     'accent-text': '#2EE0A0',
     'accent-fill': '#0F7A55',
     'accent-fill-2': '#0A5A3E',
+    page: '#030806',
+    'page-2': '#06100C',
+    'solid-bg': '#0A1511',
+    'solid-bg-raised': '#111F19',
+    'solid-bg-sunken': '#030705',
   },
 };
 

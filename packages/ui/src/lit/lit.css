@@ -264,6 +264,11 @@
   --lit-accent-text: #ff8a4c;
   --lit-accent-fill: #b3430a;
   --lit-accent-fill-2: #7a2b05;
+  --lit-page: #0a0604;
+  --lit-page-2: #100a06;
+  --lit-solid-bg: #150e0a;
+  --lit-solid-bg-raised: #1f1510;
+  --lit-solid-bg-sunken: #080503;
 }
 
 :root:where([data-look='lit'][data-accent='violet']) {
@@ -284,6 +289,11 @@
   --lit-accent-text: #2ee0a0;
   --lit-accent-fill: #0f7a55;
   --lit-accent-fill-2: #0a5a3e;
+  --lit-page: #030806;
+  --lit-page-2: #06100c;
+  --lit-solid-bg: #0a1511;
+  --lit-solid-bg-raised: #111f19;
+  --lit-solid-bg-sunken: #030705;
 }
 
 /* Light values: written and tested, not shipped. */
