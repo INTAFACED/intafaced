@@ -13,6 +13,7 @@ import { UserVenueDoor } from '../venue/user-venue-door.js';
 import { MemoryVenueListingStore } from '../venue/venue-listing-store.js';
 import { StoreVenueRoutingGate } from '../venue/venue-listing.js';
 import { GridError } from './errors.js';
+import { gridTrpcError } from './router.js';
 import { gridClientOrderId } from './types.js';
 import { InMemoryVenueGridStore } from './venue-grid-store.js';
 import { WITHDRAW_REFUSED, VenueGrid, gridAgentKey, pairProfit } from './venue-grid.js';
@@ -404,6 +405,8 @@ describe('the spot grid on the venue (J-copy-bots-otc-14)', { timeout: 60_000 },
       code: 'trade.bots_grid_withdraw_not_permitted',
       message: WITHDRAW_REFUSED,
     });
+    // A refusal of permission: the door answers it 403, like the API key's withdraw refusal.
+    expect(gridTrpcError(new GridError(WITHDRAW_REFUSED, 'trade.bots_grid_withdraw_not_permitted'))).toMatchObject({ code: 'FORBIDDEN' });
     expect(await balance('USDC')).toEqual(before);
     // The venue itself refuses the grid key a withdrawal too.
     await expect(

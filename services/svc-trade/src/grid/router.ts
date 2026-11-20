@@ -27,7 +27,7 @@ export function gridTrpcError(error: unknown): unknown {
         ? 'CONFLICT'
         : error.code === 'trade.grid_unavailable'
           ? 'SERVICE_UNAVAILABLE'
-          : error.code === 'trade.api_withdraw_not_allowed'
+          : error.code === 'trade.api_withdraw_not_allowed' || error.code === 'trade.bots_grid_withdraw_not_permitted'
             ? 'FORBIDDEN'
             : 'BAD_REQUEST';
     return new TRPCError({ code, message: error.message, cause: error });
