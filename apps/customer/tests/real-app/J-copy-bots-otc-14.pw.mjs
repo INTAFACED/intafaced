@@ -517,7 +517,8 @@ test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first tw
       expect(blank.status, JSON.stringify(blank.body).slice(0, 300)).toBe(400);
       expect(codeOf(blank.body)).toBe('trade.bots_grid_bounds_band_not_set');
     }).toPass({ timeout: 30_000, intervals: [2_000] });
-    await openGridVenue(page, s);
+    // Read only: the wizard's words, so the room opens without the wallet (installed once, below).
+    await openGridRoom(page, s.who);
     await expect(wizard(page)).toContainText(/Bounds allowed\s*Not set/);
     expect(await gridList(s.who)).toEqual(gridsBefore);
     expect(await venueOpen(s.owner)).toEqual([]);
