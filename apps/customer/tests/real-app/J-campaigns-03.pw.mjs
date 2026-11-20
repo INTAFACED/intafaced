@@ -13,7 +13,7 @@ import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-test-venue.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
-import { call, data, openHub, operatorPair, potFunding } from './campaigns.mjs';
+import { call, data, openHub, operatorPair, potFunding } from './campaign-desk.mjs';
 import { chainUsd, mineBlocks } from './chain-node.mjs';
 import { sumDecimal } from './reward-funds.mjs';
 import { ownerDoor } from './venue-room.mjs';

@@ -7,7 +7,7 @@ import { TOKEN_USD, fundOnTestChain } from './dex.mjs';
 import { api, journeyState, signOutBrowser, stepState, tool } from './stack.mjs';
 import { venueForThisFile } from './venue.mjs';
 import { chainReceipt, chainUsd, rewardFunds } from './reward-funds.mjs';
-import { connectWallet, data, myRewards, operatorPair, usdUnits, verifyBasic, walletOf } from './campaigns.mjs';
+import { connectWallet, data, myRewards, operatorPair, usdUnits, verifyBasic, walletOf } from './campaign-desk.mjs';
 import { connections } from './venue-room.mjs';
 
 // J-campaigns-08, in the running app (docs/roadmap/journeys.json): claim a voucher and use it. One test per step, titled

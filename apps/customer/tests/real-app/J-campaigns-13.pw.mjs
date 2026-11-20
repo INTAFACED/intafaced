@@ -6,7 +6,7 @@ import { TOKEN_USD } from './dex.mjs';
 import { api, journeyState, stepState } from './stack.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
 import { chainReceipt, rewardFunds, sumDecimal } from './reward-funds.mjs';
-import { campaignLauncher, data, join, operatorPair, signsThroughUs, traderDoor as door, traderOf, usdUnits } from './campaigns.mjs';
+import { campaignLauncher, data, join, operatorPair, signsThroughUs, traderDoor as door, traderOf, usdUnits } from './campaign-desk.mjs';
 
 // J-campaigns-13, in the running app (docs/roadmap/journeys.json): receive an airdrop, a dividend, or my share of a
 // reward pool. One test per step, titled "J-campaigns-13 #<n>", run in order. The airdrop and the pool are this run's

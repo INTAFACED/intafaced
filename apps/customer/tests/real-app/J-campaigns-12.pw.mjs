@@ -5,7 +5,7 @@ import { signIn } from './desk.mjs';
 import { TOKEN_USD } from './dex.mjs';
 import { api, journeyState, stepState } from './stack.mjs';
 import { chainBalance, otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
-import { data, myRewards, operatorPair, traderDoor as door, traderOf } from './campaigns.mjs';
+import { data, myRewards, operatorPair, traderDoor as door, traderOf } from './campaign-desk.mjs';
 
 // J-campaigns-12, in the running app (docs/roadmap/journeys.json): take part in a lucky draw. One test per step, titled
 // "J-campaigns-12 #<n>", run in order. The draw is this run's TEST campaign, made by the stack's two LOCAL TEST founders

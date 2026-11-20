@@ -9,7 +9,7 @@ import { ageRecord } from './test-age.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 import { testVenue, venueForThisFile } from './venue.mjs';
 import { chainReceipt, rewardFunds, rpc, sumDecimal } from './reward-funds.mjs';
-import { campaignLauncher, data, join, signsThroughUs, traderOf, usdUnits } from './campaigns.mjs';
+import { campaignLauncher, data, join, signsThroughUs, traderOf, usdUnits } from './campaign-desk.mjs';
 
 // J-campaigns-19, in the running app (docs/roadmap/journeys.json): finance checks payouts, recovers a stuck one, and
 // settles a distribution. One test per step, titled "J-campaigns-19 #<n>", run in order. The operator is the stack's

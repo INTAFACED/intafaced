@@ -13,7 +13,7 @@ import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueRecord } f
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-test-venue.mjs';
 import { bankPerson, cardsOf, staffDoors, stepUpRuleOf } from './bank-desk.mjs';
-import { data as reply } from './campaigns.mjs';
+import { data as reply } from './campaign-desk.mjs';
 import { chainTransfers, chainUsd, mineBlocks, tokenUsdUnits as usdUnits } from './chain-node.mjs';
 import { userVenue } from './venue-room.mjs';
 

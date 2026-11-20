@@ -8,7 +8,7 @@ import { api, journeyState, stepState } from './stack.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
 import { chainReceipt, rewardFunds, sumDecimal } from './reward-funds.mjs';
 import { ownSpotMarket } from './own-market.mjs';
-import { data, myRewards, operatorPair, traderOf, usdUnits } from './campaigns.mjs';
+import { data, myRewards, operatorPair, traderOf, usdUnits } from './campaign-desk.mjs';
 
 // J-campaigns-11, in the running app (docs/roadmap/journeys.json): enter a trading competition. One test per step, titled
 // "J-campaigns-11 #<n>", run in order. The competition is this run's TEST campaign, made by the stack's two LOCAL TEST

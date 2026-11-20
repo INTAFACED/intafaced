@@ -12,7 +12,7 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueRecord } from './venue.mjs';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-test-venue.mjs';
-import { data, operatorPair, potFunding } from './campaigns.mjs';
+import { data, operatorPair, potFunding } from './campaign-desk.mjs';
 import { chainTransfers, chainUsd, mineBlocks, tokenUsdUnits as usdUnits } from './chain-node.mjs';
 import { sumDecimal } from './reward-funds.mjs';
 import { connectAndSign, connectedNow, connections, ownerDoor, sheet, userVenue, venueDoor } from './venue-room.mjs';

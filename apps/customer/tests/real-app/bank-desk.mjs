@@ -1,13 +1,11 @@
-import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { expect } from './journey.mjs';
 import { signIn } from './desk.mjs';
 import { nextCode } from './identity-factors.mjs';
 import { ROOT, tool } from './stack.mjs';
-import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 
 // What the bank journeys share: the run's person and their authenticator, the stack's two TEST founders at the bank's
-// ops and treasury doors, the stack's TEST seed, and the bank's switches on the stack. The parts that hold a journey
+// ops and treasury doors, and the bank's switches on the stack. The parts that hold a journey
 // file's own state are made per file from it (`bankPerson({ run, J })`, `staffDoors()`).
 
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
@@ -159,16 +157,6 @@ export function partnerPayIn(stackCtx) {
     if (res.status !== 200) throw new Error(`payin-sim/paid refused: ${res.status} ${JSON.stringify(answer).slice(0, 300)}`);
     return answer;
   };
-}
-
-/** One of the stack's TEST seed commands (the seed script in tooling/scripts), on this stack. */
-export function seed(...args) {
-  return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), ...args, '--state', localStackState()], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: { ...process.env, LOCAL_TEST: '1' },
-    timeout: 60_000,
-  });
 }
 
 /** A `datetime-local` value, in the browser's (and this process's) local time. */

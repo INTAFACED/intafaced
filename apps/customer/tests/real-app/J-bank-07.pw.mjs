@@ -1,12 +1,27 @@
 // World: book, stack
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, api as ledgerApi, fromUnits, fund, journeyState, json, signOutBrowser, toUnits } from './stack.mjs';
+import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import {
+  DEVICE_KEY,
+  EDGE,
+  ORIGIN,
+  ROOT,
+  api as ledgerApi,
+  fromUnits,
+  fund,
+  journeyState,
+  json,
+  signOutBrowser,
+  toUnits,
+} from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { withPartner } from './partner.mjs';
 import { agePast } from './test-age.mjs';
-import { bankPerson, close, local, seed, spacesOf, staffDoors } from './bank-desk.mjs';
+import { bankPerson, close, local, spacesOf, staffDoors } from './bank-desk.mjs';
 
 // J-bank-07, in the running app (docs/roadmap/journeys.json): I organise money in pots, goals and a shared account.
 // The person's bank money is held at the stack's TEST partner bank (`testPartner.set({ custody: 'off' })`, the launch
@@ -1007,3 +1022,14 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   });
   await ledgerUnchanged(who, run.read().ledger);
 });
+
+/** One of the stack's TEST seed commands (`tooling/scripts/local-test-seed.mjs`), on this stack. */
+// oxlint-disable-next-line garden/no-copied-journey-function -- only a journey file may name the seed script (local-test-seed.test.mjs), so it cannot move into a helper
+function seed(...args) {
+  return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), ...args, '--state', localStackState()], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, LOCAL_TEST: '1' },
+    timeout: 60_000,
+  });
+}
