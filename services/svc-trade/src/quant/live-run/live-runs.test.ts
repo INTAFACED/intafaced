@@ -130,6 +130,8 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
   let runs: LiveRuns;
   let sub: UserVenueAccount;
   let venueDown = false;
+  /** Called once each venue submit has answered, before the run's code goes on: a look into the window after it. */
+  let afterSubmit: (() => Promise<void>) | null = null;
   /** The risk desk's halts as this TEST answers them (halts.ts), by `<user>:<strategy>`; haltsDown: they can't be read. */
   const halted = new Map<string, HaltView>();
   let haltsDown = false;
@@ -150,7 +152,9 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
             if (prop === 'submit' || prop === 'openOrders') {
               return async (...args: unknown[]) => {
                 if (venueDown) throw new VenueRefusalError({ venueId: target.venue.id, code: 'venue_down', detail: 'TEST: venue down' });
-                return (target[prop] as (...x: unknown[]) => unknown)(...args);
+                const answer = await (target[prop] as (...x: unknown[]) => unknown)(...args);
+                if (prop === 'submit' && afterSubmit) await afterSubmit();
+                return answer;
               };
             }
             const v = Reflect.get(target, prop, receiver);
@@ -193,6 +197,7 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
   beforeEach(async () => {
     k += 1;
     venueDown = false;
+    afterSubmit = null;
     halted.clear();
     haltsDown = false;
     clock = Date.now();
@@ -517,6 +522,25 @@ describe('a live strategy run: stop, liquidate, manual orders, recovery and the 
     expect((await refused(runs.submit(person, waiting.runId, waiting.next!.actionKey, await sign(waiting.next!.prepared)))).code).toBe(
       'quant.run_not_signing',
     );
+  });
+
+  it("J-wallet-13 #1: the venue shows the run's orders cancelled before the run records its stop, so a reader waits for the record", async () => {
+    // Why the journey's step reads the run's record within a window and not at the instant the venue shows no order:
+    // the cancel is taken on the venue first, and only then are the stop and the revoke recorded.
+    const v = await live();
+    await runs.manualOrder(person, v.runId, { seq: 2, side: 'buy', type: 'limit', symbol: 'BTC-PERP', size: '0.005', price: '50000' });
+    freeze.frozenUsers.add(USER);
+    const seen: Array<{ open: number; state: string; permission: string }> = [];
+    afterSubmit = async () => {
+      const r = (await store.find(USER, v.runId))!;
+      seen.push({ open: (await openOrders()).length, state: r.state, permission: r.permission });
+    };
+    await runs.applySelfFreeze(USER);
+    afterSubmit = null;
+    expect(seen).toContainEqual({ open: 0, state: 'running', permission: 'active' });
+    const r = (await store.find(USER, v.runId))!;
+    expect(r).toMatchObject({ state: 'stopped', endReason: 'account_frozen', permission: 'revoked' });
+    expect((await store.events(USER, v.runId)).map((e) => e.kind)).toEqual(expect.arrayContaining(['stopped', 'permission_revoked']));
   });
 
   it('J-wallet-13 #1: a stopped run that still holds its permission has it revoked by the event', async () => {
