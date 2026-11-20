@@ -183,7 +183,7 @@ async function venueStart(page) {
   // A TEST spot market of this file's own, and a TEST maker funded on it in its coin and in USDC.
   const { symbol, base } = await ownSpotMarket(J, 'JC6', 'V');
   // An assistant trades only the markets the stack lists; this restart adds this file's own (put back after the start).
-  await restartService('trade', { LOCAL_STACK_AGENT_MARKETS_ADD: symbol });
+  await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_AGENT_MARKETS_ADD: symbol });
   for (const [asset, amount] of [
     [base, '10'],
     ['USDC', '1000'],
@@ -295,7 +295,7 @@ test(`${J} #1 as a follower opens activity after a copied fill: one row for the 
   try {
     await venueStart(page);
   } finally {
-    await restartService('trade', { LOCAL_STACK_AGENT_MARKETS_ADD: null });
+    await restartService('trade', { LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_AGENT_MARKETS_ADD: null });
   }
   const { vSymbol, vLeader, vLeaderName, vOwner, vSub, vSellFill, vBalancesBefore } = run.read();
   const vLeaderId = await userIdOf(vLeader);
