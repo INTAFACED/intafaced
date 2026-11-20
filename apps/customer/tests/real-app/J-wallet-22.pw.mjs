@@ -359,7 +359,9 @@ test(`${J} #7 asks for a signature while the provider is down: refused with the 
   const tried = [];
   page.on('response', (r) => {
     const p = new URL(r.url()).pathname;
-    if (p.startsWith('/__test-wallet-provider/')) tried.push([p, r.status()]);
+    // The wallet room's chain reads (`/client/rpc`, read-only: J-wallet-24's deposit panel) ask the provider for no
+    // signature and no passkey, so they are not counted; every other provider call is.
+    if (p.startsWith('/__test-wallet-provider/') && p !== '/__test-wallet-provider/client/rpc') tried.push([p, r.status()]);
   });
   await openRoom(page, who);
   await expect(panel(page).locator('[data-embedded-address]')).toHaveText(address);
@@ -408,7 +410,8 @@ function walletPrompts(page) {
   const asked = [];
   page.on('request', (r) => {
     const p = new URL(r.url()).pathname;
-    if (p.startsWith('/__test-wallet-provider/client/') && !p.endsWith('/challenge')) asked.push(p);
+    // A chain read (`/client/rpc`, read-only) asks for no passkey, so it is no prompt.
+    if (p.startsWith('/__test-wallet-provider/client/') && !p.endsWith('/challenge') && !p.endsWith('/rpc')) asked.push(p);
   });
   return asked;
 }
