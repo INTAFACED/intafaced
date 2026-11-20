@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
-import { accents } from '@intafaced/ui/lit';
+import { accents, directions } from '@intafaced/ui/lit';
 import { resolvePreviewScheme } from '../shared/preferences';
-import { LOOK_ACCENTS, applyLook, isLook, resolveAccent, resolveLook } from './look';
+import { LOOK_ACCENTS, LOOK_DIRECTIONS, applyLook, isLook, lookDirection, resolveAccent, resolveDirection, resolveLook } from './look';
 
 describe('the Lit glass switch', () => {
   beforeEach(() => localStorage.clear());
@@ -51,5 +51,23 @@ describe('the Lit glass switch', () => {
 
   it('knows the same accents as the kit', () => {
     expect([...LOOK_ACCENTS]).toEqual([...accents]);
+  });
+
+  it('draws a direction only when asked, remembers it, drops it with ?direction=off, and only while the look is on', () => {
+    const root = document.createElement('html');
+    applyLook(root, '');
+    expect(root.dataset.direction).toBeUndefined();
+    applyLook(root, '?look=lit&direction=ember');
+    expect(root.dataset.direction).toBe('ember');
+    expect(lookDirection(root)).toBe('ember');
+    applyLook(root, '?look=off');
+    expect(lookDirection(root)).toBeNull();
+    applyLook(root, '?look=lit&direction=off');
+    expect(root.dataset.direction).toBeUndefined();
+    expect(resolveDirection('?direction=neon')).toBeNull();
+  });
+
+  it('knows the same directions as the kit', () => {
+    expect([...LOOK_DIRECTIONS]).toEqual([...directions]);
   });
 });

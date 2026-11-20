@@ -20,6 +20,13 @@ export type Accent = (typeof accents)[number];
 export const defaultAccent: Accent = 'blue';
 
 /**
+ * `data-direction` on the root: one of the look directions the owner chooses between (intafaced issue 9227), each its
+ * own material, type and layout on top of the look's roles. Off by default; set only by the preview switch (look.ts).
+ */
+export const directions = ['ember'] as const;
+export type Direction = (typeof directions)[number];
+
+/**
  * `data-surfaces` on the root. `solid` replaces every glass and translucent surface with an opaque one and
  * turns blur off. It is the in-app switch for people who need it (Safari never exposes Reduce Transparency to
  * the web) and is also on whenever `prefers-contrast: more`, `forced-colors: active` or `prefers-reduced-transparency: reduce`
