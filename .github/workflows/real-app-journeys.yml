@@ -1,5 +1,5 @@
 name: Real-app journeys
-# PROBE (never merged): which part of the workflow refuses a long journeys input. Variant A: run-name and concurrency as on main.
+# PROBE B: run-name as on main, concurrency group static
 run-name: ${{ github.event_name == 'workflow_dispatch' && format('Real-app journeys by hand, {0}', github.ref != 'refs/heads/main' && inputs.journeys != '' && inputs.journeys || 'full') || '' }}
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
         default: ''
         type: string
 concurrency:
-  group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && format('real-app-journeys-runs-nothing-{0}', github.run_id) || (github.event_name == 'pull_request' && github.event.action == 'ready_for_review') && format('real-app-journeys-ready-{0}', github.run_id) || format('real-app-journeys-{0}:{1}', github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref, inputs.journeys) }}
+  group: probe-static-${{ github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
