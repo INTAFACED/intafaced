@@ -41,7 +41,7 @@ export function createAccountMock(ctx) {
       after: { statementDescriptor: 'TEST SHOP UK' },
       sensitiveKeys: ['statementDescriptor'],
       changeHash: 'sha256:' + 'ab'.repeat(32),
-      makerId: 'TEST-user-finance',
+      makerId: 'b1111111-1111-4111-8111-111111111111',
       checkerId: null,
       secondApproverId: null,
       reason: 'Match our new trading name',

@@ -5,6 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   JOURNEY_DIR,
   JOBS_PAGE,
@@ -33,6 +34,7 @@ import {
   targetFiles,
   targetedShards,
   timedSteps,
+  PR_MAX_SHARDS,
 } from './journey-shards.mjs';
 
 const report = {
@@ -352,6 +354,27 @@ test('the planner as the workflow calls it prints shards that hold every real jo
   const printed = shards.flat().sort();
   assert.deepEqual(printed, journeyFiles(JOURNEY_DIR));
   assert.equal(new Set(printed).size, printed.length);
+});
+
+test("a pull request's run never takes more than 12 shards, and is never the full suite (project-state#3377)", () => {
+  const min = 60_000;
+  assert.equal(PR_MAX_SHARDS, 12);
+  const timed = (n, each) => {
+    const files = Array.from({ length: n }, (_, i) => `J-x-${String(i).padStart(3, '0')}.pw.mjs`);
+    return { files, durations: new Map(files.map((f) => [f, each * min])) };
+  };
+  // Planted, the past mistake (#8836's run 44250481099: 355 files planned as a full run): a run by hand still fails open
+  // to the full plan, a pull request's stops at 12.
+  const big = timed(120, 5);
+  assert.equal(targetedShards(big.files, big.durations, 15 * min), 60, 'a run by hand: planned as a full run');
+  assert.equal(targetedShards(big.files, big.durations, 15 * min, undefined, true), 12, "a pull request's run: 12");
+  assert.equal(targetedShards(timed(60, 5).files, timed(60, 5).durations, 15 * min, undefined, true), 10, 'under the cap: unchanged');
+  // The planner refuses a pull request's run with no journeys input (the full suite).
+  const out = spawnSync('node', [fileURLToPath(new URL('./journey-shards.mjs', import.meta.url)), '--shards', 'auto', '--pull'], {
+    encoding: 'utf8',
+  });
+  assert.equal(out.status, 1);
+  assert.match(out.stderr, /never the full suite/);
 });
 
 test('a targeted run takes at most 10 shards, packing the same files, while every shard stays clear of the limit', () => {

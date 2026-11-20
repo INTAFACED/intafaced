@@ -97,6 +97,7 @@ import {
   writeStackRecords,
 } from './local-test-facts.mjs';
 import { reduceMaps } from './journey-reach.mjs';
+import { codeReachDir, nodeServiceReach } from './service-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
@@ -1877,9 +1878,11 @@ async function startNodeService(def) {
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
   // A Java service (svc-fix) runs its shaded jar (ensureFixJar) on a Java runtime (javaBin); svc-tax runs its Rust binary
   // (ensureTaxBinary); every other one is Node.
-  const argv = def.java ? [javaBin(), '-cp', FIX_JAR, def.java.main] : def.rust ? [TAX_BIN] : [process.execPath, entry];
+  // A Node service records which of its own files ran, for the touched-journeys map (service-reach.mjs).
+  const node = !def.java && !def.rust ? nodeServiceReach(codeReachDir(STATE), def.name, env) : null;
+  const argv = def.java ? [javaBin(), '-cp', FIX_JAR, def.java.main] : def.rust ? [TAX_BIN] : [process.execPath, ...node.flags, entry];
   const cwd = def.rust ? TAX_CRATE : path.join(REPO, 'services', `svc-${def.name}`);
-  const pid = startProc(def.name, argv, env, cwd, { build });
+  const pid = startProc(def.name, argv, node ? node.env : env, cwd, { build });
   if (def.name === 'ops') {
     // Which founder pair svc-ops read at start, so a later start can tell when the pair changed.
     const procs = readProcs();
@@ -1915,7 +1918,8 @@ async function cmdSecondWorker([name, action]) {
   let port = SECOND_WORKER_PORT_BASE;
   while (await portOpen(port)) port += 1;
   const entry = path.join(REPO, 'services', `svc-${name}`, 'dist', def.entry ?? 'index.js');
-  const pid = startProc(worker, [process.execPath, entry], { ...env, HTTP_PORT: String(port) }, path.join(REPO, 'services', `svc-${name}`));
+  const node = nodeServiceReach(codeReachDir(STATE), worker, { ...env, HTTP_PORT: String(port) });
+  const pid = startProc(worker, [process.execPath, ...node.flags, entry], node.env, path.join(REPO, 'services', `svc-${name}`));
   await waitHealthy(worker, `http://${HOST}:${port}/health`, pid);
   say(`  ${worker}: running on port ${port} (pid ${pid})`);
 }

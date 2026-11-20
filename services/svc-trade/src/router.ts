@@ -1,3 +1,4 @@
+import type { VenueGrid } from './grid/venue-grid.js';
 import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { agentDeskAdminRouter } from './venue/agent-desk-admin.js';
 import { quantLiveAdminRouter } from './quant/live-run/halts-admin.js';
@@ -956,6 +957,7 @@ export function createTradeRouter(
   signals?: SignalDesk,
   agentDesk?: AgentDesk | null,
   quantHalts?: StrategyHaltDesk | null,
+  venueGrid?: VenueGrid | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -1034,7 +1036,7 @@ export function createTradeRouter(
     /** `signals.*`: chart alert webhooks (signals/router.ts); the alert intake is the public REST route. */
     signals: signalsRouter(signals),
     /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
-    bots: router({ grid: gridRouter(grid) }),
+    bots: router({ grid: gridRouter(grid, venueGrid) }),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),
