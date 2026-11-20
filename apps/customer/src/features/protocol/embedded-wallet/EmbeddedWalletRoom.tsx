@@ -3,10 +3,11 @@ import { Button } from '@intafaced/ui';
 import { Tag } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
-import type {
-  EmbeddedWalletPasskey,
-  ProtocolEmbeddedWalletProvider,
-  ProtocolEmbeddedWalletRecord,
+import {
+  GAS_SPONSOR_UNSET,
+  type EmbeddedWalletPasskey,
+  type ProtocolEmbeddedWalletProvider,
+  type ProtocolEmbeddedWalletRecord,
 } from '@intafaced/contracts/protocol-embedded-wallet';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
@@ -98,7 +99,13 @@ export function EmbeddedWalletRoom() {
   const embedded = useMemo(() => createEmbeddedWalletApi(api), [api]);
   const venue = useMemo(() => createVenueWalletApi(api), [api]);
   const status = useResource(
-    (signal) => (userId ? embedded.status(signal) : Promise.resolve({ ok: true as const, data: { provider: null, wallet: null } })),
+    (signal) =>
+      userId
+        ? embedded.status(signal)
+        : Promise.resolve({
+            ok: true as const,
+            data: { provider: null, wallet: null, gasSponsor: { set: false as const, code: GAS_SPONSOR_UNSET } },
+          }),
     `embedded-wallet:${userId ?? 'out'}`,
   );
   const connections = useResource(

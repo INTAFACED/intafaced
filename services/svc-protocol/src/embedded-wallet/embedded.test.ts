@@ -256,6 +256,8 @@ describe('embeddedWallet.* mounted', () => {
     expect(await alice.embeddedWallet.status()).toEqual({
       provider: { id: 'test', displayName: 'TEST wallet provider', test: true, capabilities: { export: true, recovery: true } },
       wallet: null,
+      // The owner's gas-sponsor setting is blank (J-wallet-24 #2): no sponsored deposit is offered.
+      gasSponsor: { set: false, code: 'wallet.gas_sponsor_unset' },
     });
     const made = await alice.embeddedWallet.create({ passkey: PASSKEY });
     expect(made).toEqual({
@@ -281,7 +283,11 @@ describe('embeddedWallet.* mounted', () => {
       code: 'PRECONDITION_FAILED',
       message: expect.stringMatching(/^wallet\.embedded_provider_unset:/),
     });
-    expect(await caller(undefined).embeddedWallet.status()).toEqual({ provider: null, wallet: null });
+    expect(await caller(undefined).embeddedWallet.status()).toEqual({
+      provider: null,
+      wallet: null,
+      gasSponsor: { set: false, code: 'wallet.gas_sponsor_unset' },
+    });
     const down = deps({
       kind: 'ready',
       adapter: fakeProvider({

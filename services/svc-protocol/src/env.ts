@@ -324,6 +324,13 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_EMBEDDED_WALLET_PROVIDER: blankIsUnset(z.string().max(64).optional()),
     PROTOCOL_EMBEDDED_WALLET_TEST_URL: blankIsUnset(z.string().max(200).optional()),
     /**
+     * Who pays the network fee of a person's own deposit when their wallet holds none of the chain's gas token
+     * (J-wallet-24 #2). The owner's setting, NO DEFAULT: sponsoring gas is INTAFACED's spending, so blank is unset and
+     * no sponsored deposit is offered (`wallet.gas_sponsor_unset`). This build pays no one's gas, so any value refuses
+     * to boot (src/embedded-wallet/gas-sponsor.ts).
+     */
+    PROTOCOL_GAS_SPONSOR: blankIsUnset(z.string().max(64).optional()),
+    /**
      * How many contacts one wallet's address book may hold, and how many wallet groups (D-portfolio-wallet-03). Owner
      * settings, NO DEFAULT: blank refuses `protocol.address_book_max_contacts_unset` / `protocol.wallet_groups_max_unset`.
      */
