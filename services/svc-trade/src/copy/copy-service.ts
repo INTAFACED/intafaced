@@ -172,6 +172,7 @@ import {
   sqlLeadFeeShares,
   type ReadLeadFeeShares,
 } from './lead-desk.js';
+import { readMyCopyFees, type MyCopyFees, type MyCopyFeesDeps } from './my-copy-fees.js';
 import { COPY_SKIP_LOG_LIMIT, asCopySkipReason, copySkipReasonFor, isCopySkipRefusal, recordCopySkip } from './skip-log.js';
 
 /** Settled follower fill fee — `fills.fee_amount`, never a notional×bps invent. */
@@ -321,6 +322,8 @@ export interface CopyServiceOptions {
   lookupMark?: (marketId: string) => Promise<AlgoQuotedMark | null>;
   /** A lead's own settled fee-share rows (lead-desk.ts). Omitted → from `sql`, else the earnings panel refuses. */
   leadFeeShares?: ReadLeadFeeShares;
+  /** A follower's copied venue fills and their fees (my-copy-fees.ts). Omitted → `copy.myCopyFees` refuses as unavailable. */
+  myCopyFees?: MyCopyFeesDeps;
   /** Operator-published leader directory. Omitted → in-memory, empty until an operator writes. */
   directory?: LeaderDirectory;
   /** Owner wording for each lead-page metric. Omitted → unpublished, every metric reads "not set". */
@@ -444,6 +447,7 @@ export class CopyService {
   private readonly gridUnusedReserves: (userId: string, asset: string) => Promise<Amount>;
   private readonly copiedPositionsPort: ReadCopiedPositions | null;
   private readonly leadFeeShares: ReadLeadFeeShares | null;
+  private readonly myCopyFeesDeps: MyCopyFeesDeps | null;
   private readonly copyClose: CopyClosePort | null;
   private readonly stepUp: StepUpCheck | null;
   private readonly notices: CopyNotices;
@@ -473,6 +477,7 @@ export class CopyService {
     this.gridUnusedReserves = options.gridUnusedReserves ?? (async () => 0n);
     this.copiedPositionsPort = options.copiedPositions ?? (options.sql ? sqlCopiedPositions(options.sql) : null);
     this.leadFeeShares = options.leadFeeShares ?? (options.sql ? sqlLeadFeeShares(options.sql) : null);
+    this.myCopyFeesDeps = options.myCopyFees ?? null;
     this.copyClose = options.copyClose ?? null;
     this.stepUp = options.stepUp ?? null;
     this.notices = options.notices ?? NO_COPY_NOTICES;
@@ -2148,6 +2153,16 @@ export class CopyService {
       throw new CopyError(`limit must be a whole number from 1 to ${LEAD_EARNINGS_PAGE_MAX}`, 'trade.copy_limit_missing');
     }
     return presentLeadEarnings(this.feeShareLaw, await this.leadFeeShares(principal.userId, limit));
+  }
+
+  /**
+   * The caller's own copied venue fills, newest first (J-copy-bots-otc-06 #1): each one's venue fee and our builder fee as
+   * the venue reports them, and the lead's share of our builder fee, paid by INTAFACED. Never a profit share.
+   */
+  async myCopyFees(principal: Principal, input: { limit: number }): Promise<MyCopyFees> {
+    requireScope(principal, 'trade:read');
+    if (!this.myCopyFeesDeps) throw new CopyError('Copy trading on the venue is not connected here', 'trade.copy_unavailable');
+    return readMyCopyFees(this.myCopyFeesDeps, principal.userId, input.limit);
   }
 
   /** The caller's own lead level (J-copy-bots-otc-06 #5): not set while the owner's thresholds are blank; no ratio. */

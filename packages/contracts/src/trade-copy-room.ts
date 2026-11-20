@@ -332,6 +332,11 @@ export const leadEarningsSchema = z.object({
       appliedShareBps: z.number().int(),
       amount: unsignedAmountSchema,
       at: z.string(),
+      /** The venue's own id for the fill our fee was earned on (a copy on the venue); null on the TEST book. */
+      venueFillId: z.string().nullable(),
+      /** The ledger key the share is recorded under, owed by INTAFACED to the lead. */
+      ledgerKey: z.string(),
+      owedBy: z.literal('intafaced'),
     }),
   ),
 });

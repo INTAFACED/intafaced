@@ -197,7 +197,8 @@ test(`${J} #1 opens settlement oversight: "Settled" where the ledger post and th
       await expect(cell(row, 10)).toHaveText('');
     }
     if (status === 'Held') {
-      await expect(cell(row, 9)).toHaveText(/^reward:copy-leader-share:\S+:\S+$/);
+      // Its key: the TEST book's payout, or for a copy filled on the venue the share owed to the lead (J-copy-bots-otc-06).
+      await expect(cell(row, 9)).toHaveText(/^(reward:copy-leader-share:\S+:\S+|fee-share:builder-fee:\S+:lead-trader:\S+)$/);
       await expect(cell(row, 10)).not.toHaveText('');
     }
   }
