@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
+import { jsonValueSchema, type JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { transaction, type Queryable } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import {
@@ -1477,8 +1477,8 @@ export class TokenService {
    */
   async feeDiscountScheduleRow(): Promise<{ schedule: JsonValue; version: string }> {
     const raw = await readFeeDiscountRow(this.sql);
-    // A jsonb column, so a JSON document whatever was stored.
-    return { schedule: feeDiscountScheduleBlank(raw) ? null : (raw as JsonValue), version: feeDiscountScheduleVersion(raw) };
+    // A jsonb column: a JSON document whatever was stored, checked as one here.
+    return { schedule: feeDiscountScheduleBlank(raw) ? null : jsonValueSchema.parse(raw), version: feeDiscountScheduleVersion(raw) };
   }
 
   /**

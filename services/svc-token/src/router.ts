@@ -47,7 +47,7 @@ import type { SnapshotSeal } from './governance-vote.js';
 import { voteMessage } from './vote-signature.js';
 import { feeDiscountSchedulePayload } from './economics/staking.js';
 import { mountTokenRecord } from './record-mount.js';
-import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
+import { jsonValueSchema } from '@intafaced/contracts/procedure-strict-schema';
 import {
   TOKEN_ACCESS_OF,
   TOKEN_BUYBACK_RUNS,
@@ -320,6 +320,8 @@ function stakeToWire(s: {
   };
 }
 
+const proposalBody = z.record(z.string(), jsonValueSchema);
+
 function proposalToWire(p: {
   id: string;
   kind: z.infer<typeof proposalKind>;
@@ -344,8 +346,8 @@ function proposalToWire(p: {
   return {
     id: p.id,
     kind: p.kind,
-    // Read from a jsonb column, so a JSON document whatever the author wrote.
-    body: p.body as Record<string, JsonValue>,
+    // Read from a jsonb column: a JSON document whatever the author wrote, checked as one here.
+    body: proposalBody.parse(p.body),
     status: p.status,
     opensAt: p.opensAt.toISOString(),
     closesAt: p.closesAt.toISOString(),

@@ -265,8 +265,10 @@ const settingsAreWholeMs = {
   holds: (reply: unknown) =>
     typeof reply === 'object' &&
     reply !== null &&
-    msOrNull((reply as { votingDelayMs?: unknown }).votingDelayMs) &&
-    msOrNull((reply as { votingPeriodMs?: unknown }).votingPeriodMs),
+    'votingDelayMs' in reply &&
+    'votingPeriodMs' in reply &&
+    msOrNull(reply.votingDelayMs) &&
+    msOrNull(reply.votingPeriodMs),
 };
 const approvalIds = { approvalId: z.string().max(128).nullish(), operationId: z.string().max(128).nullish() };
 
