@@ -195,7 +195,7 @@ describe('each refusal leaves with the status its record lists', () => {
     return { status: err!.code, code: err!.cause?.code };
   };
   const listed = (record: AreaRecord, code: string) => ({ status: record.refusals[code], code });
-  const [aGet, aPolicySet, aRequest, aDecide] = QUANT_APPROVAL_PROCEDURES;
+  const [aGet, , aRequest, aDecide] = QUANT_APPROVAL_PROCEDURES;
   const [report, sGet, sCreate, sRevoke, sPublic] = QUANT_RESULT_SHARE_PROCEDURES;
 
   it('approval: a missing strategy, a blank policy, an unknown request, self-review, a decided and a stale request', async () => {
