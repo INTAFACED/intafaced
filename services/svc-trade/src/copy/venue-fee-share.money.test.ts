@@ -107,7 +107,10 @@ class MemoryStore implements VenueFeeShareStore {
     const had = this.plans.get(`${plan.venueId}:${plan.claimId}`);
     if (had) return had;
     this.plans.set(`${plan.venueId}:${plan.claimId}`, { ...plan, tx: null });
-    for (const id of ids) this.rows.get(id)!.claimId = plan.claimId;
+    for (const id of ids) {
+      const row = this.rows.get(id);
+      if (row) this.rows.set(id, { ...row, claimId: plan.claimId });
+    }
     return plan;
   }
   async markFundPosted(venueId: string, claimId: string, tx: string) {

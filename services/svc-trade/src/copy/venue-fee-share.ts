@@ -38,7 +38,6 @@
 import {
   builderFeePayoutKey,
   earnedBuilderFeeKey,
-  formatAmount,
   mul,
   recipes,
   type Amount,
@@ -51,7 +50,7 @@ import { attributeCopyFeeShare, type FeeShareAttribution } from './fee-share.js'
 import type { CopyFeeShareLaw } from './fee-share-law.js';
 
 /** The one recipient of a copied fill's fee share. */
-export const LEAD_RECIPIENT_KIND = 'lead-trader' as const;
+const LEAD_RECIPIENT_KIND = 'lead-trader' as const;
 
 /** A fill one of our venue copies made on the follower's sub-account. */
 export interface VenueCopyFill {
@@ -181,7 +180,7 @@ export type VenueFeeShareRun =
     };
 
 /** The one debit of a transaction in `assetId`: what a recipe moved. `null` when it is not exactly one. */
-export function debitOf(tx: LedgerTx, assetId: string): Amount | null {
+function debitOf(tx: LedgerTx, assetId: string): Amount | null {
   const [only, ...more] = tx.entries.filter((e) => e.direction === 'debit' && e.assetId === assetId);
   return only && more.length === 0 ? only.amount : null;
 }
@@ -323,9 +322,4 @@ export async function runVenueFeeShares(deps: VenueFeeShareDeps): Promise<VenueF
   }
 
   return { status: 'ran', recorded, earnNotBooked, killed, funded, claimNotBooked, owed, budgetShort };
-}
-
-/** For a log line: the run's figures, amounts as decimal strings. */
-export function describeFundPlan(plan: FundPlan) {
-  return { ...plan, claimAmount: formatAmount(plan.claimAmount), amount: formatAmount(plan.amount) };
 }
