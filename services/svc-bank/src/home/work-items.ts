@@ -71,6 +71,18 @@ export function frozenCardItem(row: FrozenCardRow): WorkItem {
   };
 }
 
+/**
+ * The owner's margin warning level (`BANK_MARGIN_WARNING_LTV_BPS`, read once at start-up), or null while it is blank. Blank is
+ * the only value today: an item for a loan drifting towards its call band comes with the custodial layer (J-home-ia-01 #7,
+ * Later: at launch the bank lends no customer money), so a set value refuses boot rather than being accepted and doing nothing.
+ */
+export function readMarginWarningLevel(raw: string | undefined): null {
+  if (raw === undefined || raw.trim() === '') return null;
+  throw new Error(
+    'BANK_MARGIN_WARNING_LTV_BPS must stay blank: Home lists a loan nearing its margin call only with the custodial layer (J-home-ia-01 #7, Later)',
+  );
+}
+
 export async function listBankWorkItems(sql: Sql, userId: string): Promise<WorkItemsOutput> {
   const [margins, cards] = await Promise.all([
     // The newest open call of each open loan. A cured call has `cleared_at`; a repaid or liquidated loan is closed.
