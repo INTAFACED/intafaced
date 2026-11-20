@@ -67,6 +67,7 @@ test(`${J} #1 More opens Business Pay at /pay/merchant from the registry row bus
 
 test(`${J} #3 a new business reads its KPI area: one explanation with a link to create a payment link, no tile shows 0 as if measured, and each unmeasured figure says so with its own as-of`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const who = await businessReadyPerson(page, 'mk', '/pay/onboarding');
@@ -201,6 +202,12 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   await expect(insights.getByRole('heading', { name: 'No payments yet' })).toBeVisible();
   await expect(insights.getByRole('link', { name: 'Create a payment link' })).toHaveAttribute('href', '/pay/links');
   await expect(insights.getByRole('group')).toHaveCount(0);
+  // The picture from the top with nothing focused, so the header and the skip link draw over no figure.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture();
   expect(refused).toEqual([]);
 });
 
@@ -345,6 +352,14 @@ test(`${J} #5 the team page lists the five built-in roles and every permission e
     .evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent)));
   expect(shown).toEqual(expected);
   expect(expected.length).toBeGreaterThan(20);
+  // Each row is the permission the service sent in that place, so the Yes and No cells above sit on the right row: its
+  // key, in the service's order, and a name of its own (never the unknown-key fallback, never another row's).
+  const rows = await matrix
+    .locator('tbody tr')
+    .evaluateAll((trs) => trs.map((tr) => ({ key: tr.dataset.permission, name: tr.querySelector('th')?.firstChild?.textContent ?? '' })));
+  expect(rows.map((r) => r.key)).toEqual(catalogue.areas.flatMap((g) => g.permissions.map((p) => p.key)));
+  for (const r of rows) expect(r.name, r.key).not.toMatch(/^$|has no name for yet/);
+  expect(new Set(rows.map((r) => r.name)).size).toBe(rows.length);
   await expect(matrix.getByText(/has no name for yet/)).toHaveCount(0);
   expect(refused).toEqual([]);
 });
