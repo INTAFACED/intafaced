@@ -91,6 +91,18 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   };
   page.on('response', (r) => void reads.push(store(r)));
   const stored = () => Promise.all(reads);
+  // The Refunds issued tile asks for the refunds list only once it is drawn, so its read can begin after the snapshots
+  // and the series are stored (issue 9180: the list was not yet asked for when it was counted). Its answer is held until
+  // the tiles are read, so that order happens on every run and the count waits for the list rather than racing it.
+  let release;
+  const released = new Promise((resolve) => (release = resolve));
+  await page.route(
+    (url) => url.pathname.endsWith('/api/pay/trpc/payment.refunds.list'),
+    async (route) => {
+      await released;
+      await route.continue();
+    },
+  );
   await page.getByRole('link', { name: 'Open the dashboard' }).click();
   await expect(page).toHaveURL(/\/pay\/merchant$/);
   await expect(page.getByText('TEST First Ltd').first()).toBeVisible();
@@ -127,6 +139,7 @@ test(`${J} #3 a new business reads its KPI area: one explanation with a link to 
   // empty; and the strip carries that period's own as-of.
   await stored();
   expect(refundLists.length).toBeGreaterThan(0);
+  release();
   const metrics = page.getByRole('region', { name: 'Reporting period' });
   for (const [preset, button] of [
     ['today', /^Today \(UTC\)/],
