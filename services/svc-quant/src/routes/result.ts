@@ -6,27 +6,28 @@ import {
   QuantError,
 } from '../errors.js';
 import { isBarBacktest, presentBacktest, readStoredBacktest } from '../engine/run.js';
+import { publicJurisdictionProcedure, quantShareEmbedSchema, router } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
-  publicJurisdictionProcedure,
-  quantPublicResultSchema,
-  quantShareCreatedSchema,
-  quantShareEmbedSchema,
-  quantShareStateSchema,
-  router,
-} from '@intafaced/contracts';
+  QUANT_RESULT_SHARE_CREATE,
+  QUANT_RESULT_SHARE_GET,
+  QUANT_RESULT_SHARE_PUBLIC,
+  QUANT_RESULT_SHARE_REVOKE,
+} from '@intafaced/contracts/quant-result-share-procedures';
 import { publicResultOf } from '../report/document.js';
 import { z } from 'zod';
-import { toTrpc, accountField, type QuantCore } from './core.js';
+import { quantRefusal, toTrpc, accountField, type QuantCore } from './core.js';
+
+/** `quant.result.share.*`; all but `embed` are mounted from their records (`@intafaced/contracts/quant-result-share-procedures`). */
 
 export function resultRoutes(core: QuantCore) {
   const { runs, shares, embedOrigins, shareNow, accountOf, requireShareLimits, requireSeq, sharePath, embedOf, ownedBar } = core;
   return router({
     share: router({
       /** How many links this run has, and whether one is active. The screen sends that count as `seq` on create. */
-      get: publicJurisdictionProcedure('quant', 'fiat')
-        .input(z.object({ runId: z.string().min(1), ...accountField }))
-        .output(quantShareStateSchema)
-        .query(async ({ input, ctx }) => {
+      get: mountRecord(
+        QUANT_RESULT_SHARE_GET,
+        async ({ input, ctx }) => {
           try {
             requireShareLimits();
             const accountId = accountOf(ctx, input.accountId);
@@ -37,17 +38,18 @@ export function resultRoutes(core: QuantCore) {
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        quantRefusal,
+      ),
 
       /**
        * One active link per run, under `result.share:<runId>:<seq>`. The token is returned only by the call that
        * stores the link. A lost reply is answered by revoking and creating the next seq, never by a second token
        * for the same key.
        */
-      create: publicJurisdictionProcedure('quant', 'fiat')
-        .input(z.object({ runId: z.string().min(1), seq: z.unknown().optional(), ...accountField }))
-        .output(quantShareCreatedSchema)
-        .mutation(async ({ input, ctx }) => {
+      create: mountRecord(
+        QUANT_RESULT_SHARE_CREATE,
+        async ({ input, ctx }) => {
           try {
             requireShareLimits();
             const accountId = accountOf(ctx, input.accountId);
@@ -68,12 +70,13 @@ export function resultRoutes(core: QuantCore) {
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        quantRefusal,
+      ),
 
-      revoke: publicJurisdictionProcedure('quant', 'fiat')
-        .input(z.object({ runId: z.string().min(1), ...accountField }))
-        .output(quantShareStateSchema)
-        .mutation(async ({ input, ctx }) => {
+      revoke: mountRecord(
+        QUANT_RESULT_SHARE_REVOKE,
+        async ({ input, ctx }) => {
           try {
             requireShareLimits();
             const accountId = accountOf(ctx, input.accountId);
@@ -83,7 +86,9 @@ export function resultRoutes(core: QuantCore) {
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        quantRefusal,
+      ),
 
       /**
        * The embed snippet for a token the caller already holds. A blank origin list refuses only this call.
@@ -114,10 +119,9 @@ export function resultRoutes(core: QuantCore) {
         }),
 
       /** Signed-out read of a share link. Jurisdiction is quant/fiat, with no session. A revoked token and an unknown token answer the same not-found. */
-      public: publicJurisdictionProcedure('quant', 'fiat')
-        .input(z.object({ token: z.string() }))
-        .output(quantPublicResultSchema)
-        .query(async ({ input }) => {
+      public: mountRecord(
+        QUANT_RESULT_SHARE_PUBLIC,
+        async ({ input }) => {
           try {
             const limits = requireShareLimits();
             const opened = await shares!.openPublic({
@@ -137,7 +141,9 @@ export function resultRoutes(core: QuantCore) {
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        quantRefusal,
+      ),
     }),
   });
 }

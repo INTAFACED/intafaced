@@ -83,11 +83,6 @@ export const quantApprovalPolicySchema = z.object({
   setAt: z.string().nullable(),
 });
 
-export const quantApprovalPolicySetInputSchema = z.object({
-  required: z.boolean(),
-  idempotencyKey: z.string().min(1).max(200),
-});
-
 export const quantApprovalRowSchema = z.object({
   approvalId: z.string(),
   strategyVersion: z.number().int().positive(),
@@ -116,15 +111,3 @@ export const quantApprovalStateSchema = z.object({
   canDecide: z.boolean(),
 });
 export type QuantApprovalState = z.infer<typeof quantApprovalStateSchema>;
-
-export const quantApprovalRequestInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  strategyVersion: z.number().int().positive(),
-});
-
-export const quantApprovalDecideInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  approvalId: z.string().min(1).max(64),
-  decision: z.enum(['approved', 'rejected']),
-  reason: z.string().trim().max(500),
-});
