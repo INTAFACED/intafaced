@@ -498,7 +498,9 @@ test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first tw
   const usdcBefore = await venueBalance(s.owner, 'USDC');
   expect(await venueOpen(s.owner)).toEqual([]);
   // The range round the mid, 100 a level, the mid halfway between levels 9 and 10: 59050 to 60950 in twenty levels.
-  const range = { lowerPrice: '59050', upperPrice: '60950', gridCount: 20, investment: '2000' };
+  // 4000 USDC over twenty levels is about 0.003 BTC a level, three lots of 0.001: the venue takes a buy's fee in BTC, so
+  // what a buy receives still holds whole lots to sell one level up.
+  const range = { lowerPrice: '59050', upperPrice: '60950', gridCount: 20, investment: '4000' };
 
   // CB-bots-02's owner bounds relative to market, blank: the setup read names it unset, the wizard reads "Not set", and a
   // create with every field valid is refused by its code, with nothing placed. Trade restarts as set in the finally.
