@@ -1,4 +1,5 @@
 import { INDEXER_STATUS } from '@intafaced/contracts/indexer-procedures';
+import type { ProtocolVenueBuildInput } from '@intafaced/contracts/protocol-venue-funds';
 import {
   PROTOCOL_AMM_ALLOWANCES,
   PROTOCOL_AMM_BUILD_REVOKE,
@@ -16,17 +17,27 @@ import {
   PROTOCOL_AMM_SWAP_SETTINGS,
 } from '@intafaced/contracts/protocol-amm-procedures';
 import {
-  protocolAssetLinkReviewOutputSchema,
-  protocolVenueReadsOutputSchema,
-  protocolVenueBalancesOutputSchema,
-  protocolVenueBuildOutputSchema,
-  type ProtocolVenueBuildInput,
-} from '@intafaced/contracts/protocol-venue-funds';
-import {
-  protocolContractBuildWriteOutputSchema,
-  protocolContractInspectOutputSchema,
-  protocolContractReadOutputSchema,
-} from '@intafaced/contracts/protocol-contract-source';
+  PROTOCOL_CLAIM_LINK_CONFIG,
+  PROTOCOL_CLAIM_LINK_GET,
+  PROTOCOL_CLAIM_LINK_LIST,
+  PROTOCOL_CONTRACT_BUILD_WRITE,
+  PROTOCOL_CONTRACT_INSPECT,
+  PROTOCOL_CONTRACT_READ,
+  PROTOCOL_ESCROW_BUILD,
+  PROTOCOL_ESCROW_DEAL,
+  PROTOCOL_LENDING_POSITION,
+  PROTOCOL_PORTFOLIO_READ,
+  PROTOCOL_TOKENS_BRIEF,
+  PROTOCOL_TOKENS_LEADERBOARD,
+  PROTOCOL_TOKENS_LIST,
+  PROTOCOL_TOKENS_PAGE,
+  PROTOCOL_TX_BUILD_REPLACEMENT,
+  PROTOCOL_VENUE_ASSET_LINK_REVIEW,
+  PROTOCOL_VENUE_BALANCES,
+  PROTOCOL_VENUE_BUILD_DEPOSIT,
+  PROTOCOL_VENUE_BUILD_WITHDRAW,
+  PROTOCOL_VENUE_READS,
+} from '@intafaced/contracts/protocol-chain-procedures';
 import { z } from 'zod';
 import type { ProtocolAddressReportInput } from '@intafaced/contracts/protocol-address-risk';
 import { PROTOCOL_ADDRESS_REPORTS_SUBMIT, PROTOCOL_ADDRESS_RISK_READ } from '@intafaced/contracts/protocol-wallet-procedures';
@@ -56,28 +67,10 @@ import {
   PROTOCOL_SESSIONS_LIST,
 } from '@intafaced/contracts/protocol-procedures';
 import { type ProtocolFeeSwapSubmitInput } from '@intafaced/contracts/protocol-swap';
-import {
-  tokenPageOutputSchema,
-  tokensBriefOutputSchema,
-  tokensLeaderboardOutputSchema,
-  tokensListOutputSchema,
-  type TokenWindowId,
-} from '@intafaced/contracts/protocol-tokens';
-import {
-  protocolClaimLinkConfigOutputSchema,
-  protocolClaimLinkGetOutputSchema,
-  protocolClaimLinkListOutputSchema,
-  protocolReplacementOutputSchema,
-  type ProtocolReplacementInput,
-} from '@intafaced/contracts/protocol-wallet-tx';
-import {
-  protocolEscrowBuildOutputSchema,
-  protocolEscrowDealOutputSchema,
-  type ProtocolEscrowBuildInput,
-} from '@intafaced/contracts/protocol-escrow';
+import type { TokenWindowId } from '@intafaced/contracts/protocol-tokens';
+import type { ProtocolReplacementInput } from '@intafaced/contracts/protocol-wallet-tx';
+import type { ProtocolEscrowBuildInput } from '@intafaced/contracts/protocol-escrow';
 import { dexQuoteSchema } from '@intafaced/contracts/dex-quote';
-import { protocolPortfolioOutputSchema } from '@intafaced/contracts/protocol-portfolio';
-import { protocolLendingPositionOutputSchema } from '@intafaced/contracts/protocol-lending-position';
 import type { ApiClient } from '../../shared/api';
 
 /**
@@ -134,14 +127,12 @@ export function createProtocolApi(api: ApiClient) {
     indexerStatus: (signal?: AbortSignal) => api.call(INDEXER_STATUS, undefined, { signal }),
     dexHealth: (signal?: AbortSignal) => api.query('dex', 'health', undefined, dexHealthSchema, { signal }),
     /** A contract's source status, its proxy and the interface its Read and Write tabs use (D-explorer-06). */
-    contractInspect: (address: string, signal?: AbortSignal) =>
-      api.query('protocol', 'contract.inspect', { address }, protocolContractInspectOutputSchema, { signal }),
+    contractInspect: (address: string, signal?: AbortSignal) => api.call(PROTOCOL_CONTRACT_INSPECT, { address }, { signal }),
     /** One read function called at the contract's address, at one block. */
-    contractRead: (input: { address: string; signature: string; args: string[] }) =>
-      api.query('protocol', 'contract.read', input, protocolContractReadOutputSchema),
+    contractRead: (input: { address: string; signature: string; args: string[] }) => api.call(PROTOCOL_CONTRACT_READ, input),
     /** The unsigned call for one write function; the person's own wallet signs and sends it. */
     contractBuildWrite: (input: { address: string; signature: string; args: string[]; value?: string }) =>
-      api.query('protocol', 'contract.buildWrite', input, protocolContractBuildWriteOutputSchema),
+      api.call(PROTOCOL_CONTRACT_BUILD_WRITE, input),
     /** The owner-published network registry. A field the owner has not published is null. */
     networksList: (signal?: AbortSignal) => api.call(PROTOCOL_NETWORKS_LIST, undefined, { signal }),
     /** Recorded contracts and router versions for one chain. A chain with nothing recorded is a refusal, not an empty list. */
@@ -154,57 +145,43 @@ export function createProtocolApi(api: ApiClient) {
     representationAccept: (input: { address: string; version: string; signature: string }) =>
       api.call(PROTOCOL_REPRESENTATION_ACCEPT, input),
     /** The trading venue's balances for `account` (total, reserved, free), read from the contract (D-bridge-chain-04). */
-    venueBalances: (account: string, signal?: AbortSignal) =>
-      api.query('protocol', 'venue.balances', { account }, protocolVenueBalancesOutputSchema, { signal }),
+    venueBalances: (account: string, signal?: AbortSignal) => api.call(PROTOCOL_VENUE_BALANCES, { account }, { signal }),
     /** The unsigned approval (when needed) and `deposit` call; nothing is sent. */
-    venueBuildDeposit: (input: ProtocolVenueBuildInput) =>
-      api.query('protocol', 'venue.buildDeposit', input, protocolVenueBuildOutputSchema),
+    venueBuildDeposit: (input: ProtocolVenueBuildInput) => api.call(PROTOCOL_VENUE_BUILD_DEPOSIT, input),
     /** The unsigned `withdraw` call; above the free amount refuses `protocol.venue_insufficient_free` naming it. */
-    venueBuildWithdraw: (input: ProtocolVenueBuildInput) =>
-      api.query('protocol', 'venue.buildWithdraw', input, protocolVenueBuildOutputSchema),
+    venueBuildWithdraw: (input: ProtocolVenueBuildInput) => api.call(PROTOCOL_VENUE_BUILD_WITHDRAW, input),
     /** Whether `token` is one of the venue's own two assets, with its decimals; a read (J-dex-protocol-05 #10). */
-    assetLinkReview: (token: string) => api.query('protocol', 'venue.assetLinkReview', { token }, protocolAssetLinkReviewOutputSchema),
+    assetLinkReview: (token: string) => api.call(PROTOCOL_VENUE_ASSET_LINK_REVIEW, { token }),
     /** The venue's read-only calls with examples (the contract-read docs). */
-    venueReads: (signal?: AbortSignal) => api.query('protocol', 'venue.reads', undefined, protocolVenueReadsOutputSchema, { signal }),
+    venueReads: (signal?: AbortSignal) => api.call(PROTOCOL_VENUE_READS, undefined, { signal }),
     /** The claim-link escrow and its published expiry bounds, read from the contract; blank refuses by name (D-swap-12). */
     /** RC-p2p-01: one sovereign P2P escrow deal as the contract holds it now, with the chain's clock. */
-    escrowDeal: (dealId: string, signal?: AbortSignal) =>
-      api.query('protocol', 'escrow.deal', { dealId }, protocolEscrowDealOutputSchema, { signal }),
+    escrowDeal: (dealId: string, signal?: AbortSignal) => api.call(PROTOCOL_ESCROW_DEAL, { dealId }, { signal }),
     /** RC-p2p-01: one unsigned call on the sovereign P2P escrow (or the token's approve of it). The wallet signs it. */
-    escrowBuild: (input: ProtocolEscrowBuildInput, signal?: AbortSignal) =>
-      api.query('protocol', 'escrow.build', input, protocolEscrowBuildOutputSchema, { signal }),
-    claimLinkConfig: (signal?: AbortSignal) =>
-      api.query('protocol', 'claimLink.config', undefined, protocolClaimLinkConfigOutputSchema, { signal }),
+    escrowBuild: (input: ProtocolEscrowBuildInput, signal?: AbortSignal) => api.call(PROTOCOL_ESCROW_BUILD, input, { signal }),
+    claimLinkConfig: (signal?: AbortSignal) => api.call(PROTOCOL_CLAIM_LINK_CONFIG, undefined, { signal }),
     /** One claim link by its id (the link key's address), read from the escrow, with the chain's clock. */
-    claimLinkGet: (id: string, signal?: AbortSignal) =>
-      api.query('protocol', 'claimLink.get', { id }, protocolClaimLinkGetOutputSchema, { signal }),
+    claimLinkGet: (id: string, signal?: AbortSignal) => api.call(PROTOCOL_CLAIM_LINK_GET, { id }, { signal }),
     /** Every claim link `sender` created, newest first, with the chain's clock. */
-    claimLinkList: (sender: string, signal?: AbortSignal) =>
-      api.query('protocol', 'claimLink.list', { sender }, protocolClaimLinkListOutputSchema, { signal }),
+    claimLinkList: (sender: string, signal?: AbortSignal) => api.call(PROTOCOL_CLAIM_LINK_LIST, { sender }, { signal }),
     /** One unsigned same-nonce replacement for a pending transaction; a mined one refuses `protocol.tx_final`. */
-    buildReplacement: (input: ProtocolReplacementInput, signal?: AbortSignal) =>
-      api.query('protocol', 'tx.buildReplacement', input, protocolReplacementOutputSchema, { signal }),
+    buildReplacement: (input: ProtocolReplacementInput, signal?: AbortSignal) => api.call(PROTOCOL_TX_BUILD_REPLACEMENT, input, { signal }),
     /** Every pool the network's factory lists and the tokens they trade, read from the chain. */
     ammPairs: (signal?: AbortSignal) => api.call(PROTOCOL_AMM_PAIRS, undefined, { signal }),
     /** Every listed token's USD price from the pools at one block, or why it has none. */
     /** One address's holdings, value, profit and loss and transfers, read from the chain (D-portfolio-wallet-04). */
-    portfolio: (address: string, signal?: AbortSignal) =>
-      api.query('protocol', 'portfolio.read', { address }, protocolPortfolioOutputSchema, { signal }),
+    portfolio: (address: string, signal?: AbortSignal) => api.call(PROTOCOL_PORTFOLIO_READ, { address }, { signal }),
     /** One account's collateral and debt in the lending market, read from the contract (D-portfolio-wallet-04). */
-    lendingPosition: (account: string, signal?: AbortSignal) =>
-      api.query('protocol', 'lending.position', { account }, protocolLendingPositionOutputSchema, { signal }),
+    lendingPosition: (account: string, signal?: AbortSignal) => api.call(PROTOCOL_LENDING_POSITION, { account }, { signal }),
     tokenPrices: (signal?: AbortSignal) => api.call(PROTOCOL_AMM_PRICES, undefined, { signal }),
     /** Every token in the factory's pools with its price, growth and volume for one window, read at one block. */
-    tokensList: (window: TokenWindowId, signal?: AbortSignal) =>
-      api.query('protocol', 'tokens.list', { window }, tokensListOutputSchema, { signal }),
+    tokensList: (window: TokenWindowId, signal?: AbortSignal) => api.call(PROTOCOL_TOKENS_LIST, { window }, { signal }),
     /** One token's page: facts, trust, pairs with candles, holders and trades, read at one block. */
-    tokenPage: (address: string, signal?: AbortSignal) =>
-      api.query('protocol', 'tokens.page', { address }, tokenPageOutputSchema, { signal }),
+    tokenPage: (address: string, signal?: AbortSignal) => api.call(PROTOCOL_TOKENS_PAGE, { address }, { signal }),
     /** Wallets ranked by realised results from public swaps; each row carries the trades it sums. */
-    tokensLeaderboard: (signal?: AbortSignal) =>
-      api.query('protocol', 'tokens.leaderboard', undefined, tokensLeaderboardOutputSchema, { signal }),
+    tokensLeaderboard: (signal?: AbortSignal) => api.call(PROTOCOL_TOKENS_LEADERBOARD, undefined, { signal }),
     /** The market brief over the 24 hours to the head block, from the pools; null brief when nothing traded. */
-    tokensBrief: (signal?: AbortSignal) => api.query('protocol', 'tokens.brief', undefined, tokensBriefOutputSchema, { signal }),
+    tokensBrief: (signal?: AbortSignal) => api.call(PROTOCOL_TOKENS_BRIEF, undefined, { signal }),
     /** The owner's swap settings; blank refuses and the form keeps Swap off. */
     swapSettings: (signal?: AbortSignal) => api.call(PROTOCOL_AMM_SWAP_SETTINGS, undefined, { signal }),
     /** A quote from one pool's reserves as read now. `amountIn` in base units. */

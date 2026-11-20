@@ -3596,6 +3596,135 @@
         }
       ]
     },
+    "identity.apiVersion.get": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "developer.apiVersion.get",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read",
+        "module": "identity"
+      },
+      "refusals": {
+        "identity.api_version_session_only": "FORBIDDEN"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": ["string", "null"]
+          },
+          "setAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["version", "setAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "version": "2026-11-20"
+          }
+        }
+      ]
+    },
+    "identity.apiVersion.set": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "developer.apiVersion.set",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write",
+        "module": "identity"
+      },
+      "refusals": {
+        "identity.api_version_session_only": "FORBIDDEN",
+        "version.unknown": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        },
+        "required": ["version"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": ["string", "null"]
+          },
+          "setAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": ["version", "setAt", "changed"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "version": "2026-11-20"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "version": "1999-01-01"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "version": 20261120
+          }
+        }
+      ]
+    },
     "identity.recipients.add": {
       "service": "svc-identity",
       "module": "identity",
@@ -15483,6 +15612,107 @@
         }
       ]
     },
+    "protocol.bridge.routes.list": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "bridge.routes.list",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "bridge.routes_unset": "PRECONDITION_FAILED",
+        "bridge.routes_invalid": "SERVICE_UNAVAILABLE",
+        "bridge.route_kind_forbidden": "SERVICE_UNAVAILABLE"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "routes": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "object",
+                  "properties": {
+                    "chainId": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": ["testnet", "local"]
+                    }
+                  },
+                  "required": ["chainId", "name", "kind"],
+                  "additionalProperties": false
+                },
+                "to": {
+                  "type": "object",
+                  "properties": {
+                    "chainId": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": ["testnet", "local"]
+                    }
+                  },
+                  "required": ["chainId", "name", "kind"],
+                  "additionalProperties": false
+                },
+                "token": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 16
+                },
+                "provider": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["from", "to", "token", "provider"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["routes"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "protocol.buildRevokeAllSessions": {
       "service": "svc-protocol",
       "module": "protocol",
@@ -15981,6 +16211,314 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "protocol.claimLink.config": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "claimLink.config",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.claim_escrow_unset": "PRECONDITION_FAILED",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "escrow": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "minExpirySeconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "maxExpirySeconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["escrow", "chainId", "minExpirySeconds", "maxExpirySeconds"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "protocol.claimLink.get": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "claimLink.get",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.claim_escrow_unset": "PRECONDITION_FAILED",
+        "protocol.claim_link_not_found": "NOT_FOUND",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["id"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "link": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "sender": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "token": {
+                "type": "object",
+                "properties": {
+                  "address": {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-fA-F]{40}$"
+                  },
+                  "name": {
+                    "type": ["string", "null"]
+                  },
+                  "symbol": {
+                    "type": ["string", "null"]
+                  },
+                  "decimals": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 36
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["address", "name", "symbol", "decimals"],
+                "additionalProperties": false
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              },
+              "expiresAt": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "state": {
+                "type": "string",
+                "enum": ["open", "claimed", "expired", "clawed_back"]
+              },
+              "claimedBy": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-fA-F]{40}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["id", "sender", "token", "amount", "expiresAt", "state", "claimedBy"],
+            "additionalProperties": false
+          },
+          "chainTime": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["link", "chainTime"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "id": "0x00000000000000000000000000000000000000a1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "id": ""
+          }
+        }
+      ]
+    },
+    "protocol.claimLink.list": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "claimLink.list",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.claim_escrow_unset": "PRECONDITION_FAILED",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "sender": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["sender"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "sender": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "token": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "pattern": "^0x[0-9a-fA-F]{40}$"
+                    },
+                    "name": {
+                      "type": ["string", "null"]
+                    },
+                    "symbol": {
+                      "type": ["string", "null"]
+                    },
+                    "decimals": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 36
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["address", "name", "symbol", "decimals"],
+                  "additionalProperties": false
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "expiresAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["open", "claimed", "expired", "clawed_back"]
+                },
+                "claimedBy": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^0x[0-9a-fA-F]{40}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["id", "sender", "token", "amount", "expiresAt", "state", "claimedBy"],
+              "additionalProperties": false
+            }
+          },
+          "chainTime": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["links", "chainTime"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "sender": "0x00000000000000000000000000000000000000a1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "sender": ""
+          }
         }
       ]
     },
@@ -17674,6 +18212,679 @@
         }
       ]
     },
+    "protocol.contract.buildWrite": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "contract.buildWrite",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.contract_interface_unknown": "PRECONDITION_FAILED",
+        "protocol.contract_function_unknown": "BAD_REQUEST",
+        "protocol.contract_argument_invalid": "BAD_REQUEST",
+        "protocol.contract_call_reverted": "CONFLICT",
+        "protocol.contract_read_gas_exceeded": "CONFLICT",
+        "protocol.contract_answer_unreadable": "CONFLICT",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "signature": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 512
+          },
+          "args": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          },
+          "value": {
+            "type": "string",
+            "pattern": "^\\d{1,78}$"
+          }
+        },
+        "required": ["address", "signature", "args"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "to": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": ["chainId", "to", "data", "value"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "address": "0x00000000000000000000000000000000000000a1",
+            "signature": "transfer(address,uint256)",
+            "args": ["0x00000000000000000000000000000000000000a1", "1"]
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "address": "0x00000000000000000000000000000000000000a1",
+            "signature": "deposit()",
+            "args": [],
+            "value": "1000"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "address": "0x00000000000000000000000000000000000000a1",
+            "signature": "deposit()",
+            "args": [],
+            "value": "-1"
+          }
+        }
+      ]
+    },
+    "protocol.contract.inspect": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "contract.inspect",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["address"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "blockNumber": {
+            "type": "string"
+          },
+          "source": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "exact"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "sourceName": {
+                    "type": "string"
+                  },
+                  "compiler": {
+                    "type": "string"
+                  },
+                  "sourceHash": {
+                    "type": "string"
+                  }
+                },
+                "required": ["status", "name", "sourceName", "compiler", "sourceHash"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "similar"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "sourceName": {
+                    "type": "string"
+                  },
+                  "compiler": {
+                    "type": "string"
+                  },
+                  "sourceHash": {
+                    "type": "string"
+                  }
+                },
+                "required": ["status", "name", "sourceName", "compiler", "sourceHash"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "unverified"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": ["no_code", "no_matching_source"]
+                  }
+                },
+                "required": ["status", "reason"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "proxy": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "standard": {
+                    "type": "string",
+                    "enum": ["eip1167", "eip1967"]
+                  },
+                  "implementation": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "const": "exact"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "sourceName": {
+                            "type": "string"
+                          },
+                          "compiler": {
+                            "type": "string"
+                          },
+                          "sourceHash": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["status", "name", "sourceName", "compiler", "sourceHash"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "const": "similar"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "sourceName": {
+                            "type": "string"
+                          },
+                          "compiler": {
+                            "type": "string"
+                          },
+                          "sourceHash": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["status", "name", "sourceName", "compiler", "sourceHash"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "status": {
+                            "type": "string",
+                            "const": "unverified"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "enum": ["no_code", "no_matching_source"]
+                          }
+                        },
+                        "required": ["status", "reason"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": ["standard", "implementation", "source"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "interface": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "from": {
+                    "type": "string",
+                    "enum": ["contract", "implementation"]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "read": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "signature": {
+                          "type": "string"
+                        },
+                        "stateMutability": {
+                          "type": "string",
+                          "enum": ["pure", "view", "nonpayable", "payable"]
+                        },
+                        "inputs": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/ProtocolAbiParamDepth8"
+                          }
+                        },
+                        "outputs": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/ProtocolAbiParamDepth8"
+                          }
+                        }
+                      },
+                      "required": ["name", "signature", "stateMutability", "inputs", "outputs"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "write": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "signature": {
+                          "type": "string"
+                        },
+                        "stateMutability": {
+                          "type": "string",
+                          "enum": ["pure", "view", "nonpayable", "payable"]
+                        },
+                        "inputs": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/ProtocolAbiParamDepth8"
+                          }
+                        },
+                        "outputs": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/ProtocolAbiParamDepth8"
+                          }
+                        }
+                      },
+                      "required": ["name", "signature", "stateMutability", "inputs", "outputs"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["from", "name", "read", "write"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["address", "chainId", "blockNumber", "source", "proxy", "interface"],
+        "additionalProperties": false,
+        "$defs": {
+          "ProtocolAbiParamDepth8": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ProtocolAbiParamDepth7"
+                }
+              }
+            },
+            "required": ["name", "type"],
+            "additionalProperties": false
+          },
+          "ProtocolAbiParamDepth7": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ProtocolAbiParamDepth6"
+                }
+              }
+            },
+            "required": ["name", "type"],
+            "additionalProperties": false
+          },
+          "ProtocolAbiParamDepth6": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ProtocolAbiParamDepth5"
+                }
+              }
+            },
+            "required": ["name", "type"],
+            "additionalProperties": false
+          },
+          "ProtocolAbiParamDepth5": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ProtocolAbiParamDepth4"
+                }
+              }
+            },
+            "required": ["name", "type"],
+            "additionalProperties": false
+          },
+          "ProtocolAbiParamDepth4": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ProtocolAbiParamDepth3"
+                }
+              }
+            },
+            "required": ["name", "type"],
+            "additionalProperties": false
+          },
+          "ProtocolAbiParamDepth3": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ProtocolAbiParamDepth2"
+                }
+              }
+            },
+            "required": ["name", "type"],
+            "additionalProperties": false
+          },
+          "ProtocolAbiParamDepth2": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ProtocolAbiParamDepth1"
+                }
+              }
+            },
+            "required": ["name", "type"],
+            "additionalProperties": false
+          },
+          "ProtocolAbiParamDepth1": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ProtocolAbiParamDepth0"
+                }
+              }
+            },
+            "required": ["name", "type"],
+            "additionalProperties": false
+          },
+          "ProtocolAbiParamDepth0": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              }
+            },
+            "required": ["name", "type"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "address": "0x00000000000000000000000000000000000000a1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "address": ""
+          }
+        }
+      ]
+    },
+    "protocol.contract.read": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "contract.read",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.contract_interface_unknown": "PRECONDITION_FAILED",
+        "protocol.contract_function_unknown": "BAD_REQUEST",
+        "protocol.contract_argument_invalid": "BAD_REQUEST",
+        "protocol.contract_call_reverted": "CONFLICT",
+        "protocol.contract_read_gas_exceeded": "CONFLICT",
+        "protocol.contract_answer_unreadable": "CONFLICT",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "signature": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 512
+          },
+          "args": {
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 4096
+            }
+          }
+        },
+        "required": ["address", "signature", "args"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "blockNumber": {
+            "type": "string"
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": ["name", "type", "value"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["blockNumber", "outputs"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "address": "0x00000000000000000000000000000000000000a1",
+            "signature": "totalSupply()",
+            "args": []
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "address": "0x00000000000000000000000000000000000000a1",
+            "signature": "f",
+            "args": []
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "address": "0x00000000000000000000000000000000000000a1",
+            "signature": "totalSupply()"
+          }
+        }
+      ]
+    },
     "protocol.deployments.list": {
       "service": "svc-protocol",
       "module": "protocol",
@@ -18031,6 +19242,397 @@
         }
       ]
     },
+    "protocol.escrow.build": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "escrow.build",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "audit.external": "PRECONDITION_FAILED",
+        "protocol.escrow_not_deployed": "PRECONDITION_FAILED",
+        "protocol.escrow_amount_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "open"
+              },
+              "buyer": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "token": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              },
+              "disputeWindowSeconds": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 4294967295
+              },
+              "timeout": {
+                "type": "string",
+                "enum": ["refund_seller", "release_buyer"]
+              }
+            },
+            "required": ["action", "buyer", "token", "amount", "disputeWindowSeconds", "timeout"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "const": "approve"
+              },
+              "token": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$"
+              }
+            },
+            "required": ["action", "token", "amount"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": ["lock", "release", "refund", "dispute", "settleTimeout"]
+              },
+              "dealId": {
+                "type": "string",
+                "pattern": "^[1-9][0-9]{0,77}$"
+              }
+            },
+            "required": ["action", "dealId"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "data": {
+            "type": "string",
+            "pattern": "^0x([0-9a-fA-F]{2})*$"
+          },
+          "value": {
+            "type": "string",
+            "const": "0"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["chainId", "to", "data", "value", "summary"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "action": "approve",
+            "token": "0x00000000000000000000000000000000000000a1",
+            "amount": "1000"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "action": "release",
+            "dealId": "7"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "action": "approve",
+            "token": "0x00000000000000000000000000000000000000a1",
+            "amount": "0"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "action": "withdraw",
+            "dealId": "7"
+          }
+        }
+      ]
+    },
+    "protocol.escrow.deal": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "escrow.deal",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "audit.external": "PRECONDITION_FAILED",
+        "protocol.escrow_not_deployed": "PRECONDITION_FAILED",
+        "protocol.escrow_deal_not_found": "NOT_FOUND",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "dealId": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,77}$"
+          }
+        },
+        "required": ["dealId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "dealId": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,77}$"
+          },
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "escrow": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "seller": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "buyer": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "token": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          },
+          "held": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "arbiter": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disputeWindowSeconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "disputeDeadline": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeout": {
+            "type": "string",
+            "enum": ["refund_seller", "release_buyer"]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["open", "locked", "disputed", "released", "refunded"]
+          },
+          "chainTime": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "audited": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": [
+          "dealId",
+          "chainId",
+          "escrow",
+          "seller",
+          "buyer",
+          "token",
+          "amount",
+          "held",
+          "arbiter",
+          "disputeWindowSeconds",
+          "disputeDeadline",
+          "timeout",
+          "state",
+          "chainTime",
+          "audited"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "dealId": "1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "dealId": "0"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "protocol.escrow.status": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "escrow.status",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "audit.external": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "testnet": {
+            "type": "object",
+            "properties": {
+              "chainId": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "deployed": {
+                "type": "boolean"
+              },
+              "escrow": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^0x[0-9a-fA-F]{40}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "blocker": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "protocol.escrow_not_deployed"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["chainId", "label", "deployed", "escrow", "blocker"],
+            "additionalProperties": false
+          },
+          "mainnet": {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean",
+                "const": false
+              },
+              "blocker": {
+                "type": "string",
+                "const": "audit.external"
+              }
+            },
+            "required": ["available", "blocker"],
+            "additionalProperties": false
+          },
+          "audited": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": ["testnet", "mainnet", "audited"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "protocol.gasPrice": {
       "service": "svc-protocol",
       "module": "protocol",
@@ -18200,6 +19802,127 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "protocol.lending.position": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "lending.position",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.lending_market_unset": "PRECONDITION_FAILED",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["account"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "market": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "account": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "blockNumber": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "collateralToken": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "symbol": {
+                "type": ["string", "null"]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 36
+              }
+            },
+            "required": ["address", "symbol", "decimals"],
+            "additionalProperties": false
+          },
+          "borrowToken": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "symbol": {
+                "type": ["string", "null"]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 36
+              }
+            },
+            "required": ["address", "symbol", "decimals"],
+            "additionalProperties": false
+          },
+          "collateral": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+          },
+          "debt": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+          },
+          "maxLtvBps": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          }
+        },
+        "required": ["market", "chainId", "account", "blockNumber", "collateralToken", "borrowToken", "collateral", "debt", "maxLtvBps"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "account": "0x00000000000000000000000000000000000000a1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "account": ""
+          }
         }
       ]
     },
@@ -18554,6 +20277,301 @@
       "samples": [
         {
           "verdict": "accept"
+        }
+      ]
+    },
+    "protocol.portfolio.read": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "portfolio.read",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.price_settings_unset": "PRECONDITION_FAILED",
+        "protocol.amm_factory_unset": "PRECONDITION_FAILED",
+        "protocol.token_unsupported": "PRECONDITION_FAILED",
+        "protocol.tokens_read_too_large": "PRECONDITION_FAILED",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["address"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "blockNumber": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "totalUsd": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+          },
+          "unpriced": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "holdings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "decimals": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 36
+                },
+                "balance": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "usd": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["thin_reserve", "no_route"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "valueUsd": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "entry": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "usd": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                        },
+                        "arrivals": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "unpriced": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "firstBlock": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$"
+                        },
+                        "lastBlock": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$"
+                        }
+                      },
+                      "required": ["usd", "arrivals", "unpriced", "firstBlock", "lastBlock"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["token", "name", "symbol", "decimals", "balance", "usd", "reason", "valueUsd", "entry"],
+              "additionalProperties": false
+            }
+          },
+          "pnl": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "usd": {
+                    "type": "string",
+                    "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                  },
+                  "depositsUsd": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                  },
+                  "withdrawalsUsd": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                  },
+                  "sinceBlock": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$"
+                  }
+                },
+                "required": ["usd", "depositsUsd", "withdrawalsUsd", "sinceBlock"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "drawdown": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "pct": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                  },
+                  "peakUsd": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                  },
+                  "peakBlock": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$"
+                  },
+                  "troughUsd": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                  },
+                  "troughBlock": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]*)$"
+                  }
+                },
+                "required": ["pct", "peakUsd", "peakBlock", "troughUsd", "troughBlock"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "transfers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "block": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "time": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "tx": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{64}$"
+                },
+                "token": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "decimals": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 36
+                },
+                "direction": {
+                  "type": "string",
+                  "enum": ["in", "out"]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "counterparty": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "pool": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["block", "time", "tx", "token", "symbol", "decimals", "direction", "amount", "counterparty", "pool"],
+              "additionalProperties": false
+            }
+          },
+          "transferCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["address", "blockNumber", "asOf", "totalUsd", "unpriced", "holdings", "pnl", "drawdown", "transfers", "transferCount"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "address": "0x00000000000000000000000000000000000000a1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "address": ""
+          }
         }
       ]
     },
@@ -18955,6 +20973,1878 @@
         {
           "verdict": "refuse",
           "input": {}
+        }
+      ]
+    },
+    "protocol.tokens.brief": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "tokens.brief",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.amm_factory_unset": "PRECONDITION_FAILED",
+        "protocol.tokens_quote_unset": "PRECONDITION_FAILED",
+        "protocol.token_unsupported": "PRECONDITION_FAILED",
+        "protocol.tokens_read_too_large": "PRECONDITION_FAILED",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "blockNumber": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "asOf": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "day": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "since": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "quote": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "name": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 36
+              }
+            },
+            "required": ["address", "name", "symbol", "decimals"],
+            "additionalProperties": false
+          },
+          "brief": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "trades": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "pools": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "topGainer": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "token": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-fA-F]{40}$"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "symbol": {
+                                "type": "string"
+                              },
+                              "decimals": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 36
+                              }
+                            },
+                            "required": ["address", "name", "symbol", "decimals"],
+                            "additionalProperties": false
+                          },
+                          "lookalikeOf": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "address": {
+                                    "type": "string",
+                                    "pattern": "^0x[0-9a-fA-F]{40}$"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "symbol": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["address", "name", "symbol"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "growthBps": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": ["token", "lookalikeOf", "growthBps"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "topLoser": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "token": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-fA-F]{40}$"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "symbol": {
+                                "type": "string"
+                              },
+                              "decimals": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 36
+                              }
+                            },
+                            "required": ["address", "name", "symbol", "decimals"],
+                            "additionalProperties": false
+                          },
+                          "lookalikeOf": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "address": {
+                                    "type": "string",
+                                    "pattern": "^0x[0-9a-fA-F]{40}$"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "symbol": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["address", "name", "symbol"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "growthBps": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": ["token", "lookalikeOf", "growthBps"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "mostTraded": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "token": {
+                            "type": "object",
+                            "properties": {
+                              "address": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-fA-F]{40}$"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "symbol": {
+                                "type": "string"
+                              },
+                              "decimals": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 36
+                              }
+                            },
+                            "required": ["address", "name", "symbol", "decimals"],
+                            "additionalProperties": false
+                          },
+                          "lookalikeOf": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "address": {
+                                    "type": "string",
+                                    "pattern": "^0x[0-9a-fA-F]{40}$"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "symbol": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["address", "name", "symbol"],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "volume": {
+                            "type": "string",
+                            "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                          },
+                          "trades": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": ["token", "lookalikeOf", "volume", "trades"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "newListings": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "address": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-fA-F]{40}$"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "symbol": {
+                          "type": "string"
+                        },
+                        "decimals": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 36
+                        }
+                      },
+                      "required": ["address", "name", "symbol", "decimals"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["trades", "pools", "topGainer", "topLoser", "mostTraded", "newListings"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["blockNumber", "asOf", "day", "since", "quote", "brief"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "protocol.tokens.leaderboard": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "tokens.leaderboard",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.amm_factory_unset": "PRECONDITION_FAILED",
+        "protocol.tokens_quote_unset": "PRECONDITION_FAILED",
+        "protocol.token_unsupported": "PRECONDITION_FAILED",
+        "protocol.tokens_read_too_large": "PRECONDITION_FAILED",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "blockNumber": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "asOf": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "quote": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "name": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 36
+              }
+            },
+            "required": ["address", "name", "symbol", "decimals"],
+            "additionalProperties": false
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "wallet": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "realised": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                },
+                "trades": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "tx": {
+                        "type": "string",
+                        "pattern": "^0x[0-9a-fA-F]{64}$"
+                      },
+                      "logIndex": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "time": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "token": {
+                        "type": "object",
+                        "properties": {
+                          "address": {
+                            "type": "string",
+                            "pattern": "^0x[0-9a-fA-F]{40}$"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "symbol": {
+                            "type": "string"
+                          },
+                          "decimals": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 36
+                          }
+                        },
+                        "required": ["address", "name", "symbol", "decimals"],
+                        "additionalProperties": false
+                      },
+                      "side": {
+                        "type": "string",
+                        "enum": ["buy", "sell"]
+                      },
+                      "amount": {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$"
+                      },
+                      "quoteAmount": {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]*)$"
+                      },
+                      "realised": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["tx", "logIndex", "time", "token", "side", "amount", "quoteAmount", "realised"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["wallet", "realised", "trades"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["blockNumber", "asOf", "quote", "rows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "protocol.tokens.list": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "tokens.list",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.amm_factory_unset": "PRECONDITION_FAILED",
+        "protocol.tokens_quote_unset": "PRECONDITION_FAILED",
+        "protocol.token_unsupported": "PRECONDITION_FAILED",
+        "protocol.tokens_read_too_large": "PRECONDITION_FAILED",
+        "protocol.tokens_block_ahead": "PRECONDITION_FAILED",
+        "protocol.tokens_block_too_old": "PRECONDITION_FAILED",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "window": {
+            "type": "string",
+            "enum": ["5m", "1h", "6h", "24h"]
+          },
+          "blockNumber": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          }
+        },
+        "required": ["window"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "blockNumber": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "asOf": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "quote": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "name": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 36
+              }
+            },
+            "required": ["address", "name", "symbol", "decimals"],
+            "additionalProperties": false
+          },
+          "window": {
+            "type": "string",
+            "enum": ["5m", "1h", "6h", "24h"]
+          },
+          "tokens": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "pattern": "^0x[0-9a-fA-F]{40}$"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "symbol": {
+                      "type": "string"
+                    },
+                    "decimals": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 36
+                    }
+                  },
+                  "required": ["address", "name", "symbol", "decimals"],
+                  "additionalProperties": false
+                },
+                "price": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "growthBps": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "volume": {
+                  "type": "string",
+                  "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                },
+                "trades": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "listedAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "lookalikeOf": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "address": {
+                          "type": "string",
+                          "pattern": "^0x[0-9a-fA-F]{40}$"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "symbol": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["address", "name", "symbol"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["token", "price", "growthBps", "volume", "trades", "listedAt", "lookalikeOf"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["blockNumber", "asOf", "quote", "window", "tokens"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "window": "24h"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "window": "5m",
+            "blockNumber": "120"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "window": "7d"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "protocol.tokens.page": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "tokens.page",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.amm_factory_unset": "PRECONDITION_FAILED",
+        "protocol.tokens_quote_unset": "PRECONDITION_FAILED",
+        "protocol.token_unsupported": "PRECONDITION_FAILED",
+        "protocol.tokens_read_too_large": "PRECONDITION_FAILED",
+        "protocol.token_not_listed": "PRECONDITION_FAILED",
+        "protocol.tokens_holders_inconsistent": "PRECONDITION_FAILED",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["address"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "blockNumber": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "asOf": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "token": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "name": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 36
+              }
+            },
+            "required": ["address", "name", "symbol", "decimals"],
+            "additionalProperties": false
+          },
+          "quote": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "name": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 36
+              }
+            },
+            "required": ["address", "name", "symbol", "decimals"],
+            "additionalProperties": false
+          },
+          "listed": {
+            "type": "boolean"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "growthBps24h": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "feesPaid": {
+            "type": "string",
+            "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+          },
+          "trust": {
+            "type": "object",
+            "properties": {
+              "tier": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "unknown"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tierRefusal": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "protocol.trust_criteria_unset"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "organicScore": {
+                "type": "null"
+              },
+              "organicRefusal": {
+                "type": "string",
+                "const": "protocol.organic_score_unset"
+              },
+              "flags": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["no_lp_lock", "no_vesting", "lookalike", "no_history"]
+                }
+              },
+              "lookalikeOf": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "address": {
+                        "type": "string",
+                        "pattern": "^0x[0-9a-fA-F]{40}$"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "symbol": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["address", "name", "symbol"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["tier", "tierRefusal", "organicScore", "organicRefusal", "flags", "lookalikeOf"],
+            "additionalProperties": false
+          },
+          "pairs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pool": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "other": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "pattern": "^0x[0-9a-fA-F]{40}$"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "symbol": {
+                      "type": "string"
+                    },
+                    "decimals": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 36
+                    }
+                  },
+                  "required": ["address", "name", "symbol", "decimals"],
+                  "additionalProperties": false
+                },
+                "feeBps": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "reserve": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "reserveOther": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "volume": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "candles": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "time": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "open": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                      },
+                      "high": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                      },
+                      "low": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                      },
+                      "close": {
+                        "type": "string",
+                        "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                      }
+                    },
+                    "required": ["time", "open", "high", "low", "close"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["pool", "other", "feeBps", "reserve", "reserveOther", "volume", "candles"],
+              "additionalProperties": false
+            }
+          },
+          "trades": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "tx": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{64}$"
+                },
+                "logIndex": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "time": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "pool": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "wallet": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                },
+                "other": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "pattern": "^0x[0-9a-fA-F]{40}$"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "symbol": {
+                      "type": "string"
+                    },
+                    "decimals": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 36
+                    }
+                  },
+                  "required": ["address", "name", "symbol", "decimals"],
+                  "additionalProperties": false
+                },
+                "amountOther": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)$"
+                }
+              },
+              "required": ["tx", "logIndex", "time", "pool", "wallet", "side", "amount", "other", "amountOther"],
+              "additionalProperties": false
+            }
+          },
+          "holders": {
+            "type": "object",
+            "properties": {
+              "totalSupply": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              },
+              "burned": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              },
+              "supplyLessBurned": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              },
+              "list": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "pattern": "^0x[0-9a-fA-F]{40}$"
+                    },
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$"
+                    }
+                  },
+                  "required": ["address", "amount"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["totalSupply", "burned", "supplyLessBurned", "list"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "blockNumber",
+          "asOf",
+          "token",
+          "quote",
+          "listed",
+          "price",
+          "growthBps24h",
+          "feesPaid",
+          "trust",
+          "pairs",
+          "trades",
+          "holders"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "address": "0x00000000000000000000000000000000000000a1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "address": ""
+          }
+        }
+      ]
+    },
+    "protocol.tx.buildReplacement": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "tx.buildReplacement",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.fee_bump_unset": "PRECONDITION_FAILED",
+        "protocol.fee_ceiling_unset": "PRECONDITION_FAILED",
+        "protocol.tx_not_found": "NOT_FOUND",
+        "protocol.tx_not_yours": "FORBIDDEN",
+        "protocol.tx_final": "CONFLICT",
+        "protocol.tx_speedup_create": "CONFLICT",
+        "protocol.fee_above_ceiling": "CONFLICT",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "txHash": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{64}$"
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["speedUp", "cancel"]
+          }
+        },
+        "required": ["txHash", "from", "mode"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["speedUp", "cancel"]
+          },
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "nonce": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "gas": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "value": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "data": {
+            "type": "string",
+            "pattern": "^0x([0-9a-fA-F]{2})*$"
+          },
+          "original": {
+            "type": "object",
+            "properties": {
+              "maxFeePerGas": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              },
+              "maxPriorityFeePerGas": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              }
+            },
+            "required": ["maxFeePerGas", "maxPriorityFeePerGas"],
+            "additionalProperties": false
+          },
+          "replacement": {
+            "type": "object",
+            "properties": {
+              "maxFeePerGas": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              },
+              "maxPriorityFeePerGas": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]*)$"
+              }
+            },
+            "required": ["maxFeePerGas", "maxPriorityFeePerGas"],
+            "additionalProperties": false
+          },
+          "bumpBps": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "ceilingWei": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          }
+        },
+        "required": ["mode", "chainId", "from", "nonce", "gas", "to", "value", "data", "original", "replacement", "bumpBps", "ceilingWei"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "txHash": "0xabababababababababababababababababababababababababababababababab",
+            "from": "0x00000000000000000000000000000000000000a1",
+            "mode": "speedUp"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "txHash": "0xabababababababababababababababababababababababababababababababab",
+            "from": "0x00000000000000000000000000000000000000a1",
+            "mode": "cancel"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "txHash": "0xabababababababababababababababababababababababababababababababab",
+            "from": "0x00000000000000000000000000000000000000a1",
+            "mode": "replace"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "txHash": "0xab",
+            "from": "0x00000000000000000000000000000000000000a1",
+            "mode": "cancel"
+          }
+        }
+      ]
+    },
+    "protocol.venue.assetLinkReview": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "venue.assetLinkReview",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.venue_unset": "PRECONDITION_FAILED",
+        "protocol.asset_link_not_token": "BAD_REQUEST",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["token"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "blockNumber": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "token": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "symbol": {
+                "type": ["string", "null"]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 36
+              }
+            },
+            "required": ["address", "symbol", "decimals"],
+            "additionalProperties": false
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["linked", "not_linked"]
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["base", "quote"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "venueAssets": {
+            "minItems": 2,
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "side": {
+                  "type": "string",
+                  "enum": ["base", "quote"]
+                },
+                "token": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "pattern": "^0x[0-9a-fA-F]{40}$"
+                    },
+                    "symbol": {
+                      "type": ["string", "null"]
+                    },
+                    "decimals": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 36
+                    }
+                  },
+                  "required": ["address", "symbol", "decimals"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["side", "token"],
+              "additionalProperties": false
+            }
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": ["venue", "chainId", "blockNumber", "token", "verdict", "side", "venueAssets", "reason"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "token": "0x00000000000000000000000000000000000000a1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "token": ""
+          }
+        }
+      ]
+    },
+    "protocol.venue.balances": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "venue.balances",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.venue_unset": "PRECONDITION_FAILED",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["account"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "account": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "blockNumber": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "assets": {
+            "minItems": 2,
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "side": {
+                  "type": "string",
+                  "enum": ["base", "quote"]
+                },
+                "token": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string",
+                      "pattern": "^0x[0-9a-fA-F]{40}$"
+                    },
+                    "symbol": {
+                      "type": ["string", "null"]
+                    },
+                    "decimals": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 36
+                    }
+                  },
+                  "required": ["address", "symbol", "decimals"],
+                  "additionalProperties": false
+                },
+                "total": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                },
+                "reserved": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                },
+                "free": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+                }
+              },
+              "required": ["side", "token", "total", "reserved", "free"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["venue", "chainId", "account", "blockNumber", "assets"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "account": "0x00000000000000000000000000000000000000a1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "account": ""
+          }
+        }
+      ]
+    },
+    "protocol.venue.buildDeposit": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "venue.buildDeposit",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.venue_unset": "PRECONDITION_FAILED",
+        "protocol.venue_insufficient_free": "PRECONDITION_FAILED",
+        "protocol.venue_bad_amount": "BAD_REQUEST",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["base", "quote"]
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+          }
+        },
+        "required": ["account", "side", "amount"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["deposit", "withdraw"]
+          },
+          "venue": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "account": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["base", "quote"]
+          },
+          "token": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "symbol": {
+                "type": ["string", "null"]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 36
+              }
+            },
+            "required": ["address", "symbol", "decimals"],
+            "additionalProperties": false
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+          },
+          "free": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+          },
+          "blockNumber": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "calls": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "to": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "data": {
+                  "type": "string",
+                  "pattern": "^0x([0-9a-fA-F]{2})*$"
+                },
+                "value": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                }
+              },
+              "required": ["to", "data", "value", "summary"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["kind", "venue", "chainId", "account", "side", "token", "amount", "free", "blockNumber", "calls"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "account": "0x00000000000000000000000000000000000000a1",
+            "side": "base",
+            "amount": "1.5"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "account": "0x00000000000000000000000000000000000000a1",
+            "side": "margin",
+            "amount": "1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "account": "0x00000000000000000000000000000000000000a1",
+            "side": "quote",
+            "amount": "-1"
+          }
+        }
+      ]
+    },
+    "protocol.venue.buildWithdraw": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "venue.buildWithdraw",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.venue_unset": "PRECONDITION_FAILED",
+        "protocol.venue_insufficient_free": "PRECONDITION_FAILED",
+        "protocol.venue_bad_amount": "BAD_REQUEST",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["base", "quote"]
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+          }
+        },
+        "required": ["account", "side", "amount"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["deposit", "withdraw"]
+          },
+          "venue": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "account": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["base", "quote"]
+          },
+          "token": {
+            "type": "object",
+            "properties": {
+              "address": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              },
+              "symbol": {
+                "type": ["string", "null"]
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 36
+              }
+            },
+            "required": ["address", "symbol", "decimals"],
+            "additionalProperties": false
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+          },
+          "free": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+          },
+          "blockNumber": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]*)$"
+          },
+          "calls": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "to": {
+                  "type": "string",
+                  "pattern": "^0x[0-9a-fA-F]{40}$"
+                },
+                "data": {
+                  "type": "string",
+                  "pattern": "^0x([0-9a-fA-F]{2})*$"
+                },
+                "value": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                }
+              },
+              "required": ["to", "data", "value", "summary"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["kind", "venue", "chainId", "account", "side", "token", "amount", "free", "blockNumber", "calls"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "account": "0x00000000000000000000000000000000000000a1",
+            "side": "base",
+            "amount": "1.5"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "account": "0x00000000000000000000000000000000000000a1",
+            "side": "margin",
+            "amount": "1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "account": "0x00000000000000000000000000000000000000a1",
+            "side": "quote",
+            "amount": "-1"
+          }
+        }
+      ]
+    },
+    "protocol.venue.reads": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "venue.reads",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.venue_unset": "PRECONDITION_FAILED",
+        "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
+        "protocol.chain_id_mismatch": "SERVICE_UNAVAILABLE"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "venue": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "chainId": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "calls": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "signature": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "example": {
+                  "type": "string"
+                }
+              },
+              "required": ["name", "signature", "description", "example"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["venue", "chainId", "calls"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
         }
       ]
     },
@@ -22071,6 +25961,283 @@
               "signature": "0x",
               "signedBy": "me"
             }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.copy.myCopyFees": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "copy.myCopyFees",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.copy_limit_missing": "BAD_REQUEST",
+        "trade.copy_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "venue": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "test": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["name", "test"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fillId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "followId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                },
+                "filledAt": {
+                  "type": "string"
+                },
+                "venueFee": {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "asset": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["amount", "asset"],
+                  "additionalProperties": false
+                },
+                "builderFee": {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "asset": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["amount", "asset"],
+                  "additionalProperties": false
+                },
+                "lead": {
+                  "type": "object",
+                  "properties": {
+                    "leaderRef": {
+                      "type": ["string", "null"]
+                    },
+                    "displayName": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": ["leaderRef", "displayName"],
+                  "additionalProperties": false
+                },
+                "feeShare": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "none"
+                        }
+                      },
+                      "required": ["state"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "recording"
+                        }
+                      },
+                      "required": ["state"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "waiting_collection"
+                        },
+                        "share": {
+                          "type": "object",
+                          "properties": {
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "asset": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": ["amount", "asset"],
+                          "additionalProperties": false
+                        },
+                        "shareBps": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
+                        }
+                      },
+                      "required": ["state", "share", "shareBps"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "owed"
+                        },
+                        "share": {
+                          "type": "object",
+                          "properties": {
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "asset": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": ["amount", "asset"],
+                          "additionalProperties": false
+                        },
+                        "shareBps": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
+                        },
+                        "ledgerKey": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": ["state", "share", "shareBps", "ledgerKey"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "not_owed"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": ["cap_reached", "zero_share"]
+                        }
+                      },
+                      "required": ["state", "reason"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "fillId",
+                "followId",
+                "symbol",
+                "side",
+                "amount",
+                "price",
+                "filledAt",
+                "venueFee",
+                "builderFee",
+                "lead",
+                "feeShare"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["asOf", "venue", "rows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
           }
         },
         {

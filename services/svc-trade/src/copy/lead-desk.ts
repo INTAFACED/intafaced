@@ -15,6 +15,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import type { Sql } from 'postgres';
 import { refusePnlLinkedCopyFee } from './fee-share.js';
 import type { CopyFeeShareLaw } from './fee-share-law.js';
+import { shareKeys } from './settlement-oversight.js';
 
 /** The sentence the earnings panel shows, word for word, wherever a profit share would be. */
 export const LEAD_PROFIT_SHARE_REFUSAL = 'Leaders are paid a share of the trading fee only, never a share of profit.';
@@ -30,6 +31,10 @@ export type LeadFeeShareRow = {
   readonly appliedShareBps: number;
   readonly amount: Amount;
   readonly at: Date;
+  /** The venue's own id for the fill our fee was earned on, for a copy filled on the venue; else null. */
+  readonly venueFillId: string | null;
+  /** The ledger key the share is recorded under: owed by INTAFACED to the lead (or, on the TEST book, its payout). */
+  readonly ledgerKey: string;
 };
 
 export type ReadLeadFeeShares = (leaderId: string, limit: number) => Promise<LeadFeeShareRow[]>;
@@ -42,13 +47,19 @@ type Row = {
   applied_share_bps: number;
   capped_leader_share: string;
   created_at: Date;
+  leader_id: string;
+  venue_id: string | null;
+  venue_account: string | null;
+  venue_fill_id: string | null;
+  claim_id: string | null;
 };
 
 /** The SQL reader: this lead's settled fee-share rows, newest first. */
 export function sqlLeadFeeShares(sql: Sql): ReadLeadFeeShares {
   return async (leaderId, limit) => {
     const rows = await sql<Row[]>`
-      SELECT fill_id, follow_id, asset_id, protocol_fee::text, applied_share_bps, capped_leader_share::text, created_at
+      SELECT fill_id, follow_id, asset_id, protocol_fee::text, applied_share_bps, capped_leader_share::text, created_at,
+             leader_id, venue_id, venue_account, venue_fill_id, claim_id
         FROM trade.copy_settled_fee_shares
        WHERE leader_id = ${leaderId} AND settled = true
        ORDER BY created_at DESC, fill_id DESC
@@ -62,6 +73,16 @@ export function sqlLeadFeeShares(sql: Sql): ReadLeadFeeShares {
       appliedShareBps: row.applied_share_bps,
       amount: parseAmount(row.capped_leader_share),
       at: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
+      venueFillId: row.venue_fill_id,
+      ledgerKey: shareKeys({
+        fillId: row.fill_id,
+        leaderId: row.leader_id,
+        assetId: row.asset_id,
+        venue:
+          row.venue_id && row.venue_account && row.venue_fill_id
+            ? { venueId: row.venue_id, venueAccount: row.venue_account, venueFillId: row.venue_fill_id, claimId: row.claim_id }
+            : null,
+      }).payout,
     }));
   };
 }
@@ -84,6 +105,10 @@ export function presentLeadEarnings(law: CopyFeeShareLaw, rows: readonly LeadFee
       appliedShareBps: row.appliedShareBps,
       amount: formatAmount(row.amount),
       at: row.at.toISOString(),
+      venueFillId: row.venueFillId,
+      ledgerKey: row.ledgerKey,
+      /** Every row here is recorded in our ledger as owed by INTAFACED to the lead, never charged to the follower. */
+      owedBy: 'intafaced' as const,
     })),
   };
 }

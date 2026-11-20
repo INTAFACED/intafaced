@@ -1,0 +1,20 @@
+[package]
+name = "svc-ledger"
+version = "0.0.0"
+description = "svc-ledger: the one ledger. The Rust port's shell: its doors, who may call them and their first input checks; nothing is served from it yet."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+service-kit = { path = "../service-kit" }
+url = "2"
+
+[dev-dependencies]
+base64 = "0.22"
+ed25519-dalek = { version = "2", features = ["pkcs8"] }
+hmac = "0.12"
+sha2 = "0.10"

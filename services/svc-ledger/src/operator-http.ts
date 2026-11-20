@@ -56,6 +56,7 @@ import {
   accountMetadataReadInputSchema,
 } from './ledger/operator-account-metadata.js';
 import type { LedgerService } from './service.js';
+import { reconcileSchema, thawSchema } from './door-inputs.js';
 import { openCustomerBalances, type ReconciliationReport } from './ledger/reconcile.js';
 
 /**
@@ -136,18 +137,6 @@ const freezeSchema = z.object({
     .transform((s) => s.trim())
     .pipe(z.string().min(12).max(500)),
   /** Display-only. Never authority. */
-  confirmOperatorId: z.string().max(128).nullish(),
-  approvalId: z.string().min(1).max(128),
-  operationId: z.string().min(1).max(128),
-});
-
-const thawSchema = z.object({
-  confirmOperatorId: z.string().max(128).nullish(),
-  approvalId: z.string().min(1).max(128),
-  operationId: z.string().min(1).max(128),
-});
-
-const reconcileSchema = z.object({
   confirmOperatorId: z.string().max(128).nullish(),
   approvalId: z.string().min(1).max(128),
   operationId: z.string().min(1).max(128),

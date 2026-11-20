@@ -153,6 +153,7 @@
   { "path": "copy.listLeaders", "type": "query", "caller": "scope" },
   { "path": "copy.listMyFollows", "type": "query", "caller": "scope" },
   { "path": "copy.mirrorTrail", "type": "query", "caller": "scope" },
+  { "path": "copy.myCopyFees", "type": "query", "caller": "scope" },
   { "path": "copy.myLead", "type": "query", "caller": "scope" },
   { "path": "copy.myLeadApplication", "type": "query", "caller": "scope" },
   { "path": "copy.ops.leadDesk.approve", "type": "mutation", "caller": "scope" },
