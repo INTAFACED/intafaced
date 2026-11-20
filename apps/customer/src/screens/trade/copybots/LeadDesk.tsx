@@ -43,7 +43,7 @@ export function LeadDesk({ api }: { api: RoomApi }) {
     { id: 'fee', header: t('Our fee on the fill'), numeric: true, value: (r) => r.feeOnFill, cell: (r) => displayAmount(r.feeOnFill) },
     { id: 'share', header: t('Share of the fee'), value: (r) => bpsText(String(r.appliedShareBps)) ?? '' },
     { id: 'amount', header: t('Fee share'), numeric: true, value: (r) => r.amount, cell: (r) => `${displayAmount(r.amount)} ${r.assetId}` },
-    { id: 'owed', header: t('Recorded'), value: () => t('Owed to you by INTAFACED'), width: '14rem' },
+    { id: 'owed', header: t('Recorded'), value: () => t('Owed by INTAFACED') },
     { id: 'at', header: t('Time'), value: (r) => new Date(r.at).toLocaleString() },
   ];
   const data = earnings.data;

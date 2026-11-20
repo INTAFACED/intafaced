@@ -451,7 +451,7 @@ const messages = {
   'Only the leader’s trades in these markets can be copied. Nothing else.':
     'Only the leader’s trades in these markets can be copied. Nothing else.',
   Open: 'Open',
-  'Owed to you by INTAFACED': 'Owed to you by INTAFACED',
+  'Owed by INTAFACED': 'Owed by INTAFACED',
   Recorded: 'Recorded',
   'Open My signals': 'Open My signals',
   'Open Quant Studio': 'Open Quant Studio',

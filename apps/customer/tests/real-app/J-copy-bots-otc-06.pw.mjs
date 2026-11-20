@@ -425,7 +425,7 @@ test(`${J} #3 as a lead opens the earnings panel: the profit-share refusal text 
   const ours = history.filter({ hasText: `Fill ${state('vSellFill')}` });
   await expect(ours).toHaveCount(1);
   await expect(ours).toContainText('USDC');
-  await expect(ours).toContainText('Owed to you by INTAFACED');
+  await expect(ours).toContainText('Owed by INTAFACED');
   // Only fee-share facts: no profit, loss, return or unrealised figure anywhere in the panel.
   await expect(panel).not.toContainText(/P&L|PnL|ROI|unreali[sz]ed|realised profit|return/i);
 });
