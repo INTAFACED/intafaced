@@ -13,6 +13,10 @@
     "./schemas": {
       "types": "./dist/schemas.d.ts",
       "default": "./dist/schemas.js"
+    },
+    "./customer-reads": {
+      "types": "./dist/customer-reads.d.ts",
+      "default": "./dist/customer-reads.js"
     }
   },
   "scripts": {
