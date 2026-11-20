@@ -5,7 +5,7 @@ import { test, expect } from './journey.mjs';
 import { EDGE, api, journeyState } from './stack.mjs';
 import { keyHolder, makeKey, signPrepared as signWith, withKey } from './developer.mjs';
 import { testWalletKey } from './test-wallet.mjs';
-import { otherTraderKey, otherTraderRun, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
+import { openVenueDesk, otherTraderKey, otherTraderRun, testDeposit, venueForThisFile, venueRecord } from './venue.mjs';
 import { venueAt, venueNow } from './venue-door.mjs';
 
 // J-derivatives-14, "I build against the derivatives API and FIX" (docs/roadmap/journeys.json): a developer's program
@@ -143,7 +143,10 @@ test.beforeAll(async ({ browser }) => {
   }
 });
 
-test(`${J} #3 reads funding, index, mark and price limits: history rows; unpublished index as null with its reason`, async () => {
+test(`${J} #3 reads funding, index, mark and price limits: history rows; unpublished index as null with its reason`, async ({
+  page,
+  stepPicture,
+}) => {
   test.setTimeout(180_000);
   const s = state();
   const venue = await venueNow();
@@ -195,6 +198,12 @@ test(`${J} #3 reads funding, index, mark and price limits: history rows; unpubli
     expect(none).toMatchObject({ symbol: SYMBOL, kind: 'index', series: null, reason: `${venue.name} publishes no index for ${SYMBOL}` });
     const unpublished = (await read(s, '/api/v1/venue/markets')).value.find((m) => m.symbol === SYMBOL);
     expect(unpublished.index).toEqual({ known: false });
+    // The same public answer as a developer opens it, signed out, in the browser: null, with the venue's reason.
+    const opened = await page.goto(`${EDGE}/api/v1/venue/price-history?symbol=${SYMBOL}&kind=index&since=${encodeURIComponent(EPOCH)}`);
+    expect(opened.status()).toBe(200);
+    for (const part of [`"symbol":"${SYMBOL}"`, '"series":null', `"reason":"${venue.name} publishes no index for ${SYMBOL}"`])
+      await expect(page.locator('body')).toContainText(part);
+    await stepPicture();
   } finally {
     await venueAt('/test/index-published', { symbol: SYMBOL, published: true });
   }
@@ -282,7 +291,10 @@ test(`${J} #4 reads open interest, risk-limit tiers, insurance and ADL data: rat
   for (const a of alerts.value) expect(Object.keys(a).sort()).toEqual(['alertedAt', 'kind', 'price', 'side', 'size', 'symbol']);
 });
 
-test(`${J} #7 places and previews orders through our API: the same preview and refusal codes as the desk, signed by the agent permission`, async () => {
+test(`${J} #7 places and previews orders through our API: the same preview and refusal codes as the desk, signed by the agent permission`, async ({
+  page,
+  stepPicture,
+}) => {
   test.setTimeout(180_000);
   const s = state();
   const person = await api(s.who);
@@ -341,6 +353,13 @@ test(`${J} #7 places and previews orders through our API: the same preview and r
   const resting = (await venueRecord(s.owner, '/open-orders')).value.filter((o) => o.venueClientOrderId === cloid);
   expect(resting).toHaveLength(1);
   expect(resting[0]).toMatchObject({ status: 'open', symbol: SYMBOL, side: 'buy' });
+  // The desk shows the order the program placed, on the person's own venue account, as the same order.
+  await openVenueDesk(page, s.who, `/trade/futures?symbol=${SYMBOL}`, s.walletKey);
+  await page.getByTestId('venue-blotter').getByRole('button', { name: 'Open orders', exact: true }).click();
+  const row = page.getByTestId('venue-open-orders').locator(`tr[data-client-order-id="${cloid}"]`);
+  await expect(row).toBeVisible({ timeout: 30_000 });
+  await expect(row).toContainText(SYMBOL);
+  await stepPicture();
 
   // ── The agent permission only: a key the wallet never approved is refused before anything is signed ────────────────
   const stranger = privateKeyToAccount(generatePrivateKey());
@@ -355,4 +374,5 @@ test(`${J} #7 places and previews orders through our API: the same preview and r
   expect(cancelled.sent.body.outcome).toMatchObject({ definite: true, accepted: true });
   expect(cancelled.signature.signedBy).toBe(s.agentAddress);
   expect((await venueRecord(s.owner, '/open-orders')).value.filter((o) => o.symbol === SYMBOL)).toHaveLength(0);
+  await expect(row).toHaveCount(0, { timeout: 30_000 });
 });
