@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { API_DEPRECATIONS, LATEST_API_VERSION } from '@intafaced/contracts/api-versions';
 import { advisoriesFor, advisoryReplyHeaders, negotiateApiVersion, versionReplyHeaders } from './api-version.js';
+import { apiVersionDefaultFromExchange } from './principal-exchange.js';
 
 // J-developer-16 #5 and #6: the dated version header on /api/v1, the account default, the two refusals and the advisory.
 
@@ -94,5 +95,14 @@ describe('deprecation advisories', () => {
   it('sends Sunset once an owner has set a removal date', () => {
     const headers = advisoryReplyHeaders([{ ...stopPx, sunset: '2027-06-01' }]);
     expect(headers.sunset).toBe('Tue, 01 Jun 2027 00:00:00 GMT');
+  });
+});
+
+describe('the account default from the key exchange', () => {
+  it('reads a version this edge implements, and nothing else', () => {
+    expect(apiVersionDefaultFromExchange({ apiVersionDefault: LATEST_API_VERSION })).toBe(LATEST_API_VERSION);
+    for (const data of [{ apiVersionDefault: null }, { apiVersionDefault: '1999-01-01' }, { apiVersionDefault: 20261120 }, {}, null, 'x']) {
+      expect(apiVersionDefaultFromExchange(data)).toBeNull();
+    }
   });
 });
