@@ -608,6 +608,8 @@ interface Golden {
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 const ISO_TIME = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})/g;
+/** A history day the feed counts back from today (`"date":"2026-11-19"`): the recording's day is not the replay's. */
+const HISTORY_DAY = /"date":"\d{4}-\d{2}-\d{2}"/g;
 
 /** Ids and times the database made, recorded by their place; the numbering carries over the whole run. */
 function stable(body: string, ids: Map<string, string>): string {
@@ -619,7 +621,8 @@ function stable(body: string, ids: Map<string, string>): string {
       if (!ids.has(id)) ids.set(id, `<uuid-${ids.size + 1}>`);
       return ids.get(id)!;
     })
-    .replace(ISO_TIME, '<time>');
+    .replace(ISO_TIME, '<time>')
+    .replace(HISTORY_DAY, '"date":"<date>"');
 }
 
 /** The shard a call is kept in: its namespace (`notify`), or `rest`; `depth` adds one more part when a shard would pass SHARD_BYTES. */
