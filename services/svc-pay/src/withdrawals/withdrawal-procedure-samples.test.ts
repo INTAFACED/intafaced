@@ -1,6 +1,5 @@
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify';
-import type { Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -135,7 +134,7 @@ const answer = (method: string) => {
 };
 const service = <T>() => new Proxy({}, { get: (_target, method: string) => async () => answer(method) }) as T;
 /** The pay database as the network rules read it: one query, answered or refused like a service method. */
-const sql = Object.assign(async () => answer('sql'), { unsafe: undefined, json: undefined }) as Sql;
+const sql = Object.assign(async () => answer('sql'), { unsafe: undefined, json: undefined }) as never;
 
 const rails = new RailRegistry([new CardSandboxAdapter({ secret: 'pay-withdrawal-samples-rail-secret-32-chars', toleranceSeconds: 300 })]);
 const payRouter = createPayRouter(
