@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { PAY_WITHDRAWAL_RETURN_REASONS } from '@intafaced/contracts/pay-money-room';
 
 /**
  * Wire shapes for `founderAdmin.withdrawalReturns.*` (W-withdraw-07). Every input object is `.strict()`. Amounts are
@@ -19,8 +18,7 @@ const limit = z.number().int().min(1).max(200);
 export const RETURN_BLOCKER = 'withdrawal_return.second_founder_required';
 
 /** Why it came back, in words the customer may read. The free-text `reason` is the founders' own note. */
-/** Why a withdrawal came back: the one list, the customer's record of it. */
-const RETURN_REASON_CODES = PAY_WITHDRAWAL_RETURN_REASONS;
+export const RETURN_REASON_CODES = ['destination_rejected', 'network_returned', 'other'] as const;
 export type ReturnReasonCode = (typeof RETURN_REASON_CODES)[number];
 const reasonCode = z.enum(RETURN_REASON_CODES);
 

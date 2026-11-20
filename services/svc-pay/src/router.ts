@@ -1,29 +1,19 @@
-import { asAssetId } from '@intafaced/contracts/asset-id';
-import { mountRecord } from '@intafaced/contracts/procedure-mount';
-import { payWithdrawalSchema } from '@intafaced/contracts/pay-money-room';
-import {
-  PAY_WITHDRAWAL_CANCEL,
-  PAY_WITHDRAWAL_CREATE,
-  PAY_WITHDRAWAL_DESTINATION,
-  PAY_WITHDRAWAL_GET,
-  PAY_WITHDRAWAL_HISTORY,
-  PAY_WITHDRAWAL_LIMITS,
-  PAY_WITHDRAWAL_NETWORK_RULES,
-  PAY_WITHDRAWAL_QUOTE,
-  PAY_WITHDRAWAL_TIER_LIMITS,
-} from '@intafaced/contracts/pay-withdrawal-procedures';
-import { payRefusal } from './record-refusal.js';
-import { isCancellable, shownStatus } from './withdrawals/status.js';
+import { WITHDRAWAL_STATUSES, isCancellable, shownStatus } from './withdrawals/status.js';
+import { payWithdrawalTierLimitsOutputSchema } from '@intafaced/contracts/pay-withdrawal-tier-limits';
 import { INTERNAL_RAIL } from './withdrawals/internal.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
 import { WithdrawalApprovalError, withdrawalApprovalToTrpcError } from './withdrawals/approvals/errors.js';
 import { AllowlistError, allowlistToTrpcError } from './withdrawals/allowlist/errors.js';
+import { quoteInputSchema, quoteViewSchema, sendNetworkIdSchema, sendQuoteRefSchema } from './withdrawals/quotes/schemas.js';
+import { RETURN_REASON_CODES } from './withdrawals/returns/schemas.js';
 import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import {
+  networkIdSchema,
   readWithdrawalNetworkRules,
   refuseWithdrawalTag,
   WithdrawalNetworkRuleError,
+  withdrawalNetworkRulesSchema,
   withdrawalNetworkRuleToTrpcError,
 } from './withdrawals/network-rules/service.js';
 import { z } from 'zod';
@@ -69,6 +59,7 @@ import {
   scopedProcedure,
   publicProcedure,
   TRPCError,
+  withdrawalAllowanceSchema,
 } from '@intafaced/contracts';
 import { merchantPortalExtensions } from './merchant-portal/router.js';
 import type { MerchantTermsConfig } from './merchant-portal/terms.js';
@@ -233,8 +224,31 @@ const depositView = z.object({
   createdAt: z.string().datetime({ offset: true }),
 });
 
-/** The published withdrawalView: one schema, the customer's record of it (`@intafaced/contracts/pay-money-room`). */
-const withdrawalView = payWithdrawalSchema;
+const withdrawalView = z.object({
+  id: z.string().guid(),
+  userId: z.string().guid(),
+  assetId: assetIdSchema,
+  amount: amountSchema,
+  rail: z.string(),
+  destination: z.object({ kind: z.string(), ref: z.string() }),
+  clientRef: z.string(),
+  railRef: z.string().nullable(),
+  attempts: z.number().int(),
+  failureCode: z.string().nullable(),
+  status: z.enum(['pending', 'held', 'sent', 'failed']),
+  createdAt: z.string().datetime({ offset: true }),
+  /**
+   * The row in the customer vocabulary (W-withdraw-07): a held row reads `held` while nothing was sent, `dispatching` while a
+   * send's outcome is unknown, and `broadcast` once it left. A read that did not join the dispatch journal says `held`.
+   */
+  customerStatus: z.enum(WITHDRAWAL_STATUSES),
+  /** Whether `withdrawal.cancel` would cancel it now. False whenever the answer is not proven. */
+  cancellable: z.boolean(),
+  /** The network a send out of the platform went on (J-wallet-05 #6); null on a send inside the platform or an older row. */
+  networkId: z.string().nullable(),
+  /** The quoted network fee its hold carries on top of `amount`; null when it carries none. */
+  fee: amountSchema.nullable(),
+});
 
 type PaymentViewOut = z.infer<typeof paymentView>;
 type SettlementViewOut = z.infer<typeof paySettlementViewSchema>;
@@ -2272,9 +2286,43 @@ export function createPayRouter(
        * admitted the value would build a one-way door: a user verified enough to
        * deposit and trade would not be verified enough to leave.
        */
-      create: mountRecord(
-        PAY_WITHDRAWAL_CREATE,
-        ({ ctx, input }) =>
+      create: scopedProcedure('trade:withdraw', { module: 'ledger' })
+        .input(
+          z
+            .object({
+              assetId: assetIdSchema,
+              amount: amountSchema,
+              railId: z.string().min(1),
+              /**
+               * A tag or memo, when the sender names one: refused by name (J-wallet-05 #1), never silently dropped. Strict, so a
+               * memo under any other key is refused as a bad request instead of stripped.
+               */
+              destination: z
+                .object({ kind: z.string().min(1), ref: z.string().min(1), tag: z.string().min(1).max(64).optional() })
+                .strict(),
+              /**
+               * REQUIRED, not optional. A timed-out request that is retried
+               * without one opens a second withdrawal, and a second withdrawal is
+               * a second debit. `clientOrderId` is merely recommended on an order
+               * because the worst case there is a duplicate order the user can
+               * cancel; there is no cancelling a payout.
+               */
+              clientRef: z.string().min(1).max(64),
+              /**
+               * J-wallet-05 #6 (issue #6517): a send to a wallet outside the platform names the network it goes on and the fee
+               * quote the person accepted (`withdrawal.quote`). Both are required there: no network has no custody signer
+               * (`pay.wallet_withdraw_unavailable`) and no quote refuses `withdrawal_quote.required`, before anything is claimed.
+               * The quote is accepted under `clientRef` inside the claim and its fee rides the hold. A send inside the platform
+               * (W-withdraw-14) takes neither: it has no network fee.
+               */
+              networkId: sendNetworkIdSchema.optional(),
+              quoteRef: sendQuoteRefSchema.optional(),
+            })
+            // Strict: a tag or memo beside the destination is refused as a bad request, never stripped and sent without.
+            .strict(),
+        )
+        .output(withdrawalView)
+        .mutation(({ ctx, input }) =>
           wrap(async () => {
             const { tag, ...destination } = input.destination;
             // A withdrawal the user's policy sends to approvers (or a reference that already names a request) is refused
@@ -2312,8 +2360,7 @@ export function createPayRouter(
                 : await userMoney.withdraw({ ...request, rail: input.railId, networkId: input.networkId, quoteRef: input.quoteRef }),
             );
           }),
-        payRefusal,
-      ),
+        ),
 
       /**
        * Where an address leads before anything is sent (W-withdraw-14): `internal` (another account on the platform: the
@@ -2322,11 +2369,15 @@ export function createPayRouter(
        * for a frozen address or one held by more than one account, so a freeze is never disclosed) or `external`. It never
        * names the other account.
        */
-      destination: mountRecord(
-        PAY_WITHDRAWAL_DESTINATION,
-        ({ ctx, input }) => wrap(async () => userMoney.platformDestination(ctx.principal.userId, input.destination)),
-        payRefusal,
-      ),
+      destination: scopedProcedure('trade:read')
+        .input(z.object({ destination: z.object({ kind: z.string().min(1).max(32), ref: z.string().min(1).max(256) }).strict() }).strict())
+        .output(
+          z.discriminatedUnion('kind', [
+            z.object({ kind: z.enum(['internal', 'self', 'external']) }),
+            z.object({ kind: z.literal('unavailable'), reason: z.enum(['expired', 'unavailable']) }),
+          ]),
+        )
+        .query(({ ctx, input }) => wrap(async () => userMoney.platformDestination(ctx.principal.userId, input.destination))),
 
       /**
        * Cancel one of the caller's own withdrawals before anything is sent (W-withdraw-07). `trade:write`, not
@@ -2337,24 +2388,25 @@ export function createPayRouter(
        * hold went back (`null`: the ledger could not say on a repeat). The id is checked against the caller, so another
        * account's id reads as `pay.withdrawal_not_found`.
        */
-      cancel: mountRecord(
-        PAY_WITHDRAWAL_CANCEL,
-        ({ ctx, input }) =>
+      cancel: scopedProcedure('trade:write', { module: 'ledger' })
+        .input(z.object({ withdrawalId: z.string().guid() }).strict())
+        .output(withdrawalView.extend({ customerStatus: z.literal('canceled'), holdReleased: z.boolean().nullable() }))
+        .mutation(({ ctx, input }) =>
           wrap(async () => {
             const canceled = await userMoney.cancelWithdrawal({ userId: ctx.principal.userId, withdrawalId: input.withdrawalId });
             return { ...toWithdrawalOut(canceled), customerStatus: 'canceled' as const, holdReleased: canceled.holdReleased };
           }),
-        payRefusal,
-      ),
+        ),
 
       /**
        * `trade:read`, not `trade:withdraw`: checking whether a withdrawal landed
        * is something a user should be able to do from an ordinary session, long
        * after their five-minute elevation has expired.
        */
-      get: mountRecord(
-        PAY_WITHDRAWAL_GET,
-        ({ ctx, input }) =>
+      get: scopedProcedure('trade:read')
+        .input(z.object({ withdrawalId: z.string().guid() }))
+        .output(withdrawalView)
+        .query(({ ctx, input }) =>
           wrap(async () => {
             // Fetched, then checked, then returned. The row has to be read to
             // learn whose it is, so what the check protects is the RESPONSE —
@@ -2365,8 +2417,7 @@ export function createPayRouter(
             }
             return toWithdrawalOut(withdrawal);
           }),
-        payRefusal,
-      ),
+        ),
 
       mine: scopedProcedure('trade:read')
         .input(
@@ -2425,11 +2476,10 @@ export function createPayRouter(
        * withdrawal reads. Refuses with the guard's own codes (`pay.guard_withdrawal_limit_unset`, ...): a blank limit
        * is never shown as room. The guard still decides at submit, under its lock.
        */
-      limits: mountRecord(
-        PAY_WITHDRAWAL_LIMITS,
-        ({ ctx, input }) => wrap(async () => userMoney.withdrawalAllowance(ctx.principal.userId, input.assetId)),
-        payRefusal,
-      ),
+      limits: scopedProcedure('trade:read')
+        .input(z.object({ assetId: assetIdSchema }))
+        .output(withdrawalAllowanceSchema)
+        .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalAllowance(ctx.principal.userId, input.assetId))),
 
       /**
        * The owner's withdrawal limits for every KYC tier (D-148), as the verification ladder shows them
@@ -2437,18 +2487,56 @@ export function createPayRouter(
        * number. `enforced` is false when this deployment applies no limits. The same owner figures every customer is held
        * to, nothing about the caller's own use. `trade:read` like the other withdrawal reads.
        */
-      tierLimits: mountRecord(PAY_WITHDRAWAL_TIER_LIMITS, () => wrap(async () => userMoney.withdrawalTierLimits()), payRefusal),
+      tierLimits: scopedProcedure('trade:read')
+        .input(z.object({}).strict().optional())
+        .output(payWithdrawalTierLimitsOutputSchema)
+        .query(() => wrap(async () => userMoney.withdrawalTierLimits())),
 
       /**
        * The caller's own withdrawals in the customer status vocabulary (W-withdraw-06; a held row split by its dispatch
        * journal, as `withdrawal.get` shows it), filtered by asset, status, id and time and paged by a cursor. `limit` is required (blank refuses with `pay.withdrawal_list_limit_unset`):
        * there is no default page size. A status no stored value can mean yet returns an empty page, never a wrong row.
        */
-      history: mountRecord(
-        PAY_WITHDRAWAL_HISTORY,
-        ({ ctx, input }) => wrap(async () => userMoney.searchWithdrawals(ctx.principal.userId, input)),
-        payRefusal,
-      ),
+      history: scopedProcedure('trade:read')
+        .input(
+          z
+            .object({
+              assetId: assetIdSchema.optional(),
+              status: z.enum(WITHDRAWAL_STATUSES).optional(),
+              id: z.string().guid().optional(),
+              since: z.string().datetime({ offset: true }).optional(),
+              until: z.string().datetime({ offset: true }).optional(),
+              limit: z.number().int().min(1).max(200).optional(),
+              after: z.string().max(200).optional(),
+            })
+            .strict(),
+        )
+        .output(
+          z.object({
+            items: z.array(
+              z.object({
+                id: z.string().guid(),
+                userId: z.string().guid(),
+                assetId: assetIdSchema,
+                amount: amountSchema,
+                rail: z.string(),
+                destination: z.object({ kind: z.string(), ref: z.string() }),
+                clientRef: z.string(),
+                railRef: z.string().nullable(),
+                attempts: z.number().int(),
+                status: z.enum(WITHDRAWAL_STATUSES),
+                failure: z.object({ code: z.string(), known: z.boolean(), message: z.string() }).nullable(),
+                returned: z.boolean(),
+                returnedFunds: z
+                  .object({ amount: amountSchema, reasonCode: z.enum(RETURN_REASON_CODES).nullable(), credited: z.boolean() })
+                  .nullable(),
+                createdAt: z.string(),
+              }),
+            ),
+            next: z.string().nullable(),
+          }),
+        )
+        .query(({ ctx, input }) => wrap(async () => userMoney.searchWithdrawals(ctx.principal.userId, input))),
 
       /**
        * Can the caller start a withdrawal of this asset now? One check per named reason; a reason whose owning service
@@ -2475,31 +2563,31 @@ export function createPayRouter(
        * (it stores a quote, moves nothing and needs no step-up). `quoteRef` is the caller's own key, kept across a retry.
        * A blank fee, mode or lifetime refuses with a typed error; no figure is guessed. Create does not read the quote yet.
        */
-      quote: mountRecord(
-        PAY_WITHDRAWAL_QUOTE,
-        ({ ctx, input }) =>
+      quote: scopedProcedure('trade:write', { module: 'ledger' })
+        .input(quoteInputSchema)
+        .output(quoteViewSchema)
+        .mutation(({ ctx, input }) =>
           wrap(async () => {
             if (!withdrawalQuotes) throw new WithdrawalQuoteError('withdrawal_quote.unwired', 'quotes need the pay database');
             return withdrawalQuotes.quote(ctx.principal.userId, input);
           }),
-        payRefusal,
-      ),
+        ),
 
       /**
        * The owner's rules for sending one asset on one network (W-withdraw-02): the minimum, maximum and step of one withdrawal
        * and whether the network takes a tag or memo. `trade:read`, read before any fee. A pair the owner has not published refuses
        * `withdrawal_network_rules.unset`; nothing is filled in.
        */
-      networkRules: mountRecord(
-        PAY_WITHDRAWAL_NETWORK_RULES,
-        ({ input }) =>
+      networkRules: scopedProcedure('trade:read')
+        .input(z.object({ assetId: assetIdSchema, networkId: networkIdSchema }).strict())
+        .output(withdrawalNetworkRulesSchema)
+        .query(({ input }) =>
           wrap(async () => {
             if (!portalSql)
               throw new WithdrawalNetworkRuleError('withdrawal_network_rules.unwired', 'withdrawal rules need the pay database');
             return readWithdrawalNetworkRules(portalSql, input.assetId, input.networkId);
           }),
-        payRefusal,
-      ),
+        ),
 
       estimateFee: scopedProcedure('trade:read')
         .input(z.object({ assetId: assetIdSchema, chain: z.string().min(1), address: z.string().min(1) }))
@@ -2550,7 +2638,7 @@ function toWithdrawalOut(row: WithdrawalRecord): WithdrawalViewOut {
   return {
     id: row.id,
     userId: row.userId,
-    assetId: asAssetId(row.assetId),
+    assetId: row.assetId,
     amount: formatAmount(row.amount),
     rail: row.rail,
     destination: row.destination,

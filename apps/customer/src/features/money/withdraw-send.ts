@@ -1,21 +1,19 @@
-import type { ProcedureOutput } from '@intafaced/contracts/procedure';
-import {
-  PAY_WITHDRAWAL_CREATE,
-  PAY_WITHDRAWAL_LIMITS,
-  PAY_WITHDRAWAL_NETWORK_RULES,
-  PAY_WITHDRAWAL_QUOTE,
-} from '@intafaced/contracts/pay-withdrawal-procedures';
+import type { z } from 'zod';
+import { payWithdrawLimitsSchema, payWithdrawNetworkRulesSchema, payWithdrawQuoteSchema } from '@intafaced/contracts/pay-money-room';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
-import { INTERNAL_RAIL } from './withdraw-destination';
-import type { WithdrawalRecord } from './withdrawal-reads';
+import { withdrawalSchema, type WithdrawalRecord } from './withdrawal-reads';
 
-// svc-pay `withdrawal.limits`, `withdrawal.quote`, `withdrawal.networkRules` and `withdrawal.create` (W-withdraw-02), each by
-// its record (`@intafaced/contracts/pay-withdrawal-procedures`). Amounts are decimal strings, kept as strings and compared as
-// scaled bigints.
-export type WithdrawLimits = ProcedureOutput<typeof PAY_WITHDRAWAL_LIMITS>;
-export type WithdrawQuote = ProcedureOutput<typeof PAY_WITHDRAWAL_QUOTE>;
-export type WithdrawNetworkRules = ProcedureOutput<typeof PAY_WITHDRAWAL_NETWORK_RULES>;
+// svc-pay `withdrawal.limits`, `withdrawal.quote` and `withdrawal.networkRules` (W-withdraw-02), from
+// `@intafaced/contracts/pay-money-room`. Amounts are decimal strings, kept as strings and compared as scaled bigints.
+export {
+  payWithdrawLimitsSchema as withdrawLimitsSchema,
+  payWithdrawNetworkRulesSchema as withdrawNetworkRulesSchema,
+  payWithdrawQuoteSchema as withdrawQuoteSchema,
+} from '@intafaced/contracts/pay-money-room';
+export type WithdrawLimits = z.infer<typeof payWithdrawLimitsSchema>;
+export type WithdrawQuote = z.infer<typeof payWithdrawQuoteSchema>;
+export type WithdrawNetworkRules = z.infer<typeof payWithdrawNetworkRulesSchema>;
 
 /** Where an amount stands against a network's rules: inside them, or the rule it breaks. A malformed amount is the field's to say. */
 export function rulesProblem(value: string, rules: WithdrawNetworkRules): 'nrBelow' | 'nrAbove' | 'nrOffStep' | null {
@@ -43,14 +41,14 @@ export const WALLET_RAIL = 'crypto-native';
 export function createWithdrawSend(api: ApiClient) {
   return {
     limits(assetId: string, signal?: AbortSignal): Promise<ApiResult<WithdrawLimits>> {
-      return api.call(PAY_WITHDRAWAL_LIMITS, { assetId }, { signal });
+      return api.query('pay', 'withdrawal.limits', { assetId }, payWithdrawLimitsSchema, { signal });
     },
     networkRules(assetId: string, networkId: string, signal?: AbortSignal): Promise<ApiResult<WithdrawNetworkRules>> {
-      return api.call(PAY_WITHDRAWAL_NETWORK_RULES, { assetId, networkId }, { signal });
+      return api.query('pay', 'withdrawal.networkRules', { assetId, networkId }, payWithdrawNetworkRulesSchema, { signal });
     },
     /** Stores a quote under `quoteRef` and moves nothing. The same reference and terms read the same quote back. */
     quote(input: { quoteRef: string; assetId: string; networkId: string; amount: string }): Promise<ApiResult<WithdrawQuote>> {
-      return api.call(PAY_WITHDRAWAL_QUOTE, input);
+      return api.mutate('pay', 'withdrawal.quote', input, payWithdrawQuoteSchema);
     },
     /**
      * The send itself, with the short step-up token as this one call's bearer. The network and the accepted quote go with it
@@ -58,8 +56,9 @@ export function createWithdrawSend(api: ApiClient) {
      * fee with the amount, so what leaves the balance is the quote's total debit.
      */
     send(input: WithdrawSend, token: string): Promise<ApiResult<WithdrawalRecord>> {
-      return api.call(
-        PAY_WITHDRAWAL_CREATE,
+      return api.mutate(
+        'pay',
+        'withdrawal.create',
         {
           assetId: input.assetId,
           amount: input.amount,
@@ -69,23 +68,7 @@ export function createWithdrawSend(api: ApiClient) {
           networkId: input.networkId,
           quoteRef: input.quoteRef,
         },
-        { bearer: token },
-      );
-    },
-    /** A send to another account on the platform (W-withdraw-14): no network and no quote, settled inside at once. */
-    sendInside(
-      input: { assetId: string; amount: string; ref: string; clientRef: string },
-      token: string,
-    ): Promise<ApiResult<WithdrawalRecord>> {
-      return api.call(
-        PAY_WITHDRAWAL_CREATE,
-        {
-          assetId: input.assetId,
-          amount: input.amount,
-          railId: INTERNAL_RAIL,
-          destination: { kind: 'crypto', ref: input.ref },
-          clientRef: input.clientRef,
-        },
+        withdrawalSchema,
         { bearer: token },
       );
     },

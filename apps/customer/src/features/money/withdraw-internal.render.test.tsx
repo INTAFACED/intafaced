@@ -17,15 +17,7 @@ const route = (module: string, procedure: string, ...rest: unknown[]) =>
       : Promise.resolve({ ok: false, reason: 'unreachable', message: 'not in this test' });
 vi.mock('../session', async (original) => ({
   ...(await original<typeof import('../session')>()),
-  useSession: () => ({
-    userId: 'u1',
-    api: {
-      query: route,
-      mutate,
-      call: (record: { kind: string; module: string; path: string; output: unknown }, input: unknown, options?: unknown) =>
-        (record.kind === 'query' ? route : mutate)(record.module, record.path, input, record.output, options),
-    },
-  }),
+  useSession: () => ({ userId: 'u1', api: { query: route, mutate } }),
 }));
 vi.mock('./holdings', () => ({
   useHoldings: () => ({
