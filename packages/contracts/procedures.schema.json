@@ -22528,6 +22528,239 @@
         }
       ]
     },
+    "quant.live.check": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "live.check",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "strategyVersion"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "name": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string",
+            "enum": ["blocks", "signal"]
+          },
+          "orderTypes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "enum": ["block", "signal_entry", "stop_loss", "take_profit"]
+                },
+                "block": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": {
+                  "type": "string",
+                  "enum": ["market", "stop", "take_profit"]
+                },
+                "percent": {
+                  "type": ["string", "null"]
+                },
+                "supported": {
+                  "type": "boolean"
+                },
+                "code": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["trade.order_type_unsupported", "quant.live_plan_unsupported"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["source", "block", "type", "percent", "supported", "code"],
+              "additionalProperties": false
+            }
+          },
+          "compiles": {
+            "type": "boolean"
+          },
+          "liveEnabled": {
+            "type": "boolean"
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["strategyId", "strategyVersion", "name", "plan", "orderTypes", "compiles", "liveEnabled", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 2,
+            "accountId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "",
+            "strategyVersion": 1
+          }
+        }
+      ]
+    },
+    "quant.live.deploy": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "live.deploy",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.live_disabled": "PRECONDITION_FAILED",
+        "quant.live_plan_unsupported": "BAD_REQUEST",
+        "trade.order_type_unsupported": "BAD_REQUEST",
+        "quant.live_deploy_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "amount": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "strategyVersion", "amount"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "not": {}
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "amount": "100"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "amount": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "amount": 100
+          }
+        }
+      ]
+    },
     "quant.notify.get": {
       "service": "svc-quant",
       "module": "quant",
@@ -22693,6 +22926,1073 @@
             "strategyId": "s-1",
             "channels": ["a", "b", "c", "d", "e", "f", "g", "h", "i"]
           }
+        }
+      ]
+    },
+    "quant.paper.get": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "paper.get",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.run_not_found": "NOT_FOUND",
+        "quant.param_unset": "BAD_REQUEST",
+        "quant.param_out_of_range": "BAD_REQUEST",
+        "quant.params_invalid": "BAD_REQUEST",
+        "quant.sizing_rule_unset": "BAD_REQUEST",
+        "quant.backtest_lake_missing": "PRECONDITION_FAILED",
+        "quant.cost_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["runId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "state": {
+            "type": "string",
+            "enum": ["running", "stopped"]
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "stoppedAt": {
+            "type": ["string", "null"]
+          },
+          "cash": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+          },
+          "feed": {
+            "type": "string",
+            "const": "own_venue"
+          },
+          "holdings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "type": "string"
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["symbol", "qty"],
+              "additionalProperties": false
+            }
+          },
+          "costs": {
+            "type": "object",
+            "properties": {
+              "feeRole": {
+                "type": "string",
+                "enum": ["taker", "maker"]
+              },
+              "slippageBps": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "delayBars": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["feeRole", "slippageBps", "delayBars"],
+            "additionalProperties": false
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "barSize": {
+            "type": "string"
+          },
+          "priced": {
+            "type": "boolean"
+          },
+          "pricedThrough": {
+            "type": ["string", "null"]
+          },
+          "trades": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ts": {
+                  "type": "string"
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": ["signal", "stop_loss", "take_profit", "stop_out", "close_out"]
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "barPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "fee": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "slippage": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["ts", "side", "reason", "qty", "barPrice", "price", "fee", "slippage"],
+              "additionalProperties": false
+            }
+          },
+          "equity": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ts": {
+                  "type": "string"
+                },
+                "equity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["ts", "equity"],
+              "additionalProperties": false
+            }
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "symbol": {
+                "type": "string"
+              },
+              "qty": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              }
+            },
+            "required": ["symbol", "qty"],
+            "additionalProperties": false
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "startCash": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "fees": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "net": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "endEquity": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              }
+            },
+            "required": ["startCash", "fees", "net", "endEquity"],
+            "additionalProperties": false
+          },
+          "simulated": {
+            "type": "boolean",
+            "const": true
+          },
+          "live": {
+            "type": "boolean",
+            "const": false
+          },
+          "claimLabel": {
+            "type": "string",
+            "const": "Paper — not live performance"
+          }
+        },
+        "required": [
+          "runId",
+          "strategyId",
+          "strategyVersion",
+          "state",
+          "startedAt",
+          "stoppedAt",
+          "cash",
+          "feed",
+          "holdings",
+          "costs",
+          "symbol",
+          "barSize",
+          "priced",
+          "pricedThrough",
+          "trades",
+          "equity",
+          "position",
+          "totals",
+          "simulated",
+          "live",
+          "claimLabel"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "runId": "run_1"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "runId": "run_1",
+            "accountId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "runId": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        }
+      ]
+    },
+    "quant.paper.list": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "paper.list",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.paper_list_limit_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "runId": {
+                  "type": "string"
+                },
+                "strategyId": {
+                  "type": "string"
+                },
+                "strategyVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["running", "stopped"]
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "stoppedAt": {
+                  "type": ["string", "null"]
+                },
+                "cash": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "feed": {
+                  "type": "string",
+                  "const": "own_venue"
+                }
+              },
+              "required": ["runId", "strategyId", "strategyVersion", "state", "startedAt", "stoppedAt", "cash", "feed"],
+              "additionalProperties": false
+            }
+          },
+          "counts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "strategyVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "runs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["strategyVersion", "runs"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["runs", "counts"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "limit": 1,
+            "accountId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "limit": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "limit": 51
+          }
+        }
+      ]
+    },
+    "quant.paper.start": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "paper.start",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.studio_not_found": "NOT_FOUND",
+        "quant.backtest_rules_required": "BAD_REQUEST",
+        "quant.paper_cash_unset": "BAD_REQUEST",
+        "quant.quota_unset": "PRECONDITION_FAILED",
+        "quant.quota_exceeded": "PRECONDITION_FAILED",
+        "quant.quota_profile_unset": "PRECONDITION_FAILED",
+        "quant.run_not_found": "NOT_FOUND",
+        "quant.param_unset": "BAD_REQUEST",
+        "quant.param_out_of_range": "BAD_REQUEST",
+        "quant.params_invalid": "BAD_REQUEST",
+        "quant.sizing_rule_unset": "BAD_REQUEST",
+        "quant.backtest_lake_missing": "PRECONDITION_FAILED",
+        "quant.cost_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "cash": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "holdings": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                "qty": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              "required": ["symbol", "qty"]
+            }
+          },
+          "feed": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "costs": {
+            "type": "object",
+            "properties": {
+              "feeRole": {
+                "type": "string",
+                "maxLength": 10
+              },
+              "slippageBps": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "delayBars": {
+                "type": "string",
+                "maxLength": 5
+              }
+            },
+            "required": ["feeRole", "slippageBps", "delayBars"]
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "strategyVersion", "cash", "holdings", "feed", "costs", "ordinal"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "state": {
+            "type": "string",
+            "enum": ["running", "stopped"]
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "stoppedAt": {
+            "type": ["string", "null"]
+          },
+          "cash": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+          },
+          "feed": {
+            "type": "string",
+            "const": "own_venue"
+          },
+          "holdings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "type": "string"
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["symbol", "qty"],
+              "additionalProperties": false
+            }
+          },
+          "costs": {
+            "type": "object",
+            "properties": {
+              "feeRole": {
+                "type": "string",
+                "enum": ["taker", "maker"]
+              },
+              "slippageBps": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "delayBars": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["feeRole", "slippageBps", "delayBars"],
+            "additionalProperties": false
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "barSize": {
+            "type": "string"
+          },
+          "priced": {
+            "type": "boolean"
+          },
+          "pricedThrough": {
+            "type": ["string", "null"]
+          },
+          "trades": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ts": {
+                  "type": "string"
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": ["signal", "stop_loss", "take_profit", "stop_out", "close_out"]
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "barPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "fee": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "slippage": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["ts", "side", "reason", "qty", "barPrice", "price", "fee", "slippage"],
+              "additionalProperties": false
+            }
+          },
+          "equity": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ts": {
+                  "type": "string"
+                },
+                "equity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["ts", "equity"],
+              "additionalProperties": false
+            }
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "symbol": {
+                "type": "string"
+              },
+              "qty": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              }
+            },
+            "required": ["symbol", "qty"],
+            "additionalProperties": false
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "startCash": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "fees": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "net": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "endEquity": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              }
+            },
+            "required": ["startCash", "fees", "net", "endEquity"],
+            "additionalProperties": false
+          },
+          "simulated": {
+            "type": "boolean",
+            "const": true
+          },
+          "live": {
+            "type": "boolean",
+            "const": false
+          },
+          "claimLabel": {
+            "type": "string",
+            "const": "Paper — not live performance"
+          }
+        },
+        "required": [
+          "runId",
+          "strategyId",
+          "strategyVersion",
+          "state",
+          "startedAt",
+          "stoppedAt",
+          "cash",
+          "feed",
+          "holdings",
+          "costs",
+          "symbol",
+          "barSize",
+          "priced",
+          "pricedThrough",
+          "trades",
+          "equity",
+          "position",
+          "totals",
+          "simulated",
+          "live",
+          "claimLabel"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "cash": "1000",
+            "holdings": [],
+            "feed": "own_venue",
+            "costs": {
+              "feeRole": "taker",
+              "slippageBps": "5",
+              "delayBars": "0"
+            },
+            "ordinal": 0
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "cash": "",
+            "holdings": [],
+            "feed": "outside_market",
+            "costs": {
+              "feeRole": "taker",
+              "slippageBps": "5",
+              "delayBars": "0"
+            },
+            "ordinal": 0,
+            "accountId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "cash": "1000",
+            "holdings": [],
+            "feed": "own_venue",
+            "costs": {
+              "feeRole": "taker",
+              "slippageBps": "5",
+              "delayBars": "0"
+            },
+            "ordinal": -1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "strategyId": "s-1",
+            "strategyVersion": 1,
+            "cash": "1000",
+            "holdings": [],
+            "feed": "own_venue",
+            "costs": {
+              "feeRole": "taker",
+              "slippageBps": "5"
+            },
+            "ordinal": 0
+          }
+        }
+      ]
+    },
+    "quant.paper.stop": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "paper.stop",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {
+        "quant.database_url_unset": "PRECONDITION_FAILED",
+        "quant.database_pool_max_unset": "PRECONDITION_FAILED",
+        "quant.run_not_found": "NOT_FOUND",
+        "quant.param_unset": "BAD_REQUEST",
+        "quant.param_out_of_range": "BAD_REQUEST",
+        "quant.params_invalid": "BAD_REQUEST",
+        "quant.sizing_rule_unset": "BAD_REQUEST",
+        "quant.backtest_lake_missing": "PRECONDITION_FAILED",
+        "quant.cost_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["runId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "state": {
+            "type": "string",
+            "enum": ["running", "stopped"]
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "stoppedAt": {
+            "type": ["string", "null"]
+          },
+          "cash": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+          },
+          "feed": {
+            "type": "string",
+            "const": "own_venue"
+          },
+          "holdings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "type": "string"
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["symbol", "qty"],
+              "additionalProperties": false
+            }
+          },
+          "costs": {
+            "type": "object",
+            "properties": {
+              "feeRole": {
+                "type": "string",
+                "enum": ["taker", "maker"]
+              },
+              "slippageBps": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "delayBars": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["feeRole", "slippageBps", "delayBars"],
+            "additionalProperties": false
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "barSize": {
+            "type": "string"
+          },
+          "priced": {
+            "type": "boolean"
+          },
+          "pricedThrough": {
+            "type": ["string", "null"]
+          },
+          "trades": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ts": {
+                  "type": "string"
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": ["signal", "stop_loss", "take_profit", "stop_out", "close_out"]
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "barPrice": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "fee": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                },
+                "slippage": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["ts", "side", "reason", "qty", "barPrice", "price", "fee", "slippage"],
+              "additionalProperties": false
+            }
+          },
+          "equity": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ts": {
+                  "type": "string"
+                },
+                "equity": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "required": ["ts", "equity"],
+              "additionalProperties": false
+            }
+          },
+          "position": {
+            "type": "object",
+            "properties": {
+              "symbol": {
+                "type": "string"
+              },
+              "qty": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              }
+            },
+            "required": ["symbol", "qty"],
+            "additionalProperties": false
+          },
+          "totals": {
+            "type": "object",
+            "properties": {
+              "startCash": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "fees": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "net": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              },
+              "endEquity": {
+                "type": "string",
+                "pattern": "^-?\\d+(\\.\\d{1,18})?$"
+              }
+            },
+            "required": ["startCash", "fees", "net", "endEquity"],
+            "additionalProperties": false
+          },
+          "simulated": {
+            "type": "boolean",
+            "const": true
+          },
+          "live": {
+            "type": "boolean",
+            "const": false
+          },
+          "claimLabel": {
+            "type": "string",
+            "const": "Paper — not live performance"
+          }
+        },
+        "required": [
+          "runId",
+          "strategyId",
+          "strategyVersion",
+          "state",
+          "startedAt",
+          "stoppedAt",
+          "cash",
+          "feed",
+          "holdings",
+          "costs",
+          "symbol",
+          "barSize",
+          "priced",
+          "pricedThrough",
+          "trades",
+          "equity",
+          "position",
+          "totals",
+          "simulated",
+          "live",
+          "claimLabel"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "runId": "run_1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "runId": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
         }
       ]
     },
