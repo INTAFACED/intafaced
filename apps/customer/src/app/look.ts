@@ -39,7 +39,7 @@ export function resolveLook(search: string): LookId | null {
 }
 
 /**
- * The look's preview switches, for rendering the direction options the owner chooses from (intafaced #9188): `?accent=`
+ * The look's preview switches, for rendering the direction options the owner chooses from (intafaced issue 9188): `?accent=`
  * picks the Lit accent (`blue`, `ember`, `violet`, `emerald`; `?accent=off` forgets it) and `?scheme=light` draws the
  * light values (`?scheme=dark` forgets it). Both are remembered like the look and off by default, so nobody sees light
  * or another accent without asking for it; light stays unshipped (preferences.ts draws dark for every stored theme).

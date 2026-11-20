@@ -13,9 +13,12 @@ import { deskPath, fundedTrader, signIn } from '../../apps/customer/tests/real-a
 
 const out = process.env.LOOK_OPTIONS_OUT;
 
-/** Today's app, then the directions. Solid surfaces is the look's own setting (`intafaced.surfaces`). */
+/**
+ * Today's app (dark only: it has no light values), then the directions. Solid surfaces is the look's own setting
+ * (`intafaced.surfaces`).
+ */
 export const DIRECTIONS = [
-  { id: 'today', query: 'look=off&accent=off', solid: false },
+  { id: 'today', query: 'look=off&accent=off', solid: false, schemes: ['dark'] },
   { id: 'lit-glass', query: 'look=lit&accent=blue', solid: false },
   { id: 'ember', query: 'look=lit&accent=ember', solid: false },
   { id: 'emerald-solid', query: 'look=lit&accent=emerald', solid: true },
@@ -43,7 +46,7 @@ test('look options', async ({ page }) => {
   await signIn(page, who);
   const shots = [];
   for (const d of only('LOOK_OPTIONS_DIRECTIONS', DIRECTIONS)) {
-    for (const scheme of only('LOOK_OPTIONS_SCHEMES', SCHEMES)) {
+    for (const scheme of only('LOOK_OPTIONS_SCHEMES', d.schemes ?? SCHEMES)) {
       await page.goto(`/home?${d.query}&scheme=${scheme}`);
       await page.evaluate((solid) => {
         if (solid) localStorage.setItem('intafaced.surfaces', 'solid');
