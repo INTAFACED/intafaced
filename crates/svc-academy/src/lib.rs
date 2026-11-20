@@ -9,6 +9,7 @@
 
 pub mod access;
 pub mod assessment;
+pub mod community;
 pub mod curriculum;
 pub mod db;
 pub mod door;

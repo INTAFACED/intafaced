@@ -244,6 +244,21 @@ impl AcademyDoor {
     }
 
     /// Closes the database pool (`sql.end()`).
+    /// The database, for the service's own background work (outbox drain, sweeps).
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// What the service asks outside itself, for its background work.
+    pub fn ports(&self) -> &Ports {
+        &self.ports
+    }
+
+    /// The owner settings, for its background work.
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
     pub fn end(&self) {
         self.store.end();
     }
