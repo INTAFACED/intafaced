@@ -184,6 +184,7 @@ export function createMoneyMock(ctx) {
     return {
       ruleId: 'dd000001-0000-4000-8000-000000000001',
       appliedLayer: rule.layer,
+      ruleChain: [{ layer: rule.layer, ruleId: 'dd000001-0000-4000-8000-000000000001', version: '1' }],
       monthlyVolumeBefore: month,
       bandFrom: band.fromAmount,
       feeBps: band.feeBps,

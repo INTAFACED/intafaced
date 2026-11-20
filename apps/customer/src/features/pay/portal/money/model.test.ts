@@ -206,6 +206,9 @@ describe('approvals', () => {
     createdAt: '2026-10-15T09:00:00.000Z',
     decidedAt: null,
     expiresAt: '2026-10-15T20:00:00.000Z',
+    railId: 'crypto-native',
+    destinationKind: 'crypto',
+    destinationMasked: '0x7a3f…4421',
     ...patch,
   });
   it('knows who a pending request waits for', () => {
@@ -318,6 +321,9 @@ describe('one derivation for the payout counts', () => {
     createdAt: '2026-10-15T09:00:00.000Z',
     decidedAt: null,
     expiresAt: '2026-10-16T09:00:00.000Z',
+    railId: 'crypto-native',
+    destinationKind: 'crypto',
+    destinationMasked: '0x7a3f…4421',
     ...patch,
   });
   const ids = ['bb000003', 'bb000004', 'bb000006'].map((x) => `${x}-0000-4000-8000-000000000001`);

@@ -7,6 +7,7 @@ import {
   rustCrates,
   diffBase,
   mergeEdges,
+  readEdges,
   runsEverything,
   sealNeeded,
   shardMatrix,
@@ -17,6 +18,7 @@ import { detectedEdges } from './cross-package-reads.mjs';
 const assert = (cond, msg) => nodeAssert.ok(cond, msg);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const none = { full: false, affected: false };
+const pick = ({ full, affected }) => ({ full, affected });
 
 test('classify: each path lands in full, affected or neither', () => {
   const cases = [
@@ -25,7 +27,7 @@ test('classify: each path lands in full, affected or neither', () => {
     { files: ['packages/ledger-client/src/index.ts'], expected: { full: true, affected: false } },
     { files: ['packages/config/src/index.ts'], expected: { full: true, affected: false } },
     { files: ['packages/auth/src/index.ts'], expected: { full: true, affected: false } },
-    { files: ['packages/contracts/src/x.ts'], expected: { full: true, affected: false } },
+    { files: ['packages/contracts/src/x.ts'], expected: { full: false, affected: true } },
     { files: ['packages/events/src/catalog.ts'], expected: { full: true, affected: false } },
     { files: ['tooling/ci/gates.mjs'], expected: { full: true, affected: false } },
     { files: ['tooling/infra/postgres-init/01-service-schemas.sql'], expected: { full: true, affected: false } },
@@ -56,6 +58,44 @@ test('classify: each path lands in full, affected or neither', () => {
   }
   const forced = classify(['services/svc-protocol/x.ts'], { forceFull: true });
   assert(forced.full === true && forced.affected === false, 'forceFull must short-circuit to full');
+});
+
+test('classify: a lint rule or a baseline file runs only the product tests that read it, never all sixteen shards', () => {
+  const lintRead = { 'packages/config': ['tooling/lint/'] };
+  const cases = [
+    // The past mistake (project-state#3379): a bug fix that also deletes lines from the conflict-keys baseline took the whole suite.
+    { files: ['tooling/ci/conflict-keys-baseline.json'], edges: {}, expected: none },
+    { files: ['tooling/ci/dead-code-baseline.json'], edges: lintRead, expected: none },
+    {
+      files: ['tooling/ci/conflict-keys-baseline.json', 'services/svc-bank/src/a.ts'],
+      edges: {},
+      expected: { full: false, affected: true },
+    },
+    { files: ['tooling/lint/oxlint-plugin-garden/copy-rules.js'], edges: lintRead, expected: { full: false, affected: true } },
+    { files: ['tooling/lint/oxlint-plugin-garden/copy-rules.js'], edges: {}, expected: none },
+    { files: ['tooling/ci/conflict-keys.mjs'], edges: {}, expected: { full: true, affected: false } },
+    { files: ['tooling/ci/conflict-keys-baseline.json', 'tooling/ci/gates.mjs'], edges: {}, expected: { full: true, affected: false } },
+    { files: ['tooling/ci/nested/x-baseline.json'], edges: {}, expected: { full: true, affected: false } },
+    { files: ['tooling/linter/x.mjs'], edges: {}, expected: { full: true, affected: false } },
+    { files: ['tooling/brand-new/x.mjs'], edges: {}, expected: { full: true, affected: false } },
+  ];
+  for (const c of cases) {
+    const { full, affected } = classify(c.files, { edges: c.edges });
+    assert(
+      same({ full, affected }, c.expected),
+      `classify(${JSON.stringify(c.files)}) => ${JSON.stringify({ full, affected })} expected ${JSON.stringify(c.expected)}`,
+    );
+  }
+  // With the tree's own reads: no product test reads a baseline file, and packages/config's copy-rule test reads the lint.
+  assert(same(pick(classify(['tooling/ci/conflict-keys-baseline.json'])), none), 'the real tree: a baseline-only diff picks no unit shard');
+  const edges = readEdges();
+  assert(edges['packages/config']?.includes('tooling/lint/'), 'the read scan finds packages/config reading tooling/lint/');
+  assert(
+    affectedFilters(['tooling/lint/oxlint-plugin-garden/copy-rules.js'], edges).includes('./packages/config'),
+    'a lint rule change runs the test that reads it',
+  );
+  // contracts: its dependents (turbo's `...[base]`), not everything.
+  assert(same(affectedFilters(['packages/contracts/src/x.ts'], {}), ['...[origin/main]']), 'a contracts diff picks its dependents');
 });
 
 test('classify: a change that reaches Rust runs the Rust job, and Rust files alone run no TypeScript tests', () => {
