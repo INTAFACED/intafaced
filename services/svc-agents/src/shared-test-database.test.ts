@@ -20,7 +20,6 @@ const SHARED = [
   'metering/partner-payment.money.test.ts',
   'navigator/onchain-routes.db.test.ts',
   'own/access.test.ts',
-  'own/dry-run.test.ts',
   'own/evaluations.test.ts',
   'own/guardrails.test.ts',
   'own/identity.test.ts',
