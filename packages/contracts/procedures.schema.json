@@ -17574,6 +17574,1056 @@
         }
       ]
     },
+    "identity.oauth.apps.list": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "oauth.apps.list",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN",
+        "oauth.key_principal_refused": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "clientId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": ["string", "null"]
+                },
+                "logoUrl": {
+                  "type": ["string", "null"]
+                },
+                "redirectUrls": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "confidential": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["pending", "approved", "suspended"]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "secretRolledAt": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": [
+                "id",
+                "clientId",
+                "name",
+                "description",
+                "logoUrl",
+                "redirectUrls",
+                "scopes",
+                "confidential",
+                "status",
+                "createdAt",
+                "secretRolledAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["apps"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 100
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 201
+          }
+        }
+      ]
+    },
+    "identity.oauth.apps.queue": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "oauth.apps.queue",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["pending", "approved", "suspended"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["status", "limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "clientId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": ["string", "null"]
+                },
+                "logoUrl": {
+                  "type": ["string", "null"]
+                },
+                "redirectUrls": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "confidential": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["pending", "approved", "suspended"]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "secretRolledAt": {
+                  "type": ["string", "null"]
+                },
+                "developerUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                }
+              },
+              "required": [
+                "id",
+                "clientId",
+                "name",
+                "description",
+                "logoUrl",
+                "redirectUrls",
+                "scopes",
+                "confidential",
+                "status",
+                "createdAt",
+                "secretRolledAt",
+                "developerUserId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["apps"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "status": "pending",
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "status": "deleted",
+            "limit": 50
+          }
+        }
+      ]
+    },
+    "identity.oauth.apps.register": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "oauth.apps.register",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN",
+        "oauth.key_principal_refused": "FORBIDDEN",
+        "oauth.redirect_url_invalid": "PRECONDITION_FAILED",
+        "oauth.scope_empty": "PRECONDITION_FAILED",
+        "oauth.invalid_scope": "PRECONDITION_FAILED",
+        "oauth.scope_not_delegable": "PRECONDITION_FAILED",
+        "oauth.idempotency_conflict": "PRECONDITION_FAILED",
+        "oauth.account_not_active": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 80
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "logoUrl": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "redirectUrls": {
+            "minItems": 1,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "scopes": {
+            "minItems": 1,
+            "maxItems": 40,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z0-9_-]+:[a-z0-9_-]+$"
+            }
+          },
+          "confidential": {
+            "type": "boolean"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["name", "redirectUrls", "scopes", "confidential", "requestId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "clientId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": ["string", "null"]
+              },
+              "logoUrl": {
+                "type": ["string", "null"]
+              },
+              "redirectUrls": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidential": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["pending", "approved", "suspended"]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "secretRolledAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": [
+              "id",
+              "clientId",
+              "name",
+              "description",
+              "logoUrl",
+              "redirectUrls",
+              "scopes",
+              "confidential",
+              "status",
+              "createdAt",
+              "secretRolledAt"
+            ],
+            "additionalProperties": false
+          },
+          "clientSecret": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["app", "clientSecret"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "oauth.redirect_url_invalid": {
+          "at": ["input.logoUrl", "input.redirectUrls[]"],
+          "says": "the URL is a canonical lowercase https:// URL with no wildcard, fragment, userinfo, default port or characters the URL parser would change"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "name": "Sample app",
+            "redirectUrls": ["https://app.example.test/callback"],
+            "scopes": ["identity:read"],
+            "confidential": true,
+            "requestId": "oauth-app:sample"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "name": "A",
+            "redirectUrls": ["https://app.example.test/callback"],
+            "scopes": ["identity:read"],
+            "confidential": true,
+            "requestId": "x"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "name": "Sample app",
+            "redirectUrls": [],
+            "scopes": ["identity:read"],
+            "confidential": true,
+            "requestId": "x"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "oauth.redirect_url_invalid",
+          "input": {
+            "name": "Sample app",
+            "redirectUrls": ["http://app.example.test/callback"],
+            "scopes": ["identity:read"],
+            "confidential": true,
+            "requestId": "x"
+          }
+        }
+      ]
+    },
+    "identity.oauth.apps.review": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "oauth.apps.review",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN",
+        "oauth.app_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["approve", "suspend"]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": ["appId", "decision"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "clientId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": ["string", "null"]
+          },
+          "logoUrl": {
+            "type": ["string", "null"]
+          },
+          "redirectUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confidential": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "approved", "suspended"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "secretRolledAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "clientId",
+          "name",
+          "description",
+          "logoUrl",
+          "redirectUrls",
+          "scopes",
+          "confidential",
+          "status",
+          "createdAt",
+          "secretRolledAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "appId": "22222222-2222-4222-8222-222222222222",
+            "decision": "approve"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "appId": "22222222-2222-4222-8222-222222222222",
+            "decision": "delete"
+          }
+        }
+      ]
+    },
+    "identity.oauth.apps.rollSecret": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "oauth.apps.rollSecret",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN",
+        "oauth.key_principal_refused": "FORBIDDEN",
+        "oauth.app_not_found": "NOT_FOUND",
+        "oauth.invalid_request": "PRECONDITION_FAILED",
+        "oauth.account_not_active": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["appId", "requestId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "clientId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": ["string", "null"]
+              },
+              "logoUrl": {
+                "type": ["string", "null"]
+              },
+              "redirectUrls": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidential": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["pending", "approved", "suspended"]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "secretRolledAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": [
+              "id",
+              "clientId",
+              "name",
+              "description",
+              "logoUrl",
+              "redirectUrls",
+              "scopes",
+              "confidential",
+              "status",
+              "createdAt",
+              "secretRolledAt"
+            ],
+            "additionalProperties": false
+          },
+          "clientSecret": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["app", "clientSecret"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "appId": "22222222-2222-4222-8222-222222222222",
+            "requestId": "oauth-roll:22222222-2222-4222-8222-222222222222:first"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "appId": "not-a-guid",
+            "requestId": "oauth-roll:x:first"
+          }
+        }
+      ]
+    },
+    "identity.oauth.authorize.decide": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "oauth.authorize.decide",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN",
+        "oauth.key_principal_refused": "FORBIDDEN",
+        "oauth.lifetime_unset": "PRECONDITION_FAILED",
+        "oauth.account_not_active": "PRECONDITION_FAILED",
+        "oauth.app_not_found": "NOT_FOUND",
+        "oauth.redirect_uri_mismatch": "PRECONDITION_FAILED",
+        "oauth.app_not_approved": "PRECONDITION_FAILED",
+        "oauth.invalid_scope": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "responseType": {
+            "type": "string",
+            "const": "code"
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "redirectUri": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "scope": {
+            "minItems": 1,
+            "maxItems": 40,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z0-9_-]+:[a-z0-9_-]+$"
+            }
+          },
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "codeChallenge": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9\\-_]{43}$"
+          },
+          "codeChallengeMethod": {
+            "type": "string",
+            "const": "S256"
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["allow", "deny"]
+          }
+        },
+        "required": ["responseType", "clientId", "redirectUri", "scope", "state", "codeChallenge", "codeChallengeMethod", "decision"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "redirectTo": {
+            "type": "string"
+          }
+        },
+        "required": ["redirectTo"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "responseType": "code",
+            "clientId": "ifc_sample",
+            "redirectUri": "https://app.example.test/callback",
+            "scope": ["identity:read"],
+            "state": "state-1",
+            "codeChallenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "codeChallengeMethod": "S256",
+            "decision": "allow"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "responseType": "code",
+            "clientId": "ifc_sample",
+            "redirectUri": "https://app.example.test/callback",
+            "scope": ["identity:read"],
+            "state": "state-1",
+            "codeChallenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "codeChallengeMethod": "S256",
+            "decision": "maybe"
+          }
+        }
+      ]
+    },
+    "identity.oauth.authorize.preview": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "oauth.authorize.preview",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN",
+        "oauth.key_principal_refused": "FORBIDDEN",
+        "oauth.lifetime_unset": "PRECONDITION_FAILED",
+        "oauth.account_not_active": "PRECONDITION_FAILED",
+        "oauth.app_not_found": "NOT_FOUND",
+        "oauth.redirect_uri_mismatch": "PRECONDITION_FAILED",
+        "oauth.app_not_approved": "PRECONDITION_FAILED",
+        "oauth.invalid_scope": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "responseType": {
+            "type": "string",
+            "const": "code"
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "redirectUri": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "scope": {
+            "minItems": 1,
+            "maxItems": 40,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z0-9_-]+:[a-z0-9_-]+$"
+            }
+          },
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "codeChallenge": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9\\-_]{43}$"
+          },
+          "codeChallengeMethod": {
+            "type": "string",
+            "const": "S256"
+          }
+        },
+        "required": ["responseType", "clientId", "redirectUri", "scope", "state", "codeChallenge", "codeChallengeMethod"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "appName": {
+            "type": "string"
+          },
+          "appDescription": {
+            "type": ["string", "null"]
+          },
+          "logoUrl": {
+            "type": ["string", "null"]
+          },
+          "developerOwnAccount": {
+            "type": "boolean"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["appName", "appDescription", "logoUrl", "developerOwnAccount", "scopes"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "responseType": "code",
+            "clientId": "ifc_sample",
+            "redirectUri": "https://app.example.test/callback",
+            "scope": ["identity:read"],
+            "state": "state-1",
+            "codeChallenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "codeChallengeMethod": "S256"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "responseType": "code",
+            "clientId": "ifc_sample",
+            "redirectUri": "https://app.example.test/callback",
+            "scope": ["identity:read"],
+            "state": "state-1",
+            "codeChallenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "codeChallengeMethod": "plain"
+          }
+        }
+      ]
+    },
+    "identity.oauth.lifetimes": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "oauth.lifetimes",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "codeTtlSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "accessTokenTtlSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["codeTtlSeconds", "accessTokenTtlSeconds"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "identity.oauth.token": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "oauth.token",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {
+        "oauth.lifetime_unset": "PRECONDITION_FAILED",
+        "oauth.invalid_client": "PRECONDITION_FAILED",
+        "oauth.app_not_approved": "PRECONDITION_FAILED",
+        "oauth.invalid_grant": "PRECONDITION_FAILED",
+        "oauth.account_not_active": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "grantType": {
+            "type": "string",
+            "const": "authorization_code"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "redirectUri": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "codeVerifier": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "clientSecret": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": ["grantType", "code", "redirectUri", "clientId", "codeVerifier"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "tokenType": {
+            "type": "string",
+            "const": "Bearer"
+          },
+          "expiresIn": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "scope": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["accessToken", "tokenType", "expiresIn", "scope"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "grantType": "authorization_code",
+            "code": "ifcc_sample",
+            "redirectUri": "https://app.example.test/callback",
+            "clientId": "ifc_sample",
+            "codeVerifier": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "grantType": "password",
+            "code": "ifcc_sample",
+            "redirectUri": "https://app.example.test/callback",
+            "clientId": "ifc_sample",
+            "codeVerifier": "x"
+          }
+        }
+      ]
+    },
     "identity.recipients.add": {
       "service": "svc-identity",
       "module": "identity",
