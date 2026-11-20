@@ -300,8 +300,10 @@ const QUESTION_RULES =
 const QUIZ_RULES = {
   question_rules: {
     says: QUESTION_RULES,
-    holds: (reply: unknown) =>
-      (reply as { questions: readonly unknown[] }).questions.every((q) => academyCourseQuizQuestionSchema.safeParse(q).success),
+    holds: (reply: unknown) => {
+      const quiz = QUIZ_OUT.safeParse(reply);
+      return quiz.success && quiz.data.questions.every((q) => academyCourseQuizQuestionSchema.safeParse(q).success);
+    },
   },
 } as const;
 
@@ -781,7 +783,7 @@ export const ACADEMY_ADMIN_SEND_BULK_EMAIL = defineProcedure({
   input: academySendBulkEmailInputSchema,
   output: academySendBulkEmailSchema,
   samples: [
-    { verdict: 'accept', input: { path: PATH, subject: 'Hello', body: 'Welcome.', key: 'mail-1' } },
+    { verdict: 'accept', input: { path: PATH, subject: 'Hello', body: 'Welcome.', key: 'sample' } },
     { verdict: 'refuse', input: { path: PATH, subject: 'Hello', body: 'Welcome.', key: '' } },
   ],
 });
@@ -796,8 +798,8 @@ export const ACADEMY_ADMIN_REQUEST_LEARNER_EXPORT = defineProcedure({
   input: academyRequestLearnerExportInputSchema,
   output: academyRequestLearnerExportSchema,
   samples: [
-    { verdict: 'accept', input: { tag: null, key: 'export-1' } },
-    { verdict: 'refuse', input: { tag: 'Not A Tag', key: 'export-1' } },
+    { verdict: 'accept', input: { tag: null, key: 'sample' } },
+    { verdict: 'refuse', input: { tag: 'Not A Tag', key: 'sample' } },
   ],
 });
 

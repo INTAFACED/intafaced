@@ -5966,14 +5966,14 @@
           "verdict": "accept",
           "input": {
             "tag": null,
-            "key": "export-1"
+            "key": "sample"
           }
         },
         {
           "verdict": "refuse",
           "input": {
             "tag": "Not A Tag",
-            "key": "export-1"
+            "key": "sample"
           }
         }
       ]
@@ -7407,7 +7407,7 @@
             "path": "foundations",
             "subject": "Hello",
             "body": "Welcome.",
-            "key": "mail-1"
+            "key": "sample"
           }
         },
         {
