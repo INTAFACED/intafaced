@@ -50,7 +50,7 @@ import {
   protectionCreatedSchema,
   protectionAgentSchema,
   type ProtectionRequest,
-  type SpotConditionalKind,
+  type SpotOrderKind,
   spotConditionalSchema,
   spotConditionalCreatedSchema,
   venueGatedContractSchema,
@@ -120,7 +120,7 @@ export function preparedStep(
 export interface SpotConditionalRequest {
   owner: string;
   symbol: string;
-  kind: SpotConditionalKind;
+  kind: SpotOrderKind;
   side: 'buy' | 'sell';
   quantity: string;
   triggerPrice?: string;
@@ -129,6 +129,8 @@ export interface SpotConditionalRequest {
   entryPrice?: string;
   entryTif?: 'GTC' | 'IOC';
   closePrice?: string;
+  /** A good-till-date order's expiry, an ISO time (J-cex-spot-03 #7). */
+  expireAt?: string;
   clientOrderId: string;
 }
 

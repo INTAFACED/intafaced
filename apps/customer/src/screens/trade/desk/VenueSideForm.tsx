@@ -1,14 +1,6 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type Ref } from 'react';
 import { displayAmount, parseAmount } from '../../../shared/money';
-import {
-  keys,
-  type AsOf,
-  type OrderIntent,
-  type VenueMarket,
-  type VenuePreview,
-  type VenueTimeInForce,
-  type VenueUp,
-} from '../../../features/trade/venue-api';
+import { keys, type AsOf, type OrderIntent, type VenueMarket, type VenuePreview, type VenueUp } from '../../../features/trade/venue-api';
 import {
   OutcomeLine,
   outcomeText,
@@ -19,6 +11,8 @@ import {
   type VenueAccount,
 } from '../../../features/trade/venue/VenueKit';
 import { builderApproved, carriesBuilderFee } from '../../../features/trade/venue/VenueReview';
+import { useSignPrepared } from '../futures/VenueProtect';
+import { AgentPermission } from './VenueConditionalOrders';
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { deskCopy } from './copy';
 import {
@@ -41,12 +35,15 @@ import {
   valueOf,
   venueSelfTrade,
   draftSignature,
+  gtdClientId,
   intentOf,
+  venueTifOf,
   lockShortfall,
   previewMoved,
   refusedAtHeldWorst,
   ticketProblem,
   unpublishedRules,
+  type DeskTif,
   type TicketFields,
   type VenueOrderType,
   type VenueSide,
@@ -94,6 +91,7 @@ export function VenueSideForm({
   side,
   type,
   tif,
+  expireAt = null,
   protectionBps,
   market,
   status,
@@ -110,8 +108,10 @@ export function VenueSideForm({
 }: {
   side: VenueSide;
   type: VenueOrderType;
-  /** A limit order's time in force, picked once for both tickets. */
-  tif: VenueTimeInForce;
+  /** A limit order's time in force, picked once for both tickets; good till date is run by our engine (J-cex-spot-03 #7). */
+  tif: DeskTif;
+  /** A good-till-date order's expiry (ISO), in the future; null while none is picked or the time has passed. */
+  expireAt?: string | null;
   /** The owner's market price protection in bps, or null when blank. */
   protectionBps: string | null;
   market: VenueMarket;
@@ -133,6 +133,9 @@ export function VenueSideForm({
   const d = deskCopy.useCopy().t;
   const v = venueCopy.useCopy().t;
   const venue = useVenueApi();
+  const sign = useSignPrepared(owner ?? '');
+  // Good till date: the order rests on the venue good till cancelled, and our engine cancels it at the expiry.
+  const gtd = type === 'limit' && tif === 'GTD';
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
   // The unit flag: the person types the size in the base asset (Amount) or in the quote asset (Total, or Spend on a
@@ -175,7 +178,7 @@ export function VenueSideForm({
   // The price a value is sized at: a limit's own price, or a market order's worst price (so a buy's lock stays within it).
   const sizedAt = type === 'limit' ? price.trim() || null : worst;
   const sizedAmount = unit === 'quote' ? (amountForValue(value, sizedAt, market.lotSize) ?? '') : amount;
-  const fields: TicketFields = { side, type, price, amount: sizedAmount, tif };
+  const fields: TicketFields = { side, type, price, amount: sizedAmount, tif: venueTifOf(tif) };
   const issue = ticketProblem(fields, market, worst, capSet);
   // A market order's worst price is held with its key (HeldDraft.hold): the intent sent under one key never changes.
   const held = draft && issue === null ? draft.hold(fields, worst) : null;
@@ -216,7 +219,15 @@ export function VenueSideForm({
   const refusedNow = live?.state === 'refused' && live.signature === signature;
   const tagBad = tagProblem(tag);
   const canSend =
-    access === 'verified' && owner !== null && intent !== null && !busy && !waiting && short === null && !refusedNow && !tagBad;
+    access === 'verified' &&
+    owner !== null &&
+    intent !== null &&
+    !busy &&
+    !waiting &&
+    short === null &&
+    !refusedNow &&
+    !tagBad &&
+    (!gtd || expireAt !== null);
   const amountPlaces = placesOf(market.lotSize);
   const valueLabel = type === 'market' && side === 'buy' ? t('Spend') : t('Total');
   const pricePlaces = placesOf(market.tickSize);
@@ -256,12 +267,14 @@ export function VenueSideForm({
       setResult(null);
       setProblem(null);
       if (size.trim() === '') return;
-      const f: TicketFields = { side, type: kind, price: kind === 'limit' ? at : '', amount: size, tif };
+      const f: TicketFields = { side, type: kind, price: kind === 'limit' ? at : '', amount: size, tif: venueTifOf(tif) };
+      // A good-till-date order is never placed at once: its expiry and our engine's cancel are reviewed first.
+      if (kind === 'limit' && tif === 'GTD' && expireAt === null) return;
       if (!draft || !owner || access !== 'verified' || waiting || ticketProblem(f, market, worstNow, capSet) !== null) return;
       const hold = draft.hold(f, worstNow);
       const order = intentOf(f, market, hold.worst, hold.key, capSet);
       if (!order) return;
-      void (instant && kind === 'limit' ? sendNow(order) : reviewOf(order));
+      void (instant && kind === 'limit' && tif !== 'GTD' ? sendNow(order) : reviewOf(order));
     },
     flatten(all: string, worstNow: string | null) {
       // The ticket shows the same market sell the review holds, so its draft keeps the one key for it.
@@ -270,7 +283,7 @@ export function VenueSideForm({
       setAmount(all);
       setResult(null);
       setProblem(null);
-      const f: TicketFields = { side, type: 'market', price: '', amount: all, tif };
+      const f: TicketFields = { side, type: 'market', price: '', amount: all, tif: venueTifOf(tif) };
       if (!draft || !owner || access !== 'verified' || ticketProblem(f, market, worstNow, capSet) !== null) return;
       const hold = draft.hold(f, worstNow);
       const sell = intentOf(f, market, hold.worst, hold.key, capSet);
@@ -348,7 +361,46 @@ export function VenueSideForm({
       return;
     }
     // The review closes on Confirm: what follows is the wallet's, then the venue's answer under the ticket.
+    if (gtd) return placeGoodTillDate(sent);
     await send(sent);
+  }
+
+  /**
+   * Good till date (J-cex-spot-03 #7): our engine keeps the order and its expiry, and the person's wallet signs the order
+   * itself, a good-till-cancelled limit on the venue. A refusal (an expiry now past, no agent permission yet) is said in
+   * the review, and nothing is signed. `sending` is already held.
+   */
+  async function placeGoodTillDate(order: OrderIntent) {
+    if (!owner || !expireAt) {
+      sending.current = false;
+      return setReviewProblem(t('Expiry past'));
+    }
+    const created = await venue.createSpotOrder({
+      owner,
+      symbol: order.symbol,
+      kind: 'gtd',
+      side: order.side,
+      quantity: order.amount,
+      entryPrice: order.price,
+      entryTif: 'GTC',
+      expireAt,
+      clientOrderId: gtdClientId(order.clientOrderKey),
+    });
+    if (!created.ok || created.data.restsOn !== 'engine' || !created.data.entry) {
+      sending.current = false;
+      return setReviewProblem(t('Not placeable', { detail: created.ok ? t('Expiry past') : created.message }));
+    }
+    const entry = created.data.entry;
+    const placed: OrderIntent = { ...order, clientOrderKey: entry.actionKey };
+    setReview(null);
+    setBusy(true);
+    setSent(placed);
+    const answer = await sign(entry);
+    sending.current = false;
+    setBusy(false);
+    setResult(answer);
+    draft?.settle(order.clientOrderKey);
+    onPlaced(placed, answer, tag.trim());
   }
 
   const edit = (apply: () => void) => {
@@ -511,7 +563,7 @@ export function VenueSideForm({
         ) : result ? (
           <OutcomeLine result={result} owner={owner} />
         ) : null}
-        {result ? <TicketOutcome result={result} sent={sent} base={market.baseAsset} /> : null}
+        {result ? <TicketOutcome result={result} sent={sent} base={market.baseAsset} expireAt={gtd ? expireAt : null} /> : null}
       </div>
       <AlertDialog
         open={review !== null}
@@ -543,7 +595,14 @@ export function VenueSideForm({
               protectionBps={protectionBps}
               selfTrade={venueSelfTrade(market)}
               tag={tag.trim()}
+              expireAt={gtd ? expireAt : null}
             />
+            {gtd && owner ? (
+              <>
+                <p className="dk-note">{t('Gtd permission')}</p>
+                <AgentPermission owner={owner} />
+              </>
+            ) : null}
             {carriesBuilderFee(review.preview.value.builderFee) && builderApproved(account, status) === false ? (
               <Button variant="secondary" size={40} onClick={() => void approve()}>
                 {v('Approve in wallet')}
@@ -575,10 +634,27 @@ export function VenueSideForm({
  * What the venue's definite answer means for the order just sent (J-cex-spot-03 #4, #6): one that ended at once with
  * nothing filled traded nothing, and the venue released its lock; a post-only order the venue refused was never placed.
  */
-function TicketOutcome({ result, sent, base }: { result: ActionResult; sent: OrderIntent | null; base: string }) {
+function TicketOutcome({
+  result,
+  sent,
+  base,
+  expireAt,
+}: {
+  result: ActionResult;
+  sent: OrderIntent | null;
+  base: string;
+  expireAt: string | null;
+}) {
   const { t } = spotVenueCopy.useCopy();
   if (result.kind !== 'outcome' || !sent) return null;
   const o = result.outcome;
+  if (o.accepted && expireAt && sent.clientOrderKey.startsWith('spot-cond:')) {
+    return (
+      <p className="dk-note" data-testid="venue-ticket-outcome" data-outcome="gtd-resting" data-expire-at={expireAt}>
+        {t('Gtd placed', { at: new Date(expireAt).toLocaleString() })}
+      </p>
+    );
+  }
   if (!o.accepted) {
     return sent.timeInForce === 'ALO' ? (
       <p className="dk-note" data-testid="venue-ticket-outcome" data-outcome="post-only-refused">

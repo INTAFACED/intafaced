@@ -9,6 +9,7 @@
  * `bankTransfer` has no fee leg, and a second post could succeed without the
  * transfer or the other way round. An empty terms row is not a zero fee.
  */
+import { PERSONAL_REQUEST_REPORT_REASONS } from '@intafaced/contracts/bank-personal-request-procedures';
 import { grantedLimits } from './limit-requests.js';
 import type { Sql, TransactionSql } from 'postgres';
 import {
@@ -153,7 +154,8 @@ export interface ReminderFacts {
   readonly nextAllowedAt: string | null;
 }
 
-export const REPORT_REASONS = ['scam', 'spam', 'harassment', 'other'] as const;
+/** What a person asked may report a request as: the record's list (`@intafaced/contracts/bank-personal-request-procedures`). */
+const REPORT_REASONS = PERSONAL_REQUEST_REPORT_REASONS;
 export type ReportReason = (typeof REPORT_REASONS)[number];
 
 /** The payer's own record of a report on a request: the safety case and whether the asker is blocked. Never the payee's. */

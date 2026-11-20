@@ -174,16 +174,81 @@ test(`${J} #1 the markets list shows open, upcoming and delisting markets with l
 test(`${J} #2 /status shows each market's trading mode and the platform status, with the time they are as of`, async ({ page }) => {
   await page.goto('/status');
   await expect(page.getByRole('heading', { name: 'Platform status', exact: true })).toBeVisible();
-  // Platform status: the founders' components, or the honest line that none is published.
+
+  // Platform status: the page draws exactly the components svc-notify's status read publishes (statusPage.read, the read
+  // the page itself makes), each by its name and its state, and the overall state the read gives; or, with none defined,
+  // the honest line and no overall state. Read again on each poll: the page re-reads every 30 seconds.
+  const statusRead = async () => (await (await fetch(`${ORIGIN}/api/notify/trpc/statusPage.read`)).json()).result.data;
+  const drawnStatus = async () => {
+    const none = await page.getByTestId('status-components-none').count();
+    const overall = none ? 'none_defined' : await page.getByTestId('status-overall').getAttribute('data-state');
+    const rows = await page.locator('[data-testid^="status-component-"]').evaluateAll((els) =>
+      els
+        .filter((el) => el.tagName === 'LI')
+        .map((el) => ({
+          id: el.dataset.testid.slice('status-component-'.length),
+          name: el.querySelector('strong')?.textContent ?? '',
+          state: el.dataset.state,
+        })),
+    );
+    return { overall, rows };
+  };
+  const publishedStatus = async () => {
+    const read = await statusRead();
+    return {
+      overall: read.overall,
+      rows: read.overall === 'none_defined' ? [] : read.components.map((c) => ({ id: c.id, name: c.name, state: c.state })),
+    };
+  };
   await expect(page.getByTestId('status-components').first()).toBeVisible();
-  // Trading modes per market, each with its effect, from the same lifecycle read the desk uses.
+  await expect
+    .poll(async () => JSON.stringify(await drawnStatus()) === JSON.stringify(await publishedStatus()), {
+      timeout: 45_000,
+      message: 'the page shows the components and overall state svc-notify publishes',
+    })
+    .toBe(true);
+  const published = await publishedStatus();
+  if (published.overall === 'none_defined') await expect(page.getByTestId('status-components-none')).toBeVisible();
+  else expect(published.rows.length, 'a defined status page has components').toBeGreaterThan(0);
+
+  // Trading modes per market, each with its effect, from the same lifecycle read the desk uses: every real spot market
+  // the markets read lists has its row, in the state its own lifecycle reports.
   await expect(page.getByRole('heading', { name: 'Trading modes', exact: true })).toBeVisible();
   const btc = page.getByTestId('status-mode-BTC/USDT');
   await expect(btc).toContainText('Open');
   await expect(btc).toContainText('Orders are accepted and can be cancelled.');
   expect(await publicState('BTC/USDT')).toBe('OPEN');
-  // The as-of time is the service's own observation time, in UTC.
-  await expect(page.getByTestId('status-modes-asof')).toHaveText(/^As of \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
+  const realSpot = async () => (await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json()).filter((m) => m.spot && !m.paper);
+  const listed = await realSpot();
+  expect(listed.length, 'the markets read lists real spot markets').toBeGreaterThan(0);
+  for (const m of listed)
+    await expect(page.getByTestId(`status-mode-${m.symbol}`), `${m.symbol}'s mode row`).toHaveAttribute(
+      'data-state',
+      m.lifecycle?.state ?? 'none',
+    );
+
+  // The as-of time is the service's own observation time, in UTC: the oldest time svc-trade observed a listed mode
+  // (each market's lifecycle observedAt), so no row is shown fresher than it is. The service is read before and after the
+  // page, so the page's line is one of the two answers, never a time of its own.
+  const asOf = (markets) => {
+    const times = markets.map((m) => m.lifecycle?.observedAt).filter((at) => at && !Number.isNaN(Date.parse(at)));
+    if (!times.length) return 'No market reported a mode, so there is no time to show.';
+    const oldest = new Date(Math.min(...times.map((at) => Date.parse(at)))).toISOString();
+    return `As of ${oldest.slice(0, 16).replace('T', ' ')} UTC`;
+  };
+  const line = page.getByTestId('status-modes-asof');
+  await expect(line).toHaveText(/^As of \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC$/);
+  await expect
+    .poll(
+      async () => {
+        const before = asOf(await realSpot());
+        const shown = (await line.textContent())?.trim();
+        const after = asOf(await realSpot());
+        return shown === before || shown === after;
+      },
+      { timeout: 45_000, message: "the as-of line is the oldest lifecycle observedAt on svc-trade's markets read" },
+    )
+    .toBe(true);
 });
 
 test(`${J} #3 a market order on a limit-only market is refused as limit-only, and a limit inside the band is accepted`, async ({
@@ -455,16 +520,195 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
   expect(cancel.status, JSON.stringify(cancel.body).slice(0, 300)).toBeLessThan(300);
   await expect.poll(async () => (await openOrders(who, windowed.symbol)).map((o) => o.id)).not.toContain(limit.body.id);
   await expect.poll(async () => held(await client.balances(), quote)).toBe(before);
+
+  // The higher-risk zone: the stack lists one TEST market in it (TRSK/USDC) with a TEST order cap. The read flags it and
+  // names its cap; the desk shows the zone badge with that cap.
+  const zoned = markets.find((m) => m.spot && !m.paper && m.orderable && m.zone === 'higher_risk' && m.zoneOrderCap);
+  expect(zoned, 'a market in the higher-risk zone, with its order cap').toBeTruthy();
+  const cap = zoned.zoneOrderCap;
+  await openDesk(page, who, zoned.symbol);
+  await expect(page.getByTestId('dk-zone')).toContainText('Higher-risk zone', { timeout: UNBUILT_MS });
+  await expect(page.getByTestId('dk-zone')).toContainText(`Limit orders only, up to ${cap} ${zoned.quote} an order`);
+  const zoneQuote = zoned.quote;
+  const zoneBefore = held(await client.balances(), zoneQuote);
+  const zoneSent = placements(page);
+  // A market buy: the desk's own preview says why before Confirm, and nothing is sent or held.
+  await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
+  await page.getByRole('textbox', { name: 'Amount', exact: true }).first().fill('1');
+  const zoneForm = page.locator('form[data-testid="dk-form"][data-side="buy"]');
+  await expect(zoneForm).toContainText('This market is in the higher-risk zone', { timeout: UNBUILT_MS });
+  await expect(zoneForm).toContainText('Place a limit order instead');
+  await expect(zoneForm).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/); // no raw code
+  await expect(page.getByRole('button', { name: `Buy ${zoned.base}`, exact: true })).toBeDisabled();
+  // The door refuses the same market order with the zone reason, before any hold.
+  const zoneMarket = await client.post('/api/v1/orders', {
+    symbol: zoned.symbol,
+    side: 'buy',
+    type: 'market',
+    amount: '1',
+    clientOrderId: `${J}-7zm-${who.handle}`,
+  });
+  expect(zoneMarket.status).toBe(400);
+  expect(JSON.stringify(zoneMarket.body)).toContain('trade.higher_risk_zone');
+  expect(held(await client.balances(), zoneQuote)).toBe(zoneBefore);
+  // By now the page has had the door's round trip and more to send an order, and it sent none.
+  expect(zoneSent.filter((body) => body?.symbol === zoned.symbol)).toHaveLength(0);
+  // A limit worth more than the cap is refused by its cap, before any hold.
+  const over = await client.post('/api/v1/orders', {
+    symbol: zoned.symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: '101',
+    price: '1',
+    clientOrderId: `${J}-7zo-${who.handle}`,
+  });
+  expect(toUnits('101'), 'the over-cap order is worth more than the cap').toBeGreaterThan(toUnits(cap));
+  expect(over.status).toBe(400);
+  expect(JSON.stringify(over.body)).toContain('trade.zone_cap_exceeded');
+  expect(held(await client.balances(), zoneQuote)).toBe(zoneBefore);
+  // A limit buy under the cap is accepted and rests, holding exactly its price x amount; it is then cancelled.
+  const zonePrice = '1';
+  const zoneAmount = '10';
+  const zoneLimit = await client.post('/api/v1/orders', {
+    symbol: zoned.symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: zoneAmount,
+    price: zonePrice,
+    clientOrderId: `${J}-7z-${who.handle}`,
+  });
+  expect(zoneLimit.status, JSON.stringify(zoneLimit.body).slice(0, 300)).toBeLessThan(300);
+  const zoneResting = (await openOrders(who, zoned.symbol)).find((o) => o.id === zoneLimit.body.id);
+  expect(zoneResting, 'the zone limit order rests on the book').toBeTruthy();
+  expect(held(await client.balances(), zoneQuote) - zoneBefore).toBe((toUnits(zonePrice) * toUnits(zoneAmount)) / toUnits('1'));
+  const zoneCancel = await client.delete(`/api/v1/orders/${encodeURIComponent(zoneLimit.body.id)}`);
+  expect(zoneCancel.status, JSON.stringify(zoneCancel.body).slice(0, 300)).toBeLessThan(300);
+  await expect.poll(async () => (await openOrders(who, zoned.symbol)).map((o) => o.id)).not.toContain(zoneLimit.body.id);
+  await expect.poll(async () => held(await client.balances(), zoneQuote)).toBe(zoneBefore);
 });
 
-test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordered updates, and a reconnect resumes from the last sequence`, async () => {
+test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordered updates, and a reconnect resumes from the last sequence`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // The reads: a ticker's spread is its best ask minus its best bid, exactly; so is every row of the spreads read; and
+  // candles come oldest first, each [open time, open, high, low, close, volume] in decimal strings.
   const tickers = await (await fetch(`${EDGE}/api/v1/tickers?limit=500`)).json();
   const btc = Object.values(tickers).find((t) => t?.symbol === 'BTC/USDT');
-  expect(btc?.spread, 'the ticker carries a spread field').toBeTruthy();
-  const spreads = await fetch(`${EDGE}/api/v1/spreads?limit=500`);
-  expect(spreads.status).toBe(200);
-  const candles = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&limit=5`);
-  expect(candles.status).toBe(200);
+  expect(btc?.bid && btc?.ask, 'the BTC/USDT ticker carries both sides of its book').toBeTruthy();
+  expect(toUnits(btc.spread), 'the ticker spread is best ask minus best bid').toBe(toUnits(btc.ask) - toUnits(btc.bid));
+  const spreadsRes = await fetch(`${EDGE}/api/v1/spreads?limit=500`);
+  expect(spreadsRes.status).toBe(200);
+  const spreads = await spreadsRes.json();
+  expect(
+    spreads.some((r) => r.symbol === 'BTC/USDT' && r.spread !== null),
+    'the spreads read has BTC/USDT',
+  ).toBe(true);
+  for (const r of spreads)
+    if (r.bid !== null && r.ask !== null) expect(toUnits(r.spread), `${r.symbol}'s spread`).toBe(toUnits(r.ask) - toUnits(r.bid));
+    else expect(r.spread, `${r.symbol} has one side, so no spread`).toBeNull();
+  const candlesRes = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&limit=5`);
+  expect(candlesRes.status).toBe(200);
+  const candleRows = await candlesRes.json();
+  for (const [i, row] of candleRows.entries()) {
+    expect(row).toHaveLength(6);
+    for (const v of row.slice(1)) expect(typeof v, 'a candle amount is a decimal string').toBe('string');
+    if (i > 0) expect(row[0], 'candles come oldest first').toBeGreaterThan(candleRows[i - 1][0]);
+  }
+
+  // The live tickers (spreads with them) and candles: the multiplexed stream a desk opens (/ws/stream, no market). Two
+  // TEST traders trade each other on TAPE, a book no market maker quotes and no other journey trades, so its ticker and
+  // candles move by real taker fills while the step watches. A subscriber gets a snapshot first (the ticker channel's
+  // `snapshot`, the candle channel's current candles), then updates in order: ticker frames in time order, every one
+  // after the snapshot an `update`; candle frames never going back to an earlier bucket, the open bucket's volume
+  // growing by each fill.
+  const TAPE = 'USDT/USDC';
+  const buyer = await account(page);
+  const buyerApi = await api(buyer);
+  const seller = await fundedTrader(page, 'j14t', '50');
+  const sellerApi = await api(seller);
+  const trade = async (n, amount) => {
+    const ask = await sellerApi.post('/api/v1/orders', {
+      symbol: TAPE,
+      side: 'sell',
+      type: 'limit',
+      amount,
+      price: '1',
+      clientOrderId: `${J}-8s${n}-${seller.handle}`,
+    });
+    expect(ask.status, JSON.stringify(ask.body).slice(0, 300)).toBeLessThan(300);
+    const bid = await buyerApi.post('/api/v1/orders', {
+      symbol: TAPE,
+      side: 'buy',
+      type: 'limit',
+      amount,
+      price: '1',
+      clientOrderId: `${J}-8b${n}-${seller.handle}`,
+    });
+    expect(bid.status, JSON.stringify(bid.body).slice(0, 300)).toBeLessThan(300);
+    await expect.poll(async () => (await openOrders(seller, TAPE)).length, { message: `trade ${n} on ${TAPE} filled` }).toBe(0);
+  };
+  await trade(1, '5');
+  const mux = await openMux(`${ORIGIN.replace(/^http/, 'ws')}/ws/stream`);
+  try {
+    mux.send({ op: 'subscribe', id: 'j14-8', channels: [{ ch: 'ticker' }, { ch: 'candles', market: TAPE, interval: '1m' }] });
+    await expect
+      .poll(() => mux.frames.find((f) => f.op === 'ack' && f.id === 'j14-8')?.results?.every((r) => r.ok), { timeout: 15_000 })
+      .toBe(true);
+    const tickerFrames = () => mux.frames.filter((f) => f.ch === 'ticker').map((f) => f.data);
+    const candleFrames = () => mux.frames.filter((f) => f.ch === 'candles').map((f) => f.data);
+    await expect.poll(() => tickerFrames().length, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+    await expect.poll(() => candleFrames().length, { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+    const snapshot = tickerFrames()[0];
+    expect(snapshot.type, 'the ticker channel opens with a snapshot').toBe('snapshot');
+    const liveBtc = snapshot.tickers.find((r) => r.symbol === 'BTC/USDT');
+    expect(liveBtc?.bid && liveBtc?.ask, 'the live BTC/USDT row carries its book top').toBeTruthy();
+    expect(toUnits(liveBtc.spread), 'the live spread is best ask minus best bid').toBe(toUnits(liveBtc.ask) - toUnits(liveBtc.bid));
+    const tapeBefore = snapshot.tickers.find((r) => r.symbol === TAPE);
+    expect(tapeBefore?.last, `${TAPE}'s row has its last trade`).toBe('1');
+    const firstCandles = candleFrames().length;
+    const openBucket = candleFrames().at(-1);
+    expect(openBucket.type).toBe('candle');
+    expect(openBucket.c, `${TAPE}'s current candle closes at the trade`).toBe('1');
+
+    await trade(2, '3');
+    // The candles: an update after the current candles, for the open bucket (or a later one), with trade 2 in it.
+    await expect
+      .poll(
+        () =>
+          candleFrames()
+            .slice(firstCandles)
+            .some((c) => c.t > openBucket.t || (c.t === openBucket.t && toUnits(c.v) - toUnits(openBucket.v) >= toUnits('3'))),
+        { timeout: 30_000, message: `${TAPE}'s candle grows by trade 2` },
+      )
+      .toBe(true);
+    // The ticker: an update naming TAPE with trade 2 in its 24 h volume.
+    await expect
+      .poll(
+        () =>
+          tickerFrames()
+            .slice(1)
+            .some((f) => f.tickers.some((r) => r.symbol === TAPE && toUnits(r.volume) - toUnits(tapeBefore.volume) >= toUnits('3'))),
+        { timeout: 30_000, message: `${TAPE}'s ticker updates with trade 2` },
+      )
+      .toBe(true);
+    // In order: the ticker frames in time order, a snapshot and then updates (a snapshot again only as a repair); the
+    // candle frames never back to an earlier bucket.
+    const ticks = tickerFrames();
+    for (let i = 1; i < ticks.length; i++) {
+      expect(ticks[i].ts, 'ticker frames come in time order').toBeGreaterThanOrEqual(ticks[i - 1].ts);
+      expect(['update', 'snapshot']).toContain(ticks[i].type);
+    }
+    expect(
+      ticks.slice(1).some((f) => f.type === 'update'),
+      'updates follow the snapshot',
+    ).toBe(true);
+    const bars = candleFrames();
+    for (let i = 1; i < bars.length; i++) expect(bars[i].t, 'candle frames never go back a bucket').toBeGreaterThanOrEqual(bars[i - 1].t);
+  } finally {
+    mux.close();
+  }
+
   // The stream: the public depth socket a desk opens (/ws/stream on the app's own origin). A snapshot first, then deltas
   // in sequence order, each continuing the one before. Another screen keeps watching the book (`watcher`) while this one
   // drops and reconnects naming the last sequence it holds: it is sent only the deltas it missed, the first continuing
@@ -499,6 +743,18 @@ test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordere
     watcher.close();
   }
 });
+
+/** A multiplexed public socket (/ws/stream with no market), once open: every frame it has received, parsed, and a sender. */
+async function openMux(url) {
+  const socket = new WebSocket(url);
+  const frames = [];
+  socket.addEventListener('message', (event) => frames.push(JSON.parse(String(event.data))));
+  await new Promise((resolve, reject) => {
+    socket.addEventListener('open', resolve, { once: true });
+    socket.addEventListener('error', () => reject(new Error(`the multiplexed stream ${url} did not open`)), { once: true });
+  });
+  return { frames, send: (value) => socket.send(JSON.stringify(value)), close: () => socket.close() };
+}
 
 /** A public depth socket and every frame it has received, parsed. */
 function openStream(url) {
