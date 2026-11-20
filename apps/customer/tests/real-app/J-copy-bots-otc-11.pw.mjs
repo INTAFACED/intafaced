@@ -304,10 +304,7 @@ test(`${J} #5 opens the broker dashboard for two days: a daily table with decima
   await founderSignIn(page, 'a');
   await page.goto(`${ADMIN}/trade-ops/broker`);
   const daily = page.getByRole('table', { name: 'Broker volume by day' });
-  await expect(
-    daily,
-    'BLOCKED (unbuilt): the founder console has no /trade-ops/broker room yet, so no daily broker table is drawn',
-  ).toBeVisible(UNBUILT);
+  await expect(daily).toBeVisible(UNBUILT);
   for (const cell of await daily.getByRole('cell', { name: /^\d/ }).allInnerTexts()) expect(cell).toMatch(/^\d+(\.\d+)?/);
   await expect(daily).toContainText('Not set');
   await page.getByRole('button', { name: 'Pay rebates' }).click();
