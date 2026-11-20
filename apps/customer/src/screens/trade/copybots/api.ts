@@ -2,6 +2,7 @@
 // the local stack on 2026-10-17); the shapes mirror the legacy `features/trade/tool-api.ts`, which stays the owner of
 // the calls both rooms share. Only fields the screen shows are kept, and no service sentence is ever kept
 // (`residual` and `statusLine` are deliberately left out of the schema).
+import { GRID_SUBMIT_PERMISSION } from '@intafaced/contracts/trade-grid-procedures';
 import { z } from 'zod';
 import {
   LEADER_MODES,
@@ -141,6 +142,8 @@ export type GridRequest = {
   upperPrice: string;
   gridCount: number | null;
   investment: string;
+  /** The person's own venue account the grid trades on, while the venue door is on. */
+  owner?: string;
 };
 export type CopiedPosition = z.infer<typeof copiedPositionSchema>;
 export type CopiedMarket = z.infer<typeof copiedMarketSchema>;
@@ -294,6 +297,11 @@ export function createRoomApi(api: ApiClient) {
     gridGet: (botId: string, signal?: AbortSignal) => api.query('trade', 'bots.grid.get', { botId }, gridBotSchema, { signal }),
     gridList: (signal?: AbortSignal) => api.query('trade', 'bots.grid.list', undefined, z.array(gridBotSchema), { signal }),
     gridStop: (botId: string) => api.mutate('trade', 'bots.grid.stop', { botId }, gridBotSchema),
+    gridSubmitPermission: (input: {
+      botId: string;
+      actionKey: string;
+      signature: { digest: string; signature: string; signedBy: string };
+    }) => api.call(GRID_SUBMIT_PERMISSION, input),
     gridTopUpFree: (botId: string, signal?: AbortSignal) =>
       api.query('trade', 'bots.grid.topUpFree', { botId }, gridTopUpFreeSchema, { signal }),
     gridTopUp: (input: GridTopUpRequest) => api.mutate('trade', 'bots.grid.topUp', input, gridTopUpSchema),

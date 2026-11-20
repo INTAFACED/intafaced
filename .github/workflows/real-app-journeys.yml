@@ -12,9 +12,8 @@
 # run 40024672126, whether or not anything broke; a red that never turns green says nothing.)
 #
 # Flaky steps are set aside by the machine, never by an agent, and never a money step (owner decision 2026-11-07,
-# project-state OWNER 225 and 227). A run on main retries a failed test once (JOURNEY_RETRIES), and so does a shard of a
-# pull request's full run that holds none of the journeys it touches (tooling/ci/journey-retries.mjs), where a pass on
-# the retry only keeps the run green: the set-aside, the flaky issue and every proof stay main's. On main, a test that
+# project-state OWNER 225 and 227). A run on main retries a failed test once (JOURNEY_RETRIES); a pull request's run,
+# never the full suite, never retries. On main, a test that
 # fails and then passes on the same commit ends "flaky", and the verdict sets its step aside for 7 days, a list each main run keeps in
 # its own artifact (set-aside.json) for the next: it still runs and is shown, it isn't counted as proven, and its failure
 # doesn't turn main red. A step that is flaky and not set aside, a money step included, is a pass that is never proven
@@ -39,7 +38,7 @@ on:
   # the schedule always run the full suite, and Main trust and the shard planner read main's runs only.
   # Every ready pull request from this repository, on each push (U4 C3, piece 1; project-state
   # research/factory-2026-11-08 PLAN.md): the touch job runs what the pull request touches by tooling/ci/journey-touch.mjs
-  # (full, its journey files, or nothing), so a builder never dispatches a run by hand to seal. The merge seal still
+  # (its journey files, its bounded set, or nothing; never the full suite: pullPick), so a builder never dispatches a run by hand to seal. The merge seal still
   # decides what counts (journey-seal.mjs, the default branch's copy); this run only saves the dispatch. A fork's pull
   # request runs nothing here, in a group of its own, so it never cancels a run of this repository's branches. A draft
   # runs from its first push, as a ready pull request does (#8707): before, it ran nothing until `ready_for_review`, so
@@ -128,10 +127,12 @@ jobs:
   # What this run runs, and its shard plan, in seconds, so the shards and the build start on it at once. A manual run: its journeys input
   # (JOURNEYS_TARGET; journey file names separated by spaces or commas only), or the full suite. A pull request: what its
   # changed files touch, by the default branch's tooling/ci/journey-touch.mjs and its seal's revert rule (the copy the
-  # merge seal judges with, so the two agree): `full` the full suite, `files` its journey files, `none` nothing (the rest
-  # of the run is skipped and its report is empty, so the seal reads it as saying nothing). A pull request whose files
-  # can't be read whole (an error, or GitHub's 3,000-file cap) runs the full suite, never fewer. A fork's pull request
-  # runs nothing. A run deferred for main (below) runs nothing now and is re-run later.
+  # merge seal judges with, so the two agree): `files` its journey files (pullPick: at most PR_MAX_FILES, else its
+  # bounded set), `none` nothing (the rest of the run is skipped and its report is empty, so the seal reads it as saying
+  # nothing). A pull request never runs the full suite (OWNER 249 (3)); main's full run after the merge judges the rest.
+  # A pull request whose files can't be read whole (an error, or GitHub's 3,000-file cap) or judged runs the CANARY
+  # (journey-touch.mjs --fallback), and the seal, which judges its own pick, holds it if that is short. A fork's pull
+  # request runs nothing. A run deferred for main (below) runs nothing now and is re-run later.
   # On main its touch steps decide nothing (main always runs the full suite) and only the plan runs, so every run queues
   # for runners twice, this job and then the shards, not three times (a separate touch hop waited 7.3, 15.1 and 19.6
   # minutes on main runs 2559, 2655 and 2708 in the guide's CI audit of 9 Nov 2026; a separate planner hop waited a
@@ -155,7 +156,6 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       count: ${{ steps.plan.outputs.count }}
       fast_plan: ${{ steps.fast.outputs.plan }}
-      retries: ${{ steps.retries.outputs.retries }}
       leave_out: ${{ steps.leave.outputs.list }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -220,9 +220,17 @@ jobs:
             { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # A pull request never runs the full suite: what can't be read or judged runs the CANARY (journey-touch.mjs
+          # --fallback; the branch's copy only until main has it), and the seal judges the head by its own pick.
           full() {
-            echo "::warning::$1, so the full suite runs"
-            { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT"
+            echo "::warning::$1, so the CANARY runs; main's full run after the merge judges the rest"
+            canary=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --fallback 2>/dev/null) ||
+              canary=$(node tooling/ci/journey-touch.mjs --fallback 2>/dev/null) || canary=''
+            if ! [[ "$canary" =~ ^[A-Za-z0-9._\ -]+$ ]]; then
+              echo "::error::the CANARY couldn't be read, and a pull request's run is never the full suite"
+              exit 1
+            fi
+            { echo "mode=run"; echo "target=$canary"; } >> "$GITHUB_OUTPUT"
             exit 0
           }
           list="$RUNNER_TEMP/changed.txt"
@@ -242,9 +250,8 @@ jobs:
           fi
           # The revert main-bisect opens (journey-seal.mjs autoRevertScope: the App's revert/auto- branch, one commit that
           # reverts that commit, no other file) runs only the journeys that failed on main and the reverted change's own,
-          # as the seal judges it; main's full run after the merge guards main. One that touches shared setup prints no
-          # files (its `full`), so it goes on below to journey-touch's full run, the one the seal asks for. An unreadable
-          # scope, or any other pull request, goes on to the ordinary scope below.
+          # as the seal judges it, shared setup or not; main's full run after the merge guards main. An unreadable scope,
+          # or any other pull request, goes on to the ordinary scope below.
           auto=$(REPO="$GITHUB_REPOSITORY" node "$seal" --auto-revert-scope "$PR") || auto='{}'
           narrow=$(jq -r '(.files // []) | join(" ")' <<<"$auto") || narrow=''
           if [ -n "$narrow" ] && [[ "$narrow" =~ ^[A-Za-z0-9._\ -]+$ ]]; then
@@ -254,7 +261,7 @@ jobs:
           fi
           jq -r 'select(.why != null and .why != "") | .why' <<<"$auto" 2>/dev/null || true
           # --reach: product code runs only the journeys main's touched-journeys map recorded reaching it (the base's map,
-          # beside its journey-touch.mjs), else the full suite.
+          # beside its journey-touch.mjs), else its bounded set (pullPick).
           touch=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --json --reach --files-from "$list") || full "journey-touch couldn't judge this pull request"
           mode=$(jq -r .mode <<<"$touch")
           echo "journey-touch: $mode ($listed changed files)"
@@ -264,14 +271,13 @@ jobs:
           # journey files at the head run too, so the seal's named steps are proven without a manual run.
           named=$(SEAL="$seal" node -e 'import(process.env.SEAL).then((m) => { const left = new Set(m.exemptions(process.env.BODY).steps); const js = new Set(m.titleSteps(process.env.TITLE).filter((k) => !left.has(k)).map((k) => k.split("#")[0])); const dir = "apps/customer/tests/real-app"; const out = require("fs").readdirSync(dir).filter((f) => { const x = m.JOURNEY_TEST.exec(dir + "/" + f); return x && js.has(x[1]); }); console.log(out.sort().join(" ")); })') || full "the steps the title names couldn't be read"
           [ -n "$named" ] && echo "the title's steps are in: $named"
-          # Kept with the pick (#8707): a later run on this head reuses a full run only when the title then named no
-          # journey this one did not, since a full run's retries spare only the journeys it touches (the Retries step).
+          # Kept with the pick (#8707), for a later run on this head.
           { echo "named=$named"; echo "named_read=1"; } >> "$GITHUB_OUTPUT"
           case "$mode" in
             none) if [ -n "$named" ]; then { echo "mode=run"; echo "target=$named"; } >> "$GITHUB_OUTPUT"; else { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"; fi ;;
             files) { echo "mode=run"; echo "target=$(jq -r --arg n "$named" '(.files + ($n | split(" ") | map(select(. != "")))) | unique | join(" ")' <<<"$touch")"; } >> "$GITHUB_OUTPUT" ;;
-            # The full run: which journeys it touches decides which shards may retry (the Retries step).
-            *) { echo "mode=run"; echo "target="; echo "scope=full"; } >> "$GITHUB_OUTPUT" ;;
+            # Only a base copy older than pullPick prints `full`: never the full suite on a pull request.
+            *) full "journey-touch printed $mode" ;;
           esac
 
       # One journeys run per head (project-state#2065 row d32 part (b)): a pull request's targeted run leaves out the
@@ -295,12 +301,17 @@ jobs:
           NAMED: ${{ steps.pick.outputs.named }}
           NAMED_READ: ${{ steps.pick.outputs.named_read }}
         run: |
+          # A pull request's run that would run journeys with no target would be the full suite, which it never is.
+          if [ "$EVENT" = pull_request ] && [ "$MODE" = run ] && [ -z "$TARGET" ]; then
+            echo "::error::a pull request's journeys run is never the full suite (tooling/ci/journey-touch.mjs pullPick)"
+            exit 1
+          fi
           if [ "$EVENT" = pull_request ] && [ "$MODE" = run ] && out=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --reuse 2>/dev/null) && jq -e '.mode == "run" or .mode == "none"' <<<"$out" >/dev/null 2>&1; then
             why=$(jq -r '.why' <<<"$out")
             [ -n "$why" ] && echo "::notice::$why"
             mode=$(jq -r '.mode' <<<"$out")
             target=$(jq -r '.target' <<<"$out")
-            if [[ "$target" =~ ^[A-Za-z0-9._\ -]*$ ]]; then
+            if [[ "$target" =~ ^[A-Za-z0-9._\ -]*$ ]] && { [ "$mode" = none ] || [ -n "$target" ]; }; then
               { echo "mode=$mode"; echo "target=$target"; } >> "$GITHUB_OUTPUT"
               exit 0
             fi
@@ -397,30 +408,14 @@ jobs:
           only=()
           [ -n "$JOURNEYS_TARGET" ] && only=(--only "$JOURNEYS_TARGET")
           [ "$GITHUB_REF" = refs/heads/main ] && only+=(--main)
+          # A pull request's run: at most PR_MAX_SHARDS, never the full suite.
+          [ "$GITHUB_EVENT_NAME" = pull_request ] && only+=(--pull)
           shards=$(node tooling/scripts/journey-shards.mjs --shards auto "${reports[@]}" "${only[@]}")
           {
             echo "shards=$shards"
             echo "matrix=$(jq -c '[range(1; length + 1)]' <<<"$shards")"
             echo "count=$(jq length <<<"$shards")"
           } >> "$GITHUB_OUTPUT"
-      # Which shards of a pull request's full run retry a failed test once, as main's do (tooling/ci/journey-retries.mjs):
-      # those holding none of the journeys the pull request touches; a change the shards can run touches them all. Only
-      # a full run whose changed paths were read whole (the pick's `scope`); main's copy of the rule when main has it.
-      # Without it, or on any failure, no shard retries. (Failure it prevents: 14 Nov 2026, the full runs of #8375,
-      # #8385 and #8391 went red on J-cex-spot-03 #9, J-charts-desk-09 #5 and J-agents-01 #6, steps their change could
-      # not reach, which passed on main's runs and on another attempt; each re-run took 35 to 50 minutes.)
-      - name: Retries off main
-        id: retries
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.pick.outputs.scope == 'full' && steps.touch.outputs.target == '' && steps.plan.outputs.shards != '' }}
-        continue-on-error: true
-        env:
-          SHARDS: ${{ steps.plan.outputs.shards }}
-          NAMED: ${{ steps.pick.outputs.named }}
-        run: |
-          rule=.base/tooling/ci/journey-retries.mjs
-          [ -f "$rule" ] || rule=tooling/ci/journey-retries.mjs
-          out=$(node "$rule" --changed "$RUNNER_TEMP/changed.txt" --named "$NAMED" --shards "$SHARDS")
-          echo "retries=$out" >> "$GITHUB_OUTPUT"
       # The fail-fast plan (tooling/scripts/journey-fail-fast.mjs): the baseline's unbuilt steps, less each of their tests
       # that passed in a run read above. Best effort: without it nothing fails fast.
       - name: Fail-fast plan
@@ -1038,10 +1033,9 @@ jobs:
           JOURNEY_FAIL_FAST_PLAN: ${{ needs.touch.outputs.fast_plan }}
           # The unbuilt tests a push run on main leaves out (the touch job's Leave-out plan), as Playwright's test list.
           JOURNEY_LEAVE_OUT: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.touch.outputs.leave_out || '' }}
-          # One retry of a failed test on main (the set-aside above), and in a pull request's full run on a shard that
-          # holds none of the journeys it touches (the Retries step); a targeted run, a shard with a journey the pull
-          # request touches, and a run by hand off main never retry.
-          JOURNEY_RETRIES: ${{ (github.ref == 'refs/heads/main' || fromJSON(needs.touch.outputs.retries || '[]')[matrix.shard] == '1') && '1' || '0' }}
+          # One retry of a failed test on main (the set-aside above); a pull request's run and a run by hand off main
+          # never retry.
+          JOURNEY_RETRIES: ${{ github.ref == 'refs/heads/main' && '1' || '0' }}
           SHARDS: ${{ needs.touch.outputs.shards }}
           SHARD: ${{ matrix.shard }}
           TOTAL: ${{ strategy.job-total }}
