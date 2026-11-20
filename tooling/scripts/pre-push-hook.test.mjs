@@ -463,3 +463,46 @@ test('a missing install refuses the checks it stops and still runs the rest', ()
     p.done();
   }
 });
+
+// rust:check on a shared machine (project-state#3420): INTAFACED_LOCAL_JOBS becomes cargo's build jobs and test threads,
+// a planted failing Rust test still refuses the push, and a bad value refuses it naming the setting. `cargo` and `pnpm`
+// are planted first on PATH; the planted pnpm prints what cargo would be given and fails as a red test would.
+test('INTAFACED_LOCAL_JOBS bounds rust:check, which still refuses a failing Rust test', () => {
+  const p = plant({
+    base: {
+      'Cargo.toml': '[workspace]\n',
+      'tooling/ci/ci-affected.mjs': "if (process.argv.includes('--rust-files')) console.log('true');\n",
+    },
+  });
+  const bin = join(p.work, '..', 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'cargo'), '#!/bin/sh\nexit 0\n');
+  writeFileSync(
+    join(bin, 'pnpm'),
+    '#!/bin/sh\necho "rust:check jobs=${CARGO_BUILD_JOBS:-unset} threads=${RUST_TEST_THREADS:-unset}"\necho "test planted ... FAILED"\nexit 101\n',
+  );
+  chmodSync(join(bin, 'cargo'), 0o755);
+  chmodSync(join(bin, 'pnpm'), 0o755);
+  const { INTAFACED_LOCAL_JOBS: _a, CARGO_BUILD_JOBS: _b, RUST_TEST_THREADS: _c, ...env } = BUILDER;
+  const at = (extra) => p.push('feat', { ...env, ...extra, PATH: `${bin}:${process.env.PATH}` });
+  try {
+    const bounded = at({ INTAFACED_LOCAL_JOBS: '3' });
+    assert.equal(bounded.code, 1, bounded.out);
+    assert.match(bounded.out, /rust:check jobs=3 threads=3/);
+    assert.match(bounded.out, /test planted \.\.\. FAILED/);
+    assert.match(bounded.out, /rust:check failed — push refused/);
+    const own = at({ INTAFACED_LOCAL_JOBS: '3', CARGO_BUILD_JOBS: '5' });
+    assert.match(own.out, /rust:check jobs=5 threads=3/);
+    const unset = at({});
+    assert.equal(unset.code, 1, unset.out);
+    assert.match(unset.out, /rust:check jobs=unset threads=unset/);
+    for (const bad of ['0', 'two', '-1']) {
+      const r = at({ INTAFACED_LOCAL_JOBS: bad });
+      assert.equal(r.code, 1, r.out);
+      assert.match(r.out, /INTAFACED_LOCAL_JOBS must be a whole number of at least 1/);
+      assert.doesNotMatch(r.out, /rust:check jobs=/);
+    }
+  } finally {
+    p.done();
+  }
+});

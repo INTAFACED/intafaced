@@ -116,7 +116,20 @@ if [ -f "$TOP/Cargo.toml" ] && [ "$(CDPATH= cd -- "$TOP" && node tooling/ci/ci-a
     echo "  ✖ this push changes Rust, and cargo is missing — push refused. Install rustup, then the pinned toolchain:" >&2
     echo "    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none && rustup toolchain install" >&2
     refuse 'rust:check (no cargo)'
-  elif ! (CDPATH= cd -- "$TOP" && pnpm -s rust:check) </dev/null; then
+  elif [ -n "${INTAFACED_LOCAL_JOBS:-}" ] && case "$INTAFACED_LOCAL_JOBS" in *[!0-9]* | 0*) true ;; *) false ;; esac; then
+    echo "  ✖ INTAFACED_LOCAL_JOBS must be a whole number of at least 1, or unset; it is '$INTAFACED_LOCAL_JOBS' — push refused." >&2
+    refuse 'rust:check (INTAFACED_LOCAL_JOBS)'
+  # On a shared machine INTAFACED_LOCAL_JOBS bounds cargo's build jobs and test threads (tooling/scripts/local-jobs.mjs),
+  # unless CARGO_BUILD_JOBS or RUST_TEST_THREADS is set already; unset, cargo's own defaults.
+  elif ! (
+    CDPATH= cd -- "$TOP" || exit 1
+    if [ -n "${INTAFACED_LOCAL_JOBS:-}" ]; then
+      CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$INTAFACED_LOCAL_JOBS}"
+      RUST_TEST_THREADS="${RUST_TEST_THREADS:-$INTAFACED_LOCAL_JOBS}"
+      export CARGO_BUILD_JOBS RUST_TEST_THREADS
+    fi
+    pnpm -s rust:check
+  ) </dev/null; then
     echo "  ✖ rust:check failed — push refused. The failing format, lint or test is above; CI's Rust job runs the same command." >&2
     refuse 'rust:check'
   fi
