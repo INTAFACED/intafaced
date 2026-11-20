@@ -1,4 +1,5 @@
 import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useMounted, useTimeout } from '../../../shared/outside';
 import type { BalanceEntry } from '../../../data/derive';
 import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
@@ -238,7 +239,7 @@ function SideForm({
   const [status, setStatus] = useState<string | null>(null);
   // The id of the resting order that "Your order is in" is about; and whether the open list has shown it.
   const [restingId, setRestingId] = useState<string | null>(null);
-  const restingSeen = useRef(false);
+  const [restingSeen, setRestingSeen] = useState(false);
   const openOrders = useOpenOrders();
   const myFees = useMyFees();
   const feeToken = useFeeToken();
@@ -248,17 +249,10 @@ function SideForm({
   const [failure, setFailure] = useState<Failure | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  const mounted = useRef(true);
+  const mounted = useMounted();
   const spendAsset = side === 'buy' ? market.quote : market.base;
   const amountPlaces = placesOf(market.lotSize);
   const pricePlaces = placesOf(market.tickSize);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
 
   const context = useMemo(
     () => ({
@@ -270,23 +264,20 @@ function SideForm({
   );
 
   // "Your order is in" is news for a moment, not a permanent fact: it would still be on screen after the order is cancelled (critic L5).
-  useEffect(() => {
-    if (status === null) return;
-    const timer = setTimeout(() => setStatus(null), 12_000);
-    return () => clearTimeout(timer);
-  }, [status]);
+  useTimeout(() => setStatus(null), status === null ? null : 12_000, status);
 
   // ...and it goes the moment that order leaves Open orders (cancelled or filled), so it never sits beside "No open orders".
-  useEffect(() => {
-    if (restingId === null || (openOrders.status !== 'ready' && openOrders.status !== 'empty')) return;
-    const open = openOrders.status === 'ready' ? openOrders.data : [];
-    if (open.some((order) => order.id === restingId)) restingSeen.current = true;
-    else if (restingSeen.current) {
-      setStatus(null);
-      setRestingId(null);
-      restingSeen.current = false;
-    }
-  }, [restingId, openOrders]);
+  // Read during render: whether the open list (once loaded) holds that order.
+  const restingListed =
+    restingId === null || (openOrders.status !== 'ready' && openOrders.status !== 'empty')
+      ? null
+      : (openOrders.status === 'ready' ? openOrders.data : []).some((order) => order.id === restingId);
+  if (restingListed === true && !restingSeen) setRestingSeen(true);
+  else if (restingListed === false && restingSeen) {
+    setStatus(null);
+    setRestingId(null);
+    setRestingSeen(false);
+  }
 
   // Set by Flatten until its review opens; any other edit of the form drops it. `instant`: a one-click close with instant
   // placement on (J-charts-desk-14 #7) sends once the order check allows it, without the review sheet.
@@ -305,6 +296,7 @@ function SideForm({
   // Flatten (Assets): the sell form takes every free lot as a market sell and opens its review once the order check
   // allows it. The review number comes from the order itself, so pressing Flatten again for the same amount is the same
   // order, never a second one.
+  // oxlint-disable-next-line garden/no-effect-in-product -- Flatten's instant close is started by the after-commit check below, which must see this edit land one commit after the click, as the review clicks do (see `armed`)
   useEffect(() => {
     if (!suggestion?.flatten || side !== 'sell') return;
     edit(() => {
@@ -314,7 +306,7 @@ function SideForm({
       // Less than one lot is nothing to sell: no review is opened for it.
       flattenPending.current = lots !== null ? { instant: suggestion.instant === true } : null;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per click (its nonce); the form's other values are read as they stand
   }, [suggestion?.nonce]);
 
   // A click on the DOM ladder or a chart Buy/Sell (J-charts-desk-14): this side's ticket takes the price and amount and
@@ -325,6 +317,7 @@ function SideForm({
   // `instant` (J-charts-desk-14 #6): the person turned instant placement on, so the click sends once the order check and
   // the preview allow it, without the review sheet. Only the sheet is skipped: a refusal still stops it.
   const reviewPending = useRef<{ type: OrderType; armed: boolean; instant: boolean } | null>(null);
+  // oxlint-disable-next-line garden/no-effect-in-product -- a ladder or chart click's review is judged by the after-commit check below, which arms one commit after this runs (see `armed`); applying the click during render would let that check judge it against the earlier draft's preview, a different send path on a money ticket
   useEffect(() => {
     if (!suggestion?.review) return;
     if (suggestion.side !== side) {
@@ -339,22 +332,26 @@ function SideForm({
       reviewPending.current =
         lots !== null ? { type: suggestion.type ?? 'limit', armed: false, instant: suggestion.instant === true } : null;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per click (its nonce); the form's other values are read as they stand
   }, [suggestion?.nonce]);
 
-  // A click in the book or the trades list fills the price (and the cumulative amount with Shift).
-  useEffect(() => {
-    if (!suggestion || suggestion.flatten || suggestion.review) return;
-    edit(() => {
-      setPrice(padDecimals(suggestion.price, pricePlaces));
-      setTotalEdit(null);
-      if (suggestion.amount) {
-        const lots = floorToLot(suggestion.amount, market.lotSize);
-        if (lots) setAmount(lots);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suggestion?.nonce]);
+  // A click in the book or the trades list fills the price (and the cumulative amount with Shift). Taken during render,
+  // once per click (its nonce), the first render included, as the click's own render reaches this ticket.
+  // `undefined` until the first render has looked, so a click already there at mount is taken, as before.
+  const clickNonce = suggestion?.nonce ?? null;
+  const [plainNonce, setPlainNonce] = useState<number | null | undefined>(undefined);
+  if (plainNonce !== clickNonce) {
+    setPlainNonce(clickNonce);
+    if (suggestion && !suggestion.flatten && !suggestion.review)
+      edit(() => {
+        setPrice(padDecimals(suggestion.price, pricePlaces));
+        setTotalEdit(null);
+        if (suggestion.amount) {
+          const lots = floorToLot(suggestion.amount, market.lotSize);
+          if (lots) setAmount(lots);
+        }
+      });
+  }
 
   const input = { side, type, price, amount, stopPrice, stopLimit, takeProfit, tif };
   const priced = isPriced(type);
@@ -407,10 +404,18 @@ function SideForm({
   const [protection, setProtection] = useState<{ price: string; ask: string } | null>(null);
   const bestAsk = reference?.bestAsk ?? null;
   const liveProtection = live.state === 'ok' ? live.preview.protectionPrice : null;
-  useEffect(() => {
+  // Learnt from the order check during render: a new protection price, or a new ask beside it, is kept at once.
+  const [protectionSeen, setProtectionSeen] = useState<{ marketBuy: boolean; price: string | null; ask: string | null }>({
+    marketBuy: false,
+    price: null,
+    ask: null,
+  });
+  if (protectionSeen.marketBuy !== marketBuy || protectionSeen.price !== liveProtection || protectionSeen.ask !== bestAsk) {
+    setProtectionSeen({ marketBuy, price: liveProtection, ask: bestAsk });
     if (marketBuy && liveProtection && bestAsk) setProtection({ price: liveProtection, ask: bestAsk });
-  }, [marketBuy, liveProtection, bestAsk]);
+  }
   const probed = useRef(false);
+  // oxlint-disable-next-line garden/no-effect-in-product -- one probe read per ticket that must outlive the conditions that started it (its answer is kept even after leaving the market buy); useResource would abort or drop it on a key change
   useEffect(() => {
     if (!marketBuy || protection !== null || probed.current || !tradable || !bestAsk) return;
     const probe = probeAmount(market, bestAsk);
@@ -431,20 +436,29 @@ function SideForm({
         if (mounted.current && result.ok && result.data.protectionPrice)
           setProtection({ price: result.data.protectionPrice, ask: bestAsk });
       });
-  }, [marketBuy, protection, tradable, bestAsk]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [marketBuy, protection, tradable, bestAsk]); // eslint-disable-line react-hooks/exhaustive-deps -- the probe is asked once; the market and api are read as they stand
   const protectionPrice = marketBuy ? protectionNow(protection?.price ?? null, protection?.ask ?? null, bestAsk) : null;
   const max = maxAmount({ side, type, price, available, market, protectionPrice, stopLimit });
   const spendTyped = useRef(false);
   // A typed spend stays a cap while the ask moves: re-size the amount from the current protection price. Leaving a market buy drops it.
-  useEffect(() => {
-    if (totalEdit === null) return;
-    if (!marketBuy) {
-      if (spendTyped.current) setTotalEdit(null);
-      return;
+  // Kept in step during render, each time the market buy, its protection price, the typed spend or the lot changes.
+  const [spendSized, setSpendSized] = useState<{ marketBuy: boolean; price: string | null; spend: string | null; lot: string } | null>(
+    null,
+  );
+  if (
+    spendSized === null ||
+    spendSized.marketBuy !== marketBuy ||
+    spendSized.price !== protectionPrice ||
+    spendSized.spend !== totalEdit ||
+    spendSized.lot !== market.lotSize
+  ) {
+    setSpendSized({ marketBuy, price: protectionPrice, spend: totalEdit, lot: market.lotSize });
+    if (totalEdit !== null) {
+      if (!marketBuy) {
+        if (spendTyped.current) setTotalEdit(null);
+      } else if (protectionPrice !== null) setAmount(amountForValue(totalEdit, protectionPrice, market.lotSize) ?? '');
     }
-    if (protectionPrice === null) return;
-    setAmount(amountForValue(totalEdit, protectionPrice, market.lotSize) ?? '');
-  }, [marketBuy, protectionPrice, totalEdit, market.lotSize]);
+  }
   const short = live.state === 'ok' && holdShort(live.preview, spendAsset, available);
   const gate = gateSubmit({
     signedIn,
@@ -459,6 +473,7 @@ function SideForm({
   });
   const canSend = gate.canSend && (tif !== 'GTD' || expireAt !== null);
 
+  // oxlint-disable-next-line garden/no-effect-in-product -- after every commit, starts the pending click review once the asynchronous order check allows it; the trigger is the live preview settling, which no event handler here sees, and calling startReview during render would send requests from render
   useEffect(() => {
     const wanted = reviewPending.current;
     if (wanted === null || type !== wanted.type) return;
@@ -472,6 +487,7 @@ function SideForm({
     } else if (!tradable || !checked.ok || live.state === 'blocked' || live.state === 'error') reviewPending.current = null;
   });
 
+  // oxlint-disable-next-line garden/no-effect-in-product -- after every commit, starts Flatten's pending review once the asynchronous order check allows it; same reason as the click review above
   useEffect(() => {
     const wanted = flattenPending.current;
     if (!wanted || type !== 'market') return;
@@ -579,7 +595,7 @@ function SideForm({
         const done = result.data;
         const sideWord = side === 'buy' ? t('Order placed side buy') : t('Order placed side sell');
         const outcome = outcomeOf(done, tifOfDraft(sending));
-        restingSeen.current = false;
+        setRestingSeen(false);
         setRestingId(outcome.kind === 'resting' ? done.id : null);
         if (outcome.kind === 'rejected' || outcome.kind === 'noFill') {
           // Nothing traded: say so as a refusal, keep what the person typed, and never call it "done".
@@ -1369,6 +1385,7 @@ export const OrderPanel = memo(function OrderPanel({
   const attempts = useRef(0);
 
   // A book click means a limit order at that price; Flatten means a market sell.
+  // oxlint-disable-next-line garden/no-effect-in-product -- the ticket type must change one commit after the side forms took the click (child effects run first), which their click review's `armed` step counts on; setting it during render would arm that review a commit early
   useEffect(() => {
     if (suggestion && suggestion.nonce !== lastSuggestion.current) {
       lastSuggestion.current = suggestion.nonce;
@@ -1411,6 +1428,7 @@ export const OrderPanel = memo(function OrderPanel({
   const checkRef = useRef(check);
   checkRef.current = check;
   const pendingId = pendingValue?.id;
+  // oxlint-disable-next-line garden/no-effect-in-product -- a lost order's status check loop: an async check, then a growing wait (5, 10, 20, then 60 s) that starts only after that check ends, plus the check-requested bus; no shared timer hook keeps an awaited backoff, and a reply after the order changed must stop the loop
   useEffect(() => {
     if (!pendingId || pendingValue?.kind !== 'place') return;
     // First look at once, then 5, 10, 20, then every 60 seconds, so a lost order does not keep the desk over its budget.
@@ -1429,7 +1447,7 @@ export const OrderPanel = memo(function OrderPanel({
       clearTimeout(timer);
       stop();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one loop per pending order id; the check is read through checkRef
   }, [pendingId]);
 
   /** On the person's click only: the same order, the same clientOrderId. The trade service never makes two of it. */

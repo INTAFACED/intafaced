@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useEventListener, useMounted } from '../../shared/outside';
+import { useResource, type Resource } from '../../shared/resource';
 import { Check, ClipboardPaste } from 'lucide-react';
 import {
   AlertDialog,
@@ -150,17 +152,20 @@ export function SendCard({
     owner: null,
     state: 'loading',
   });
-  useEffect(() => {
-    const controller = new AbortController();
-    void pay.spaces(controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
-      setSources((previous) => {
-        if (result.ok) return { owner: userId, state: { list: sourcesFrom(result.data, Date.now()) } };
-        return previous.owner === userId && typeof previous.state === 'object' ? previous : { owner: userId, state: 'error' };
-      });
+  const spacesRead = useResource<Source[] | null>(
+    (signal) => pay.spaces(signal).then((result) => ({ ok: true as const, data: result.ok ? sourcesFrom(result.data, Date.now()) : null })),
+    `pay:send:spaces:${userId}:${revision}`,
+  );
+  // A list that has just arrived is taken once; a failed read keeps the list already on screen for this account.
+  const [spacesSeen, setSpacesSeen] = useState<Resource<Source[] | null> | null>(null);
+  if (spacesRead.resource.status === 'ready' && spacesRead.resource !== spacesSeen) {
+    setSpacesSeen(spacesRead.resource);
+    const list = spacesRead.resource.data;
+    setSources((previous) => {
+      if (list) return { owner: userId, state: { list } };
+      return previous.owner === userId && typeof previous.state === 'object' ? previous : { owner: userId, state: 'error' };
     });
-    return () => controller.abort();
-  }, [pay, userId, revision]);
+  }
   const loaded = sources.owner === userId ? sources.state : 'loading';
   const retrySources = () => {
     setSources({ owner: null, state: 'loading' });
@@ -235,16 +240,12 @@ function SendForm({
   const toast = useToast();
   // The people this customer saved to pay again: a looked-up handle is checked against them (J-pay-01 #2).
   // Kept with the account it was read for, so another account's list is never used after a switch.
-  const [savedRead, setSaved] = useState<{ owner: string; outcome: SavedRecipientsOutcome } | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    setSaved(null);
-    void fetchSavedRecipients(api, controller.signal).then((outcome) => {
-      if (!controller.signal.aborted) setSaved({ owner: userId, outcome });
-    });
-    return () => controller.abort();
-  }, [api, userId]);
-  const saved: SavedRecipientsOutcome | { kind: 'loading' } = savedRead?.owner === userId ? savedRead.outcome : { kind: 'loading' };
+  const savedRead = useResource<SavedRecipientsOutcome>(
+    (signal) => fetchSavedRecipients(api, signal).then((outcome) => ({ ok: true as const, data: outcome })),
+    `pay:send:saved:${userId}`,
+  );
+  const saved: SavedRecipientsOutcome | { kind: 'loading' } =
+    savedRead.resource.status === 'ready' ? savedRead.resource.data : { kind: 'loading' };
 
   function editTo(value: string) {
     // A new keystroke retires the answer for the old one, and any lookup still on its way.
@@ -383,16 +384,17 @@ function SendForm({
   const source = sourceId === '' ? (sources[0] ?? null) : (sources.find((row) => row.id === sourceId) ?? null);
   const [amount, setAmount] = useState('');
   const sourceGone = sourceId !== '' && source === null;
-  useEffect(() => {
+  const [sourceGoneSeen, setSourceGoneSeen] = useState(sourceGone);
+  if (sourceGoneSeen !== sourceGone) {
+    setSourceGoneSeen(sourceGone);
     if (sourceGone) setAmount('');
-  }, [sourceGone]);
+  }
   // Pin the default choice, so that if it drops out later it is "gone", not quietly replaced by the next asset.
   const firstId = sources[0]?.id ?? '';
-  useEffect(() => {
-    if (sourceId === '' && firstId !== '') setSourceId(firstId);
-  }, [sourceId, firstId]);
+  if (sourceId === '' && firstId !== '') setSourceId(firstId);
   // A payment link fills the form once per link. Everything it sets can be changed, and nothing is sent without Review.
   const appliedLink = useRef('');
+  // oxlint-disable-next-line garden/no-effect-in-product -- a payment link arrives in the URL, not through an event of this form, and applying it starts a recipient lookup (network, abort and lookup-order refs) that must not run during render
   useEffect(() => {
     if (!prefill || prefillKey === '' || appliedLink.current === prefillKey) return;
     appliedLink.current = prefillKey;
@@ -448,33 +450,24 @@ function SendForm({
   // ── The safety layer, as PersonalPay uses it ─────────────────────────────────────────────────────────────────
   const key = `${userId}:send`;
   const [, refreshGuard] = useReducer((n: number) => n + 1, 0);
-  const mounted = useRef(true);
+  const mounted = useMounted();
   const recovering = useRef<object | null>(null);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
-  // The device note is only ever read from storage again here; nothing is re-sent from it.
-  useEffect(() => {
-    mounted.current = true;
-    const restore = async () => {
-      await pay.guard.restore(key);
-      if (mounted.current) refreshGuard();
-    };
-    const returned = () => {
-      if (document.visibilityState === 'visible') void restore();
-    };
-    const changed = (event: StorageEvent) => {
-      if (event.key === `pay.unresolved:${key}` || event.key === bankPendingKey(userId) || event.key === null) void restore();
-    };
-    void restore();
-    window.addEventListener('storage', changed);
-    window.addEventListener('focus', returned);
-    document.addEventListener('visibilitychange', returned);
-    return () => {
-      mounted.current = false;
-      window.removeEventListener('storage', changed);
-      window.removeEventListener('focus', returned);
-      document.removeEventListener('visibilitychange', returned);
-    };
-  }, [pay, key, userId]);
+  // The device note is only ever read from storage again here; nothing is re-sent from it. It is read once for this
+  // account (the read's arrival draws the form again), then again when the page is back in view or another tab changes it.
+  useResource(() => pay.guard.restore(key).then(() => ({ ok: true as const, data: null })), `pay:send:guard:${key}`);
+  const restore = async () => {
+    await pay.guard.restore(key);
+    if (mounted.current) refreshGuard();
+  };
+  const returned = () => {
+    if (document.visibilityState === 'visible') void restore();
+  };
+  useEventListener<StorageEvent>(window, 'storage', (event) => {
+    if (event.key === `pay.unresolved:${key}` || event.key === bankPendingKey(userId) || event.key === null) void restore();
+  });
+  useEventListener(window, 'focus', returned);
+  useEventListener(document, 'visibilitychange', returned);
   const unresolved = pay.guard.status(key);
   const recoveryProblem = pay.guard.problem(key);
   const knownCleanup = pay.guard.knownCleanup(key);
