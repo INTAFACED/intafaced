@@ -70,7 +70,7 @@ jobs:
       # The project-state read goes through the Mac agents' GitHub App (intafaced-mac-agents, its own quota), not the
       # PROJECT_STATE_READ_TOKEN secret, which spends the shared ZenYoda3 login's 5,000 calls an hour: on 9 Nov, 9 of the
       # last 10 failed reviews stopped on a 403 from project-state while that quota was at 0 (project-state #1571).
-      # The token is cut to contents:read on project-state alone and is revoked when the job ends. The App's key is a
+      # The token is cut to contents:read, and pull-requests:read for a cited `decision` PR, on project-state alone and is revoked when the job ends. The App's key is a
       # `ci-review` environment secret, so only this default-branch workflow reads it, and only this step. Until the key
       # is set, the step is skipped and the old secret is used (the way back: delete the key). With the key set, a failed
       # mint fails the job, as any unreadable input does.
@@ -84,6 +84,7 @@ jobs:
           owner: INTAFACED
           repositories: project-state
           permission-contents: read
+          permission-pull-requests: read
 
       # The tree index the seal reads (review-marker.mjs readReviewRuns): an artifact named by this head's tree sha, so
       # a FAIL is found when the same code comes back on another branch without listing every run of this workflow (a
