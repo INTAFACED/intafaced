@@ -1,13 +1,17 @@
-// World: none
+// World: gates
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { EDGE, api, signOutBrowser } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
+import { ADMIN } from './admin.mjs';
+import { answerAfterNavigation } from './navigation.mjs';
 
 // J-charts-desk-17, in the running app (docs/roadmap/journeys.json): compare markets on one chart, arrange its indicator
 // panes, then snapshot, link,
 // print and export it. One test per step, titled "J-charts-desk-17 #<n>". The compare cap is the owner's value served by
 // svc-trade; the local stack sets a labelled TEST value of 3 (local-test-gates.mjs charts). Bars are TEST trades.
+// #1 clears that platform-wide cap in the founder console to see the cap-unset refusal, and puts the value it found back
+// before it ends, through the same page, with a reason.
 const J = 'J-charts-desk-17';
 const CHART = '/charts/BTC-USDT';
 
@@ -37,10 +41,71 @@ async function others(page) {
 /** Whether the public candle route holds bars for a market at the chart's interval (15m), so its line has points to draw. */
 async function hasBars(symbol) {
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent(symbol)}?timeframe=15m&limit=5`);
-  return res.ok && (await res.json()).length > 0;
+  return res.ok && (await res.json()).length > 1;
 }
 
-test(`${J} #1 adds symbols to a BTC chart, each a removable line; past the cap the add is refused`, async ({ page }) => {
+/** The colour tokens the chart gives its compared lines, slot by slot (CompareTools COMPARE_TOKENS). */
+const LINE_TOKENS = ['--if-ma-1', '--if-ma-2', '--if-ma-3'];
+
+/**
+ * How many pixels of the drawn chart are in each line token's colour, read from a picture of the chart itself: a compared
+ * line drawn on the canvas raises its own colour's count. The token's colour is resolved by the browser as the line is.
+ */
+async function inkOf(page) {
+  const png = await canvas(page).screenshot();
+  return page.evaluate(
+    async ({ b64, tokens }) => {
+      const one = document.createElement('canvas');
+      one.width = 1;
+      one.height = 1;
+      const dot = one.getContext('2d', { willReadFrequently: true });
+      const colours = tokens.map((token) => {
+        dot.clearRect(0, 0, 1, 1);
+        dot.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+        dot.fillRect(0, 0, 1, 1);
+        return Array.from(dot.getImageData(0, 0, 1, 1).data.slice(0, 3));
+      });
+      const img = new Image();
+      img.src = `data:image/png;base64,${b64}`;
+      await img.decode();
+      const c = document.createElement('canvas');
+      [c.width, c.height] = [img.width, img.height];
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, c.width, c.height).data;
+      const counts = colours.map(() => 0);
+      for (let i = 0; i < data.length; i += 4)
+        colours.forEach(([r, g, b], n) => {
+          if (Math.abs(data[i] - r) + Math.abs(data[i + 1] - g) + Math.abs(data[i + 2] - b) <= 24) counts[n] += 1;
+        });
+      return counts;
+    },
+    { b64: png.toString('base64'), tokens: LINE_TOKENS },
+  );
+}
+
+const SETTINGS = `${ADMIN}/trade-ops/charts/settings`;
+
+/** In the founder console's charts settings, types `value` (blank clears) as the compare cap and saves it with `reason`. */
+async function saveCompareCap(desk, value, reason) {
+  await desk.goto(SETTINGS);
+  await expect(desk.getByRole('heading', { name: 'Charts settings', exact: true })).toBeVisible();
+  const input = desk.getByLabel('Compare cap: new value', { exact: true });
+  await input.fill(value);
+  await desk.getByRole('row').filter({ has: input }).getByRole('button', { name: 'Save', exact: true }).click();
+  const dialog = desk.getByRole('alertdialog');
+  await dialog.getByLabel('Reason (kept in the audit)', { exact: true }).fill(reason);
+  await dialog.getByRole('button', { name: 'Save value', exact: true }).click();
+  await expect(dialog.locator('[data-outcome=ok]')).toBeVisible();
+}
+
+test(`${J} #1 adds symbols to a BTC chart, each a removable line; past the cap the add is refused`, async ({
+  page,
+  browser,
+  founders,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
   await openChart(page);
   const offered = await others(page);
   // The cap is the owner's value (a TEST 3 on the stack), and the stack lists more markets than that, so the add past
@@ -53,24 +118,37 @@ test(`${J} #1 adds symbols to a BTC chart, each a removable line; past the cap t
   for (const symbol of offered) if (traded.length < 3 && (await hasBars(symbol))) traded.push(symbol);
   expect(traded, 'three listed markets have bars to draw').toHaveLength(3);
   expect(cap, 'the cap admits the three symbols the step adds').toBeGreaterThanOrEqual(3);
-  const list = tools(page).getByRole('list', { name: 'Compared markets' });
+  const list = tools(page).getByRole('list', { name: 'Compared markets', exact: true });
   let added = 0;
   const order = [...traded, ...offered.filter((s) => !traded.includes(s))];
   for (const symbol of order.slice(0, cap)) {
+    // Each of the three traded symbols is drawn on the chart itself as a line in its own slot's colour: the pixels of
+    // that colour on the canvas rise once it is added (the market is still, so nothing else on the chart moves).
+    const slot = added;
+    const before = slot < traded.length ? (await inkOf(page))[slot] : 0;
     await tools(page)
       .getByRole('combobox', { name: /Compare with/ })
       .selectOption(symbol);
     await tools(page).getByRole('button', { name: 'Add', exact: true }).click();
     added += 1;
     await expect(list.getByRole('listitem')).toHaveCount(added);
+    if (slot < traded.length) {
+      await expect(list.getByRole('listitem').nth(slot)).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+      await expect
+        .poll(async () => (await inkOf(page))[slot] - before, { message: `${symbol} is drawn as a line on the chart` })
+        .toBeGreaterThan(20);
+    }
   }
   // Each of the three is its own row, named by its symbol, whose line was drawn with its bars (ready, never empty).
   for (const [n, symbol] of traded.entries()) {
     const item = list.getByRole('listitem').nth(n);
     await expect(item).toContainText(symbol);
     await expect(item).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
-    await expect(item.getByRole('button', { name: `Remove ${symbol}` })).toBeVisible();
+    await expect(item.getByRole('button', { name: `Remove ${symbol}`, exact: true })).toBeVisible();
   }
+  // Three lines at once, each in its own colour.
+  const ink = await inkOf(page);
+  for (const [n, symbol] of traded.entries()) expect(ink[n], `${symbol}'s line is on the chart`).toBeGreaterThan(20);
   for (let i = 0; i < added; i += 1) await expect(list.getByRole('button', { name: /^Remove / }).nth(i)).toBeVisible();
   await tools(page)
     .getByRole('combobox', { name: /Compare with/ })
@@ -79,12 +157,53 @@ test(`${J} #1 adds symbols to a BTC chart, each a removable line; past the cap t
   await expect(page.getByTestId('compare-note')).toContainText(`A chart can compare ${cap} markets`);
   await expect(page.getByTestId('compare-note')).toHaveAttribute('data-code', 'trade.chart.compare_cap_reached');
   await expect(list.getByRole('listitem')).toHaveCount(cap);
-  // A row comes off with its remove control.
-  await list
-    .getByRole('button', { name: /^Remove / })
-    .first()
-    .click();
+  // The step's picture: the lines, their rows and the cap refusal, from the top with nothing focused.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture(page);
+  // A row comes off with its remove control, and its line leaves the chart.
+  const last = traded.length - 1;
+  await list.getByRole('button', { name: `Remove ${traded[last]}`, exact: true }).click();
   await expect(list.getByRole('listitem')).toHaveCount(added - 1);
+  // (With a cap above three, a fourth row would move into that slot and take its colour, so only then is the drop read.)
+  if (added === traded.length)
+    await expect
+      .poll(async () => (await inkOf(page))[last], { message: `${traded[last]}'s line leaves the chart` })
+      .toBeLessThan(ink[last] - 20);
+
+  // The cap-unset error: with the owner's compare cap blank, every add is refused and nothing is added.
+  const { page: desk } = await founders.console('a');
+  const run = Date.now().toString(36);
+  await saveCompareCap(desk, '', `${J} #1 clears the compare cap to see the customer refusal (TEST ${run})`);
+  try {
+    await expect.poll(async () => (await ownerValues()).compareCap).toBeNull();
+    const customer = await browser.newContext();
+    const chart = await customer.newPage();
+    // The chart reads the owner values as it opens; an add pressed before that answer says the cap is still loading:
+    // wait for the chart's own read of the blank cap, then press once.
+    const read = await answerAfterNavigation(
+      chart,
+      (r) => r.url().includes('/api/v1/charts/owner-values'),
+      () => chart.goto(CHART),
+    );
+    expect((await read.json()).compareCap).toBeNull();
+    await expect.poll(async () => Number(await canvas(chart).getAttribute('data-bars')), { timeout: 30_000 }).toBeGreaterThan(0);
+    const picker = tools(chart).getByRole('combobox', { name: /Compare with/ });
+    await expect(picker.locator('option').first()).toBeAttached({ timeout: 30_000 });
+    await picker.selectOption(traded[0]);
+    const bare = (await inkOf(chart))[0];
+    await tools(chart).getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(chart.getByTestId('compare-note')).toContainText('compare limit, which is not set. Nothing was added.');
+    await expect(chart.getByTestId('compare-note')).toHaveAttribute('data-code', 'trade.chart.owner_value_unset');
+    await expect(tools(chart).getByRole('list', { name: 'Compared markets', exact: true }).getByRole('listitem')).toHaveCount(0);
+    expect((await inkOf(chart))[0] - bare, 'no compared line is drawn').toBeLessThanOrEqual(20);
+    await customer.close();
+  } finally {
+    await saveCompareCap(desk, String(cap), `${J} #1 puts the TEST compare cap back as it was (TEST ${run})`);
+    await expect.poll(async () => (await ownerValues()).compareCap).toBe(cap);
+  }
 });
 
 test(`${J} #2 turns percent mode on and every series is rebased to the same start`, async ({ page }) => {
@@ -286,6 +405,7 @@ test(`${J} #5 exports the visible bars to a file`, async ({ page }) => {
 
 test(`${J} #3 reorders, collapses, resizes and maximises indicator panes, and moves one to the main pane; each pane acts and persists`, async ({
   page,
+  stepPicture,
 }) => {
   // 1m: RSI 14 needs 15 bars at the chart's interval, and the stack's 1m history is the longest of the TEST intervals.
   await openChart(page, '/charts/BTC-USDT?interval=1m');
@@ -382,6 +502,13 @@ test(`${J} #3 reorders, collapses, resizes and maximises indicator panes, and mo
   await expect.poll(() => paneOf('volume-1')).toBe(0);
   await expect.poll(() => paneOf('rsi-1')).toBe(1);
   await expect.poll(async () => (await heights()).every((h, n) => Math.abs(h - keptHeights[n]) <= 2)).toBe(true);
+  // The step's picture: the panes as they came back, from the top with nothing focused (a whole-page picture taken while
+  // scrolled to the pane controls drew the sticky header over the chart: run 44524037772 read BROKEN).
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture(page);
   // And back to its own pane, under RSI.
   await press(VOL, 'Move .* to its own pane');
   await expect.poll(order).toEqual(['rsi-1', 'volume-1']);

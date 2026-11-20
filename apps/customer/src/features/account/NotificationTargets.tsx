@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
+import {
+  accountNotifyOutOfAppSchema,
+  accountNotifyTargetSchema,
+  accountTargetRegisteredSchema,
+  accountTargetRemovedSchema,
+  accountTargetVerifiedSchema,
+} from '@intafaced/contracts/notify-account-room';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, Failure, Field, Loading } from '../../shared/ui';
@@ -7,27 +14,16 @@ import { useSession } from '../session';
 import { notificationTargetsCopy as copy } from './notification-targets-copy';
 import './notification-targets.css';
 
-const channel = z.enum(['email', 'sms', 'push']);
-type Channel = z.infer<typeof channel>;
-const date = z.string().datetime({ offset: true });
-const target = z.object({ channel, address: z.string().min(1), locale: z.string(), verifiedAt: date.nullable() });
+type Channel = z.infer<typeof accountNotifyOutOfAppSchema>;
+const target = accountNotifyTargetSchema;
 const targets = z
   .array(target)
   .max(3)
   .refine((rows) => new Set(rows.map((row) => row.channel)).size === rows.length, 'Duplicate targets');
 type Target = z.infer<typeof target>;
 const signature = (row: Target | undefined) => JSON.stringify(row ? [row.channel, row.address, row.locale, row.verifiedAt] : null);
-const refusal = z
-  .string()
-  .min(1)
-  .refine((value) => !/^\d{6}$/.test(value), 'A refusal is not a verification code')
-  .nullable();
-const registration = z
-  .object({ status: z.enum(['sent', 'refused', 'failed']), channel, code: refusal, expiresAt: date })
-  .refine((row) => (row.status === 'refused' ? row.code !== null : row.code === null), 'Invalid registration outcome');
-const verification = z
-  .object({ verified: z.boolean(), code: refusal })
-  .refine((row) => !row.verified || row.code === null, 'Invalid verification outcome');
+const registration = accountTargetRegisteredSchema;
+const verification = accountTargetVerifiedSchema;
 type Action = { kind: 'register'; address: string; locale: string } | { kind: 'verify'; code: string } | { kind: 'remove' };
 type Note = {
   key:
@@ -139,7 +135,7 @@ function OwnerTargets({ userId, revision, onChanged }: OwnerProps) {
             code: result.data.code,
           });
       } else {
-        const result = await api.mutate('notify', 'notify.removeTarget', { channel: id }, z.object({ removed: z.boolean() }));
+        const result = await api.mutate('notify', 'notify.removeTarget', { channel: id }, accountTargetRemovedSchema);
         outcome = result;
         if (alive.current && result.ok)
           setNote({

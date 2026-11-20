@@ -54,6 +54,14 @@ const source = (service: string) => {
   return [...filesOf('router', '.router.ts'), ...filesOf('routes', '.ts'), readFileSync(join(src, 'router.ts'), 'utf8')].join('\n');
 };
 
+/** `crates/<service>/src/door/calls.rs` as path → kind (`Query` or `Mutation`), or null when the service is not Rust. */
+const rustCalls = (service: string): Map<string, string> | null => {
+  const file = fileURLToPath(new URL(`../../../../../crates/${service}/src/door/calls.rs`, import.meta.url));
+  if (!existsSync(file)) return null;
+  const text = readFileSync(file, 'utf8');
+  return new Map([...text.matchAll(/path: "([^"]+)",\s*kind: Kind::(Query|Mutation),/g)].map((m) => [m[1]!, m[2]!]));
+};
+
 // The transfer record is read on request, so it sits in no section; it is held to the same rules as every other read.
 const all = [
   ...DESK_IDS.flatMap((id) => allReads(DESKS[id]).map((read) => ({ desk: DESKS[id] as DeskSpec, read }))),
@@ -447,6 +455,13 @@ describe('every read names a QUERY that exists in the owning router (drift guard
   it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
     const service = ROUTER[read.module];
     expect(service, `${read.module} has a router mapping`).not.toBeNull();
+    // A Rust service (svc-academy) lists every call its door serves, with its kind, in one table (`src/door/calls.rs`).
+    const calls = rustCalls(service!);
+    if (calls) {
+      expect(calls.get(read.procedure), `${service} has ${read.procedure}`).toBeDefined();
+      expect(calls.get(read.procedure), `${read.procedure} is a query`).toBe('Query');
+      return;
+    }
     // svc-bank mounts the bill and global send routers from personal-pay/router.ts (`bills.ops.*`, `global.ops.*`).
     const nested = read.procedure.split('.').length === 3;
     const text = nested ? personalPayRouter() : source(service!);

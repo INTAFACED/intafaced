@@ -4,11 +4,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { touchesTypes } from './pre-push-typecheck.mjs';
+import { touchesTypes, typecheckArgs } from './pre-push-typecheck.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -26,7 +26,8 @@ function plant({ change, pnpm }) {
   git(work, 'config', 'user.email', 't@example.invalid');
   git(work, 'config', 'user.name', 't');
   mkdirSync(join(work, 'tooling', 'scripts'), { recursive: true });
-  copyFileSync(join(ROOT, 'tooling', 'scripts', 'pre-push-typecheck.mjs'), join(work, 'tooling', 'scripts', 'pre-push-typecheck.mjs'));
+  for (const f of ['pre-push-typecheck.mjs', 'local-jobs.mjs'])
+    copyFileSync(join(ROOT, 'tooling', 'scripts', f), join(work, 'tooling', 'scripts', f));
   write(
     'tooling/ci/ci-affected.mjs',
     'export const readEdges = () => ({});\nexport const affectedFilters = (_f, _e, base) => [`...[${base}]`];\n',
@@ -43,16 +44,22 @@ function plant({ change, pnpm }) {
   mkdirSync(bin);
   writeFileSync(join(bin, 'pnpm'), `#!/bin/sh\necho "pnpm $*" > '${join(dir, 'ran')}'\n${pnpm}\n`);
   chmodSync(join(bin, 'pnpm'), 0o755);
-  const run = (...args) => {
+  const { INTAFACED_LOCAL_JOBS: _unset, ...env } = process.env;
+  const run = (args = [], extra = {}) => {
     const t = Date.now();
     const r = spawnSync('node', ['tooling/scripts/pre-push-typecheck.mjs', ...args], {
       cwd: work,
       encoding: 'utf8',
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      env: { ...env, ...extra, PATH: `${bin}:${process.env.PATH}` },
     });
     return { code: r.status, out: `${r.stdout}${r.stderr}`, ms: Date.now() - t };
   };
-  return { run, ran: () => existsSync(join(dir, 'ran')), done: () => rmSync(dir, { recursive: true, force: true }) };
+  return {
+    run,
+    ran: () => existsSync(join(dir, 'ran')),
+    args: () => readFileSync(join(dir, 'ran'), 'utf8'),
+    done: () => rmSync(dir, { recursive: true, force: true }),
+  };
 }
 
 test('what counts as a TypeScript change', () => {
@@ -79,7 +86,7 @@ test('a push that touches no TypeScript package pays under 2 seconds and runs no
 test('a planted slow typecheck prints TIMEOUT, is stopped at the limit, and the push goes', () => {
   const p = plant({ change: { 'services/svc-x/src/a.ts': 'export const a = 1;\n' }, pnpm: 'sleep 30' });
   try {
-    const r = p.run('--limit', '1');
+    const r = p.run(['--limit', '1']);
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /TIMEOUT after 1s/);
     assert.ok(r.ms < 10000, `took ${r.ms} ms: the slow typecheck was not stopped`);
@@ -100,6 +107,39 @@ test("a type error refuses the push with the compiler's line, over CI's own sele
     assert.match(r.out, /TS2339 \| Property 'n' does not exist/);
     assert.match(r.out, /typecheck failed .* push refused/);
     assert.match(r.out, /reaches \(\.\.\.\[[0-9a-f]{40}\]\)/);
+  } finally {
+    p.done();
+  }
+});
+
+test('INTAFACED_LOCAL_JOBS bounds how many packages turbo checks at once; unset, turbo keeps its own default (project-state#3420)', () => {
+  assert.deepEqual(typecheckArgs(['@intafaced/a'], {}), [
+    'turbo',
+    'run',
+    'typecheck',
+    '--output-logs=errors-only',
+    '--filter=@intafaced/a',
+  ]);
+  assert.deepEqual(typecheckArgs(['@intafaced/a'], { INTAFACED_LOCAL_JOBS: '2' }), [
+    'turbo',
+    'run',
+    'typecheck',
+    '--output-logs=errors-only',
+    '--concurrency=2',
+    '--filter=@intafaced/a',
+  ]);
+  for (const bad of ['0', '-1', 'two', '1.5', ' 2'])
+    assert.throws(() => typecheckArgs([], { INTAFACED_LOCAL_JOBS: bad }), /INTAFACED_LOCAL_JOBS must be a whole number/);
+});
+
+test('bounded, a type error still refuses the push, and turbo was told the bound', () => {
+  const p = plant({ change: { 'services/svc-x/src/a.ts': 'export const a = 1;\n' }, pnpm: 'echo "src/a.ts | TS2322 | planted"; exit 2' });
+  try {
+    const r = p.run([], { INTAFACED_LOCAL_JOBS: '2' });
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /TS2322 \| planted/);
+    assert.match(r.out, /limit 240s, 2 at once/);
+    assert.match(p.args(), /--concurrency=2 /);
   } finally {
     p.done();
   }

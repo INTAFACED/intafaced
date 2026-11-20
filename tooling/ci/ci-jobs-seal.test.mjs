@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { existsSync, readFileSync } from 'node:fs';
 import {
   CI_WORKFLOW_PATH,
+  FRESH_MAIN_STEP,
   MONEY_JOB,
   MONEY_PATHS,
   MONEY_WORKFLOW_PATH,
@@ -13,6 +14,7 @@ import {
   GATE_PATHS,
   ciRunFor,
   jobResults,
+  judgedOnFreshMain,
   judgeCiJobs,
   modelVerdict,
   moneyVerdict,
@@ -273,6 +275,56 @@ test('project-state#3326: a lint change is cleared by a Doctrine gates job that 
   assert.match(g.lines[0], /merge origin\/main and push/);
   // A lint change already in main when the job started is no change.
   assert.equal(rulesVerdict({ run: ci, jobs: rerun, changes: [{ ...lint, date: '2026-11-17T21:39:00Z' }] }).ok, true);
+});
+
+// #9170 on 20 Nov 2026: CI run 44656912296 was made at 01:53:53Z and its Doctrine gates job 136025275837 started at
+// 01:53:56Z; main changed the gate list in f8f945e416 (#9163) at 02:02:04Z. The seal told it to merge main and push, and
+// the pull request ran everything again. A gates job that judged on main afresh is re-run alone instead.
+test('project-state#3035: a gate-list change is cleared by re-running a Doctrine gates job that judges on main afresh', () => {
+  const ci = run(44656912296, { created_at: '2026-11-20T01:53:53Z' });
+  const gate = {
+    sha: 'f8f945e416af154cde1c9e300d27d1ff07530ba0',
+    date: '2026-11-20T02:02:04Z',
+    title: 'fix(tooling): one type-check command (#9163)',
+    path: 'tooling/ci/gates.mjs',
+  };
+  const step = (conclusion) => ({ name: FRESH_MAIN_STEP, status: 'completed', conclusion });
+  const gates = (id, started_at, steps) => ({ id, name: 'Doctrine gates', status: 'completed', conclusion: 'success', started_at, steps });
+  const first = gates(136025275837, '2026-11-20T01:53:56Z', [step('success')]);
+  // The job judged before the change: refused, and told to re-run that job, not to merge main and push.
+  const before = rulesVerdict({ run: ci, jobs: [first], changes: [gate] });
+  assert.equal(before.ok, false);
+  assert.match(before.lines[0], /gh run rerun 44656912296 --job 136025275837/);
+  assert.doesNotMatch(before.lines[0], /merge origin\/main/);
+  // Its re-run started after the change: it judged by the gate list main has now.
+  const rerun = gates(136025999999, '2026-11-20T02:10:00Z', [step('success')]);
+  assert.equal(rulesVerdict({ run: ci, jobs: [first, rerun], changes: [gate] }).ok, true);
+  // A re-run that started before the change still fails: the newest job's own start decides.
+  assert.equal(rulesVerdict({ run: ci, jobs: [first, { ...rerun, started_at: '2026-11-20T02:02:00Z' }], changes: [gate] }).ok, false);
+  // Planted: a re-run without the step (a merge commit from before ci.yml had it) re-judges the old merge commit: merge
+  // main and push, as before.
+  for (const steps of [[], [step('skipped')], [step('failure')], undefined]) {
+    const v = rulesVerdict({ run: ci, jobs: [first, { ...rerun, steps }], changes: [gate] });
+    assert.equal(v.ok, false, JSON.stringify(steps));
+    assert.match(v.lines[0], /merge origin\/main and push/);
+  }
+  assert.equal(judgedOnFreshMain(undefined), false);
+});
+
+test("project-state#3035: ci.yml's Doctrine gates job merges the head onto main fetched afresh before any gate or install", () => {
+  const yml = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const job = yml.slice(yml.indexOf('    name: Doctrine gates\n'), yml.indexOf('\n  changes:\n'));
+  assert.ok(job.length > 0, 'the Doctrine gates job');
+  const at = job.indexOf(`- name: ${FRESH_MAIN_STEP}\n`);
+  assert.ok(at > job.indexOf('actions/checkout@') && at > 0, 'after the checkout');
+  assert.ok(at < job.indexOf('- run: pnpm install') && at < job.indexOf('run: pnpm gates'), 'before the install and the gates');
+  const body = job.slice(at, job.indexOf('- uses:', at));
+  assert.match(body, /if: github\.event_name == 'pull_request'\n/);
+  assert.match(body, /head=\$\(git rev-parse --verify HEAD\^2\)/, "the pull request's head is the merge commit's second parent");
+  assert.match(body, /git fetch --no-tags --quiet origin \+refs\/heads\/main:refs\/remotes\/origin\/main/, 'main afresh, as origin/main');
+  assert.match(body, /git checkout --quiet --detach refs\/remotes\/origin\/main/, 'main is the first parent');
+  assert.match(body, /merge --quiet --no-ff --no-edit "\$head"/, 'the head is the second');
+  assert.match(body, /exit 1/, 'a conflict fails the job');
 });
 
 test('project-state#3326: no rule change since CI took the rules passes; no CI run is for judgeCiJobs to hold', () => {

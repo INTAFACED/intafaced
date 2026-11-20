@@ -12,7 +12,7 @@ import {
   mailedConfirmLinks,
   nextMailedCode,
   ORIGIN,
-  restartWith,
+  restartService,
   signOutBrowser,
   stackFile,
   tool,
@@ -117,29 +117,13 @@ async function signUpStart(who, fields = {}) {
 }
 
 /** Identity restarted with sign-up published as closed, or back on the stack's TEST "open". */
-function registration(open) {
-  const before = process.env.LOCAL_STACK_IDENTITY_REGISTRATION;
-  if (open) delete process.env.LOCAL_STACK_IDENTITY_REGISTRATION;
-  else process.env.LOCAL_STACK_IDENTITY_REGISTRATION = 'closed';
-  try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_REGISTRATION;
-    else process.env.LOCAL_STACK_IDENTITY_REGISTRATION = before;
-  }
+async function registration(open) {
+  await restartService('identity', { LOCAL_STACK_IDENTITY_REGISTRATION: open ? undefined : 'closed' });
 }
 
 /** Identity restarted with no mail transport, as a build without a mail provider runs, or back on the stack's outbox. */
-function mail(on) {
-  const before = process.env.LOCAL_STACK_IDENTITY_MAIL;
-  if (on) delete process.env.LOCAL_STACK_IDENTITY_MAIL;
-  else process.env.LOCAL_STACK_IDENTITY_MAIL = 'off';
-  try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_MAIL;
-    else process.env.LOCAL_STACK_IDENTITY_MAIL = before;
-  }
+async function mail(on) {
+  await restartService('identity', { LOCAL_STACK_IDENTITY_MAIL: on ? undefined : 'off' });
 }
 
 /** Nothing was made for `who`: the password does not sign in. */
@@ -229,7 +213,7 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
   await noAccount(who);
 
   // With the owner's sign-up closed, the same good record is refused in words and nothing is made.
-  registration(false);
+  await registration(false);
   try {
     await details(page, who);
     await expect(notice(page)).toContainText('Sign-up is closed right now. Nothing was created.', { timeout: 15_000 });
@@ -237,7 +221,7 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
     await expect(page.getByRole('heading', { name: /Check your email/i })).toHaveCount(0);
     await noAccount(who);
   } finally {
-    registration(true);
+    await registration(true);
   }
 
   // A good record, with its account type picked, goes on to the code step; still no account until the code is entered.
@@ -275,7 +259,7 @@ test(`${J} #2 a too-short or breached password is refused with the rule in words
 
   // With the owner's breached-password list not set (identity restarted without it), the page says it is not set,
   // beside the password rule, before anything is typed.
-  restartWith('identity', 'LOCAL_STACK_IDENTITY_BREACH_LIST', false);
+  await restartService('identity', { LOCAL_STACK_IDENTITY_BREACH_LIST: 'off' });
   try {
     // Identity may still be coming back up: open the page again until it has asked identity and shows the answer.
     await expect(async () => {
@@ -287,7 +271,7 @@ test(`${J} #2 a too-short or breached password is refused with the rule in words
     );
     await expect(page.getByText(/At least 12 characters/)).toBeVisible();
   } finally {
-    restartWith('identity', 'LOCAL_STACK_IDENTITY_BREACH_LIST', true);
+    await restartService('identity', { LOCAL_STACK_IDENTITY_BREACH_LIST: undefined });
   }
 });
 
@@ -359,7 +343,7 @@ test(`${J} #4 "check your email" reads the same for a known address, an early re
   // With email switched off, the notice names it and no code is mailed; Email stays picked, nothing goes by phone, and
   // the person is offered the other channel to pick.
   const offline = person();
-  mail(false);
+  await mail(false);
   try {
     await details(page, offline);
     await expect(notice(page)).toContainText('Email delivery is switched off in this build, so a sign-up code cannot be sent.', {
@@ -374,7 +358,7 @@ test(`${J} #4 "check your email" reads the same for a known address, an early re
     expect(mailedCodes(offline.email)).toHaveLength(0);
     await noAccount(offline);
   } finally {
-    mail(true);
+    await mail(true);
   }
 });
 
@@ -496,7 +480,7 @@ test(`${J} #7 Account shows "verify your email", sends a code and the person typ
 test(`${J} #7 with email delivery switched off, sending the code from Account says so by name and nothing is sent`, async ({ page }) => {
   test.setTimeout(180_000);
   const who = await unprovedAccount();
-  mail(false);
+  await mail(false);
   try {
     await signIn(page, who);
     await page.goto('/uc/account');
@@ -509,7 +493,7 @@ test(`${J} #7 with email delivery switched off, sending the code from Account sa
     await expect(banner.getByLabel(/Code from the email/i)).toHaveCount(0);
     expect(mailedCodes(who.email, 'email-confirm')).toHaveLength(0);
   } finally {
-    mail(true);
+    await mail(true);
   }
 });
 
@@ -698,16 +682,8 @@ test(`${J} #8 a verified, funded account with an email never proved is stopped a
 });
 
 /** Identity restarted with no blocked list at all (no list, no rows, fail-closed on), or back on the stack's own list. */
-function screeningList(set) {
-  const before = process.env.LOCAL_STACK_IDENTITY_SCREENING;
-  if (set) delete process.env.LOCAL_STACK_IDENTITY_SCREENING;
-  else process.env.LOCAL_STACK_IDENTITY_SCREENING = 'unset';
-  try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_SCREENING;
-    else process.env.LOCAL_STACK_IDENTITY_SCREENING = before;
-  }
+async function screeningList(set) {
+  await restartService('identity', { LOCAL_STACK_IDENTITY_SCREENING: set ? undefined : 'unset' });
 }
 
 /** Refused at the door: the code step never opens, nothing is mailed for this person and no account exists. */
@@ -776,7 +752,7 @@ test(`${J} #9 a blocked province is refused with its reason, a US person from th
   await nothingMade(page, who, first);
 
   // With the owner's blocked list blank, sign-up refuses and says the list is not set; nothing is made.
-  screeningList(false);
+  await screeningList(false);
   try {
     first = outbox();
     await details(page, who);
@@ -789,7 +765,7 @@ test(`${J} #9 a blocked province is refused with its reason, a US person from th
     await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toHaveCount(0);
     expect((await gainedSince(page, first)).filter((line) => line.includes(who.email) || line.includes(who.handle))).toEqual([]);
   } finally {
-    screeningList(true);
+    await screeningList(true);
   }
   await noAccount(who);
 

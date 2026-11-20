@@ -7,10 +7,11 @@
  * job, `--release`), re-runs the newest deferred run of each branch, whose jobs then queue behind main's. It never gives
  * up on main (a deferred run starts only when main's shards are queued), never waits on a runner, never fails a run and
  * never touches a main run; an unreadable API lets the run go on at once. A targeted run (TARGETED: the touch job gave it
- * journey files, so the planner packs it into at most 10 shards, journey-shards.mjs TARGETED_MAX_SHARDS) never waits for
+ * journey files, so the planner packs it into at most 30 shards, journey-shards.mjs PR_MAX_SHARDS) never waits for
  * main: only a full run off main does (theo-01 part 0, project-state#2065, 11 Nov 2026: 20 of the 100 newest pull
  * request runs were deferred on their first attempt and re-run a median 39 minutes later, and the approved design had
- * struck main-first priority; main's 32 shards lose at most 10 runners to one such run). A hand-dispatched full run off main
+ * struck main-first priority; main's 32 shards lost at most 10 runners to one such run then; on 20 Nov 2026, with main
+ * at 90 shards and a pull request's run at up to 30, 526 shard jobs waited 2 seconds at the median, project-state#3035). A hand-dispatched full run off main
  * (DISPATCH_FULL) is also deferred while DISPATCH_CAP other hand-dispatched full runs run, and each of those, when it
  * ends, lets the deferred ones go too.
  *

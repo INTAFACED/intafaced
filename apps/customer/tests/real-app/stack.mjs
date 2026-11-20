@@ -117,6 +117,15 @@ export function journeyState(id) {
   };
 }
 
+/** A step's read of its run (`journeyState`), refusing by name when an earlier step left one of `keys` unset. */
+export function stepState(run, J) {
+  return function state(...keys) {
+    const s = run.read();
+    for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
+    return s;
+  };
+}
+
 /** How long a stack tool may run. */
 const TOOL_CAP_MS = 120_000;
 /** How much of a tool's shown output its error keeps, from the end, so a timed-out restart says where it stood. */

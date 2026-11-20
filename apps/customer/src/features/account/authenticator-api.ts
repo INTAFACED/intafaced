@@ -1,26 +1,22 @@
-import { z } from 'zod';
+import type { z } from 'zod';
+import {
+  stepUpBegunSchema,
+  stepUpDoneSchema,
+  totpDisabledSchema,
+  totpReplacedSchema,
+  totpReplaceStartedSchema,
+  totpStatusSchema,
+} from '@intafaced/contracts/identity-account-room';
 
 /** Answer shapes for the `totpManage` procedures and the step-up that gates turning off or replacing. */
-export const totpStatus = z.object({
-  enabled: z.boolean(),
-  label: z.string().nullable(),
-  enrolledAt: z.string().nullable(),
-  recoveryCodesLeft: z.number().int().min(0),
-});
+export const totpStatus = totpStatusSchema;
 export type TotpStatus = z.infer<typeof totpStatus>;
 
-export const stepUpBegun = z.object({ challengeId: z.string().guid() }).passthrough();
-export const stepUpDone = z.object({ stepUpApprovalId: z.string().min(1) }).passthrough();
-export const disabledAnswer = z.object({ disabled: z.literal(true), recoveryCodeSpent: z.boolean() });
-export const replaceStarted = z.object({ secret: z.string().regex(/^[A-Z2-7]{16,}$/), uri: z.string() });
-export const replacedAnswer = z.object({
-  replaced: z.literal(true),
-  recoveryCodeSpent: z.boolean(),
-  /** The new recovery codes, shown once; the old ones stopped working with the swap. */
-  recoveryCodes: z.array(z.string()).min(1),
-  /** Other sessions of the account that the swap ended (the lost phone among them). */
-  sessionsEnded: z.number().int().min(0),
-});
+export const stepUpBegun = stepUpBegunSchema;
+export const stepUpDone = stepUpDoneSchema;
+export const disabledAnswer = totpDisabledSchema;
+export const replaceStarted = totpReplaceStartedSchema;
+export const replacedAnswer = totpReplacedSchema;
 
 export type StepUpScope = 'identity.step_up.totp_disable' | 'identity.step_up.totp_replace';
 export const STEP_UP_PURPOSE: Record<StepUpScope, string> = {

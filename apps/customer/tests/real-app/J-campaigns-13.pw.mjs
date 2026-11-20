@@ -1,13 +1,12 @@
 // World: book, restart, stack
 import { keccak256, toHex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { chosePro, signIn, signUp } from './desk.mjs';
-import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
-import { api, journeyState, tool } from './stack.mjs';
-import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
+import { signIn } from './desk.mjs';
+import { TOKEN_USD } from './dex.mjs';
+import { api, journeyState, stepState } from './stack.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
 import { chainReceipt, rewardFunds, sumDecimal } from './reward-funds.mjs';
+import { campaignLauncher, data, join, operatorPair, signsThroughUs, traderDoor as door, traderOf, usdUnits } from './campaign-desk.mjs';
 
 // J-campaigns-13, in the running app (docs/roadmap/journeys.json): receive an airdrop, a dividend, or my share of a
 // reward pool. One test per step, titled "J-campaigns-13 #<n>", run in order. The airdrop and the pool are this run's
@@ -20,6 +19,8 @@ import { chainReceipt, rewardFunds, sumDecimal } from './reward-funds.mjs';
 const J = 'J-campaigns-13';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${RUN}`);
+const state = stepState(run, J);
+const signedThroughUs = signsThroughUs(J, RUN);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
 const ASSET = 'USDC';
 const DAY = 86_400_000;
@@ -47,44 +48,9 @@ const DIVIDEND_QUESTION = 'Does INTAFACED pay dividends to holders of its token,
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 
-function state(...keys) {
-  const s = run.read();
-  for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
-  return s;
-}
-
-let gates;
-let ctx;
-let pair;
-async function operators() {
-  gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
-  ctx ??= await gates.makeContext({ log: () => {} });
-  pair ??= await gates.approverSessions(ctx);
-  return { ctx, pair };
-}
+const operators = operatorPair();
+const liveCampaign = campaignLauncher(operators);
 const funds = rewardFunds({ J, RUN, operators });
-
-const data = (res, what) => {
-  const row = res.json?.result?.data;
-  if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return row;
-};
-
-/** One TEST campaign, live now, made by A, approved by B, activated by A. */
-async function liveCampaign(definition) {
-  const { ctx, pair } = await operators();
-  const a = await pair.a.campaignsOpsToken();
-  const b = await pair.b.campaignsOpsToken();
-  const made = data(await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition, a), 'ops.campaigns.create');
-  data(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'submit', revision: 1 }, a), 'submit');
-  data(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'approve', revision: 1 }, b), 'approve');
-  const live = data(
-    await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'activate', revision: 1 }, a),
-    'activate',
-  );
-  expect(live.state).toBe('active');
-  return live;
-}
 
 const common = (name) => ({
   name,
@@ -93,73 +59,9 @@ const common = (name) => ({
   reward: null,
 });
 
-/** Basic verification through the verification room, granted by the stack's TEST reviewer. */
-async function verifyBasic(page) {
-  await page.goto('/verification');
-  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
-  await page.getByLabel('Country code').fill('DE');
-  await page.getByRole('button', { name: 'Review request' }).click();
-  await page.getByRole('button', { name: 'Submit this request' }).click();
-  await expect(page.getByText('Your reviewed request')).toBeVisible();
-  tool('local-test-gates.mjs', 'verify');
-}
-
 /** The person's own TEST wallet: a key made from this run's name, holding nothing real. */
 const walletKeyOf = (who) => keccak256(toHex(`intafaced TEST distribution wallet ${J} ${RUN} ${who.handle}`));
-const sheet = (page) => page.locator('[data-sheet="sign"]');
-
-/** Connects the person's TEST wallet to their account on Wallet's Venue account tab, as svc-protocol records it. */
-async function connectWallet(page, who, privateKey) {
-  await installTestWallet(page, { chainId: CHAIN_ID, privateKey, rpcUrl: testChain().gateUrl });
-  await signIn(page, who);
-  await page.goto('/wallet');
-  await page.getByRole('button', { name: 'Venue account', exact: true }).click();
-  await expect(page).toHaveURL(/\/wallet\/venue$/);
-  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
-  await page.getByRole('button', { name: 'Connect to my account' }).click();
-  await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
-  await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
-}
-
-/** A TEST person: signed up in Pro, basic verification, their own TEST wallet connected. */
-async function trader(browser, prefix) {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await chosePro(page);
-  const who = await signUp(page, prefix);
-  await verifyBasic(page);
-  const key = walletKeyOf(who);
-  const wallet = privateKeyToAccount(key).address.toLowerCase();
-  fundOnTestChain(wallet, 'venue');
-  const connecting = await (await browser.newContext()).newPage();
-  await connectWallet(connecting, who, key);
-  await connecting.context().close();
-  await context.close();
-  return { who, key, wallet };
-}
-
-/** One action through svc-trade's user-venue door as `who`, signed with their own TEST wallet: prepare, sign, submit. */
-async function door(p, intent, actionKey) {
-  const session = await api(p.who);
-  const signer = { role: 'owner', address: p.wallet };
-  const prepared = await session.post('/api/v1/venue/prepare', { owner: p.wallet, signer, intent, ...(actionKey ? { actionKey } : {}) });
-  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
-  const t = prepared.body.prepared.typedData;
-  const signature = await privateKeyToAccount(p.key).signTypedData({
-    domain: t.domain,
-    types: t.types,
-    primaryType: t.primaryType,
-    message: t.message,
-  });
-  const sent = await session.post('/api/v1/venue/submit', {
-    actionKey: prepared.body.actionKey,
-    signature: { digest: prepared.body.prepared.digest, signature, signedBy: p.wallet },
-  });
-  expect(sent.status, JSON.stringify(sent.body).slice(0, 400)).toBe(200);
-  expect(sent.body.outcome, JSON.stringify(sent.body.outcome).slice(0, 400)).toMatchObject({ definite: true, accepted: true });
-  return sent.body;
-}
-
+const trader = traderOf(walletKeyOf);
 const venueId = async () => (await testVenue('/venue')).body.venue.id;
 
 /** TEST funds on the person's own venue account, by the TEST venue's deposit control (each reference credits once). */
@@ -171,19 +73,6 @@ async function venueFunds(p, asset, amount) {
     depositRef: `84532:${keccak256(toHex(`${J} ${RUN} ${p.wallet} ${asset} ${amount} ${Date.now()}`))}:0`,
   });
   expect(funded.status, JSON.stringify(funded.body)).toBe(200);
-}
-
-/** The person approves our builder fee through the door once, so their venue account is one they signed through us. */
-async function signedThroughUs(p) {
-  const status = (await (await api(p.who)).get('/api/v1/venue/status')).body;
-  expect(status, JSON.stringify(status).slice(0, 300)).toMatchObject({ enabled: true, test: true });
-  const markets = await testVenue('/markets', { account: null });
-  const cap = markets.body.value.find((m) => m.symbol === 'BTC-USDC').builderFeeCapBps.value;
-  await door(
-    p,
-    { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: cap },
-    `approve-builder:${p.wallet}:${J}:${RUN}`,
-  );
 }
 
 /** The person's USDC on the venue, as the TEST venue's own balances report it. */
@@ -242,16 +131,6 @@ async function myRewards(who) {
   const res = await trpcGet(who, 'rewards.mine', {});
   if (!res.body?.result) throw new Error(`rewards.mine refused (${res.status}): ${JSON.stringify(res.body).slice(0, 300)}`);
   return res.body.result.data.rewards;
-}
-const join = async (who, campaignId) => {
-  const joined = await (await api(who)).post('/api/campaigns/trpc/participation.join', { campaignId });
-  expect(joined.body?.result?.data?.created, JSON.stringify(joined.body).slice(0, 300)).toBe(true);
-};
-
-/** TEST USD units (6 decimals) of a USDC decimal amount. */
-function usdUnits(amount) {
-  const [w, f = ''] = String(amount).split('.');
-  return BigInt(w + f.padEnd(6, '0').slice(0, 6));
 }
 
 /** One reward, paid once to the person's connected wallet: owed once, paid once, and the TEST chain's receipt shows one transfer. */

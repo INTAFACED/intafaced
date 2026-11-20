@@ -11,7 +11,7 @@ import type { VendorStatus } from './vendor-service.js';
  * ── THE ORDER OF THE CHECKS IS DELIBERATE ───────────────────────────────────
  *
  * The GATE is checked before the SLOT COUNT, the same inversion
- * `services/svc-academy/src/access/room-access.ts` makes and for the same
+ * svc-academy's seat rule (`crates/svc-academy/src/lobbies/seat.rs`) makes and for the same
  * reason: telling somebody their tier is full when they were never eligible
  * sends them away to wait for capacity they could not have used. Telling them to
  * stake first is something they can act on.
