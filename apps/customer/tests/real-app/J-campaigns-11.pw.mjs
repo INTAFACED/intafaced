@@ -2,13 +2,13 @@
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { chosePro, signIn, signUp } from './desk.mjs';
-import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
-import { api, journeyState, tool } from './stack.mjs';
-import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
+import { signIn } from './desk.mjs';
+import { TOKEN_USD } from './dex.mjs';
+import { api, journeyState, stepState } from './stack.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
 import { chainReceipt, rewardFunds, sumDecimal } from './reward-funds.mjs';
 import { ownSpotMarket } from './own-market.mjs';
+import { data, myRewards, operatorPair, traderOf, usdUnits } from './campaigns.mjs';
 
 // J-campaigns-11, in the running app (docs/roadmap/journeys.json): enter a trading competition. One test per step, titled
 // "J-campaigns-11 #<n>", run in order. The competition is this run's TEST campaign, made by the stack's two LOCAL TEST
@@ -22,6 +22,7 @@ import { ownSpotMarket } from './own-market.mjs';
 const J = 'J-campaigns-11';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${RUN}`);
+const state = stepState(run, J);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
 const ASSET = 'USDC';
 const DAY = 86_400_000;
@@ -40,28 +41,8 @@ const POOL = '0.05';
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 
-function state(...keys) {
-  const s = run.read();
-  for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
-  return s;
-}
-
-let gates;
-let ctx;
-let pair;
-async function operators() {
-  gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
-  ctx ??= await gates.makeContext({ log: () => {} });
-  pair ??= await gates.approverSessions(ctx);
-  return { ctx, pair };
-}
+const operators = operatorPair();
 const funds = rewardFunds({ J, RUN, operators });
-
-const data = (res, what) => {
-  const row = res.json?.result?.data;
-  if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return row;
-};
 
 /** This run's TEST competition, live now, made and approved by the two TEST founders. */
 async function liveCompetition(name) {
@@ -91,51 +72,9 @@ async function liveCompetition(name) {
   return live;
 }
 
-/** Basic verification through the verification room, granted by the stack's TEST reviewer. */
-async function verifyBasic(page) {
-  await page.goto('/verification');
-  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
-  await page.getByLabel('Country code').fill('DE');
-  await page.getByRole('button', { name: 'Review request' }).click();
-  await page.getByRole('button', { name: 'Submit this request' }).click();
-  await expect(page.getByText('Your reviewed request')).toBeVisible();
-  tool('local-test-gates.mjs', 'verify');
-}
-
 /** The person's own TEST wallet: a key made from this run's name, holding nothing real. It trades and receives prizes. */
 const walletKeyOf = (who) => keccak256(toHex(`intafaced TEST competition wallet ${J} ${RUN} ${who.handle}`));
-const sheet = (page) => page.locator('[data-sheet="sign"]');
-
-/** Connects the person's TEST wallet to their account on Wallet's Venue account tab, as svc-protocol records it. */
-async function connectWallet(page, who, privateKey) {
-  await installTestWallet(page, { chainId: CHAIN_ID, privateKey, rpcUrl: testChain().gateUrl });
-  await signIn(page, who);
-  await page.goto('/wallet');
-  await page.getByRole('button', { name: 'Venue account', exact: true }).click();
-  await expect(page).toHaveURL(/\/wallet\/venue$/);
-  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
-  await page.getByRole('button', { name: 'Connect to my account' }).click();
-  await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
-  await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
-}
-
-/** A TEST person: signed up in Pro, basic verification, their own TEST wallet connected. */
-async function trader(browser, prefix) {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await chosePro(page);
-  const who = await signUp(page, prefix);
-  await verifyBasic(page);
-  const key = walletKeyOf(who);
-  const wallet = privateKeyToAccount(key).address.toLowerCase();
-  fundOnTestChain(wallet, 'venue');
-  const connecting = await (await browser.newContext()).newPage();
-  await connectWallet(connecting, who, key);
-  await connecting.context().close();
-  await context.close();
-  return { who, key, wallet };
-}
-
+const trader = traderOf(walletKeyOf);
 /** One action through svc-trade's user-venue door as `who`, signed with their own TEST wallet: prepare, sign, submit. */
 async function door(p, intent, actionKey) {
   const session = await api(p.who);
@@ -267,18 +206,6 @@ async function boardOf(who, campaignId) {
   ).get(`/api/campaigns/trpc/competition.board?input=${encodeURIComponent(JSON.stringify({ campaignId }))}`);
   if (!res.body?.result) throw new Error(`competition.board refused (${res.status}): ${JSON.stringify(res.body).slice(0, 300)}`);
   return res.body.result.data;
-}
-
-async function myRewards(who) {
-  const res = await (await api(who)).get(`/api/campaigns/trpc/rewards.mine?input=${encodeURIComponent('{}')}`);
-  if (!res.body?.result) throw new Error(`rewards.mine refused (${res.status}): ${JSON.stringify(res.body).slice(0, 300)}`);
-  return res.body.result.data.rewards;
-}
-
-/** TEST USD units (6 decimals) of a USDC decimal amount. */
-function usdUnits(amount) {
-  const [w, f = ''] = String(amount).split('.');
-  return BigInt(w + f.padEnd(6, '0').slice(0, 6));
 }
 
 /** The competition page, ready. */

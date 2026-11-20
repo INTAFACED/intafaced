@@ -3,11 +3,12 @@ import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp } from './desk.mjs';
-import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
-import { api, journeyState, signOutBrowser, tool } from './stack.mjs';
-import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
+import { TOKEN_USD, fundOnTestChain } from './dex.mjs';
+import { api, journeyState, signOutBrowser, stepState, tool } from './stack.mjs';
 import { venueForThisFile } from './venue.mjs';
 import { chainReceipt, chainUsd, rewardFunds } from './reward-funds.mjs';
+import { connectWallet, data, myRewards, operatorPair, usdUnits, verifyBasic, walletOf } from './campaigns.mjs';
+import { connections } from './venue-room.mjs';
 
 // J-campaigns-08, in the running app (docs/roadmap/journeys.json): claim a voucher and use it. One test per step, titled
 // "J-campaigns-08 #<n>", run in order. The launch money model (OWNER 226, OWNER 288): a cash voucher's benefit is
@@ -22,6 +23,7 @@ import { chainReceipt, chainUsd, rewardFunds } from './reward-funds.mjs';
 const J = 'J-campaigns-08';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${RUN}`);
+const state = stepState(run, J);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
 const ASSET = 'USDC';
 const FACE = '0.02';
@@ -31,28 +33,8 @@ const DAY = 86_400_000;
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 
-function state(...keys) {
-  const s = run.read();
-  for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
-  return s;
-}
-
-let gates;
-let ctx;
-let pair;
-async function operators() {
-  gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
-  ctx ??= await gates.makeContext({ log: () => {} });
-  pair ??= await gates.approverSessions(ctx);
-  return { ctx, pair };
-}
+const operators = operatorPair();
 const funds = rewardFunds({ J, RUN, operators });
-
-const data = (res, what) => {
-  const row = res.json?.result?.data;
-  if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return row;
-};
 
 /** A TEST voucher campaign live now, with its claim-by and use-by dates; its reward is each voucher's face value. */
 async function liveVoucherCampaign(name, { claimBy, useBy }) {
@@ -89,46 +71,8 @@ async function issue(campaignId, code) {
   return data(await ctx.edge.mutate('campaigns', 'ops.campaigns.vouchers.issue', { campaignId, code }, a), 'vouchers.issue');
 }
 
-/** Basic verification through the verification room, granted by the stack's TEST reviewer. */
-async function verifyBasic(page) {
-  await page.goto('/verification');
-  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
-  await page.getByLabel('Country code').fill('DE');
-  await page.getByRole('button', { name: 'Review request' }).click();
-  await page.getByRole('button', { name: 'Submit this request' }).click();
-  await expect(page.getByText('Your reviewed request')).toBeVisible();
-  tool('local-test-gates.mjs', 'verify');
-}
-
 /** The person's own TEST wallet: a key made from this run's name, holding nothing real. */
 const walletKeyOf = (who) => keccak256(toHex(`intafaced TEST voucher wallet ${J} ${RUN} ${who.handle}`));
-const sheet = (page) => page.locator('[data-sheet="sign"]');
-
-/** Connects the person's TEST wallet to their account on Wallet's Venue account tab, as svc-protocol records it. */
-async function connectWallet(page, who, privateKey) {
-  await installTestWallet(page, { chainId: CHAIN_ID, privateKey, rpcUrl: testChain().gateUrl });
-  await signIn(page, who);
-  await page.goto('/wallet');
-  await page.getByRole('button', { name: 'Venue account', exact: true }).click();
-  await expect(page).toHaveURL(/\/wallet\/venue$/);
-  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
-  await page.getByRole('button', { name: 'Connect to my account' }).click();
-  await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
-  await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
-}
-
-async function connections(who) {
-  const { status, body } = await (await api(who)).get('/api/protocol/trpc/venueWallet.status');
-  if (status !== 200) throw new Error(`venueWallet.status refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
-  return body.result.data.connections;
-}
-
-/** TEST USD units (6 decimals) of a USDC decimal amount. */
-function usdUnits(amount) {
-  const [w, f = ''] = String(amount).split('.');
-  return BigInt(w + f.padEnd(6, '0').slice(0, 6));
-}
-
 /**
  * INTAFACED's TEST USDC reward pot and TEST rewards wallet, funded from builder fees this file earns on the TEST venue:
  * enough for every redemption this file makes.
@@ -137,13 +81,6 @@ async function fundRewards(who) {
   const fees = await funds.earnBuilderFees(who, 6);
   await funds.fundPotFromFees(`TEST-${J}-${tag}`, fees);
   await funds.claimOurBuilderFees();
-}
-
-/** The caller's reward records (My rewards), each with its attempts log. */
-async function myRewards(who) {
-  const res = await (await api(who)).get(`/api/campaigns/trpc/rewards.mine?input=${encodeURIComponent('{}')}`);
-  if (!res.body?.result) throw new Error(`rewards.mine refused (${res.status}): ${JSON.stringify(res.body).slice(0, 300)}`);
-  return res.body.result.data.rewards;
 }
 
 /**
@@ -173,12 +110,6 @@ async function paidOnce(who, redemption, wallet) {
 /** A voucher redemption's record, read again. */
 const redemptionOf = async (who, voucherId, sequence) =>
   (await walletOf(who)).find((v) => v.id === voucherId).redemptions.find((r) => r.sequence === sequence);
-
-async function walletOf(who) {
-  const res = await (await api(who)).get(`/api/campaigns/trpc/vouchers.mine?input=${encodeURIComponent('{}')}`);
-  if (!res.body?.result) throw new Error(`vouchers.mine refused (${res.status}): ${JSON.stringify(res.body).slice(0, 300)}`);
-  return res.body.result.data.vouchers;
-}
 
 async function openWallet(page) {
   await page.goto('/campaigns/mine');

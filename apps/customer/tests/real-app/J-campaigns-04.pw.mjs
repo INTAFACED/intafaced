@@ -7,11 +7,15 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
-import { api, fund, journeyState, signOutBrowser, STACK_PORTS, stackUrl, tool } from './stack.mjs';
+import { api, fund, journeyState, signOutBrowser, STACK_PORTS, stackUrl, stepState } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueRecord } from './venue.mjs';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-test-venue.mjs';
+import { data, operatorPair, potFunding } from './campaigns.mjs';
+import { chainTransfers, chainUsd, mineBlocks, tokenUsdUnits as usdUnits } from './chain-node.mjs';
+import { sumDecimal } from './reward-funds.mjs';
+import { connectAndSign, connectedNow, connections, ownerDoor, sheet, userVenue, venueDoor } from './venue-room.mjs';
 
 // J-campaigns-04, in the running app (docs/roadmap/journeys.json): finish the welcome checklist. One test per step, titled
 // "J-campaigns-04 #<n>", run in order. The welcome campaigns are this run's TEST campaigns, made by the stack's two LOCAL
@@ -31,6 +35,7 @@ import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-te
 // to that wallet; money of their own on top does.
 const J = 'J-campaigns-04';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const state = stepState(run, J);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const SHORT_WINDOW = 90;
 const ASSET = 'USDC';
@@ -45,27 +50,8 @@ const DEPOSIT = '25';
 
 test.describe.configure({ mode: 'default' });
 
-function state(...keys) {
-  const s = run.read();
-  for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
-  return s;
-}
-
-let gates;
-let ctx;
-let pair;
-async function operators() {
-  gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
-  ctx ??= await gates.makeContext({ log: () => {} });
-  pair ??= await gates.approverSessions(ctx);
-  return { ctx, pair };
-}
-
-const data = (res, what) => {
-  const row = res.json?.result?.data;
-  if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return row;
-};
+const operators = operatorPair();
+const { fundPotFromFees } = potFunding(operators, ASSET);
 
 /** A TEST welcome campaign, live now; `blank` leaves those tasks' rewards blank, `windowSeconds` is its welcome window. */
 async function liveWelcome(name, { windowSeconds, blank = [], rewards = REWARDS }) {
@@ -109,80 +95,12 @@ async function endCampaign(id) {
   expect(ended.state).toBe('ended');
 }
 
-/** Founder A asks to sweep earned builder fees into the USDC reward pot; founder B approves, which posts it. */
-async function fundPot(reference, amount) {
-  const { ctx, pair } = await operators();
-  const a = await pair.a.campaignsOpsToken();
-  const b = await pair.b.campaignsOpsToken();
-  data(
-    await ctx.edge.mutate('campaigns', 'ops.pot.request', { reference, sourceModule: 'builder', asset: ASSET, amount }, a),
-    'ops.pot.request',
-  );
-  const funded = data(await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, b), 'ops.pot.approve');
-  expect(funded.state, JSON.stringify(funded)).toBe('posted');
-}
-
-/** Funds the pot with builder fees once svc-trade has posted them to the ledger (it posts on its own cadence). */
-async function fundPotFromFees(reference, amount) {
-  await expect
-    .poll(
-      async () => {
-        try {
-          await fundPot(`${reference}-${Date.now().toString(36)}`, amount);
-          return 'posted';
-        } catch (err) {
-          return String(err).slice(0, 200);
-        }
-      },
-      { timeout: 90_000, intervals: [5_000] },
-    )
-    .toBe('posted');
-}
-
-/** Adds decimal strings exactly (no float). */
-function sumDecimal(values) {
-  const scale = 18;
-  const units = (x) => {
-    const [w, f = ''] = String(x).split('.');
-    return BigInt(w + f.padEnd(scale, '0'));
-  };
-  const sum = values
-    .reduce((n, v) => n + units(v), 0n)
-    .toString()
-    .padStart(scale + 1, '0');
-  const frac = sum.slice(-scale).replace(/0+$/, '');
-  return frac ? `${sum.slice(0, -scale)}.${frac}` : sum.slice(0, -scale);
-}
-
-/** A decimal TEST USD amount in the token's base units (6 decimals), exactly. */
-const usdUnits = (amount) => {
-  const [w, f = ''] = amount.split('.');
-  return BigInt(w + f.padEnd(TOKEN_USD.decimals, '0'));
-};
-
 // ── Builder fees to fund the pot and our rewards wallet: a TEST trader of this file sells through our venue door ──────
 
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const traderKey = privateKeyToAccount(keccak256(toHex(`intafaced TEST venue journey trader ${J} ${RUN}`)));
 const traderOwner = traderKey.address.toLowerCase();
-
-/** One action through svc-trade's user-venue door as `who`: prepare, sign with the TEST trader's key, submit. */
-async function door(who, intent, actionKey) {
-  const session = await api(who);
-  const signer = { role: 'owner', address: traderOwner };
-  const prepared = await session.post('/api/v1/venue/prepare', { owner: traderOwner, signer, intent, ...(actionKey ? { actionKey } : {}) });
-  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
-  const p = prepared.body.prepared;
-  const t = p.typedData;
-  const signature = await traderKey.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
-  const sent = await session.post('/api/v1/venue/submit', {
-    actionKey: prepared.body.actionKey,
-    signature: { digest: p.digest, signature, signedBy: traderOwner },
-  });
-  expect(sent.status, JSON.stringify(sent.body).slice(0, 400)).toBe(200);
-  expect(sent.body.outcome, JSON.stringify(sent.body.outcome).slice(0, 400)).toMatchObject({ definite: true, accepted: true });
-  return sent.body;
-}
+const door = ownerDoor(traderKey);
 
 /**
  * Builder fees the TEST venue credits us on this file's own sells: `who` approves our builder fee, sells SELL_SIZE BTC
@@ -253,21 +171,6 @@ async function earnBuilderFees(who, sells) {
   return sumDecimal(fees);
 }
 
-/** TEST USD (base units) `address` holds on the TEST chain, read from the node itself. */
-async function chainUsd(address) {
-  const res = await fetch(GATE_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'eth_call',
-      params: [{ to: TOKEN_USD.address, data: `0x70a08231${address.slice(2).toLowerCase().padStart(64, '0')}` }, 'latest'],
-    }),
-  });
-  return BigInt((await res.json()).result);
-}
-
 const TRANSFER_FN = 'function transfer(address to, uint256 value) returns (bool)';
 /**
  * Pays INTAFACED's TEST rewards wallet from our own TEST builder fees, as the launch money model moves them: this file's
@@ -300,22 +203,6 @@ async function claimOurBuilderFees() {
   expect(await chainUsd(TEST_VENUE_DEPOSIT_ADDRESS)).toBe(before + 20_000_000n);
   const claimed = await testVenue('/test/builder-claim', { builder });
   expect(claimed.status, JSON.stringify(claimed.body)).toBe(200);
-}
-
-const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
-/** The TEST chain's own receipt of `txHash`: the token transfers it made, as { token, to, value } (read from the chain). */
-async function chainTransfers(txHash) {
-  const res = await fetch(GATE_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getTransactionReceipt', params: [txHash] }),
-  });
-  const receipt = (await res.json()).result;
-  expect(receipt, `the TEST chain has a receipt for ${txHash}`).toBeTruthy();
-  expect(receipt.status).toBe('0x1');
-  return receipt.logs
-    .filter((l) => l.topics[0] === TRANSFER_TOPIC)
-    .map((l) => ({ token: l.address.toLowerCase(), to: `0x${l.topics[2].slice(26)}`, value: BigInt(l.data) }));
 }
 
 /** The door on (it starts the TEST venue), as #2 turns it on when it is off. */
@@ -367,44 +254,11 @@ async function openChecklist(page, path = '/uc/promotion') {
 
 const row = (page, event) => page.locator(`[data-testid="welcome-task"][data-event="${event}"]`);
 
-/** Restarts trade with the user-venue door on (which starts the TEST venue) or off, and puts this process's env back. */
-function userVenue(on) {
-  const before = process.env.LOCAL_STACK_USER_VENUE;
-  if (on) process.env.LOCAL_STACK_USER_VENUE = 'on';
-  else delete process.env.LOCAL_STACK_USER_VENUE;
-  try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
-    else process.env.LOCAL_STACK_USER_VENUE = before;
-  }
-}
 let doorTurnedOn = false;
 test.afterAll(() => {
   if (doorTurnedOn) userVenue(false);
 });
 
-/** svc-trade's user-venue door as the person reads it. */
-async function venueDoor(who) {
-  const { status, body } = await (await api(who)).get('/api/v1/venue/status');
-  if (status !== 200) throw new Error(`venue status refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
-  return body;
-}
-
-/** Mines `n` empty blocks on the stack's TEST chain (`evm_mine`, the TEST chain's own control). */
-async function mineBlocks(n) {
-  for (let i = 0; i < n; i += 1) {
-    const res = await fetch(testChain().gateUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'evm_mine', params: [] }),
-    });
-    const body = await res.json();
-    if (body.error) throw new Error(`evm_mine: ${JSON.stringify(body.error)}`);
-  }
-}
-
-const sheet = (page) => page.locator('[data-sheet="sign"]');
 const venueAction = (page, name) => page.getByRole('region', { name: 'Venue actions' }).getByRole('button', { name });
 
 /** Signed in, with the TEST wallet in this page, on Wallet's Venue account tab, the browser wallet connected. */
@@ -416,42 +270,6 @@ async function openVenue(page, who, privateKey, { rpcUrl = null } = {}) {
   await expect(page).toHaveURL(/\/wallet\/venue$/);
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
   return wallet;
-}
-
-/** The room has read the connection back: Connected, Connection expired, or Connect. */
-async function roomSettled(page) {
-  await expect(
-    page
-      .getByRole('heading', { name: 'Connected' })
-      .or(page.getByRole('heading', { name: 'Connection expired' }))
-      .or(page.getByRole('button', { name: 'Connect to my account' })),
-  ).toBeVisible();
-}
-
-async function connectAndSign(page, button = 'Connect to my account') {
-  await page.getByRole('button', { name: button }).click();
-  await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
-  await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
-}
-
-/** The stack's TEST connection lasts 60 s: a signed action needs this much of it left. */
-const CONNECTION_MARGIN_MS = 45_000;
-async function connectedNow(page) {
-  await roomSettled(page);
-  if (await page.getByRole('heading', { name: 'Connected' }).isVisible()) {
-    const expiresAt = Date.parse(await page.getByTestId('venue-connection-expires').getAttribute('datetime'));
-    if (expiresAt - Date.now() > CONNECTION_MARGIN_MS) return;
-    await expect(page.getByRole('heading', { name: 'Connection expired' })).toBeVisible({ timeout: CONNECTION_MARGIN_MS + 15_000 });
-  }
-  if (await page.getByRole('button', { name: 'Sign again' }).isVisible()) await connectAndSign(page, 'Sign again');
-  if (await page.getByRole('button', { name: 'Connect to my account' }).isVisible()) await connectAndSign(page);
-}
-
-/** The person's wallets as svc-protocol records them, through Edge. */
-async function connections(who) {
-  const { status, body } = await (await api(who)).get('/api/protocol/trpc/venueWallet.status');
-  if (status !== 200) throw new Error(`venueWallet.status refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
-  return body.result.data.connections;
 }
 
 /** A new account signs up under the live welcome campaign and connects its own TEST wallet: the journey's start. */
