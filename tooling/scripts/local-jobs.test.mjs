@@ -4,10 +4,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { localJobs, localWorkers } from './local-jobs.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const BUDGET = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), '..', 'vitest', 'budget.mjs')).href;
 
 test('unset or empty, nothing is bounded; a whole number bounds; anything else throws naming the setting', () => {
   assert.equal(localJobs({}), null);
@@ -24,9 +24,8 @@ test("TEST_BUDGET, which every package's vitest config spreads, carries the boun
     const { INTAFACED_LOCAL_JOBS: _unset, ...env } = process.env;
     const r = spawnSync(
       'node',
-      ['--input-type=module', '-e', "import { TEST_BUDGET } from './tooling/vitest/budget.mjs'; console.log(JSON.stringify(TEST_BUDGET));"],
+      ['--input-type=module', '-e', `import { TEST_BUDGET } from ${JSON.stringify(BUDGET)}; console.log(JSON.stringify(TEST_BUDGET));`],
       {
-        cwd: ROOT,
         encoding: 'utf8',
         env: { ...env, ...extra },
       },

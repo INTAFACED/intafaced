@@ -5,7 +5,7 @@
 // each take all of it (project-state#3420: three memory fills on 20 Nov):
 //   - the pre-push typecheck: turbo's --concurrency (tooling/scripts/pre-push-typecheck.mjs);
 //   - the pre-push rust:check: cargo's CARGO_BUILD_JOBS and RUST_TEST_THREADS (.githooks/pre-push), unless set already;
-//   - every vitest run: its maxWorkers, through TEST_BUDGET (tooling/vitest/budget.mjs) and the Customer app's config.
+//   - every vitest run: its maxWorkers, through the shared TEST_BUDGET that every package spreads, and the Customer app's config.
 // turbo.json passes it through to the tasks turbo starts.
 export const LOCAL_JOBS = 'INTAFACED_LOCAL_JOBS';
 
