@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { clobHonestySchema, type ClobHonesty } from '@intafaced/contracts/indexer-procedures';
 
 /**
  * DevVenue ABI is a fixture. A non-dev INDEXER_VENUE_ADDRESS is our published
@@ -14,13 +14,7 @@ export const ZERO_VENUE_ADDRESS = '0x0000000000000000000000000000000000000000';
 /** Published Base Sepolia SovereignVenue. Not INTACHAIN. audited:false. */
 export const PUBLISHED_VENUE_ADDRESS = '0x78fbe21605d9424efdd6b2fddc4e846e8c746a4b';
 
-export const clobHonestySchema = z.object({
-  live: z.boolean(),
-  kind: z.enum(['unset', 'fixture', 'sovereign-venue', 'unpublished']),
-  reserves: z.literal(false),
-});
-
-export type ClobHonesty = z.infer<typeof clobHonestySchema>;
+export { clobHonestySchema, type ClobHonesty };
 
 export function clobHonesty(venue?: string | null): ClobHonesty {
   const v = (venue ?? '').trim().toLowerCase();
