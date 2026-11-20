@@ -17772,6 +17772,283 @@
         }
       ]
     },
+    "trade.copy.myCopyFees": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "copy.myCopyFees",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.copy_limit_missing": "BAD_REQUEST",
+        "trade.copy_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "venue": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "test": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["name", "test"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fillId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "followId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                },
+                "filledAt": {
+                  "type": "string"
+                },
+                "venueFee": {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "asset": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["amount", "asset"],
+                  "additionalProperties": false
+                },
+                "builderFee": {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "asset": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["amount", "asset"],
+                  "additionalProperties": false
+                },
+                "lead": {
+                  "type": "object",
+                  "properties": {
+                    "leaderRef": {
+                      "type": ["string", "null"]
+                    },
+                    "displayName": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": ["leaderRef", "displayName"],
+                  "additionalProperties": false
+                },
+                "feeShare": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "none"
+                        }
+                      },
+                      "required": ["state"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "recording"
+                        }
+                      },
+                      "required": ["state"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "waiting_collection"
+                        },
+                        "share": {
+                          "type": "object",
+                          "properties": {
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "asset": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": ["amount", "asset"],
+                          "additionalProperties": false
+                        },
+                        "shareBps": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
+                        }
+                      },
+                      "required": ["state", "share", "shareBps"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "owed"
+                        },
+                        "share": {
+                          "type": "object",
+                          "properties": {
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "asset": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": ["amount", "asset"],
+                          "additionalProperties": false
+                        },
+                        "shareBps": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
+                        },
+                        "ledgerKey": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": ["state", "share", "shareBps", "ledgerKey"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "not_owed"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": ["cap_reached", "zero_share"]
+                        }
+                      },
+                      "required": ["state", "reason"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "fillId",
+                "followId",
+                "symbol",
+                "side",
+                "amount",
+                "price",
+                "filledAt",
+                "venueFee",
+                "builderFee",
+                "lead",
+                "feeShare"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["asOf", "venue", "rows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
     "ws.sbe.consumers": {
       "service": "svc-ws",
       "transport": "http",
