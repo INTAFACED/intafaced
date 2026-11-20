@@ -50,6 +50,11 @@ const only = (name, list) => {
 test('look options', async ({ page }) => {
   expect(out, 'LOOK_OPTIONS_OUT names the folder').toBeTruthy();
   fs.mkdirSync(out, { recursive: true });
+  // Headless Chromium reports `prefers-reduced-transparency: reduce`, which turns every glass surface solid (lit.css,
+  // a11y/surfaces.ts): draw what a phone or computer with no such setting shows, as a person sees it. (The pictures of
+  // #9188 were taken without this, so their glass was drawn solid.)
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-transparency', value: 'no-preference' }] });
   const who = await fundedTrader(page, 'look', '2500');
   await signIn(page, who);
   const shots = [];
@@ -69,10 +74,12 @@ test('look options', async ({ page }) => {
           if (s.amount) {
             const field = page.getByRole('textbox', { name: /^Amount in/ });
             await field.fill(s.amount);
+            await field.blur();
             await expect(page.getByTestId('approx')).not.toHaveText('');
           }
           await page.evaluate(() => document.fonts.ready);
           const root = await page.evaluate(() => ({ ...document.documentElement.dataset }));
+          if (!d.solid) expect(root.surfaces, `${s.path} draws glass`).toBe('glass');
           const file = d.own ? `${s.id}--${size.id}--${scheme}.png` : `${d.id}--${s.id}--${size.id}--${scheme}.png`;
           await page.screenshot({ path: path.join(out, file), animations: 'disabled' });
           shots.push({ file, direction: d.id, screen: s.id, size: size.id, scheme, url: page.url(), root });

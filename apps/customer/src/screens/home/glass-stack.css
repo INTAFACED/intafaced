@@ -4,13 +4,20 @@
  * @intafaced/ui/lit/directions/lit-glass.css. Static: nothing moves on its own.
  */
 [data-direction='lit-glass'] .lg-hero {
+  /* the cards are thinner glass than the bars, so the light shows through them */
+  --lg-card-glass: color-mix(in srgb, var(--lit-solid-bg-raised) 28%, transparent);
   display: flex;
   flex-direction: column;
   gap: var(--if-space-3);
   margin-block-end: var(--lit-gap-section);
 }
 [data-direction='lit-glass'] .lg-hero .home-label {
+  flex-wrap: wrap;
+  row-gap: var(--if-space-1);
   color: var(--lit-text-2);
+}
+[data-direction='lit-glass'] .lg-hero .home-label > * {
+  white-space: nowrap;
 }
 
 /* The total: big, light weight, tight; the decimals and the point step back */
@@ -43,19 +50,25 @@
 }
 [data-direction='lit-glass'] .lg-stack__light {
   position: absolute;
-  inset-block-start: 8%;
-  inset-inline-start: 18%;
-  inline-size: 64%;
-  block-size: 84%;
+  inset-block-start: 4%;
+  inset-inline-start: 30%;
+  inline-size: 52%;
+  block-size: 92%;
   z-index: -1;
   border-radius: 50%;
   background:
-    radial-gradient(closest-side, color-mix(in srgb, var(--lit-accent-hot) 55%, transparent), transparent 55%),
-    radial-gradient(closest-side, var(--lit-accent), color-mix(in srgb, var(--lit-accent) 40%, transparent) 55%, transparent);
-  opacity: 0.75;
+    radial-gradient(closest-side at 46% 42%, var(--lit-accent-hot), color-mix(in srgb, var(--lit-accent-hot) 0%, transparent) 22%),
+    radial-gradient(closest-side, var(--lit-accent), color-mix(in srgb, var(--lit-accent) 50%, transparent) 50%, transparent);
+  opacity: 0.9;
+}
+[data-theme='light'][data-direction='lit-glass'] .lg-hero {
+  --lg-card-glass: color-mix(in srgb, var(--lit-solid-bg) 42%, transparent);
+}
+[data-direction='lit-glass'][data-surfaces='solid'] .lg-hero {
+  --lg-card-glass: var(--lit-solid-bg-raised);
 }
 [data-theme='light'][data-direction='lit-glass'] .lg-stack__light {
-  opacity: 0.45;
+  opacity: 0.6;
 }
 [data-direction='lit-glass'] .lg-card {
   position: absolute;
@@ -68,7 +81,7 @@
   border-radius: 1.375rem;
   color: var(--lit-text-1);
   text-decoration: none;
-  background: var(--lg-sheen), var(--lg-glass);
+  background: var(--lg-sheen), var(--lg-card-glass);
   -webkit-backdrop-filter: var(--lg-frost);
   backdrop-filter: var(--lg-frost);
   box-shadow:
@@ -108,7 +121,7 @@
 }
 [data-direction='lit-glass'] .lg-card:focus-visible {
   outline: 2px solid var(--lit-focus);
-  outline-offset: 3px;
+  outline-offset: 0.1875rem;
 }
 [data-direction='lit-glass'] .lg-card--waiting {
   opacity: 0.6;
@@ -165,33 +178,31 @@
     inset 0 0 0 1px var(--lg-edge-dim);
 }
 
-/* Computer: the total and actions on the start side, the money object on the end side */
+/* Computer: the total and actions on the start side, the money object on the end side, larger */
 @media (min-width: 768px) {
   [data-direction='lit-glass'] .lg-hero {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 26rem);
-    grid-template-areas:
-      'label stack'
-      'total stack'
-      'note stack'
-      'actions stack';
-    align-content: center;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 30rem);
+    grid-template-rows: repeat(5, auto) 1fr;
     column-gap: var(--if-space-12);
     row-gap: var(--if-space-3);
-    padding: var(--if-space-6) 0;
+    padding-block: var(--if-space-8) var(--if-space-4);
   }
-  [data-direction='lit-glass'] .lg-hero .home-label {
-    grid-area: label;
+  [data-direction='lit-glass'] .lg-hero > * {
+    grid-column: 1;
   }
-  [data-direction='lit-glass'] .lg-hero .home-total {
-    grid-area: total;
-  }
-  [data-direction='lit-glass'] .lg-hero .lg-stack {
-    grid-area: stack;
+  [data-direction='lit-glass'] .lg-hero > .lg-stack {
+    grid-column: 2;
+    grid-row: 1 / -1;
     align-self: center;
+    block-size: 16rem;
+  }
+  [data-direction='lit-glass'] .lg-hero .lg-card {
+    inline-size: 23rem;
+    block-size: 13.5rem;
   }
   [data-direction='lit-glass'] .lg-hero .home-actions {
-    grid-area: actions;
+    margin-block-start: var(--if-space-4);
   }
   [data-direction='lit-glass'] .lg-hero .home-total .if-num {
     font-size: 5.5rem;

@@ -35,6 +35,12 @@
   --lg-lift: 0 1.5rem 3rem -1.5rem var(--lit-scrim), 0 0.25rem 0.75rem -0.25rem var(--lit-scrim);
   --lg-spark: var(--lit-accent);
   --lg-spark-glow: 0 0 1.25rem color-mix(in srgb, var(--lit-accent) 55%, transparent);
+  /* the main action is pearl on dark (ink on light), never the blue: blue stays the one spark */
+  --if-lime: color-mix(in srgb, var(--lit-text-1) 94%, var(--lit-accent));
+  --if-lime-hover: var(--lit-text-1);
+  --if-lime-press: color-mix(in srgb, var(--lit-text-1) 82%, var(--lit-page));
+  --if-on-lime: var(--lit-page);
+  --color-accent: var(--if-lime);
   background: var(--lg-page);
 }
 :root[data-direction='lit-glass'][data-theme='light'] {
