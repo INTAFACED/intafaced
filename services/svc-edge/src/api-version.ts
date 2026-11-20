@@ -77,11 +77,12 @@ export function versionReplyHeaders(decision: VersionDecision): Record<string, s
   return decision.kind === 'apply' ? { [API_VERSION_HEADER]: decision.version, [API_VERSION_SOURCE_HEADER]: decision.source } : {};
 }
 
-function bodyObject(body: Buffer): Record<string, unknown> | null {
+/** The request's JSON body when it is an object, else null. */
+function bodyObject(body: Buffer): object | null {
   if (body.length === 0) return null;
   try {
     const parsed: unknown = JSON.parse(body.toString('utf8'));
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -97,13 +98,17 @@ export function advisoriesFor(input: { readonly method: string; readonly pathnam
 
 /** The advisory on the reply. The oldest deprecation date leads; `Sunset` only once an owner has set a removal date. */
 export function advisoryReplyHeaders(advisories: readonly ApiDeprecation[]): Record<string, string> {
-  if (advisories.length === 0) return {};
-  const first = [...advisories].sort((a, b) => a.deprecatedIn.localeCompare(b.deprecatedIn))[0]!;
-  const sunsets = advisories.map((a) => a.sunset).filter((s): s is string => s !== null);
+  const first = advisories.reduce<ApiDeprecation | null>((a, b) => (a === null || b.deprecatedIn < a.deprecatedIn ? b : a), null);
+  if (first === null) return {};
+  const sunset = advisories
+    .map((a) => a.sunset)
+    .filter((s): s is string => s !== null)
+    .sort()
+    .at(0);
   return {
     deprecation: deprecationHeaderValue(first.deprecatedIn),
     link: [...new Set(advisories.map((a) => a.changelog))].map((href) => `<${href}>; rel="deprecation"`).join(', '),
-    ...(sunsets.length > 0 ? { sunset: new Date(sunsets.sort()[0]!).toUTCString() } : {}),
+    ...(sunset === undefined ? {} : { sunset: new Date(sunset).toUTCString() }),
     [API_ADVISORIES_HEADER]: JSON.stringify(advisories),
   };
 }

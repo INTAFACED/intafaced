@@ -363,7 +363,7 @@ export async function exchangeApiKeyOutcome(
     ...(optionalFlag(data, 'requireSignature', 'require_signature') ? { requireSignature: true } : {}),
     ...(optionalFlag(data, 'requireNonEmptyIpAllowlist', 'require_non_empty_ip_allowlist') ? { requireNonEmptyIpAllowlist: true } : {}),
     rateLimit: rateLimitFromExchange(data),
-    apiVersionDefault: parseApiVersion((data as { apiVersionDefault?: unknown } | null)?.apiVersionDefault),
+    apiVersionDefault: apiVersionDefaultFromExchange(data),
   };
   return { kind: 'opened', exchanged };
 }
@@ -551,6 +551,12 @@ export async function exchangePrincipal(
     ...(keyRateLimit === undefined ? {} : { keyRateLimit }),
     ...(apiVersionDefault === undefined ? {} : { apiVersionDefault }),
   };
+}
+
+/** The account default API version identity put in the exchange answer. Absent, null or one this edge does not implement: none. */
+export function apiVersionDefaultFromExchange(data: unknown): ApiVersion | null {
+  if (!data || typeof data !== 'object' || !('apiVersionDefault' in data)) return null;
+  return parseApiVersion(data.apiVersionDefault);
 }
 
 /** The `rateLimit` identity put in the exchange answer. Absent, null or a shape this edge cannot read: no limit. */

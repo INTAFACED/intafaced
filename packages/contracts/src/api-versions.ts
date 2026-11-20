@@ -23,7 +23,8 @@ export const API_ADVISORIES_HEADER = 'intafaced-advisories';
 /** Every version the API implements, oldest first; the last is the newest, the one a client released today pins. */
 export const API_VERSIONS = ['2026-11-20'] as const;
 export type ApiVersion = (typeof API_VERSIONS)[number];
-export const LATEST_API_VERSION: ApiVersion = API_VERSIONS[API_VERSIONS.length - 1]!;
+export const LATEST_API_VERSION: ApiVersion = API_VERSIONS.at(-1) ?? API_VERSIONS[0];
+export const apiVersionSchema = z.enum(API_VERSIONS);
 
 export type ApiVersionSource = 'header' | 'account';
 
@@ -34,10 +35,9 @@ export type ApiVersionRefusal = (typeof API_VERSION_REFUSALS)[number];
 
 /** The version a value names, or null when it names none the API implements (any other date, a typo, a number). */
 export function parseApiVersion(value: unknown): ApiVersion | null {
-  return typeof value === 'string' && (API_VERSIONS as readonly string[]).includes(value) ? (value as ApiVersion) : null;
+  const parsed = apiVersionSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
-
-export const apiVersionSchema = z.enum(API_VERSIONS);
 
 /** A request field that still works and will be removed. The reply to a request that sends it carries this entry. */
 export interface ApiDeprecation {

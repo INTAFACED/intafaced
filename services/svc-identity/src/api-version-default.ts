@@ -4,6 +4,7 @@
  * API-key call that sends no `intafaced-version` header.
  */
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import { TRPCError, type Context } from '@intafaced/contracts';
 import { API_VERSION_UNKNOWN, API_VERSIONS, parseApiVersion, type ApiVersion } from '@intafaced/contracts/api-versions';
 import {
@@ -23,16 +24,17 @@ export class ApiVersionError extends Error {
   }
 }
 
-type Row = { version: string; updated_at: Date };
+const DefaultRow = z.object({ version: z.string(), updated_at: z.date() });
+type DefaultRow = z.infer<typeof DefaultRow>;
 
-const view = (row: Row | undefined): ApiVersionDefault =>
+const view = (row: DefaultRow | undefined): ApiVersionDefault =>
   row ? { version: row.version, setAt: row.updated_at.toISOString() } : { version: null, setAt: null };
 
 export class ApiVersionDefaults {
   constructor(private readonly sql: Sql) {}
 
   async get(userId: string): Promise<ApiVersionDefault> {
-    const rows = await this.sql<Row[]>`SELECT version, updated_at FROM api_version_defaults WHERE user_id = ${userId}`;
+    const rows = DefaultRow.array().parse(await this.sql`SELECT version, updated_at FROM api_version_defaults WHERE user_id = ${userId}`);
     return view(rows[0]);
   }
 
@@ -50,12 +52,14 @@ export class ApiVersionDefaults {
         API_VERSION_UNKNOWN,
       );
     }
-    const written = await this.sql<Row[]>`
+    const written = DefaultRow.array().parse(
+      await this.sql`
       INSERT INTO api_version_defaults (user_id, version) VALUES (${userId}, ${version})
       ON CONFLICT (user_id) DO UPDATE SET version = EXCLUDED.version, updated_at = now()
         WHERE api_version_defaults.version IS DISTINCT FROM EXCLUDED.version
       RETURNING version, updated_at
-    `;
+    `,
+    );
     if (written[0]) return { ...view(written[0]), changed: true };
     return { ...(await this.get(userId)), changed: false };
   }
