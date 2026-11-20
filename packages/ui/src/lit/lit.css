@@ -382,8 +382,131 @@
   --lit-accent-text: #00754b;
 }
 
-/* The volt direction, dark. */
-:root:where([data-look='lit'][data-direction='volt']) {
+/* Direction ember: dark (only while the light preview is off), its faces, radii and type, then light. */
+:root:where([data-look='lit'][data-direction='ember']:not([data-theme='light'])) {
+  --lit-page: #0b0806;
+  --lit-page-2: #110c09;
+  --lit-field:
+    radial-gradient(60% 38% at 100% 0%, color-mix(in srgb, var(--lit-accent) 20%, transparent), transparent 72%),
+    radial-gradient(70% 34% at 0% 100%, color-mix(in srgb, var(--lit-accent-deep) 80%, transparent), transparent 78%);
+  --lit-text-1: #f7f0e9;
+  --lit-text-2: #bcafa4;
+  --lit-text-3: #9a8c81;
+  --lit-text-disabled: #564b43;
+  --lit-line: rgba(255, 232, 214, 0.07);
+  --lit-line-strong: rgba(255, 232, 214, 0.14);
+  --lit-accent: #ff5a1f;
+  --lit-accent-hot: #ffb37a;
+  --lit-accent-deep: #4a1405;
+  --lit-accent-pair: #ffd7b5;
+  --lit-accent-text: #ff7c47;
+  --lit-accent-fill: #c2410c;
+  --lit-accent-fill-2: #8a2c06;
+  --lit-on-accent: #ffffff;
+  --lit-solid-bg: #16100c;
+  --lit-solid-bg-raised: #1f1712;
+  --lit-solid-bg-sunken: #090605;
+  --lit-solid-lip: inset 0 1px 0 rgba(255, 220, 190, 0.08);
+  --lit-solid-rim: rgba(255, 206, 170, 0.24);
+  --lit-solid-rim-dim: rgba(255, 220, 190, 0.05);
+  --lit-solid-wall: #0c0806;
+  --lit-sheen: linear-gradient(180deg, rgba(255, 236, 220, 0.05), rgba(255, 236, 220, 0.012) 70%);
+  --lit-corner-glow: color-mix(in srgb, var(--lit-accent) 26%, transparent);
+  --lit-glass-bg: linear-gradient(180deg, rgba(255, 236, 220, 0.06), rgba(255, 236, 220, 0.015) 70%), rgba(22, 16, 12, 0.78);
+  --lit-glass-rim: rgba(255, 206, 170, 0.22);
+  --lit-glass-rim-dim: rgba(255, 220, 190, 0.05);
+  --lit-glass-shadow:
+    inset 0 1px 0 rgba(255, 220, 190, 0.08), 0 3px 0 0 #0c0806, 0 4px 0 0 rgba(0, 0, 0, 0.5), 0 24px 48px -20px rgba(0, 0, 0, 0.9);
+  --lit-scrim: rgba(6, 4, 3, 0.74);
+  --lit-veil: rgba(11, 8, 6, 0.62);
+  --lit-primary-bg: linear-gradient(180deg, #fff8f1 0%, #f1e4d6 55%, #dccab8 100%);
+  --lit-primary-fg: #140d09;
+  --lit-primary-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(60, 30, 10, 0.35), 0 10px 28px -14px rgba(255, 106, 40, 0.45);
+  --lit-secondary-bg: linear-gradient(180deg, #1d1612, #110c09);
+  --lit-secondary-fg: #f7f0e9;
+  --lit-key-bg: linear-gradient(180deg, rgba(255, 236, 220, 0.06), rgba(255, 236, 220, 0.015) 70%), #16100c;
+  --lit-control-bg: #0f0b08;
+  --lit-control-rim: rgba(255, 232, 214, 0.4);
+  --lit-control-rim-active: rgba(255, 232, 214, 0.58);
+  --lit-legal-bg: #1a1512;
+  --lit-refusal-bg: #15110e;
+  --lit-test-tag-bg: rgba(255, 232, 214, 0.08);
+  --lit-test-tag-fg: #bcafa4;
+  --lit-status-unknown: #bcafa4;
+}
+
+:root:where([data-look='lit'][data-direction='ember']) {
+  --lit-font-figure: 'Bricolage Grotesque Variable', 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --lit-radius-panel: 28px;
+  --lit-radius-tile: 22px;
+  --lit-radius-key: 20px;
+  --lit-radius-control: 16px;
+  --lit-type-hero-size: 56px;
+  --lit-type-hero-line: 58px;
+  --lit-type-hero-weight: 600;
+  --lit-type-hero-tracking: -0.045em;
+  --lit-type-figure-size: 26px;
+  --lit-type-figure-line: 30px;
+  --lit-type-figure-weight: 600;
+  --lit-type-figure-tracking: -0.03em;
+  --lit-type-title-size: 30px;
+  --lit-type-title-line: 34px;
+  --lit-type-title-weight: 600;
+  --lit-type-title-tracking: -0.03em;
+}
+
+:root:where([data-look='lit'][data-direction='ember'][data-theme='light']) {
+  --lit-page: #f3ede6;
+  --lit-page-2: #eae2d8;
+  --lit-field:
+    radial-gradient(60% 38% at 100% 0%, color-mix(in srgb, var(--lit-accent) 13%, transparent), transparent 72%),
+    radial-gradient(70% 34% at 0% 100%, color-mix(in srgb, var(--lit-accent-hot) 22%, transparent), transparent 78%);
+  --lit-text-1: #17100b;
+  --lit-text-2: #4a3e35;
+  --lit-text-3: #5f5248;
+  --lit-text-disabled: #a39488;
+  --lit-line: rgba(48, 26, 10, 0.08);
+  --lit-line-strong: rgba(48, 26, 10, 0.16);
+  --lit-accent: #ff5a1f;
+  --lit-accent-hot: #ffb37a;
+  --lit-accent-deep: #4a1405;
+  --lit-accent-text: #af3a0b;
+  --lit-accent-fill: #c2410c;
+  --lit-accent-fill-2: #8a2c06;
+  --lit-solid-bg: #fffcf8;
+  --lit-solid-bg-raised: #f8f2eb;
+  --lit-solid-bg-sunken: #ece3d8;
+  --lit-solid-wall: #ded1c3;
+  --lit-solid-rim-dim: rgba(48, 26, 10, 0.1);
+  --lit-solid-shadow: 0 3px 0 0 var(--lit-solid-wall), 0 22px 40px -24px rgba(70, 36, 10, 0.35);
+  --lit-glass-bg: linear-gradient(180deg, rgba(255, 252, 248, 0.82), rgba(255, 252, 248, 0.66) 70%), rgba(243, 237, 230, 0.72);
+  --lit-glass-rim-dim: rgba(48, 26, 10, 0.12);
+  --lit-glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 0 0 #ded1c3, 0 18px 36px -20px rgba(70, 36, 10, 0.35);
+  --lit-scrim: rgba(23, 16, 11, 0.42);
+  --lit-veil: rgba(243, 237, 230, 0.72);
+  --lit-primary-bg: linear-gradient(180deg, #2b211b 0%, #140d09 100%);
+  --lit-primary-fg: #fff6ee;
+  --lit-primary-shadow: inset 0 1px 0 rgba(255, 220, 190, 0.18), 0 1px 0 rgba(0, 0, 0, 0.3), 0 8px 18px -12px rgba(23, 16, 11, 0.5);
+  --lit-secondary-bg: linear-gradient(180deg, #ffffff, #f4ece3);
+  --lit-secondary-fg: #17100b;
+  --lit-key-bg: linear-gradient(180deg, #ffffff, #f5eee6);
+  --lit-control-bg: #ffffff;
+  --lit-control-rim: rgba(48, 26, 10, 0.48);
+  --lit-control-rim-active: rgba(48, 26, 10, 0.7);
+  --lit-focus: #17100b;
+  --lit-legal-bg: #ffffff;
+  --lit-legal-fg: #17100b;
+  --lit-legal-border: #4a3e35;
+  --lit-refusal-bg: #f8f2eb;
+  --lit-refusal-fg: #17100b;
+  --lit-test-tag-bg: rgba(48, 26, 10, 0.07);
+  --lit-test-tag-fg: #4a3e35;
+  --lit-status-unknown: #4a3e35;
+}
+
+/* Direction volt: dark (only while the light preview is off), its faces, radii and type, then light. */
+:root:where([data-look='lit'][data-direction='volt']:not([data-theme='light'])) {
   --lit-page: #0a0a09;
   --lit-page-2: #0e0e0d;
   --lit-field:
@@ -463,6 +586,9 @@
   --lit-radius-tile: 20px;
   --lit-radius-key: 999px;
   --lit-radius-control: 999px;
+}
+
+:root:where([data-look='lit'][data-direction='volt']) {
   --lit-type-hero-size: 56px;
   --lit-type-hero-line: 56px;
   --lit-type-hero-weight: 600;
@@ -481,7 +607,6 @@
   --lit-type-heading-tracking: -0.01em;
 }
 
-/* The volt direction, light. */
 :root:where([data-look='lit'][data-direction='volt'][data-theme='light']) {
   --lit-page: #e7e5df;
   --lit-page-2: #dddbd4;
@@ -492,19 +617,31 @@
   --lit-text-disabled: #9c9b94;
   --lit-line: rgba(13, 13, 12, 0.08);
   --lit-line-strong: rgba(13, 13, 12, 0.15);
+  --lit-accent: #faf33e;
+  --lit-accent-hot: #fffbb8;
+  --lit-accent-deep: #3a3706;
+  --lit-accent-pair: #f3f2ec;
   --lit-accent-text: #575200;
+  --lit-accent-fill: #faf33e;
+  --lit-accent-fill-2: #e2da1e;
   --lit-on-accent: #0a0a09;
+  --lit-up: #3ddc97;
+  --lit-down: #ff5e57;
   --lit-up-text: #086340;
   --lit-down-text: #a82226;
   --lit-solid-bg: #f5f4f0;
   --lit-solid-bg-raised: #edece7;
   --lit-solid-bg-sunken: #dcdad3;
   --lit-solid-lip: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(13, 13, 12, 0.06);
-  --lit-solid-wall: #c9c7bf;
   --lit-solid-rim: rgba(255, 255, 255, 0.95);
   --lit-solid-rim-dim: rgba(13, 13, 12, 0.08);
+  --lit-solid-wall: #c9c7bf;
   --lit-solid-shadow: 0 2px 0 0 var(--lit-solid-wall), 0 24px 40px -26px rgba(30, 28, 20, 0.45);
+  --lit-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0) 60%);
+  --lit-fill-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 0 18px color-mix(in srgb, var(--lit-accent) 30%, transparent);
+  --lit-corner-glow: color-mix(in srgb, var(--lit-accent) 22%, transparent);
   --lit-glass-bg: linear-gradient(180deg, rgba(251, 250, 247, 0.94), rgba(237, 236, 231, 0.9));
+  --lit-glass-blur: blur(20px) saturate(120%);
   --lit-glass-rim: rgba(255, 255, 255, 0.95);
   --lit-glass-rim-dim: rgba(13, 13, 12, 0.1);
   --lit-glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 16px 32px -14px rgba(30, 28, 20, 0.4);
@@ -526,28 +663,36 @@
   --lit-object-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 2px 0 0 #000000,
     0 26px 40px -22px rgba(30, 28, 20, 0.6);
+  --lit-object-spark-bg: linear-gradient(180deg, #fcf76e, #faf33e 45%, #eee62a);
+  --lit-object-spark-fg: #0a0a09;
   --lit-control-bg: #fbfaf7;
   --lit-control-rim: rgba(13, 13, 12, 0.5);
   --lit-control-rim-active: rgba(13, 13, 12, 0.7);
   --lit-focus: #0d0d0c;
   --lit-legal-bg: #fbfaf7;
-  --lit-legal-fg: #0d0d0c;
   --lit-legal-border: #44433e;
   --lit-refusal-bg: #edece7;
   --lit-refusal-fg: #0d0d0c;
+  --lit-test-tag-bg: rgba(13, 13, 12, 0.06);
+  --lit-test-tag-fg: #44433e;
+  --lit-status-done: #086340;
+  --lit-status-unknown: #44433e;
+  --lit-font-ui: 'Archivo Variable', Archivo, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --lit-font-figure: 'Archivo Variable', Archivo, ui-sans-serif, system-ui, sans-serif;
+  --lit-radius-panel: 28px;
+  --lit-radius-tile: 20px;
+  --lit-radius-key: 999px;
+  --lit-radius-control: 999px;
+  --lit-legal-fg: #0d0d0c;
   --lit-refusal-border: rgba(13, 13, 12, 0.2);
   --lit-warn-text: #7e5300;
   --lit-error-text: #b3261e;
-  --lit-test-tag-bg: rgba(13, 13, 12, 0.06);
-  --lit-test-tag-fg: #44433e;
   --lit-status-pending: #7e5300;
   --lit-status-failed: #b3261e;
-  --lit-status-done: #086340;
-  --lit-status-unknown: #44433e;
   --lit-status-stale: #7e5300;
 }
 
-/* The volt direction: today's names. */
+/* Direction volt: today's names. */
 :root[data-look='lit'][data-direction='volt'] {
   --if-lime: var(--lit-text-1);
   --if-lime-hover: color-mix(in srgb, var(--lit-text-1) 88%, var(--lit-page));

@@ -46,8 +46,9 @@ import { useStartedTile } from './started-data';
 import type { NeedsYouShown } from './work-list';
 import { CustomiseHome } from './CustomiseHome';
 import { LitSphere } from './LitSphere';
+import { EmberMoney } from './EmberMoney';
 import { VoltStack } from './VoltStack';
-import { isDirectionOn } from '../../app/look';
+import { lookDirection } from '../../app/look';
 import { HomeNotices } from './Notices';
 import { HomeInbox } from './HomeInbox';
 import { useHomeLayout } from './tiles-data';
@@ -310,19 +311,23 @@ function HomeSimple() {
   const pricesAsOf = tickers.status === 'ready' ? tickers.asOf : null;
 
   const home = useHomeLayout();
-  // The Volt direction draws its card stack where the lit sphere and the holdings rows stand.
-  const volt = isDirectionOn('volt');
   const main = shownTiles(home.layout, 'simple', 'main');
   const side = shownTiles(home.layout, 'simple', 'side');
   const started = useStartedTile(portfolio, side.includes('started'));
   // What "Needs you" shows, so the inbox row is never a notice it already carries.
   const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
+  // The Ember direction (look preview only, intafaced issue 9227): the balance and the money object come first, the
+  // inbox after the actions, and the cards stand in for the holdings rows and the sphere.
+  const direction = lookDirection();
+  const ember = direction === 'ember';
+  // The Volt direction draws its card stack where the lit sphere and the holdings rows stand.
+  const volt = direction === 'volt';
 
   return (
     <div data-testid="if-home" className="if-home">
       <h1 className="if-sr">{t('Home')}</h1>
       <HomeNotices />
-      <HomeInbox needsYou={needsYou} />
+      {ember ? null : <HomeInbox needsYou={needsYou} />}
       <div className="home-grid">
         <div data-testid="home-main" className="home-main">
           <div data-testid="home-label" className="home-label">
@@ -346,14 +351,16 @@ function HomeSimple() {
           </div>
 
           {launch ? <HomeStanding status={launch} hidden={hideBalances} /> : <Balance portfolio={portfolio} hidden={hideBalances} />}
+          {ember && !launch ? <EmberMoney portfolio={portfolio} hidden={hideBalances} /> : null}
           <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
+          {ember ? <HomeInbox needsYou={needsYou} /> : null}
           {main.map((id) => {
             switch (id) {
               case 'work':
                 return <WorkList key={id} hidden={hideBalances} onShown={setNeedsYou} />;
               case 'holdings':
                 // On the launch model the holdings are the parts of the total above, each read from its own source.
-                return launch ? null : volt ? (
+                return launch || ember ? null : volt ? (
                   <VoltStack key={id} portfolio={portfolio} hidden={hideBalances} />
                 ) : portfolio.status === 'loading' ? (
                   // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't

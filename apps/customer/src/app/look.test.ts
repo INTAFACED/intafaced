@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { accents, directions } from '@intafaced/ui/lit';
 import { resolvePreviewScheme } from '../shared/preferences';
-import { LOOK_ACCENTS, LOOK_DIRECTIONS, applyLook, isDirectionOn, isLook, resolveAccent, resolveDirection, resolveLook } from './look';
+import { LOOK_ACCENTS, LOOK_DIRECTIONS, applyLook, isLook, lookDirection, resolveAccent, resolveDirection, resolveLook } from './look';
 
 describe('the Lit glass switch', () => {
   beforeEach(() => localStorage.clear());
@@ -53,17 +53,30 @@ describe('the Lit glass switch', () => {
     expect([...LOOK_ACCENTS]).toEqual([...accents]);
   });
 
-  it('draws a direction only when asked and only with the look on, remembers it, and drops it with ?direction=off', () => {
+  it('draws a direction only when asked, remembers it, drops it with ?direction=off, and only while the look is on', () => {
+    const root = document.createElement('html');
+    applyLook(root, '');
+    expect(root.dataset.direction).toBeUndefined();
+    applyLook(root, '?look=lit&direction=ember');
+    expect(root.dataset.direction).toBe('ember');
+    expect(lookDirection(root)).toBe('ember');
+    applyLook(root, '?look=off');
+    expect(lookDirection(root)).toBeNull();
+    applyLook(root, '?look=lit&direction=off');
+    expect(root.dataset.direction).toBeUndefined();
+    expect(resolveDirection('?direction=neon')).toBeNull();
+  });
+
+  it('keeps a direction asked without the look until the look is on', () => {
     const root = document.createElement('html');
     applyLook(root, '?direction=volt');
     expect(root.dataset.direction).toBeUndefined();
-    expect(isDirectionOn('volt', root)).toBe(false);
+    expect(lookDirection(root)).toBeNull();
     applyLook(root, '?look=lit');
     expect(root.dataset.direction).toBe('volt');
-    expect(isDirectionOn('volt', root)).toBe(true);
+    expect(lookDirection(root)).toBe('volt');
     applyLook(root, '?direction=off');
     expect(root.dataset.direction).toBeUndefined();
-    expect(resolveDirection('?direction=neon')).toBeNull();
   });
 
   it('knows the same directions as the kit', () => {

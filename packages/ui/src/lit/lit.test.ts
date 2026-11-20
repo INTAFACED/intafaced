@@ -204,22 +204,20 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
 describe('look directions: each keeps the lit budgets in both schemes', () => {
   const surfaces = ['solid-bg', 'solid-bg-raised', 'solid-bg-sunken', 'page', 'refusal-bg'] as const;
   const textRoles = ['text-1', 'text-2', 'text-3', 'accent-text', 'up-text', 'down-text', 'warn-text', 'error-text'] as const;
+  // as lit.css cascades: the dark set only while the light preview is off, `both` in either scheme, the light set last
   const schemesOf = (d: (typeof directions)[number]) => {
     const set = directionSets[d];
-    const dark = { ...lit, ...set.dark };
     return [
-      ['dark', dark],
-      ['light', { ...dark, ...litLight, ...set.light }],
+      ['dark', { ...lit, ...set.both, ...set.dark }],
+      ['light', { ...lit, ...litLight, ...set.both, ...set.light }],
     ] as const;
   };
 
-  it.each(directions)('%s only re-values known roles, and its light set covers every light role its dark set re-values', (d) => {
+  it.each(directions)("%s only re-values known roles, and re-points today's names only to roles", (d) => {
     const known = new Set<string>(roleNames);
     const set = directionSets[d];
-    for (const k of [...Object.keys(set.dark), ...Object.keys(set.light)]) expect(known.has(k), k).toBe(true);
-    // the dark block is emitted after the general light block, so a role both set must be set again for light
-    for (const k of Object.keys(litLight)) if (k in set.dark) expect(k in set.light, k).toBe(true);
-    for (const v of Object.values(set.today)) expect(v).toMatch(/^(var|color-mix)\(/);
+    for (const k of [...Object.keys(set.dark), ...Object.keys(set.both), ...Object.keys(set.light)]) expect(known.has(k), k).toBe(true);
+    for (const v of Object.values(set.today ?? {})) expect(v).toMatch(/^(var|color-mix)\(/);
   });
 
   it.each(directions)('%s: text roles meet 4.5:1 on every solid surface in both schemes', (d) => {
@@ -237,6 +235,50 @@ describe('look directions: each keeps the lit budgets in both schemes', () => {
       expect(m.focus, scheme).not.toBe(m.accent);
       for (const r of ['legal-bg', 'legal-fg', 'legal-border', 'refusal-bg', 'refusal-fg'] as const) expect(m[r], r).not.toBe(m.accent);
     }
+  });
+});
+
+describe('lit directions keep the same contrast floors in both schemes', () => {
+  const surfaces = ['solid-bg', 'solid-bg-raised', 'solid-bg-sunken', 'page', 'refusal-bg'] as const;
+  const textRoles = ['text-1', 'text-2', 'text-3', 'accent-text', 'up-text', 'down-text', 'warn-text', 'error-text'] as const;
+  const schemesOf = (d: (typeof directions)[number]) => ({
+    dark: { ...lit, ...directionSets[d].both, ...directionSets[d].dark },
+    light: { ...lit, ...litLight, ...directionSets[d].both, ...directionSets[d].light },
+  });
+  it.each(directions)('%s: every text role meets 4.5:1 on every solid surface, dark and light', (d) => {
+    for (const [scheme, m] of Object.entries(schemesOf(d)))
+      for (const t of textRoles)
+        for (const s of surfaces) expect(contrast(m[t], m[s]), `${scheme} ${t} on ${s}`).toBeGreaterThanOrEqual(4.5);
+  });
+  it.each(directions)('%s: text on its lit fill meets 4.5:1, controls 3:1, the focus ring 3:1 and never a lit colour', (d) => {
+    for (const m of Object.values(schemesOf(d))) {
+      expect(contrast(m['on-accent'], m['accent-fill'])).toBeGreaterThanOrEqual(4.5);
+      for (const s of ['solid-bg', 'solid-bg-raised', 'control-bg'] as const)
+        expect(contrast(over(m['control-rim'], m[s]), m[s]), `rim on ${s}`).toBeGreaterThanOrEqual(3);
+      expect(contrast(m.focus, m['solid-bg'])).toBeGreaterThanOrEqual(3);
+      for (const r of ['accent', 'accent-text'] as const) expect(m.focus).not.toBe(m[r]);
+    }
+  });
+  it.each(directions)('%s: the risk band and refusals never take a brand colour', (d) => {
+    const brand = new Set(Object.values({ ...directionSets[d].dark, ...directionSets[d].light }).filter((x) => x.startsWith('#')));
+    for (const m of Object.values(schemesOf(d)))
+      for (const r of ['legal-bg', 'legal-fg', 'legal-border', 'refusal-fg', 'refusal-border'] as const) {
+        expect(m[r], r).not.toContain('accent');
+        if (r !== 'legal-fg') expect([m['accent'], m['accent-text'], m['accent-fill']]).not.toContain(m[r]);
+      }
+    expect(brand.size).toBeGreaterThan(0);
+  });
+  it('ember is told apart from the warning amber and from Bitcoin orange (hue at least 15 degrees away)', () => {
+    const hue = (h: string) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex(h).slice(i, i + 2), 16) / 255) as [number, number, number];
+      const max = Math.max(r, g, b);
+      const d = max - Math.min(r, g, b);
+      const x = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return (x * 60 + 360) % 360;
+    };
+    const ember = directionSets.ember.dark.accent!;
+    expect(Math.abs(hue(ember) - hue('#F7931A')), 'Bitcoin orange').toBeGreaterThanOrEqual(15);
+    expect(Math.abs(hue(ember) - hue(lit['warn-text'])), 'warning amber').toBeGreaterThanOrEqual(15);
   });
 });
 
@@ -263,6 +305,7 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
     expect([...fonts.matchAll(/@import '([^']+)'/g)].map((m) => m[1])).toEqual([
       '@fontsource-variable/geist/index.css',
       '@fontsource-variable/geist-mono/index.css',
+      '@fontsource-variable/bricolage-grotesque/index.css',
       '@fontsource-variable/archivo/wdth.css',
     ]);
   });
@@ -270,6 +313,10 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
     expect(lit['font-ui'].startsWith("'Geist Variable'")).toBe(true);
     expect(lit['font-figure'].startsWith("'Geist Variable'")).toBe(true);
     expect(lit['font-mono'].startsWith("'Geist Mono Variable'")).toBe(true);
+    expect(directionSets.ember.both['font-figure']?.startsWith("'Bricolage Grotesque Variable'")).toBe(true);
+    expect(readFileSync(require.resolve('@fontsource-variable/bricolage-grotesque/index.css'), 'utf8')).toContain(
+      "font-family: 'Bricolage Grotesque Variable'",
+    );
     for (const pkg of ['geist', 'geist-mono']) {
       const css = readFileSync(require.resolve(`@fontsource-variable/${pkg}/index.css`), 'utf8');
       expect(css).toContain(pkg === 'geist' ? "font-family: 'Geist Variable'" : "font-family: 'Geist Mono Variable'");

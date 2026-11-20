@@ -20,11 +20,11 @@ export type Accent = (typeof accents)[number];
 export const defaultAccent: Accent = 'blue';
 
 /**
- * `data-direction` on the root: a whole look direction drawn over the lit roles (its own material, type and spark),
- * for the owner's first choice between real directions. Off by default; only `?direction=` sets it,
- * and only with the look on.
+ * `data-direction` on the root: one of the look directions the owner chooses between (intafaced issue 9227), each its
+ * own material, type and layout on top of the look's roles. Off by default; only `?direction=` sets it (look.ts), and
+ * only with the look on.
  */
-export const directions = ['volt'] as const;
+export const directions = ['ember', 'volt'] as const;
 export type Direction = (typeof directions)[number];
 
 /**

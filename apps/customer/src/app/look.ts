@@ -68,17 +68,17 @@ export function resolveAccent(search: string): LookAccent | null {
 }
 
 /**
- * The look directions' preview switch: `?direction=volt` draws a whole direction over the lit look
- * (its own material, type, spark, Home, money object and tab bar), `?direction=off` forgets it. Remembered like the
- * look and off by default; it sets `data-direction` on the root only while the look is on, so nobody sees a direction
+ * The look directions the owner chooses between (intafaced issue 9227): `?direction=<id>` draws that direction's own
+ * material, type and layout over the look (`data-direction` on the root), `?direction=off` forgets it. Remembered like
+ * the accent and off by default; it sets `data-direction` only while the look is on, so nobody sees a direction
  * without asking for it. Everything a direction changes is scoped to `[data-direction='<id>']`.
  */
 const DIRECTION_KEY = 'intafaced.look.direction';
 /** Held equal to `directions` in `@intafaced/ui/lit` by look.test.ts. */
-export const LOOK_DIRECTIONS = ['volt'] as const;
+export const LOOK_DIRECTIONS = ['ember', 'volt'] as const;
 export type LookDirection = (typeof LOOK_DIRECTIONS)[number];
 
-const isDirection = (v: string | null): v is LookDirection => v !== null && (LOOK_DIRECTIONS as readonly string[]).includes(v);
+const isDirection = (v: string | null | undefined): v is LookDirection => v != null && (LOOK_DIRECTIONS as readonly string[]).includes(v);
 
 export function resolveDirection(search: string): LookDirection | null {
   const asked = new URLSearchParams(search).get('direction');
@@ -95,8 +95,10 @@ export function resolveDirection(search: string): LookDirection | null {
   return isDirection(asked) ? asked : null;
 }
 
-export function isDirectionOn(direction: LookDirection, root: HTMLElement = document.documentElement): boolean {
-  return root.dataset.look !== undefined && root.dataset.direction === direction;
+/** The direction drawn now: only while the look is on. */
+export function lookDirection(root: HTMLElement = document.documentElement): LookDirection | null {
+  const d = root.dataset.direction;
+  return root.dataset.look === 'lit' && isDirection(d) ? d : null;
 }
 
 /** Called once before the first render. */
