@@ -43,7 +43,8 @@ describe('TickerHub — the throttle', () => {
     h.attach(null, sink, 0);
     h.ingest([row('BTC', '100')], 0);
     expect(sink.frames).toHaveLength(1);
-    expect(sink.frames[0]).toMatchObject({ type: 'update', tickers: [{ market: 'BTC', last: '100' }] });
+    // Joined before anything was cached: its first rows still come as a snapshot (J-cex-spot-14 #8).
+    expect(sink.frames[0]).toMatchObject({ type: 'snapshot', tickers: [{ market: 'BTC', last: '100' }] });
 
     // Ten changes inside the window: nothing leaves.
     for (let t = 100; t <= 900; t += 100) h.ingest([row('BTC', String(100 + t))], t);
@@ -288,5 +289,35 @@ describe('TickerHub — the top of the book', () => {
     const last = sink.frames[1];
     expect(last.type).toBe('update');
     expect(last.tickers).toEqual([expect.objectContaining({ market: 'BTC', bid: '99.5', ask: '101', spread: '1.5' })]);
+  });
+});
+
+// J-cex-spot-14 #8: a subscriber reads the stream as a snapshot, then updates, even when it joins a cold feed.
+describe('TickerHub — snapshot first', () => {
+  it('sends the first rows to a subscriber that joined before anything was cached as a snapshot, then updates', () => {
+    const h = hub();
+    const sink = new FakeSink();
+    h.attach(null, sink, 0);
+    expect(sink.frames).toHaveLength(0);
+    h.ingest([row('BTC', '100'), row('ETH', '10')], 0);
+    expect(sink.frames).toHaveLength(1);
+    expect(sink.frames[0].type).toBe('snapshot');
+    expect(sink.frames[0].tickers.map((r: TickerRow) => r.market).sort()).toEqual(['BTC', 'ETH']);
+    h.ingest([row('BTC', '101'), row('ETH', '10')], 2_000);
+    expect(sink.frames.map((f: { type: string }) => f.type)).toEqual(['snapshot', 'update']);
+    expect(sink.frames[1].tickers).toEqual([expect.objectContaining({ market: 'BTC', last: '101' })]);
+  });
+
+  it('sends a second, late subscriber its snapshot at once and never the first one twice', () => {
+    const h = hub();
+    const early = new FakeSink();
+    h.attach(null, early, 0);
+    h.ingest([row('BTC', '100')], 0);
+    const late = new FakeSink();
+    h.attach(null, late, 500);
+    expect(late.frames.map((f: { type: string }) => f.type)).toEqual(['snapshot']);
+    h.ingest([row('BTC', '100')], 600);
+    expect(early.frames).toHaveLength(1);
+    expect(late.frames).toHaveLength(1);
   });
 });
