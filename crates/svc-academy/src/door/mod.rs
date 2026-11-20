@@ -153,6 +153,8 @@ pub struct Ctx<'a> {
     pub client_address: &'a str,
     /// The process's certificate state: `certVerify`'s window and the clock.
     pub certs: &'a crate::certs::State,
+    /// `ctx.quizClientAddress`: the edge's client address, believed only from a trusted proxy (`index.ts`).
+    pub quiz_client_address: Option<String>,
 }
 
 impl Ctx<'_> {
@@ -192,6 +194,8 @@ pub struct AcademyDoor {
     requests: RequestIds,
     edge_key: Option<EdgeKey>,
     certs: crate::certs::State,
+    /// `createQuizAddressResolver(ACADEMY_TRUSTED_PROXY_CIDRS)`: built before the listener opens.
+    quiz_proxies: Vec<String>,
 }
 
 /// The system clock.
@@ -211,7 +215,12 @@ impl AcademyDoor {
                  Without it the principal header is caller-controlled and every scope check is decorative (§9)."
             ));
         }
+        // A malformed proxy range stops the service instead of reading no address.
+        let quiz_proxies = crate::assessment::quizzes::proxy_rules(
+            crate::assessment::setting_str(&config.settings, "ACADEMY_TRUSTED_PROXY_CIDRS"),
+        )?;
         Ok(AcademyDoor {
+            quiz_proxies,
             secret: config.edge_secret,
             jurisdiction: Jurisdiction::from_env(&config.env)?,
             dev: config.env.get("NODE_ENV").map(String::as_str) != Some("production"),
@@ -373,6 +382,11 @@ impl AcademyDoor {
             settings: &self.settings,
             client_address: peer,
             certs: &self.certs,
+            quiz_client_address: crate::assessment::quizzes::resolve_address(
+                &self.quiz_proxies,
+                trpc::header(req, service_kit::server::SOCKET_PEER).as_deref(),
+                trpc::header(req, "x-intafaced-client-ip").as_deref(),
+            ),
         };
         slices::handle(&ctx).map_err(refuse)
     }
