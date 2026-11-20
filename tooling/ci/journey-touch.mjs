@@ -596,6 +596,39 @@ export function pullPick(paths, touch, { atHead = () => true, reach = null, name
 
 /** A run by hand's title (real-app-journeys.yml `run-name`): the journeys it was given, or `full`. */
 export const DISPATCH_TITLE = /^Real-app journeys by hand, (.+)$/;
+
+/**
+ * GitHub refuses to start a run whose concurrency group is longer than 400 characters: the run ends "failure" with no
+ * jobs ("This run likely failed because of a workflow file issue"). real-app-journeys.yml's group for a run by hand
+ * holds the branch and the whole journeys input (one group per branch and selection, workflow-concurrency.test.mjs
+ * rule 3), and GitHub's expressions can neither measure nor hash a string, so a long input can't start: 63 files on
+ * fix/ps-3298 (1556 characters) failed in run 44766798876. Measured on 20 Nov 2026 with the same group expression:
+ * a 400-character group started (run 44768303533) and a 401-character one failed (run 44768324557).
+ */
+export const DISPATCH_GROUP_MAX = 400;
+/** real-app-journeys.yml's concurrency group for a run by hand on `branch` given `journeys` (workflow-concurrency.test.mjs holds it to the workflow's expression). */
+export const dispatchGroup = (branch, journeys) => `real-app-journeys-refs/heads/${branch}:${journeys}`;
+
+/**
+ * The runs by hand that run `files` on `branch`: the files in order, split into as few lists as keep each run's
+ * concurrency group within DISPATCH_GROUP_MAX, so every one starts. A file whose group passes it on its own still gets
+ * its own run (it can't start: the branch name is too long to dispatch any journey on). Returns [[file]].
+ */
+export function dispatchBatches(branch, files) {
+  const batches = [];
+  for (const f of files ?? []) {
+    const last = batches.at(-1);
+    if (last && dispatchGroup(branch, [...last, f].join(' ')).length <= DISPATCH_GROUP_MAX) last.push(f);
+    else batches.push([f]);
+  }
+  return batches;
+}
+
+/** The `gh workflow run` commands that run `files` on `branch`, one a batch (dispatchBatches); `repo` adds `-R`. */
+export const dispatchCommands = (branch, files, repo = '') =>
+  dispatchBatches(branch, files).map(
+    (b) => `gh workflow run real-app-journeys.yml${repo ? ` -R ${repo}` : ''} --ref ${branch} -f journeys="${b.join(' ')}"`,
+  );
 const JOURNEY_FILE_NAME = /^[A-Za-z0-9._-]+\.pw\.mjs$/;
 /** A shard job of the journeys run (real-app-journeys.yml `journeys` job). */
 export const SHARD_JOB = /^Journeys \(shard \d+ of \d+\)$/;
@@ -1026,7 +1059,12 @@ async function main() {
     if (t.named) console.log(`  named: ${t.named}`);
     if (t.bounded) console.log(`  bounded: ${t.bounded}`);
     for (const p of (t.mainJudges ?? []).slice(0, 20)) console.log(`  main's full run judges: ${printable(p)}`);
-    console.log(`files: gh workflow run real-app-journeys.yml -R INTAFACED/intafaced --ref <branch> -f journeys="${t.files.join(' ')}"`);
+    let branch = '';
+    try {
+      branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {}
+    for (const c of dispatchCommands(branch && branch !== 'HEAD' ? branch : '<branch>', t.files, 'INTAFACED/intafaced'))
+      console.log(`files: ${c}`);
   } else console.log('none: no journeys run executes or reads what this change touches');
 }
 

@@ -33,6 +33,8 @@ import {
   CRATE,
   PR_MAX_FILES,
   pullPick,
+  DISPATCH_GROUP_MAX,
+  dispatchGroup,
 } from './journey-touch.mjs';
 import { mapChosenAt } from './journey-seal.mjs';
 import { JOURNEYS_WORKFLOW, JOURNEY_TEST, isSharedSetup, judgeTouchedRun, sealPull } from './journey-seal.mjs';
@@ -422,6 +424,7 @@ const touchedRun = (over) =>
     reportOf: async (r) =>
       ({ 1: rep(['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']), 2: rep(['J-bank-13.pw.mjs']), 3: rep(['J-bank-14.pw.mjs']) })[r.id],
     verdictOf: async () => clean,
+    branch: 'b1',
     ...over,
   });
 
@@ -434,7 +437,15 @@ test('judgeTouchedRun, planted: a missed touched file, a red step, an older head
   const miss = await touchedRun({ runs: [run(2)] });
   assert.equal(miss.ok, false, 'a run that missed a touched journey fails');
   assert.match(miss.lines.join('\n'), /ran J-bank-14\.pw\.mjs/);
-  assert.match(miss.lines.join('\n'), /-f journeys="J-bank-13\.pw\.mjs J-bank-14\.pw\.mjs"/);
+  // It names only what no run on the head ran, so the run it asks for runs just that.
+  assert.match(miss.lines.join('\n'), /--ref b1 -f journeys="J-bank-14\.pw\.mjs"; the seal re-runs/);
+  assert.doesNotMatch(miss.lines.join('\n'), /-f journeys="[^"]*J-bank-13/);
+  const many = Array.from({ length: 63 }, (_, i) => `J-ops-console-${String(i).padStart(2, '0')}-announcements.pw.mjs`);
+  const long = await touchedRun({ files: many, runs: [], branch: 'fix/ps-3298' });
+  const asked = [...long.lines.join('\n').matchAll(/--ref fix\/ps-3298 -f journeys="([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(asked.length > 1, 'a list too long for one run is split');
+  assert.deepEqual(asked.join(' ').split(' '), many, 'the runs between them name every file once, in order');
+  for (const a of asked) assert.ok(dispatchGroup('fix/ps-3298', a).length <= DISPATCH_GROUP_MAX, a);
   assert.equal((await touchedRun({ runs: [] })).ok, false, 'no run fails');
   assert.equal((await touchedRun({ verdictOf: async () => red('J-bank-13#2') })).ok, false, 'a red step fails');
   const newerRed = await touchedRun({ runs: [run(1), run(2)], verdictOf: async (_r, r) => (r.id === 2 ? red('J-bank-13#1') : clean) });

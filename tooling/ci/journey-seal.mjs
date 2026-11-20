@@ -65,7 +65,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
-import { RUN_FILE, journeyTouch, namedInputs, namedJourneyIds, pathKind, printable, pullPick, stackImporters } from './journey-touch.mjs';
+import {
+  DISPATCH_GROUP_MAX,
+  RUN_FILE,
+  dispatchCommands,
+  journeyTouch,
+  namedInputs,
+  namedJourneyIds,
+  pathKind,
+  printable,
+  pullPick,
+  stackImporters,
+} from './journey-touch.mjs';
 import { subscribesVia, builtMap, headWanted, loadMap, newerMap, readHead, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
@@ -383,7 +394,8 @@ const newestFirst = (a, b) => Date.parse(b.run_started_at ?? b.created_at) - Dat
  * a report's `ran` lists them). Newest finished run first: every run read is judged by the journeys
  * verdict on the files it has (`verdictOf`, the default branch's baseline), and any red step there fails the seal, so a
  * newer red run is never hidden behind an older clean one; runs are read until every touched file has been run by one
- * of them. A touched file no finished run on the head ran fails the seal and is named. A run still going holds it, a
+ * of them. A touched file no finished run on the head ran fails the seal and is named, with the runs by hand on `branch`
+ * (the pull request's head branch) that run just those and each start (dispatchCommands). A run still going holds it, a
  * cancelled or skipped run says nothing, and a report or verdict that can't be read fails closed.
  */
 export async function judgeTouchedRun({
@@ -397,9 +409,15 @@ export async function judgeTouchedRun({
   inherited = null,
   reach = null,
   named = null,
+  branch = null,
 }) {
   const why = `it touches ${files.length} journey file(s) (${files.slice(0, 5).join(', ')}${files.length > 5 ? `, ${files.length - 5} more` : ''})${reach?.length ? `, by the touched-journeys map (${reach.slice(0, 3).join('; ')}${reach.length > 3 ? `; ${reach.length - 3} more` : ''})` : ''}${named ? `, because ${named}` : ''}`;
-  const how = `dispatch real-app-journeys.yml on the branch with -f journeys="${files.join(' ')}"; the seal re-runs when it finishes`;
+  // Only the files no finished run on the head ran, in runs that each start (dispatchBatches: GitHub refuses a run whose
+  // concurrency group passes 400 characters, and the whole touched list did on 20 Nov 2026, run 44766798876).
+  const how = (left) => {
+    const cmds = dispatchCommands(branch ?? '<branch>', left);
+    return `${cmds.length > 1 ? `run them in these ${cmds.length} runs by hand (each within GitHub's ${DISPATCH_GROUP_MAX}-character concurrency group limit): ` : 'run them by hand: '}${cmds.join(' ; ')}; the seal re-runs when they finish`;
+  };
   const mine = onHead(runs, sha, repo);
   const running = mine.filter((r) => r.status !== 'completed');
   if (running.length && waitOnRunning) {
@@ -467,7 +485,7 @@ export async function judgeTouchedRun({
     state: 'fail',
     kinds: ['runner'],
     lines: [
-      `touched journeys: ${why}, and no finished Real-app journeys run on this exact head ran ${[...left].join(', ')}; ${how}`,
+      `touched journeys: ${why}, and no finished Real-app journeys run on this exact head ran ${[...left].join(', ')}; ${how([...left])}`,
       ...read.map((l) => `touched journeys: ${l}`),
     ],
   };
@@ -1443,6 +1461,7 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
           inherited,
           reach: reach.bounded ? [reach.bounded] : reach.reach,
           named: reach.named,
+          branch: pull.head?.ref ?? null,
         })
       : { ok: true, state: 'none', lines: [] };
   const v = {
