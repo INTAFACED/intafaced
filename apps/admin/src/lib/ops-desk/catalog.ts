@@ -2,6 +2,7 @@ import { INDEXER_STATUS } from '@intafaced/contracts/indexer-procedures';
 import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
 import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
+import { TOKEN_BURNED_SUPPLY } from '@intafaced/contracts/token-procedures';
 import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 
 /** A read whose call has a record: its module and path are the record's, never typed again here. */
@@ -2273,9 +2274,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'token.burned',
         title: 'Burned supply',
         note: 'Tokens burned so far, as a decimal exactly as svc-token formats it. A burn total, not the circulating supply.',
-        module: 'token',
         plainName: 'burned supply',
-        procedure: 'burnedSupply',
+        ...readOf(TOKEN_BURNED_SUPPLY),
         shape: 'record',
         columns: [amount('burned', 'Burned')],
         emptyText: '',
