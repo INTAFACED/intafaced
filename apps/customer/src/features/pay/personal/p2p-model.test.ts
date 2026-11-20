@@ -52,6 +52,10 @@ const trade = (over: Partial<Trade> = {}): Trade => ({
   escrowedAt: '2026-10-17T00:01:00Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   ...over,
 });
 const offer = (over: Partial<Offer> = {}): Offer => ({

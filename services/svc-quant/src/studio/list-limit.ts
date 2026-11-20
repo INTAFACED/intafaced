@@ -5,9 +5,11 @@
  * Store.list stays the in-process book for save tests. Only the tRPC dump is paged.
  */
 
+import { QUANT_STUDIO_LIST_LIMIT_CAP } from '@intafaced/contracts/quant-studio-procedures';
 import { QUANT_STUDIO_LIST_LIMIT_UNSET, QuantError } from '../errors.js';
 
-export const STUDIO_LIST_LIMIT_CAP = 50;
+/** The largest page, published with `studio.list`'s record. */
+export const STUDIO_LIST_LIMIT_CAP = QUANT_STUDIO_LIST_LIMIT_CAP;
 
 export { QUANT_STUDIO_LIST_LIMIT_UNSET };
 

@@ -27,6 +27,7 @@ import {
   settleByReading,
 } from './academy-flows';
 import { useAcademyTracking } from './academy-tracking';
+import { ACADEMY_ENROLL_CERT_PATH } from '@intafaced/contracts/academy-learner-procedures';
 import { AcademyRefusal, GuardedButton, pathLabel } from './AcademyLmsParts';
 import { usePreferences } from '../../shared/preferences';
 
@@ -134,7 +135,11 @@ function PathProgrammes({ lessons, action }: { lessons: readonly LessonSummary[]
       ),
       run: async (canDispatch) => {
         if (!canDispatch()) return changed();
-        const sent = await api.mutate('academy', 'enrollCertPath', { pathSlug: path }, enrolReceipt(userId, path));
+        const sent = await api.call(
+          ACADEMY_ENROLL_CERT_PATH,
+          { pathSlug: path },
+          { accept: (r) => enrolReceipt(userId, path).safeParse(r).success },
+        );
         const settled = await settleByReading(
           sent,
           () => readEnrolments(api, userId),

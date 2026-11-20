@@ -68,7 +68,8 @@ export type RefusalStatus =
   | 'CONFLICT'
   | 'PRECONDITION_FAILED'
   | 'TOO_MANY_REQUESTS'
-  | 'SERVICE_UNAVAILABLE';
+  | 'SERVICE_UNAVAILABLE'
+  | 'TIMEOUT';
 
 /** Every named refusal the call may answer with, by its machine code, and the status it is sent with. */
 export type Refusals = Readonly<Record<string, RefusalStatus>>;
