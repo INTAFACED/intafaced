@@ -14,8 +14,10 @@
  *   · `P2P_CONTRACT_ESCROW_DISPUTE_WINDOW_SECONDS`: how long a contract dispute runs before anyone may settle it by the
  *     refund both parties agreed when the deal opened.
  */
-import { forwardedPrincipalHeaders, unwrapTrpcData, type Context } from '@intafaced/contracts';
-import { protocolEscrowDealOutputSchema, protocolEscrowStatusOutputSchema } from '@intafaced/contracts/protocol-escrow';
+import { forwardedPrincipalHeaders, type Context } from '@intafaced/contracts';
+import { trpcRecordReply, trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
+import { PROTOCOL_ESCROW_DEAL, PROTOCOL_ESCROW_STATUS } from '@intafaced/contracts/protocol-chain-procedures';
+import type { ProtocolEscrowStatus as EscrowStatusReply } from '@intafaced/contracts/protocol-escrow';
 import { z } from 'zod';
 import { P2pError, type ContractDealRead } from './p2p-service.js';
 
@@ -33,7 +35,7 @@ export function parseContractEscrowTokens(raw: string | undefined): ContractEscr
   return parsed.data;
 }
 
-export type ProtocolEscrowStatus = z.infer<typeof protocolEscrowStatusOutputSchema>;
+export type ProtocolEscrowStatus = EscrowStatusReply;
 
 /** svc-protocol's escrow reads, for the person of the request. Every failure is a typed refusal, never a guess. */
 export interface ProtocolEscrowReader {
@@ -56,7 +58,7 @@ async function getJson(fetcher: typeof fetch, target: string, headers: Record<st
     const message = (body as { error?: { message?: string } } | null)?.error?.message ?? `svc-protocol answered ${response.status}`;
     return { ok: false as const, message };
   }
-  return { ok: true as const, data: unwrapTrpcData(body) };
+  return { ok: true as const, body };
 }
 
 export function createProtocolEscrowReader(options: {
@@ -76,19 +78,24 @@ export function createProtocolEscrowReader(options: {
     async status(ctx) {
       let res;
       try {
-        res = await getJson(fetcher, `${base}/trpc/escrow.status`, headersOf(ctx), timeoutMs);
+        res = await getJson(fetcher, trpcRecordRequest(PROTOCOL_ESCROW_STATUS, base, undefined).url, headersOf(ctx), timeoutMs);
       } catch (err) {
         if (err instanceof P2pError) throw err;
         throw unavailable('svc-protocol could not be reached');
       }
       // On a mainnet chain svc-protocol refuses `audit.external`; its message names the blocker.
       if (!res.ok) throw unavailable(res.message);
-      const parsed = protocolEscrowStatusOutputSchema.safeParse(res.data);
-      if (!parsed.success) throw unavailable('svc-protocol answered a status that is not the published shape');
-      return parsed.data;
+      const status = trpcRecordReply(PROTOCOL_ESCROW_STATUS, res.body);
+      if (status === null) throw unavailable('svc-protocol answered a status that is not the published shape');
+      return status;
     },
     async deal(ctx, dealId) {
-      const target = `${base}/trpc/escrow.deal?input=${encodeURIComponent(JSON.stringify({ dealId }))}`;
+      let target: string;
+      try {
+        target = trpcRecordRequest(PROTOCOL_ESCROW_DEAL, base, { dealId }).url;
+      } catch {
+        throw new P2pError(`Deal ${dealId} could not be read: it is not a deal id the escrow takes`, 'p2p.escrow_deal_mismatch');
+      }
       let res;
       try {
         res = await getJson(fetcher, target, headersOf(ctx), timeoutMs);
@@ -97,9 +104,9 @@ export function createProtocolEscrowReader(options: {
         throw unavailable('svc-protocol could not be reached; read the deal again');
       }
       if (!res.ok) throw new P2pError(`Deal ${dealId} could not be read: ${res.message}`, 'p2p.escrow_deal_mismatch');
-      const parsed = protocolEscrowDealOutputSchema.safeParse(res.data);
-      if (!parsed.success) throw unavailable('svc-protocol answered a deal that is not the published shape');
-      return parsed.data;
+      const deal = trpcRecordReply(PROTOCOL_ESCROW_DEAL, res.body);
+      if (deal === null) throw unavailable('svc-protocol answered a deal that is not the published shape');
+      return deal;
     },
   };
 }

@@ -57,9 +57,21 @@ export const contractSourceSchema = z.discriminatedUnion('status', [
 ]);
 export type ContractSource = z.infer<typeof contractSourceSchema>;
 
-const abiParam: z.ZodType<{ name: string; type: string; components?: unknown[] }> = z.lazy(() =>
-  z.object({ name: z.string(), type: z.string(), components: z.array(abiParam).optional() }).strict(),
-);
+/**
+ * How deep a tuple's components may nest in a function's parameters. The interface is read only from the builds this
+ * platform compiled (svc-protocol `contracts/out/`, one level deep today), and the record's language-neutral export takes
+ * no recursive schema, so the nesting is spelled out to this depth rather than written as a `z.lazy`.
+ */
+export const ABI_TUPLE_DEPTH = 8;
+
+/** Each depth is named (`id`), so the record's export writes it once under `$defs` and every input and output refers to it. */
+const abiParamAt = (depth: number): z.ZodObject =>
+  (depth === 0
+    ? z.object({ name: z.string(), type: z.string() }).strict()
+    : z.object({ name: z.string(), type: z.string(), components: z.array(abiParamAt(depth - 1)).optional() }).strict()
+  ).meta({ id: `ProtocolAbiParamDepth${depth}` });
+
+const abiParam = abiParamAt(ABI_TUPLE_DEPTH) as unknown as z.ZodType<{ name: string; type: string; components?: unknown[] }>;
 
 export const contractFunctionSchema = z
   .object({
