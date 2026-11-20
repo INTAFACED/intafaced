@@ -54,6 +54,1190 @@
         }
       ]
     },
+    "bank.personalRequest.cancel": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "personalRequest.cancel",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.personal_request_not_found": "NOT_FOUND",
+        "bank.personal_request_closed": "CONFLICT",
+        "bank.personal_request_expired": "CONFLICT",
+        "bank.personal_request_claim_held": "CONFLICT",
+        "bank.personal_request_not_payee": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["requestId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "payeeUserId": {
+            "type": "string"
+          },
+          "payerUserId": {
+            "type": "string"
+          },
+          "payeeHandle": {
+            "type": ["string", "null"]
+          },
+          "payerHandle": {
+            "type": ["string", "null"]
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "note": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["open", "paid", "declined", "cancelled", "expired"]
+          },
+          "ledgerTxId": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "notice": {
+            "type": "object",
+            "properties": {
+              "delivered": {
+                "type": "boolean"
+              },
+              "blocker": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["delivered", "blocker"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "requestId",
+          "payeeUserId",
+          "payerUserId",
+          "payeeHandle",
+          "payerHandle",
+          "assetId",
+          "amount",
+          "note",
+          "expiresAt",
+          "status",
+          "ledgerTxId",
+          "createdAt",
+          "notice"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "b3a7c1e2-4d5f-4a6b-8c9d-0e1f2a3b4c5d"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "bank.personalRequest.create": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "personalRequest.create",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.personal_request_self": "BAD_REQUEST",
+        "bank.personal_request_expired": "CONFLICT",
+        "bank.personal_request_conflict": "CONFLICT",
+        "bank.personal_request_not_found": "NOT_FOUND",
+        "bank.personal_request_unavailable": "PRECONDITION_FAILED",
+        "bank.personal_request_payer_unknown": "NOT_FOUND",
+        "bank.personal_note_invalid": "BAD_REQUEST",
+        "bank.recipient_cannot_receive": "PRECONDITION_FAILED",
+        "bank.party_handles_unset": "PRECONDITION_FAILED",
+        "bank.party_handles_unavailable": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "payerUserId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 140
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 64
+          }
+        },
+        "required": ["payerUserId", "assetId", "amount", "expiresAt", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "payeeUserId": {
+            "type": "string"
+          },
+          "payerUserId": {
+            "type": "string"
+          },
+          "payeeHandle": {
+            "type": ["string", "null"]
+          },
+          "payerHandle": {
+            "type": ["string", "null"]
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "note": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["open", "paid", "declined", "cancelled", "expired"]
+          },
+          "ledgerTxId": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "notice": {
+            "type": "object",
+            "properties": {
+              "delivered": {
+                "type": "boolean"
+              },
+              "blocker": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["delivered", "blocker"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "requestId",
+          "payeeUserId",
+          "payerUserId",
+          "payeeHandle",
+          "payerHandle",
+          "assetId",
+          "amount",
+          "note",
+          "expiresAt",
+          "status",
+          "ledgerTxId",
+          "createdAt",
+          "notice"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "payerUserId": "b3a7c1e2-4d5f-4a6b-8c9d-0e1f2a3b4c5d",
+            "assetId": "USDT",
+            "amount": "12.5",
+            "expiresAt": "2099-01-01T00:00:00Z",
+            "idempotencyKey": "request-create-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "payerUserId": "b3a7c1e2-4d5f-4a6b-8c9d-0e1f2a3b4c5d",
+            "assetId": "USDT",
+            "amount": "-1",
+            "expiresAt": "2099-01-01T00:00:00Z",
+            "idempotencyKey": "request-create-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "payerUserId": "someone",
+            "assetId": "USDT",
+            "amount": "1",
+            "expiresAt": "2099-01-01T00:00:00Z",
+            "idempotencyKey": "request-create-1"
+          }
+        }
+      ]
+    },
+    "bank.personalRequest.decline": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "personalRequest.decline",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.personal_request_not_found": "NOT_FOUND",
+        "bank.personal_request_closed": "CONFLICT",
+        "bank.personal_request_expired": "CONFLICT",
+        "bank.personal_request_claim_held": "CONFLICT",
+        "bank.personal_request_not_payer": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["requestId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "payeeUserId": {
+            "type": "string"
+          },
+          "payerUserId": {
+            "type": "string"
+          },
+          "payeeHandle": {
+            "type": ["string", "null"]
+          },
+          "payerHandle": {
+            "type": ["string", "null"]
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "note": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["open", "paid", "declined", "cancelled", "expired"]
+          },
+          "ledgerTxId": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "notice": {
+            "type": "object",
+            "properties": {
+              "delivered": {
+                "type": "boolean"
+              },
+              "blocker": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["delivered", "blocker"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "requestId",
+          "payeeUserId",
+          "payerUserId",
+          "payeeHandle",
+          "payerHandle",
+          "assetId",
+          "amount",
+          "note",
+          "expiresAt",
+          "status",
+          "ledgerTxId",
+          "createdAt",
+          "notice"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "b3a7c1e2-4d5f-4a6b-8c9d-0e1f2a3b4c5d"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "requestId": ""
+          }
+        }
+      ]
+    },
+    "bank.personalRequest.get": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "personalRequest.get",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.personal_request_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["requestId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "payeeUserId": {
+            "type": "string"
+          },
+          "payerUserId": {
+            "type": "string"
+          },
+          "payeeHandle": {
+            "type": ["string", "null"]
+          },
+          "payerHandle": {
+            "type": ["string", "null"]
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "note": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["open", "paid", "declined", "cancelled", "expired"]
+          },
+          "ledgerTxId": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "notice": {
+            "type": "object",
+            "properties": {
+              "delivered": {
+                "type": "boolean"
+              },
+              "blocker": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["delivered", "blocker"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "requestId",
+          "payeeUserId",
+          "payerUserId",
+          "payeeHandle",
+          "payerHandle",
+          "assetId",
+          "amount",
+          "note",
+          "expiresAt",
+          "status",
+          "ledgerTxId",
+          "createdAt",
+          "notice"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "b3a7c1e2-4d5f-4a6b-8c9d-0e1f2a3b4c5d"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "requestId": "not-a-request"
+          }
+        }
+      ]
+    },
+    "bank.personalRequest.list": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "personalRequest.list",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.personal_request_list_limit_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": ["incoming", "outgoing"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["open", "paid", "declined", "cancelled", "expired"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": ["direction"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "requestId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "payeeUserId": {
+              "type": "string"
+            },
+            "payerUserId": {
+              "type": "string"
+            },
+            "payeeHandle": {
+              "type": ["string", "null"]
+            },
+            "payerHandle": {
+              "type": ["string", "null"]
+            },
+            "assetId": {
+              "type": "string"
+            },
+            "amount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "note": {
+              "type": ["string", "null"]
+            },
+            "expiresAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["open", "paid", "declined", "cancelled", "expired"]
+            },
+            "ledgerTxId": {
+              "type": ["string", "null"]
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "notice": {
+              "type": "object",
+              "properties": {
+                "delivered": {
+                  "type": "boolean"
+                },
+                "blocker": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["delivered", "blocker"],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "requestId",
+            "payeeUserId",
+            "payerUserId",
+            "payeeHandle",
+            "payerHandle",
+            "assetId",
+            "amount",
+            "note",
+            "expiresAt",
+            "status",
+            "ledgerTxId",
+            "createdAt",
+            "notice"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "direction": "incoming",
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "direction": "outgoing",
+            "status": "open",
+            "limit": 100
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "direction": "sideways",
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "direction": "incoming",
+            "limit": 101
+          }
+        }
+      ]
+    },
+    "bank.personalRequest.remind": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "personalRequest.remind",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.personal_request_not_found": "NOT_FOUND",
+        "bank.personal_request_closed": "CONFLICT",
+        "bank.personal_request_expired": "CONFLICT",
+        "bank.personal_request_claim_held": "CONFLICT",
+        "bank.personal_request_not_payee": "FORBIDDEN",
+        "bank.personal_request_unavailable": "PRECONDITION_FAILED",
+        "bank.personal_request_remind_capped": "TOO_MANY_REQUESTS",
+        "bank.reminder_policy_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 64
+          }
+        },
+        "required": ["requestId", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "payeeUserId": {
+            "type": "string"
+          },
+          "payerUserId": {
+            "type": "string"
+          },
+          "payeeHandle": {
+            "type": ["string", "null"]
+          },
+          "payerHandle": {
+            "type": ["string", "null"]
+          },
+          "assetId": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "note": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["open", "paid", "declined", "cancelled", "expired"]
+          },
+          "ledgerTxId": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "notice": {
+            "type": "object",
+            "properties": {
+              "delivered": {
+                "type": "boolean"
+              },
+              "blocker": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["delivered", "blocker"],
+            "additionalProperties": false
+          },
+          "reminder": {
+            "type": "object",
+            "properties": {
+              "sentInWindow": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "cap": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "windowSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "nextAllowedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["sentInWindow", "cap", "windowSeconds", "nextAllowedAt"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "requestId",
+          "payeeUserId",
+          "payerUserId",
+          "payeeHandle",
+          "payerHandle",
+          "assetId",
+          "amount",
+          "note",
+          "expiresAt",
+          "status",
+          "ledgerTxId",
+          "createdAt",
+          "notice",
+          "reminder"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "b3a7c1e2-4d5f-4a6b-8c9d-0e1f2a3b4c5d",
+            "idempotencyKey": "request-remind-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "requestId": "b3a7c1e2-4d5f-4a6b-8c9d-0e1f2a3b4c5d",
+            "idempotencyKey": "short"
+          }
+        }
+      ]
+    },
+    "bank.personalRequest.reminders": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "personalRequest.reminders",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.personal_request_not_found": "NOT_FOUND",
+        "bank.personal_request_not_payee": "FORBIDDEN",
+        "bank.reminder_policy_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["requestId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "sentInWindow": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "cap": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "windowSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "nextAllowedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["sentInWindow", "cap", "windowSeconds", "nextAllowedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "b3a7c1e2-4d5f-4a6b-8c9d-0e1f2a3b4c5d"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "requestId": 42
+          }
+        }
+      ]
+    },
+    "bank.personalRequest.report": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "personalRequest.report",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.personal_request_not_found": "NOT_FOUND",
+        "bank.personal_request_closed": "CONFLICT",
+        "bank.personal_request_expired": "CONFLICT",
+        "bank.personal_request_claim_held": "CONFLICT",
+        "bank.personal_request_not_payer": "FORBIDDEN",
+        "bank.personal_request_report_reason": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["scam", "spam", "harassment", "other"]
+          },
+          "block": {
+            "type": "boolean"
+          }
+        },
+        "required": ["requestId", "reason", "block"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "object",
+            "properties": {
+              "requestId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "payeeUserId": {
+                "type": "string"
+              },
+              "payerUserId": {
+                "type": "string"
+              },
+              "payeeHandle": {
+                "type": ["string", "null"]
+              },
+              "payerHandle": {
+                "type": ["string", "null"]
+              },
+              "assetId": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "note": {
+                "type": ["string", "null"]
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["open", "paid", "declined", "cancelled", "expired"]
+              },
+              "ledgerTxId": {
+                "type": ["string", "null"]
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "notice": {
+                "type": "object",
+                "properties": {
+                  "delivered": {
+                    "type": "boolean"
+                  },
+                  "blocker": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": ["delivered", "blocker"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "requestId",
+              "payeeUserId",
+              "payerUserId",
+              "payeeHandle",
+              "payerHandle",
+              "assetId",
+              "amount",
+              "note",
+              "expiresAt",
+              "status",
+              "ledgerTxId",
+              "createdAt",
+              "notice"
+            ],
+            "additionalProperties": false
+          },
+          "safety": {
+            "type": "object",
+            "properties": {
+              "caseId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "reason": {
+                "type": "string",
+                "enum": ["scam", "spam", "harassment", "other"]
+              },
+              "state": {
+                "type": "string",
+                "enum": ["open", "closed"]
+              },
+              "openedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "blocked": {
+                "type": "boolean"
+              }
+            },
+            "required": ["caseId", "reason", "state", "openedAt", "blocked"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["request", "safety"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "b3a7c1e2-4d5f-4a6b-8c9d-0e1f2a3b4c5d",
+            "reason": "scam",
+            "block": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "requestId": "b3a7c1e2-4d5f-4a6b-8c9d-0e1f2a3b4c5d",
+            "reason": "boredom",
+            "block": false
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "requestId": "b3a7c1e2-4d5f-4a6b-8c9d-0e1f2a3b4c5d",
+            "reason": "spam"
+          }
+        }
+      ]
+    },
+    "bank.personalRequest.safety": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "personalRequest.safety",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.personal_request_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["requestId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "caseId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "reason": {
+                "type": "string",
+                "enum": ["scam", "spam", "harassment", "other"]
+              },
+              "state": {
+                "type": "string",
+                "enum": ["open", "closed"]
+              },
+              "openedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "blocked": {
+                "type": "boolean"
+              }
+            },
+            "required": ["caseId", "reason", "state", "openedAt", "blocked"],
+            "additionalProperties": false
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "b3a7c1e2-4d5f-4a6b-8c9d-0e1f2a3b4c5d"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
     "bank.spaces.list": {
       "service": "svc-bank",
       "module": "bank",
