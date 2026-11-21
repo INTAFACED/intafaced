@@ -570,8 +570,28 @@ function retype(file, schemas) {
   const edits = [];
   let used = false;
   const importers = (name) => importersOf(file, name);
+  // A schema the file still reads as a value (another call, a parse, a field of another schema) still says what its type
+  // is: only one read by nothing but its moved call becomes that call's answer.
+  const valueReads = (name) => {
+    let n = 0;
+    walk(p.program, (node, parent) => {
+      if (node.type === 'TSTypeQuery') return false;
+      if (node.type !== 'Identifier' || node.name !== name) return;
+      if (parent?.type === 'VariableDeclarator' && parent.id === node) return;
+      if (parent?.type === 'ExportSpecifier' || parent?.type === 'ImportSpecifier') return;
+      if (parent?.type === 'MemberExpression' && parent.property === node && !parent.computed) return;
+      if (parent?.type === 'Property' && parent.key === node && !parent.shorthand) return;
+      n++;
+    });
+    return n;
+  };
+  const kept = new Set();
   for (const [schema, recs] of schemas) {
     if (recs.size !== 1) continue;
+    if (valueReads(schema) > 0 || importers(schema).length > 0) {
+      kept.add(schema);
+      continue;
+    }
     const rec = [...recs][0];
     walk(p.program, (n) => {
       if (n.type !== 'TSTypeReference' || n.typeName?.type !== 'TSQualifiedName') return;
@@ -585,7 +605,7 @@ function retype(file, schemas) {
     });
   }
   // `export { schema }` / `export { schema as x }` that nothing else imports.
-  const retyped = new Set([...schemas].filter(([, recs]) => recs.size === 1).map(([schema]) => schema));
+  const retyped = new Set([...schemas].filter(([schema, recs]) => recs.size === 1 && !kept.has(schema)).map(([schema]) => schema));
   for (const stmt of p.program.body) {
     if (stmt.type !== 'ExportNamedDeclaration' || stmt.declaration || stmt.source) continue;
     const keep = stmt.specifiers.filter((sp) => !retyped.has(sp.local.name) || importers(sp.exported.name ?? sp.exported.value).length > 0);
