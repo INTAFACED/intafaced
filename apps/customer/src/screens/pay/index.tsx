@@ -89,7 +89,6 @@ function PayTabs({ path, search }: ScreenProps) {
         <header data-testid="pay-hero" className="pay-hero">
           <h1>{t('Pay')}</h1>
           <p>{tagline}</p>
-          <p style={{ color: '#444' }}>Planted fault: text at 2 to 1</p>
         </header>
         {session ? (
           <div className="pay-side">
