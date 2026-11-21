@@ -30,6 +30,7 @@ use svc_agents::factories::Factories;
 use svc_agents::factories::copy_intel::{LeaderFixtures, LeaderFixturesHttp, LivePlane};
 use svc_agents::factories::merchant::{PayMetrics, PayMetricsHttp};
 use svc_agents::factories::scanner::{SpotTickers, SpotTickersHttp};
+use svc_agents::factories::support::{Desk, DeskHttp};
 use svc_agents::gateway::Gateway;
 use svc_agents::gateway::desk::GatewaySlice;
 use svc_agents::gateway::providers::{
@@ -340,7 +341,14 @@ fn factories(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Factories, Strin
             Box::new(PayMetricsHttp::new(u, signer("svc-pay"), fetch.clone()))
                 as Box<dyn PayMetrics>
         }),
-        ..Factories::unwired()
+        support_desk: url("SUPPORT_URL").map(|u| {
+            Box::new(DeskHttp::new(
+                u,
+                url("IDENTITY_URL"),
+                signer("svc-identity"),
+                fetch.clone(),
+            )) as Box<dyn Desk>
+        }),
     })
 }
 

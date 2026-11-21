@@ -545,10 +545,17 @@ fn answer_or_escalate(kb: &ToolResult, money_request: bool) -> Result<Vec<String
 // ── The calls ──────────────────────────────────────────────────────────────
 
 /// `forwardedPrincipalHeaders(ctx)`: the edge-signed principal of this request, byte for byte, with its region.
-///
-/// The door's context does not carry the principal's signed bytes yet, so the ticket read is sent without them.
-fn desk_headers(_cx: &Cx<'_>) -> Vec<(String, String)> {
-    Vec::new()
+fn desk_headers(cx: &Cx<'_>) -> Vec<(String, String)> {
+    cx.ctx
+        .forwarded
+        .as_ref()
+        .map_or_else(Vec::new, |(raw, sig, region)| {
+            vec![
+                ("x-intafaced-principal".to_owned(), raw.clone()),
+                ("x-intafaced-principal-sig".to_owned(), sig.clone()),
+                ("x-intafaced-region".to_owned(), region.clone()),
+            ]
+        })
 }
 
 /// Answers one `support.*` call.

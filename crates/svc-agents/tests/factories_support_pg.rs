@@ -25,7 +25,7 @@
 mod support;
 
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use service_kit::edge;
 use service_kit::json::{self, Json};
@@ -102,6 +102,8 @@ struct FixtureDesk {
     /// A search that throws.
     search_fails: bool,
     searched: Mutex<Vec<(String, Option<f64>)>>,
+    /// The headers each ticket read was sent with.
+    ticket_headers: Arc<Mutex<Vec<Vec<(String, String)>>>>,
 }
 
 /// `testDesk(overrides)`: the article, the person's own ticket and their account.
@@ -119,6 +121,7 @@ fn test_desk() -> FixtureDesk {
         account_override: None,
         search_fails: false,
         searched: Mutex::new(Vec::new()),
+        ticket_headers: Arc::default(),
     }
 }
 
@@ -158,7 +161,12 @@ impl Desk for FixtureDesk {
         Ok(Found::Ok(hits))
     }
 
-    fn read_ticket(&self, ticket_id: &str, _: &[(String, String)]) -> Result<TicketRead, RunError> {
+    fn read_ticket(
+        &self,
+        ticket_id: &str,
+        headers: &[(String, String)],
+    ) -> Result<TicketRead, RunError> {
+        self.ticket_headers.lock().unwrap().push(headers.to_vec());
         Ok(self
             .tickets
             .iter()
@@ -630,6 +638,20 @@ fn records_a_guardrail_action_budget_refusal_as_an_unanswered_read() {
     assert_eq!(w.executed(), vec![KB]);
     // Still settled and closed despite the refusals.
     assert_eq!(w.sessions()[0].1, "closed");
+}
+
+#[test]
+fn reads_the_ticket_as_the_person_with_their_signed_principal_forwarded() {
+    let Some(w) = World::new() else { return };
+    let desk = test_desk();
+    let seen = Arc::clone(&desk.ticket_headers);
+    let door = w.door(Some(&law()), Some(desk));
+    let a = run(&door, &input(&[KB_ASK, TICKET_ASK]));
+    assert_eq!(s(data(&a), "status"), "ok", "{}", a.compact());
+    // `forwardedPrincipalHeaders(ctx)`: the edge's exact bytes, its signature and the region, nothing else.
+    let mut sent = headers(&["agents:read", "agents:execute"], "basic");
+    sent.retain(|(k, _)| k != "content-type");
+    assert_eq!(*seen.lock().unwrap(), vec![sent]);
 }
 
 // ── Honesty: never fabricate what a tool could not return ─────────────────
