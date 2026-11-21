@@ -1,0 +1,189 @@
+[
+  {
+    "file": "packages/execution-arb/src/arbitrage.test.ts",
+    "target": "./arbitrage.ts",
+    "verdict": "rewrite",
+    "asserts": "Cross-exchange arb never prefers or tie-breaks toward the house book, and never invents a default mid or spread.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/execution-arb/src/arbitrage.test.ts#pins fail if house-prefer or invented mid/spread appears"
+    },
+    "why": "Rewritten (money, kept every protection): the three pins are assigned to `null`-typed bindings so widening one fails typecheck, a house quote at six prices is never a leg and is refused internal_venue, legs are priced from their own quotes, and opportunities rank by edge alone."
+  },
+  {
+    "file": "packages/execution-house-tenant/src/house-tenant.test.ts",
+    "target": "house-tenant.ts",
+    "verdict": "rewrite",
+    "asserts": "The house-tenant package never imports svc-matching or a matching workspace package.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/execution-house-tenant/src/house-tenant.test.ts#does not import svc-matching or a matching workspace package"
+    },
+    "why": "The test now checks every dependency kind in package.json (an undeclared workspace package does not resolve: no root hoist), and a path into services/svc-matching is a B-hops finding of tooling/ci/boundary-scan.mjs, @intafaced/svc-matching a B-deps one."
+  },
+  {
+    "file": "packages/execution-house-tenant/src/house-tenant.test.ts",
+    "target": "house-tenant-policy.ts",
+    "verdict": "rewrite",
+    "asserts": "The house-tenant package never imports svc-matching or a matching workspace package.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/execution-house-tenant/src/house-tenant.test.ts#does not import svc-matching or a matching workspace package"
+    },
+    "why": "The test now checks every dependency kind in package.json (an undeclared workspace package does not resolve: no root hoist), and a path into services/svc-matching is a B-hops finding of tooling/ci/boundary-scan.mjs, @intafaced/svc-matching a B-deps one."
+  },
+  {
+    "file": "packages/execution-house-tenant/src/house-tenant.test.ts",
+    "target": "house-vs-tenant.ts",
+    "verdict": "rewrite",
+    "asserts": "The house-tenant package never imports svc-matching or a matching workspace package.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/execution-house-tenant/src/house-tenant.test.ts#does not import svc-matching or a matching workspace package"
+    },
+    "why": "The test now checks every dependency kind in package.json (an undeclared workspace package does not resolve: no root hoist), and a path into services/svc-matching is a B-hops finding of tooling/ci/boundary-scan.mjs, @intafaced/svc-matching a B-deps one."
+  },
+  {
+    "file": "packages/execution-house-tenant/src/house-tenant.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The house-tenant package never imports svc-matching or a matching workspace package.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/execution-house-tenant/src/house-tenant.test.ts#does not import svc-matching or a matching workspace package"
+    },
+    "why": "The test now checks every dependency kind in package.json (an undeclared workspace package does not resolve: no root hoist), and a path into services/svc-matching is a B-hops finding of tooling/ci/boundary-scan.mjs, @intafaced/svc-matching a B-deps one."
+  },
+  {
+    "file": "packages/venue-adapter/src/best-ex-claim-refuse.test.ts",
+    "target": "router.ts",
+    "verdict": "rewrite",
+    "asserts": "What the live ranker tells a user about a route never claims best execution or a best price.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/best-ex-claim-refuse.test.ts#explainRoute and the execution report never claim best-ex or a best price"
+    },
+    "why": "Plans filled, split, short and empty routes with planRoute and checks the words explainRoute and buildExecutionReport return."
+  },
+  {
+    "file": "packages/venue-adapter/src/best-ex-claim-refuse.test.ts",
+    "target": "execution-report.ts",
+    "verdict": "rewrite",
+    "asserts": "The execution report never claims best execution.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/best-ex-claim-refuse.test.ts#explainRoute and the execution report never claim best-ex or a best price"
+    },
+    "why": "Checks the serialized report buildExecutionReport returns for four plans."
+  },
+  {
+    "file": "packages/venue-adapter/src/best-ex-claim-refuse.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The package entry exports the best-ex refuse door.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/best-ex-claim-refuse.test.ts#the package entry exports the best-ex refuse door itself"
+    },
+    "why": "Imports the entry, asserts it exports the same functions and code, and calls its refuseBestExClaim once."
+  },
+  {
+    "file": "packages/venue-adapter/src/consolidated-book-depth-unset.test.ts",
+    "target": "consolidated-book.ts",
+    "verdict": "delete",
+    "asserts": "consolidateBook never invents a depth of 50 when the depth is unpublished.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/consolidated-book-depth-unset.test.ts#omitted / null / undefined depth refuses (does not invent 50)"
+    },
+    "why": "That test and the NaN / 0 one call consolidateBook with every unpublished depth and assert the typed depth_unset refusal, which any default would turn into a book."
+  },
+  {
+    "file": "packages/venue-adapter/src/fabric/capture-lake-policy.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The fabric index exports the capture-lake policy door.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/fabric/capture-lake-policy.test.ts#fabric/index exports the capture-lake policy door itself"
+    },
+    "why": "Imports fabric/index and asserts it exports the same policy functions and kinds, and calls one."
+  },
+  {
+    "file": "packages/venue-adapter/src/fabric/capture-lake-public-doors.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The fabric index exports CaptureLake and its hole readers.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/fabric/capture-lake-public-doors.test.ts#fabric/index and the package entry export capture-lake itself"
+    },
+    "why": "Imports fabric/index and asserts each capture-lake export is the module's own."
+  },
+  {
+    "file": "packages/venue-adapter/src/fabric/capture-lake-public-doors.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The package entry exports CaptureLake and its hole readers.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/fabric/capture-lake-public-doors.test.ts#fabric/index and the package entry export capture-lake itself"
+    },
+    "why": "Imports the package entry, asserts the same exports, and captures a hole through them."
+  },
+  {
+    "file": "packages/venue-adapter/src/fabric/venues/aggregation-trading-door.test.ts",
+    "target": "../../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The package entry exports the trading-half policy and factories through the fabric.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/fabric/venues/aggregation-trading-door.test.ts#package index re-exports trading-half policy through fabric"
+    },
+    "why": "The file imports from the package entry; the test asserts those exports are the fabric index's own and calls the policy."
+  },
+  {
+    "file": "packages/venue-adapter/src/fabric/venues/factory-policy.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The fabric index exports the venue factory policy door.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/fabric/venues/factory-policy.test.ts#fabric/index exports the factory policy door itself"
+    },
+    "why": "Imports fabric/index, asserts it exports describeVenueAggregationPolicy, and calls it."
+  },
+  {
+    "file": "packages/venue-adapter/src/fabric/venues/trading-half-policy.test.ts",
+    "target": "../index.ts",
+    "verdict": "rewrite",
+    "asserts": "The fabric index exports the trading-half policy door.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/fabric/venues/trading-half-policy.test.ts#fabric/index exports the trading-half policy door itself"
+    },
+    "why": "Imports fabric/index, asserts its three policy exports, and calls one."
+  },
+  {
+    "file": "packages/venue-adapter/src/sor-policy.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The package entry exports the SOR routing policy door.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-adapter/src/sor-policy.test.ts#the package entry exports the sor policy door itself"
+    },
+    "why": "Imports the entry, asserts both policy exports, and calls the cap through it."
+  },
+  {
+    "file": "packages/venue-hyperliquid/src/venue-layout.test.ts",
+    "target": "./",
+    "verdict": "rewrite",
+    "asserts": "Reads, not-offered refusals and unread market terms each live in their own file, out of venue.ts.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/venue-hyperliquid/src/venue-layout.test.ts#the Hyperliquid adapter keeps each kind of change in its own file"
+    },
+    "why": "The class prototype has only the signed side's members; every NOT_OFFERED kind is refused by prepare with exactly its table line and nothing sent; markets() returns unreadMarketTerms() for every unread term and no read term is null or not-known on every market."
+  }
+]
