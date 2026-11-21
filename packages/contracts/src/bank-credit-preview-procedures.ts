@@ -133,6 +133,57 @@ export const creditPreviewActInputSchema = z.discriminatedUnion('product', [
 ]);
 export type CreditPreviewActInput = z.infer<typeof creditPreviewActInputSchema>;
 
+// ---- The older preview doors the credit-preview rooms also call (BK-loan-09, BK-loan-10, BK-cops-09) ---------------
+
+/** The owner's missed-payment policy: blank reads `not_set`, never a default. */
+export const loanMissedPaymentPolicySchema = z.union([
+  z.object({ status: z.literal('not_set') }).strict(),
+  z
+    .object({
+      status: z.literal('set'),
+      graceDays: z.number().int().nonnegative(),
+      catchUpDays: z.number().int().nonnegative(),
+      lateFee: decimal,
+    })
+    .strict(),
+]);
+export type LoanMissedPaymentPolicyView = z.infer<typeof loanMissedPaymentPolicySchema>;
+
+export const CREDIT_CARD_TABS = ['application', 'limit', 'repayment', 'usage_rules', 'statements'] as const;
+export const CREDIT_CARD_VARIANTS = ['credit_card', 'charge_card'] as const;
+
+export const creditCardPreviewSchema = z.object({
+  label: z.literal(PREVIEW_LABEL),
+  engine: z.string(),
+  preview: z.literal(true),
+  blurred: z.literal(true),
+  tabs: z.array(z.enum(CREDIT_CARD_TABS)),
+  rows: z.array(z.object({ tab: z.enum(CREDIT_CARD_TABS), item: z.string(), test: z.literal(true) })),
+});
+export type CreditCardPreviewView = z.infer<typeof creditCardPreviewSchema>;
+
+export const FRAUD_RISK_BANDS = ['very_likely', 'neutral', 'very_unlikely'] as const;
+export const FRAUD_SIGNALS = ['card_testing', 'merchant_dispute_risk', 'compromised_card'] as const;
+export const FRAUD_BLOCK_STANCES = ['maximise_approval_rate', 'balanced', 'maximise_risk_prevention'] as const;
+
+export const fraudPreviewSchema = z.object({
+  label: z.literal(PREVIEW_LABEL),
+  engine: z.string(),
+  preview: z.literal(true),
+  blurred: z.literal(true),
+  stances: z.array(z.enum(FRAUD_BLOCK_STANCES)),
+  automaticBlocking: z.literal('unavailable'),
+  rows: z.array(
+    z.object({
+      testAuthorisationRef: z.string().startsWith('TEST-'),
+      test: z.literal(true),
+      band: z.enum(FRAUD_RISK_BANDS),
+      signals: z.array(z.enum(FRAUD_SIGNALS)),
+    }),
+  ),
+});
+export type FraudPreviewView = z.infer<typeof fraudPreviewSchema>;
+
 const base = { service: 'svc-bank', module: 'bank', transport: 'trpc' } as const;
 const READ = { caller: 'scope', scope: 'bank:read', module: 'bank' } as const;
 const WRITE = { caller: 'scope', scope: 'bank:write', module: 'bank' } as const;
@@ -191,10 +242,88 @@ export const BANK_CREDIT_PREVIEWS_ACT = defineProcedure({
   ],
 });
 
-/** Every credit-preview record, for the service's sample test. */
+const PREVIEW_REFUSED = { [PREVIEW_REFUSAL_CODE]: 'PRECONDITION_FAILED' } as const;
+const SAMPLE_LOAN = '00000000-0000-4000-8000-000000000012';
+
+export const BANK_LOANS_MISSED_PAYMENT_POLICY = defineProcedure({
+  ...base,
+  name: 'bank.loans.missedPaymentPolicy',
+  kind: 'query',
+  path: 'loans.missedPaymentPolicy',
+  access: READ,
+  refusals: {},
+  input: NO_INPUT,
+  output: loanMissedPaymentPolicySchema,
+  samples: [{ verdict: 'accept' }],
+});
+
+/** Preview: change an unsecured loan's repayment date. Always the typed Preview refusal. */
+export const BANK_LOANS_CHANGE_REPAYMENT_DATE = defineProcedure({
+  ...base,
+  name: 'bank.loans.changeRepaymentDate',
+  kind: 'mutation',
+  path: 'loans.changeRepaymentDate',
+  access: WRITE,
+  refusals: PREVIEW_REFUSED,
+  input: z.object({ loanId: z.string().guid(), date: z.string().date() }).strict(),
+  output: z.never(),
+  samples: [
+    { verdict: 'accept', input: { loanId: SAMPLE_LOAN, date: '2027-01-15' } },
+    { verdict: 'refuse', input: { loanId: SAMPLE_LOAN, date: '15/01/2027' } },
+    { verdict: 'refuse', input: { loanId: 'not-a-loan', date: '2027-01-15' } },
+  ],
+});
+
+export const BANK_CREDIT_CARD_PREVIEW = defineProcedure({
+  ...base,
+  name: 'bank.creditCard.preview',
+  kind: 'query',
+  path: 'creditCard.preview',
+  access: READ,
+  refusals: {},
+  input: NO_INPUT,
+  output: creditCardPreviewSchema,
+  samples: [{ verdict: 'accept' }],
+});
+
+/** Preview: apply for a credit or charge card. Always the typed Preview refusal. */
+export const BANK_CREDIT_CARD_APPLICATION = defineProcedure({
+  ...base,
+  name: 'bank.creditCard.application',
+  kind: 'mutation',
+  path: 'creditCard.application',
+  access: WRITE,
+  refusals: PREVIEW_REFUSED,
+  input: z.object({ variant: z.enum(CREDIT_CARD_VARIANTS) }).strict(),
+  output: z.never(),
+  samples: [
+    { verdict: 'accept', input: { variant: 'charge_card' } },
+    { verdict: 'refuse', input: { variant: 'store_card' } },
+  ],
+});
+
+/** The console's card fraud risk preview: TEST rows only, for any operator session (`admin:read`). */
+export const BANK_OPS_FRAUD_PREVIEW = defineProcedure({
+  ...base,
+  name: 'bank.ops.fraudPreview',
+  kind: 'query',
+  path: 'ops.fraudPreview',
+  access: { caller: 'scope', scope: 'admin:read' },
+  refusals: {},
+  input: NO_INPUT,
+  output: fraudPreviewSchema,
+  samples: [{ verdict: 'accept' }],
+});
+
+/** Every record here, for the service's sample test. */
 export const BANK_CREDIT_PREVIEW_PROCEDURES = [
   BANK_CREDIT_PREVIEWS_OVERVIEW,
   BANK_CREDIT_PREVIEWS_SCHEDULE,
   BANK_CREDIT_PREVIEWS_REVOLVING,
   BANK_CREDIT_PREVIEWS_ACT,
+  BANK_LOANS_MISSED_PAYMENT_POLICY,
+  BANK_LOANS_CHANGE_REPAYMENT_DATE,
+  BANK_CREDIT_CARD_PREVIEW,
+  BANK_CREDIT_CARD_APPLICATION,
+  BANK_OPS_FRAUD_PREVIEW,
 ] as const;

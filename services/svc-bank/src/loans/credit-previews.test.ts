@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
-import { PREVIEW_LABEL, previewRefusalSchema, type Context } from '@intafaced/contracts';
-import type { BankServices } from '../bank-service.js';
-import { createBankRouter } from '../router.js';
-import { CREDIT_PREVIEW_ACTIONS, CREDIT_PREVIEW_ENGINES, REVOLVING_SECTIONS, SAMPLE_UNSECURED_LOAN_ID } from './credit-previews.js';
+import { PREVIEW_LABEL, previewRefusalSchema, router, type Context } from '@intafaced/contracts';
+import {
+  CREDIT_PREVIEW_ACTIONS,
+  CREDIT_PREVIEW_ENGINES,
+  REVOLVING_SECTIONS,
+  SAMPLE_UNSECURED_LOAN_ID,
+  createCreditPreviewsRouter,
+} from './credit-previews.js';
+import { loanServicingPreviewProcedures } from './loan-servicing-preview.js';
 
 /** J-bank-12 (BK-loan-08, BK-loan-09 sample schedule, BK-cops-09 revolving credit): TEST reads and refusals only. */
 
@@ -26,20 +31,11 @@ function context(scopes: string[]): Context {
   };
 }
 
-/**
- * Every service throws when called: no preview may read or write a store or the ledger. The bank router reads its services'
- * members as it is built, so a member read answers another such service; only a call throws.
- */
-const untouchedAt = (path: string): BankServices =>
-  new Proxy(function untouched() {}, {
-    get: (_t, name) => (typeof name === 'symbol' ? undefined : untouchedAt(`${path}.${name}`)),
-    apply: () => {
-      throw new Error(`credit preview touched ${path}`);
-    },
-  }) as unknown as BankServices;
-const untouched = untouchedAt('bank');
-
-const caller = (scopes: string[]) => createBankRouter(untouched).createCaller(context(scopes));
+/** The credit previews' and loan servicing previews' doors take no bank services at all, so no preview can read or write a store or the ledger. */
+const caller = (scopes: string[]) =>
+  router({ creditPreviews: createCreditPreviewsRouter(), loans: router(loanServicingPreviewProcedures(null)) }).createCaller(
+    context(scopes),
+  );
 
 /** Every value in a fixture that is a figure carries `test: true` on its own row or on its product. */
 function everyRowTest(rows: readonly { test: true }[]) {

@@ -1,16 +1,21 @@
 import { useState, type ReactNode } from 'react';
-import { z, type ZodType } from 'zod';
 import { Button, Field } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, RefusalBox, Table, type KeyValueRow, type Notice, type RoomState } from '@intafaced/ui/lit/templates';
-import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
-import type { AppProcedure } from '../../../shared/api';
+import type { ApiClient, ApiResult, AppProcedure } from '../../../shared/api';
+import { useSession } from '../../session';
 import {
   BANK_CREDIT_PREVIEWS_ACT,
+  CREDIT_PREVIEW_ACTIONS,
   BANK_CREDIT_PREVIEWS_OVERVIEW,
   BANK_CREDIT_PREVIEWS_REVOLVING,
   BANK_CREDIT_PREVIEWS_SCHEDULE,
+  BANK_CREDIT_CARD_APPLICATION,
+  BANK_CREDIT_CARD_PREVIEW,
+  BANK_LOANS_CHANGE_REPAYMENT_DATE,
+  BANK_LOANS_MISSED_PAYMENT_POLICY,
+  type CreditCardPreviewView,
+  type LoanMissedPaymentPolicyView,
   type CreditPreviewActInput,
   type CreditPreviewOverview,
   type CreditPreviewRevolving,
@@ -31,36 +36,17 @@ import { creditPreviewCopy } from './credit-preview-copy';
 type Copy = ReturnType<typeof creditPreviewCopy.useCopy>;
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const PREVIEW_CODE = 'preview.engine_not_built';
-const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/);
 
 /** Dynamic keys (an engine, an action, a section) read through one door. */
 const tk = (c: Copy, key: string, vars?: Record<string, string | number>) => (c.t as (k: string, v?: unknown) => string)(key, vars);
 
-const policySchema = z.union([
-  z.object({ status: z.literal('not_set') }),
-  z.object({ status: z.literal('set'), graceDays: z.number().int(), catchUpDays: z.number().int(), lateFee: decimal }),
-]);
-const cardSchema = z.object({
-  tabs: z.array(z.string()),
-  rows: z.array(z.object({ tab: z.string(), item: z.string(), test: z.literal(true) })),
-});
-
-/** One credit-preview read, by its record. */
+/** One preview read, by its record. */
 function useBankRecord<R extends AppProcedure>(record: R) {
   const { api, userId } = useSession();
   return useResource(async (signal) => {
     if (!userId) return { ok: false as const, reason: 'unauthorized' as const, message: '' };
     return api.call(record, undefined as never, { signal });
   }, `${userId}:${record.name}`);
-}
-
-/** A read of a door with no record yet (`loans.*`, `creditCard.*`, written before records). */
-function useBankPreview<T>(procedure: string, schema: ZodType<T>, input?: unknown) {
-  const { api, userId } = useSession();
-  return useResource<T>(async (signal) => {
-    if (!userId) return { ok: false, reason: 'unauthorized', message: '' };
-    return api.query('bank', procedure, input, schema, { signal });
-  }, `${userId}:${procedure}`);
 }
 
 interface Refused {
@@ -74,13 +60,10 @@ function useEngineAction() {
   const { api } = useSession();
   const [refused, setRefused] = useState<Refused | null>(null);
   const [busy, setBusy] = useState(false);
-  /** `procedure` is the record, or the name of a door with no record yet. */
-  async function act(action: string, procedure: typeof BANK_CREDIT_PREVIEWS_ACT | string, input: unknown) {
+  /** `send` makes the one call, by its record. */
+  async function act(action: string, send: (client: ApiClient) => Promise<ApiResult<unknown>>) {
     setBusy(true);
-    const res =
-      typeof procedure === 'string'
-        ? await api.mutate('bank', procedure, input, z.never())
-        : await api.call(procedure, input as CreditPreviewActInput);
+    const res = await send(api);
     setBusy(false);
     if (res.ok) return;
     // The refusal's message is `preview.engine_not_built — <engine>:<action>`; the engine names what is missing.
@@ -128,7 +111,7 @@ function EnginePanel({ name, children }: { name: string; children: ReactNode }) 
   );
 }
 
-function ActionButtons({ actions, busy, onAct }: { actions: readonly string[]; busy: boolean; onAct: (action: string) => void }) {
+function ActionButtons<A extends string>({ actions, busy, onAct }: { actions: readonly A[]; busy: boolean; onAct: (action: A) => void }) {
   const c = creditPreviewCopy.useCopy();
   return (
     <div>
@@ -186,7 +169,7 @@ export function OverdraftPreviewRoom() {
   const od = view?.overdraft;
   const chosen = limit ?? od?.limits[0] ?? '';
   const cost = od?.monthlyCost.find((r) => r.limit === chosen);
-  const act = (action: string, product = 'overdraft') => void engine.act(action, BANK_CREDIT_PREVIEWS_ACT, { product, action });
+  const act = (input: CreditPreviewActInput) => void engine.act(input.action, (client) => client.call(BANK_CREDIT_PREVIEWS_ACT, input));
   return (
     <FlowTemplate
       title={c.t('overdraftTitle')}
@@ -217,7 +200,7 @@ export function OverdraftPreviewRoom() {
                   ))}
                 </ul>
               </EnginePanel>
-              <ActionButtons actions={['view_file']} busy={engine.busy} onAct={(a) => act(a, 'credit_bureau')} />
+              <ActionButtons actions={['view_file']} busy={engine.busy} onAct={(action) => act({ product: 'credit_bureau', action })} />
             </section>
           </div>
         ) : null
@@ -241,7 +224,11 @@ export function OverdraftPreviewRoom() {
         view ? (
           <div>
             <PreviewRefusal refused={engine.refused} />
-            <ActionButtons actions={['check_eligibility', 'change_limit', 'cancel', 'apply']} busy={engine.busy} onAct={(a) => act(a)} />
+            <ActionButtons
+              actions={['check_eligibility', 'change_limit', 'cancel', 'apply'] as const}
+              busy={engine.busy}
+              onAct={(action) => act({ product: 'overdraft', action })}
+            />
           </div>
         ) : null
       }
@@ -260,7 +247,8 @@ export function PersonalLoanPreviewRoom() {
   const view = dataOf<CreditPreviewOverview>(resource);
   const pl = view?.personalLoan;
   const chosen = pl?.terms.find((t) => t.termMonths === term) ?? pl?.terms[0];
-  const act = (action: string) => void engine.act(action, BANK_CREDIT_PREVIEWS_ACT, { product: 'personal_loan', action });
+  const act = (action: (typeof CREDIT_PREVIEW_ACTIONS)['personal_loan'][number]) =>
+    void engine.act(action, (client) => client.call(BANK_CREDIT_PREVIEWS_ACT, { product: 'personal_loan', action }));
   return (
     <FlowTemplate
       title={c.t('personalTitle')}
@@ -311,7 +299,7 @@ export function PersonalLoanPreviewRoom() {
         view ? (
           <div>
             <PreviewRefusal refused={engine.refused} />
-            <ActionButtons actions={['check_eligibility', 'apply']} busy={engine.busy} onAct={act} />
+            <ActionButtons actions={CREDIT_PREVIEW_ACTIONS.personal_loan} busy={engine.busy} onAct={act} />
           </div>
         ) : null
       }
@@ -329,7 +317,8 @@ export function BusinessLoanPreviewRoom() {
   const view = dataOf<CreditPreviewOverview>(resource);
   const bl = view?.businessTermLoan;
   const chosen = bl?.terms.find((t) => t.weeks === weeks) ?? bl?.terms[0];
-  const act = (action: string) => void engine.act(action, BANK_CREDIT_PREVIEWS_ACT, { product: 'business_term_loan', action });
+  const act = (action: (typeof CREDIT_PREVIEW_ACTIONS)['business_term_loan'][number]) =>
+    void engine.act(action, (client) => client.call(BANK_CREDIT_PREVIEWS_ACT, { product: 'business_term_loan', action }));
   return (
     <FlowTemplate
       title={c.t('businessTitle')}
@@ -371,7 +360,7 @@ export function BusinessLoanPreviewRoom() {
         view ? (
           <div>
             <PreviewRefusal refused={engine.refused} />
-            <ActionButtons actions={['check_eligibility', 'apply']} busy={engine.busy} onAct={act} />
+            <ActionButtons actions={CREDIT_PREVIEW_ACTIONS.business_term_loan} busy={engine.busy} onAct={act} />
           </div>
         ) : null
       }
@@ -384,11 +373,11 @@ export function BusinessLoanPreviewRoom() {
 export function LoanSchedulePreviewRoom() {
   const c = creditPreviewCopy.useCopy();
   const { resource } = useBankRecord(BANK_CREDIT_PREVIEWS_SCHEDULE);
-  const policy = useBankPreview('loans.missedPaymentPolicy', policySchema);
+  const policy = useBankRecord(BANK_LOANS_MISSED_PAYMENT_POLICY);
   const engine = useEngineAction();
   const [date, setDate] = useState('');
   const view = dataOf<CreditPreviewSchedule>(resource);
-  const p = dataOf<z.infer<typeof policySchema>>(policy.resource);
+  const p = dataOf<LoanMissedPaymentPolicyView>(policy.resource);
   const policyRows: KeyValueRow[] =
     p?.status === 'set'
       ? [
@@ -444,7 +433,9 @@ export function LoanSchedulePreviewRoom() {
             <ActionButtons
               actions={['change_repayment_date']}
               busy={engine.busy || !date}
-              onAct={(a) => void engine.act(a, 'loans.changeRepaymentDate', { loanId: view.sampleLoanId, date })}
+              onAct={(a) =>
+                void engine.act(a, (client) => client.call(BANK_LOANS_CHANGE_REPAYMENT_DATE, { loanId: view.sampleLoanId, date }))
+              }
             />
           </div>
         ) : null
@@ -457,11 +448,11 @@ export function LoanSchedulePreviewRoom() {
 
 export function CreditCardPreviewRoom() {
   const c = creditPreviewCopy.useCopy();
-  const { resource } = useBankPreview('creditCard.preview', cardSchema);
+  const { resource } = useBankRecord(BANK_CREDIT_CARD_PREVIEW);
   const engine = useEngineAction();
   const [variant, setVariant] = useState<'credit_card' | 'charge_card'>('credit_card');
   const [income, setIncome] = useState('');
-  const view = dataOf<z.infer<typeof cardSchema>>(resource);
+  const view = dataOf<CreditCardPreviewView>(resource);
   const item = (raw: string) => raw.replace(/^(variant|fee|restricted):/, '').replaceAll('_', ' ');
   return (
     <FlowTemplate
@@ -477,7 +468,7 @@ export function CreditCardPreviewRoom() {
             aria-label={c.t('cardTitle')}
             onSubmit={(e) => {
               e.preventDefault();
-              void engine.act('submit', 'creditCard.application', { variant });
+              void engine.act('submit', (client) => client.call(BANK_CREDIT_CARD_APPLICATION, { variant }));
             }}
           >
             <label>
@@ -538,7 +529,8 @@ export function RevolvingCreditPreviewRoom() {
   const [statementOpen, setStatementOpen] = useState(false);
   const view = dataOf<CreditPreviewRevolving>(resource);
   const sections = view ? [...new Set(view.rows.map((r) => r.section))] : [];
-  const act = (action: string) => void engine.act(action, BANK_CREDIT_PREVIEWS_ACT, { product: 'revolving_credit', action });
+  const act = (action: (typeof CREDIT_PREVIEW_ACTIONS)['revolving_credit'][number]) =>
+    void engine.act(action, (client) => client.call(BANK_CREDIT_PREVIEWS_ACT, { product: 'revolving_credit', action }));
   return (
     <FlowTemplate
       title={c.t('revolvingTitle')}
@@ -585,7 +577,7 @@ export function RevolvingCreditPreviewRoom() {
         view ? (
           <div>
             <PreviewRefusal refused={engine.refused} />
-            <ActionButtons actions={['repay', 'borrow', 'apply']} busy={engine.busy} onAct={act} />
+            <ActionButtons actions={['repay', 'borrow', 'apply'] as const} busy={engine.busy} onAct={act} />
           </div>
         ) : null
       }

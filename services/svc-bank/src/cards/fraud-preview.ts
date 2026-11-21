@@ -13,13 +13,20 @@
 export const FRAUD_PREVIEW_LABEL = 'Preview · sample data' as const;
 export const FRAUD_PREVIEW_ENGINE = 'ML fraud risk score' as const;
 
-export const FRAUD_RISK_BANDS = ['very_likely', 'neutral', 'very_unlikely'] as const;
+import {
+  BANK_OPS_FRAUD_PREVIEW,
+  FRAUD_BLOCK_STANCES,
+  FRAUD_RISK_BANDS,
+  FRAUD_SIGNALS,
+} from '@intafaced/contracts/bank-credit-preview-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { bankRefusal } from '../router/errors.js';
+
+export { FRAUD_BLOCK_STANCES, FRAUD_RISK_BANDS, FRAUD_SIGNALS };
 export type FraudRiskBand = (typeof FRAUD_RISK_BANDS)[number];
 
-export const FRAUD_SIGNALS = ['card_testing', 'merchant_dispute_risk', 'compromised_card'] as const;
 export type FraudSignal = (typeof FRAUD_SIGNALS)[number];
 
-export const FRAUD_BLOCK_STANCES = ['maximise_approval_rate', 'balanced', 'maximise_risk_prevention'] as const;
 export type FraudBlockStance = (typeof FRAUD_BLOCK_STANCES)[number];
 
 export interface FraudPreviewRow {
@@ -84,4 +91,16 @@ export type FraudPreviewAction = (typeof FRAUD_PREVIEW_ACTIONS)[number];
 /** Every engine action refuses. Nothing is read or written. */
 export function refuseFraudPreviewAction(action: FraudPreviewAction): PreviewRefusal {
   return { kind: 'preview', engine: FRAUD_PREVIEW_ENGINE, action, changed: false };
+}
+
+/** `ops.fraudPreview`, mounted from its record (/bank-ops/cards/fraud): TEST rows only, for any operator session. */
+export function fraudPreviewDoor() {
+  return mountRecord(
+    BANK_OPS_FRAUD_PREVIEW,
+    () => {
+      const view = fraudPreview();
+      return { ...view, stances: [...view.stances], rows: view.rows.map((r) => ({ ...r, signals: [...r.signals] })) };
+    },
+    bankRefusal,
+  );
 }

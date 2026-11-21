@@ -47,62 +47,61 @@ export {
   type CreditPreviewActInput,
   type CreditPreviewOverview,
 } from '@intafaced/contracts/bank-credit-preview-procedures';
-const freezeAll = <T extends object>(rows: readonly T[]): readonly T[] => Object.freeze(rows.map((r) => Object.freeze({ ...r })));
 const T = true as const;
 
-const OVERVIEW: CreditPreviewOverview = Object.freeze({
+const OVERVIEW: CreditPreviewOverview = {
   label: CREDIT_PREVIEW_LABEL,
   preview: T,
   blurred: T,
   currency: CREDIT_PREVIEW_CURRENCY,
-  overdraft: Object.freeze({
+  overdraft: {
     engine: CREDIT_PREVIEW_ENGINES.overdraft,
     limits: ['250.00', '500.00', '1000.00'],
     rate: '11.00',
     // limit × 11.00% ÷ 12, half-up to cents.
-    monthlyCost: freezeAll([
+    monthlyCost: [
       { limit: '250.00', cost: '2.29', test: T },
       { limit: '500.00', cost: '4.58', test: T },
       { limit: '1000.00', cost: '9.17', test: T },
-    ]) as CreditPreviewOverview['overdraft']['monthlyCost'],
+    ],
     repaymentWindowMonths: 2,
     test: T,
-  }),
-  personalLoan: Object.freeze({
+  },
+  personalLoan: {
     engine: CREDIT_PREVIEW_ENGINES.personal_loan,
     amount: '5000.00',
     rate: '6.90',
-    terms: freezeAll([
+    terms: [
       { termMonths: 12, monthly: '432.40', totalInterest: '188.80', test: T },
       { termMonths: 24, monthly: '223.64', totalInterest: '367.36', test: T },
       { termMonths: 36, monthly: '154.16', totalInterest: '549.76', test: T },
       { termMonths: 48, monthly: '119.50', totalInterest: '736.00', test: T },
       { termMonths: 60, monthly: '98.77', totalInterest: '926.20', test: T },
-    ]) as CreditPreviewOverview['personalLoan']['terms'],
+    ],
     test: T,
-  }),
-  businessTermLoan: Object.freeze({
+  },
+  businessTermLoan: {
     engine: CREDIT_PREVIEW_ENGINES.business_term_loan,
     amount: '50000.00',
     flatFee: '4.00',
     // (amount + amount × 4.00%) ÷ weeks.
-    terms: freezeAll([
+    terms: [
       { weeks: 26, weekly: '2000.00', fee: '2000.00', test: T },
       { weeks: 52, weekly: '1000.00', fee: '2000.00', test: T },
-    ]) as CreditPreviewOverview['businessTermLoan']['terms'],
+    ],
     test: T,
-  }),
-  bureau: Object.freeze({
+  },
+  bureau: {
     engine: CREDIT_PREVIEW_ENGINES.credit_bureau,
-    rows: freezeAll([
-      { item: 'account_history' as const, test: T },
-      { item: 'repayment_history' as const, test: T },
-      { item: 'how_it_appears' as const, test: T },
-    ]) as CreditPreviewOverview['bureau']['rows'],
-  }),
-}) as CreditPreviewOverview;
+    rows: [
+      { item: 'account_history', test: T },
+      { item: 'repayment_history', test: T },
+      { item: 'how_it_appears', test: T },
+    ],
+  },
+};
 
-const SCHEDULE = Object.freeze({
+const SCHEDULE: CreditPreviewSchedule = {
   label: CREDIT_PREVIEW_LABEL,
   preview: T,
   blurred: T,
@@ -111,33 +110,33 @@ const SCHEDULE = Object.freeze({
   amount: '5000.00',
   rate: '6.90',
   termMonths: 12,
-  rows: freezeAll(Array.from({ length: 12 }, (_, i) => ({ n: i + 1, amount: '432.40', test: T }))),
-});
+  rows: Array.from({ length: 12 }, (_, i) => ({ n: i + 1, amount: '432.40', test: T })),
+};
 
-const REVOLVING = Object.freeze({
+const REVOLVING: CreditPreviewRevolving = {
   label: CREDIT_PREVIEW_LABEL,
   preview: T,
   blurred: T,
   currency: CREDIT_PREVIEW_CURRENCY,
   engine: CREDIT_PREVIEW_ENGINES.revolving_credit,
-  rows: freezeAll([
-    { section: 'credit_limit' as const, item: 'limit', figure: '2000.00', test: T },
-    { section: 'credit_limit' as const, item: 'available', figure: '1650.00', test: T },
-    { section: 'statements' as const, item: 'statement_balance', figure: '350.00', test: T },
-    { section: 'statements' as const, item: 'minimum_due', figure: '25.00', test: T },
-    { section: 'interest_tiers' as const, item: 'purchases_rate', figure: '19.90', test: T },
-    { section: 'interest_tiers' as const, item: 'cash_rate', figure: '24.90', test: T },
-    { section: 'repayments' as const, item: 'pay_in_full', figure: '350.00', test: T },
-    { section: 'repayments' as const, item: 'pay_minimum', figure: '25.00', test: T },
-    { section: 'bureau_reporting' as const, item: 'monthly_report', figure: null, test: T },
-    { section: 'collections' as const, item: 'missed_payment_steps', figure: null, test: T },
-  ]),
-});
+  rows: [
+    { section: 'credit_limit', item: 'limit', figure: '2000.00', test: T },
+    { section: 'credit_limit', item: 'available', figure: '1650.00', test: T },
+    { section: 'statements', item: 'statement_balance', figure: '350.00', test: T },
+    { section: 'statements', item: 'minimum_due', figure: '25.00', test: T },
+    { section: 'interest_tiers', item: 'purchases_rate', figure: '19.90', test: T },
+    { section: 'interest_tiers', item: 'cash_rate', figure: '24.90', test: T },
+    { section: 'repayments', item: 'pay_in_full', figure: '350.00', test: T },
+    { section: 'repayments', item: 'pay_minimum', figure: '25.00', test: T },
+    { section: 'bureau_reporting', item: 'monthly_report', figure: null, test: T },
+    { section: 'collections', item: 'missed_payment_steps', figure: null, test: T },
+  ],
+};
 
-/** Copies so no caller can change the frozen fixtures. */
+/** Copies, so no caller can change the fixtures. */
 export const creditPreviewOverview = (): CreditPreviewOverview => structuredClone(OVERVIEW);
-export const creditPreviewSchedule = () => structuredClone(SCHEDULE) as CreditPreviewSchedule;
-export const creditPreviewRevolving = () => structuredClone(REVOLVING) as CreditPreviewRevolving;
+export const creditPreviewSchedule = (): CreditPreviewSchedule => structuredClone(SCHEDULE);
+export const creditPreviewRevolving = (): CreditPreviewRevolving => structuredClone(REVOLVING);
 
 /** Always throws the typed Preview refusal (PRECONDITION_FAILED, `error.data.preview`). Nothing is read or written. */
 export function refuseCreditPreviewAct(input: CreditPreviewActInput): never {

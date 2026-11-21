@@ -1,7 +1,7 @@
 // World: none
 import { test, expect } from './journey.mjs';
-import { ADMIN, founderSignIn } from './admin.mjs';
-import { api, fund, journeyState } from './stack.mjs';
+import { api, fund, journeyState, stepAccount } from './stack.mjs';
+import { trpcError } from './answers.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-12, in the running app (docs/roadmap/journeys.json): I look at overdraft, personal loans and the credit card
@@ -18,18 +18,8 @@ const CODE = 'preview.engine_not_built';
 
 test.describe.configure({ mode: 'default' });
 
-function who() {
-  const s = run.read();
-  if (!s.who) throw new Error(`${J}: step 1 left no account, so this step has no one to sign in`);
-  return s.who;
-}
-
-/** The tRPC error a refused call answers, from a plain or a batched reply, with or without a json envelope. */
-function trpcError(body) {
-  const one = Array.isArray(body) ? body[0] : body;
-  const error = one?.error;
-  return error?.json ?? error;
-}
+/** The account step 1 made: every later step signs in as it. */
+const who = () => stepAccount(run, J);
 
 /** A bank read through the person's own session at Edge: the tRPC data, after a 200. */
 async function bankRead(session, procedure, input) {
@@ -116,10 +106,10 @@ test(`${J} #1 opens the overdraft, personal loan and business term loan pages: s
   await expect(od).toContainText(`${view.overdraft.rate}% TEST`);
   await expect(od).toContainText(`${view.overdraft.limits[0]} EUR TEST`);
   const last = view.overdraft.monthlyCost.at(-1);
-  await page.getByRole('combobox', { name: 'Overdraft limit' }).selectOption(last.limit);
+  await page.getByRole('combobox', { name: 'Overdraft limit', exact: true }).selectOption(last.limit);
   await expect(od).toContainText(`${last.cost} EUR TEST`);
   await expect(od).toContainText(`${view.overdraft.repaymentWindowMonths} months TEST`);
-  await expect(page.getByRole('region', { name: 'Credit bureau reporting' })).toContainText('TEST');
+  await expect(page.getByRole('region', { name: 'Credit bureau reporting', exact: true })).toContainText('TEST');
   await everyFigureTest(page);
 
   // Personal loan: the calculator moves with the term, on the bank's sample table; the name stays on the page.
@@ -128,11 +118,11 @@ test(`${J} #1 opens the overdraft, personal loan and business term loan pages: s
   await expect(calc).toContainText(`${view.personalLoan.amount} EUR TEST`);
   await expect(calc).toContainText(`${view.personalLoan.rate}% TEST`);
   for (const t of view.personalLoan.terms) {
-    await page.getByRole('combobox', { name: 'Term' }).selectOption(String(t.termMonths));
+    await page.getByRole('combobox', { name: 'Term', exact: true }).selectOption(String(t.termMonths));
     await expect(calc).toContainText(`${t.monthly} EUR TEST`);
     await expect(calc).toContainText(`${t.totalInterest} EUR TEST`);
   }
-  await page.getByLabel('Name this loan').fill('TEST new bike');
+  await page.getByLabel('Name this loan', { exact: true }).fill('TEST new bike');
   await expect(page.locator('dl[aria-label="TEST new bike"]')).toBeVisible();
   await everyFigureTest(page);
 
@@ -140,7 +130,7 @@ test(`${J} #1 opens the overdraft, personal loan and business term loan pages: s
   await previewRoom(page, '/bank/business/loan', 'Business term loan', 'business_term_loan');
   const biz = page.getByTestId('preview-engine');
   for (const t of view.businessTermLoan.terms) {
-    await page.getByRole('combobox', { name: 'Term' }).selectOption(String(t.weeks));
+    await page.getByRole('combobox', { name: 'Term', exact: true }).selectOption(String(t.weeks));
     await expect(biz).toContainText(`${t.weekly} EUR TEST`);
     await expect(biz).toContainText(`${t.fee} EUR TEST`);
   }
@@ -195,9 +185,9 @@ test(`${J} #3 opens the unsecured loan schedule and changes the repayment date: 
     await expect(policy.locator('div').filter({ hasText: label }).locator('dd')).toHaveText('not set');
   }
 
-  const button = page.getByRole('button', { name: 'Change repayment date' });
+  const button = page.getByRole('button', { name: 'Change repayment date', exact: true });
   await expect(button, 'no date chosen, nothing to send').toBeDisabled();
-  await page.getByLabel('New repayment date').fill('2027-01-15');
+  await page.getByLabel('New repayment date', { exact: true }).fill('2027-01-15');
   await refused(page, button, { procedure: 'loans.changeRepaymentDate', engine: 'bank.loan_schedule', action: 'change_repayment_date' });
   expect(await holdings(), 'nothing stored and no balance changed').toEqual(before);
 });
@@ -220,9 +210,9 @@ test(`${J} #4 opens the credit-card application and rules: Submit shows the Prev
   await expect(rules).toContainText('gambling');
   await everyFigureTest(page);
 
-  await page.getByRole('combobox', { name: 'Card' }).selectOption('charge_card');
-  await page.getByLabel('Yearly income').fill('40000');
-  const alert = await refused(page, page.getByRole('button', { name: 'Submit' }), {
+  await page.getByRole('combobox', { name: 'Card', exact: true }).selectOption('charge_card');
+  await page.getByLabel('Yearly income', { exact: true }).fill('40000');
+  const alert = await refused(page, page.getByRole('button', { name: 'Submit', exact: true }), {
     procedure: 'creditCard.application',
     engine: 'bank.credit_card',
     action: 'apply',
@@ -233,7 +223,7 @@ test(`${J} #4 opens the credit-card application and rules: Submit shows the Prev
 
 test(`${J} #5 opens the revolving credit page over test data: a labelled preview, and the fraud-score page on the ops side says the same`, async ({
   page,
-  browser,
+  founders,
 }) => {
   await signIn(page, who());
   const before = await holdings();
@@ -245,14 +235,14 @@ test(`${J} #5 opens the revolving credit page over test data: a labelled preview
   // The statement opens behind the preview: its figures sample data, each labelled TEST.
   const statements = page.getByRole('region', { name: 'Statements', exact: true });
   await expect(statements.getByTestId('preview-engine')).toHaveCount(0);
-  await statements.getByRole('button', { name: 'Open the statement' }).click();
+  await statements.getByRole('button', { name: 'Open the statement', exact: true }).click();
   const statement = statements.getByTestId('preview-engine');
   await expect(statement).toHaveAttribute('data-sample', 'true');
   const balance = view.rows.find((r) => r.item === 'statement_balance');
   await expect(statement).toContainText(`${balance.figure} EUR TEST`);
   await everyFigureTest(page);
 
-  await refused(page, page.getByRole('button', { name: 'Borrow' }), {
+  await refused(page, page.getByRole('button', { name: 'Borrow', exact: true }), {
     procedure: 'creditPreviews.act',
     engine: 'bank.revolving_credit',
     action: 'borrow',
@@ -260,21 +250,15 @@ test(`${J} #5 opens the revolving credit page over test data: a labelled preview
   expect(await holdings(), 'no credit line and no balance changed').toEqual(before);
 
   // The ops side: the card fraud risk page is the same labelled preview over TEST rows.
-  const context = await browser.newContext({ baseURL: ADMIN, viewport: { width: 1600, height: 1000 } });
-  try {
-    const desk = await context.newPage();
-    await founderSignIn(desk, 'a');
-    await desk.goto('/bank-ops/cards/fraud');
-    const fraud = desk.getByTestId('fraud-preview');
-    await expect(fraud.getByRole('heading', { name: 'Card fraud risk', level: 1 })).toBeVisible();
-    await expect(desk.getByTestId('fraud-preview-label')).toHaveText(LABEL);
-    const scores = fraud.getByTestId('preview-engine');
-    await expect(scores).toHaveAttribute('data-blurred', 'true');
-    const rows = scores.locator('tbody tr');
-    expect(await rows.count()).toBeGreaterThan(0);
-    for (const row of await rows.all()) await expect(row).toContainText(/TEST-AUTH-\d+ TEST/);
-    await expect(fraud).toContainText('Automatic blocking: unavailable');
-  } finally {
-    await context.close();
-  }
+  const { page: desk } = await founders.console('a');
+  await desk.goto('/bank-ops/cards/fraud');
+  const fraud = desk.getByTestId('fraud-preview');
+  await expect(fraud.getByRole('heading', { name: 'Card fraud risk', level: 1 })).toBeVisible();
+  await expect(desk.getByTestId('fraud-preview-label')).toHaveText(LABEL);
+  const scores = fraud.getByTestId('preview-engine');
+  await expect(scores).toHaveAttribute('data-blurred', 'true');
+  const rows = scores.locator('tbody tr');
+  expect(await rows.count()).toBeGreaterThan(0);
+  for (const row of await rows.all()) await expect(row).toContainText(/TEST-AUTH-\d+ TEST/);
+  await expect(fraud).toContainText('Automatic blocking: unavailable');
 });

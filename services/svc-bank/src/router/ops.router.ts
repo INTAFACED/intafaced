@@ -9,6 +9,7 @@ import {
   FRAUD_SIGNALS,
   fraudPreview,
   refuseFraudPreviewAction,
+  fraudPreviewDoor,
 } from '../cards/fraud-preview.js';
 import { poolTotalsProcedure } from '../ops/pool-totals.js';
 import { loanBookProcedure } from '../ops/loan-book.js';
@@ -75,29 +76,7 @@ export function createOpsRouter(c: BankRouterContext) {
      * `admin:read`, the scope the founder console's own session carries: the
      * read is TEST fixtures and the action changes nothing (J-bank-12 #5).
      */
-    fraudPreview: scopedProcedure('admin:read')
-      .output(
-        z.object({
-          label: z.literal('Preview · sample data'),
-          engine: z.string(),
-          preview: z.literal(true),
-          blurred: z.literal(true),
-          stances: z.array(z.enum(FRAUD_BLOCK_STANCES)),
-          automaticBlocking: z.literal('unavailable'),
-          rows: z.array(
-            z.object({
-              testAuthorisationRef: z.string().startsWith('TEST-'),
-              test: z.literal(true),
-              band: z.enum(FRAUD_RISK_BANDS),
-              signals: z.array(z.enum(FRAUD_SIGNALS)),
-            }),
-          ),
-        }),
-      )
-      .query(() => {
-        const view = fraudPreview();
-        return { ...view, stances: [...view.stances], rows: view.rows.map((r) => ({ ...r, signals: [...r.signals] })) };
-      }),
+    fraudPreview: fraudPreviewDoor(),
     /**
      * Personal sends the owner's review rule holds (PP-send-request-10), oldest first. Each is the customer's own
      * instruction; nothing was taken while it waits.

@@ -5,10 +5,13 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, PREVIEW_REFUSAL_CODE, router, signPrincipalHeader } from '@intafaced/contracts';
 import { BANK_CREDIT_PREVIEW_PROCEDURES } from '@intafaced/contracts/bank-credit-preview-procedures';
 import type { ProcedureSample } from '@intafaced/contracts/procedure';
+import { fraudPreviewDoor } from '../cards/fraud-preview.js';
+import { createCreditCardPreviewRouter } from './credit-card-preview.router.js';
 import { createCreditPreviewsRouter } from './credit-previews.js';
+import { loanServicingPreviewProcedures } from './loan-servicing-preview.js';
 
 /**
- * The mounted side of each credit-preview record's samples, through the production adapter by a caller the record admits:
+ * The mounted side of each credit-preview record's samples (the J-bank-12 doors, the older loan-servicing, credit-card and fraud preview doors they call), through the production adapter by a caller the record admits:
  * a refused sample is answered 400 (the input is malformed); an accepted read answers 200, and an accepted engine action
  * answers the typed Preview refusal with the status its record lists (412), under the strict check that fails on a refusal
  * the record does not list.
@@ -23,7 +26,7 @@ function signedIn(): Record<string, string> {
     sub: USER,
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
-    scopes: ['bank:read', 'bank:write'],
+    scopes: ['bank:read', 'bank:write', 'admin:read'],
     tier: 'full',
     mfa: false,
     expiresAt: new Date('2099-01-01T00:00:00Z'),
@@ -40,7 +43,12 @@ beforeAll(async () => {
   await app.register(fastifyTRPCPlugin, {
     prefix: '/trpc',
     trpcOptions: {
-      router: router({ creditPreviews: createCreditPreviewsRouter() }),
+      router: router({
+        creditPreviews: createCreditPreviewsRouter(),
+        loans: router(loanServicingPreviewProcedures(null)),
+        creditCard: createCreditCardPreviewRouter(),
+        ops: router({ fraudPreview: fraudPreviewDoor() }),
+      }),
       createContext: ({ req }: { req: unknown }) => edgeContext(req as never),
     },
   });
