@@ -114,6 +114,8 @@ function args(argv) {
 
 /** Every route the Customer app's navigation and menus name: the room report's own list. */
 export const customerRoutes = sweepRoutes;
+/** The kit page (apps/customer/src/app/App.tsx), shot on a pull request beside the rooms. */
+export const KIT_ROUTE = '/kit';
 
 /** The baseline room name of a route (policy.mjs, where a row's room decides what blocks). */
 export const roomName = policy.roomName;
@@ -1137,7 +1139,8 @@ async function prMain(opts) {
   if (!existsSync(join(ROOT, I18N_FIXTURES)))
     throw new Error(`no @intafaced/i18n build for the 130% copy pass (${I18N_FIXTURES}): pnpm --filter @intafaced/i18n build`);
   const [k, n] = opts.shard;
-  const targets = (opts.routes ?? customerRoutes())
+  // The rooms, and the kit page (/kit), which draws every kit part: a kit change seen only there reaches it too.
+  const targets = (opts.routes ?? [...customerRoutes(), KIT_ROUTE])
     .filter((_, i) => i % n === k - 1)
     .map((route) => ({ name: route, path: route, room: roomName(route), baselines: 'apps/customer/look-baselines', customer: true }));
   const browser = await chromium.launch(process.env.LOOK_GATE_CHROMIUM ? { executablePath: process.env.LOOK_GATE_CHROMIUM } : {});

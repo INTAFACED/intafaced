@@ -80,6 +80,16 @@ jobs:
       contents: read
       actions: read # the journey baseline guard downloads the journeys runs' reports on main
       pull-requests: read # the journey list guard reads the pull request's current body
+    # What tells main-bisect's automatic revert (exact-revert.mjs autoRevertOf): its branch, author, commit count, head and
+    # head repository (the test judge runs only for this repository's own). Read by the test-diff guard, lint-ratchet
+    # (in `pnpm gates`) and look drift, which judge a proven revert of X against X^ (project-state#3635). Empty on a push.
+    env:
+      PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+      PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+      PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+      PR_COMMITS: ${{ github.event.pull_request.commits }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
     steps:
       # fetch-depth: 0 — full history with `origin/main`. It was first set for
       # value-gate (removed); later steps may compare against main, so it stays.
@@ -146,13 +156,6 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
-          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }} # the test judge runs only for this repository's own
-          # What tells main-bisect's automatic revert (test-diff-guard.mjs autoRevert): its branch, author, commit count and head.
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
-          PR_COMMITS: ${{ github.event.pull_request.commits }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           # Check 7 reads this pull request's earlier heads' failed Tests jobs (actions: read above).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Main's copy runs in a worktree of main, so every import it has is main's too (rules-from-main.test.mjs).
