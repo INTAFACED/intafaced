@@ -69,7 +69,15 @@ fn every_door_input_answers_as_zod() {
     println!(
         "{} inputs over {} doors; {} differ",
         cases.len(),
-        14,
+        cases
+            .iter()
+            .filter_map(|c| match c {
+                Json::Array(c) => c.first().cloned(),
+                _ => None,
+            })
+            .map(|n| n.compact())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
         differ.len()
     );
     assert!(
