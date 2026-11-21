@@ -27,7 +27,7 @@ import {
   type RunAction,
 } from '../../../features/trade/venue/VenueKit';
 import { futuresRoutesCopy } from './routes-copy';
-import { approvalState } from './venue-routes-logic';
+import { approvalAtConfirm, approvalState } from './venue-routes-logic';
 
 /**
  * ROUTING OVER THE VENUES THE PERSON CAN SIGN FOR (J-derivatives-28). Shown only when the deployment has more than one
@@ -378,12 +378,8 @@ export function RoutedReview({
       // The poll's answer may be a read that failed or is older than an approval just signed: Confirm asks the venue once
       // more before it asks the person to sign an approval they may already hold.
       if (!approved) {
-        const fresh = carries ? await venue.builderFeeApproval(owner, undefined, chosen.venueId) : null;
+        const now = await approvalAtConfirm(carries, fee, approvalNow, () => venue.builderFeeApproval(owner, undefined, chosen.venueId));
         approval.reload();
-        const now = approvalState(carries, fee, {
-          approved: fresh?.ok ? fresh.data.value : null,
-          failed: fresh !== null && !fresh.ok,
-        });
         if (now !== 'approved' && now !== 'not_needed') {
           setStep('approval');
           return;

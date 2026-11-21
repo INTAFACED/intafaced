@@ -115,7 +115,7 @@ import { serveTestWalletProvider, TEST_WALLET_PROVIDER_CLIENT_PATH } from './loc
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
-import agents from './local-stack-services/agents.mjs';
+import agents, { AGENTS_EMPTY_CATALOGUE_DB, agentsCatalogueOff, onEmptyAgentsDb } from './local-stack-services/agents.mjs';
 import bank from './local-stack-services/bank.mjs';
 import blueprint from './local-stack-services/blueprint.mjs';
 import edge from './local-stack-services/edge.mjs';
@@ -1380,6 +1380,38 @@ const supportCatalogueWanted = () => (supportCatalogueOff() ? 'off' : 'on');
  * it wrote before (J-support-public-12 #1, #6). Without it every such start makes the database new.
  */
 const keepSupportEmptyCatalogue = () => process.env.LOCAL_STACK_SUPPORT_CATALOGUE_KEEP === 'on' && supportCatalogueWas() === 'off';
+
+/**
+ * The empty agent catalogue's database (local-stack-services/agents.mjs), made new on every start of agents with
+ * LOCAL_STACK_AGENTS_CATALOGUE=off: dropped, created, given svc-agents' schema and migrated as svc_agents. svc-agents is
+ * stopped by then (start migrates only what is about to start), so nothing holds a connection to it. Its boot stores the
+ * agents again on start, so emptyAgentsCatalogue takes them out once it is up. The stack's own database is never touched.
+ */
+async function resetAgentsEmptyCatalogue(secrets) {
+  psql(secrets, `DROP DATABASE IF EXISTS ${AGENTS_EMPTY_CATALOGUE_DB} WITH (FORCE)`);
+  psql(secrets, `CREATE DATABASE ${AGENTS_EMPTY_CATALOGUE_DB}`);
+  psql(
+    secrets,
+    `CREATE EXTENSION IF NOT EXISTS citext; CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE SCHEMA IF NOT EXISTS agents AUTHORIZATION svc_agents;
+GRANT USAGE ON SCHEMA public TO svc_agents;`,
+    { db: AGENTS_EMPTY_CATALOGUE_DB },
+  );
+  await runPnpmAsync(['--filter', '@intafaced/svc-agents', 'db:migrate'], 'migrate-agents-empty-catalogue', {
+    DATABASE_URL: onEmptyAgentsDb(dbUrl('svc_agents', secrets)),
+  });
+}
+
+/** With svc-agents up on the empty-catalogue database: every agent its boot stored there taken out, so none is published. */
+function emptyAgentsCatalogue(secrets) {
+  psql(secrets, 'DELETE FROM agents.agent_definitions', { db: AGENTS_EMPTY_CATALOGUE_DB });
+  say(`  agents: empty-catalogue profile on ${AGENTS_EMPTY_CATALOGUE_DB} (LOCAL_STACK_AGENTS_CATALOGUE=off), made new`);
+}
+
+/** Which database the running svc-agents is on: 'off' (the empty-catalogue profile's) or 'on' (the stack's). */
+const agentsCatalogueFile = () => path.join(STATE, 'agents-catalogue');
+const agentsCatalogueWas = () => (fs.existsSync(agentsCatalogueFile()) ? fs.readFileSync(agentsCatalogueFile(), 'utf8').trim() : 'on');
+const agentsCatalogueWanted = () => (agentsCatalogueOff() ? 'off' : 'on');
 
 /**
  * The empty notice board's database (local-stack-services/notify.mjs), made new on every start of notify with
@@ -2726,6 +2758,9 @@ async function cmdStart(flags) {
   // The same for svc-notify and the empty notice board.
   if (wanted.some((d) => d.name === 'notify') && ownedAlive(readProcs().notify) && notifyNoticesWas() !== notifyNoticesWanted())
     await cmdStop(['notify']);
+  // The same for svc-agents and the empty agent catalogue.
+  if (wanted.some((d) => d.name === 'agents') && ownedAlive(readProcs().agents) && agentsCatalogueWas() !== agentsCatalogueWanted())
+    await cmdStop(['agents']);
   const procsNow = readProcs();
   const toStart = wanted.filter((d) => !ownedAlive(procsNow[d.name]) || !onCurrentBuild(procsNow[d.name], backendBuild));
   // An old build never serves a schema migrated past it: stop it before its migrations run.
@@ -2739,6 +2774,9 @@ async function cmdStart(flags) {
   if (toStart.some((d) => d.name === 'support')) writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
   if (notifyNoticesOff() && toStart.some((d) => d.name === 'notify')) await resetNotifyEmptyNotices(secrets);
   if (toStart.some((d) => d.name === 'notify')) writePrivate(notifyNoticesFile(), `${notifyNoticesWanted()}\n`);
+  const agentsEmpty = agentsCatalogueOff() && toStart.some((d) => d.name === 'agents');
+  if (agentsEmpty) await resetAgentsEmptyCatalogue(secrets);
+  if (toStart.some((d) => d.name === 'agents')) writePrivate(agentsCatalogueFile(), `${agentsCatalogueWanted()}\n`);
   await startNats();
   ensureStreams();
   const renewed = !only || only.includes('protocol') ? await startTestChain(secrets) : [];
@@ -2757,6 +2795,9 @@ async function cmdStart(flags) {
     if (notifyNoticesOff()) await resetNotifyEmptyNotices(secrets);
     writePrivate(notifyNoticesFile(), `${notifyNoticesWanted()}\n`);
   }
+  const agentsEmptyExtra = extra.includes('agents') && agentsCatalogueOff();
+  if (agentsEmptyExtra) await resetAgentsEmptyCatalogue(secrets);
+  if (extra.includes('agents')) writePrivate(agentsCatalogueFile(), `${agentsCatalogueWanted()}\n`);
   // Vault before identity starts, so the first boot already has the invite hashes.
   // Enrolment itself waits until edge is up (below).
   try {
@@ -2781,6 +2822,7 @@ async function cmdStart(flags) {
     ...wanted,
     ...serviceDefs(secrets).filter((d) => renewed.includes(d.name) && !wanted.some((w) => w.name === d.name)),
   ]);
+  if (agentsEmpty || agentsEmptyExtra) emptyAgentsCatalogue(secrets);
   try {
     await ensureLocalTestFounders();
     if (!only || only.includes('ops')) await pinOpsFounders();
