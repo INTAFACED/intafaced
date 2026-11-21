@@ -125,17 +125,18 @@ export const copyFollowAnswer = z.object({
   feeShareKilled: z.boolean(),
   sessionKeyGranted: z.boolean(),
   sessionKeyRevoked: z.boolean(),
-  sessionKeyPrefix: z.string().optional(),
-  sessionKeyId: z.string().optional(),
-  sessionKey: z.string().optional(),
   relationshipState: z.enum(['ACTIVE', 'PAUSED', 'STOPPING', 'CLOSE_ONLY', 'DETACHED']),
   newIntentFenced: z.boolean(),
   leaderStatus: z.enum(['listed', 'suspended', 'delisted', 'unknown']),
+  // Last, as presentCopyFollow spreads them after every other key (and a grant adds sessionKey after them).
+  sessionKeyPrefix: z.string().optional(),
+  sessionKeyId: z.string().optional(),
+  sessionKey: z.string().optional(),
 });
 answerKeys<PresentCopyFollow>()(copyFollowAnswer);
 answerKeys<Answer<'startFollow'> | Answer<'startVenueFollow'> | Answer<'amendFollow'> | Answer<'killSessionKey'>>()(copyFollowAnswer);
 
-/** A new session key's grant: the follow with the key's id and its raw token, shown this once. */
+/** A new session key's grant: the follow with the key's id and its raw token, shown this once. `extend` keeps both keys where copyFollowAnswer puts them, last. */
 export const copyGrantSessionKeyAnswer = copyFollowAnswer.extend({ sessionKeyId: z.string(), sessionKey: z.string() });
 answerKeys<Answer<'grantSessionKey'>>()(copyGrantSessionKeyAnswer);
 
