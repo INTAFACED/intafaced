@@ -14,6 +14,8 @@ vi.mock('../features/session/session', async (original) => {
       return new Promise(() => undefined);
     },
     mutate: () => new Promise(() => undefined),
+    // A call by its record is a read or a write like the two above.
+    call: (record: { kind: string }) => (record.kind === 'query' ? api.query() : api.mutate()),
     canWrite: () => false,
   };
   const value = () => ({
