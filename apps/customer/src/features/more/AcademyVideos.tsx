@@ -9,6 +9,7 @@ import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyPaths, lessonHrefFor, isAcademyPath } from './academy-lms';
 import { AcademyRefusal, pathLabel } from './AcademyLmsParts';
 import { AcademyVideoPlayer } from './AcademyVideoPlayer';
+import { ACADEMY_VIDEOS } from '@intafaced/contracts/academy-videos-procedures';
 
 const video = z.object({ slug: z.string(), title: z.string(), path: z.string() });
 
@@ -18,7 +19,7 @@ export function AcademyVideos() {
     { userId } = useSession();
   const { t, Copy } = copy.useCopy();
   const [selected, setSelected] = useState(new URLSearchParams(window.location.search).get('video') ?? '');
-  const list = useResource((signal) => api.query('academy', 'videos', undefined, z.array(video), { signal }), `videos:${userId}`);
+  const list = useResource((signal) => api.call(ACADEMY_VIDEOS, undefined, { signal }), `videos:${userId}`);
   return (
     <div className="more-columns">
       <Panel title={copyText('academy.video.library')}>

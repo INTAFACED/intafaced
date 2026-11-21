@@ -1,10 +1,8 @@
 import { useState } from 'react';
-import { z } from 'zod';
 import {
   ACADEMY_PUBLIC_CATALOGUE_SORTS,
   academyCurriculumSummarySchema,
   academyPublicItemSchema,
-  academyPublicVideoSchema,
   type AcademyPublicCatalogueSort,
 } from '@intafaced/contracts/academy-catalogue';
 import { navigate } from '../../app/location';
@@ -21,6 +19,10 @@ import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
 import { LessonBody } from './AcademyLearning';
 import { VerifyPanel } from './AcademyCertificates';
 import { AcademyCoursePage, AcademyCourseCards, AcademyHub } from './AcademyHub';
+import { ACADEMY_PUBLIC_CURRICULUM } from '@intafaced/contracts/academy-public-curriculum-procedures';
+import { ACADEMY_PUBLIC_CURRICULUM_ITEM } from '@intafaced/contracts/academy-public-curriculum-item-procedures';
+import { ACADEMY_PUBLIC_CURRICULUM_RELATED } from '@intafaced/contracts/academy-public-curriculum-related-procedures';
+import { ACADEMY_PUBLIC_VIDEOS } from '@intafaced/contracts/academy-public-videos-procedures';
 
 /**
  * The Academy for a visitor with no account (J-academy-01): the same five tabs at the same addresses, the published
@@ -112,7 +114,7 @@ function PublicCatalogue() {
   const [limit, setLimit] = useState(PAGE);
   const q = query.trim();
   const list = useResource(
-    (signal) => api.query('academy', 'publicCurriculum', { ...(q ? { q } : {}), sort, limit }, z.array(summary), { signal }),
+    (signal) => api.call(ACADEMY_PUBLIC_CURRICULUM, { ...(q ? { q } : {}), sort, limit }, { signal }),
     `public-curriculum:${q}:${sort}:${limit}`,
   );
   const sortLabels: Record<Sort, string> = {
@@ -187,9 +189,9 @@ function PublicCatalogue() {
 function PublicReader({ slug }: { slug: string }) {
   const api = useApi();
   const { t, Copy } = copy.useCopy();
-  const lesson = useResource((signal) => api.query('academy', 'publicCurriculumItem', { slug }, item, { signal }), `public-item:${slug}`);
+  const lesson = useResource((signal) => api.call(ACADEMY_PUBLIC_CURRICULUM_ITEM, { slug }, { signal }), `public-item:${slug}`);
   const related = useResource(
-    (signal) => api.query('academy', 'publicCurriculumRelated', { slug, limit: 5 }, z.array(summary), { signal }),
+    (signal) => api.call(ACADEMY_PUBLIC_CURRICULUM_RELATED, { slug, limit: 5 }, { signal }),
     `public-related:${slug}`,
   );
   if (lesson.resource.status === 'loading') return <Loading />;
@@ -260,7 +262,7 @@ function PublicVideos() {
   const { t, Copy } = copy.useCopy();
   const list = useResource(
     (signal) =>
-      api.query('academy', 'publicVideos', undefined, z.array(academyPublicVideoSchema), {
+      api.call(ACADEMY_PUBLIC_VIDEOS, undefined, {
         signal,
       }),
     'public-videos',

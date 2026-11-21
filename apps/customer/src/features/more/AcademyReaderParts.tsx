@@ -4,6 +4,7 @@ import { useApi, useSession } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { lessonHrefFor, lessonStatus, neighbours, pathProgress, type AcademyPath, type LessonSummary, type Tracking } from './academy-lms';
 import { ProgressBar, StatusChip, pathLabel } from './AcademyLmsParts';
+import { ACADEMY_VIDEOS } from '@intafaced/contracts/academy-videos-procedures';
 
 /** Where this lesson sits: breadcrumb, position in its path, real progress and its recorded state. */
 export function ReaderHeader({
@@ -99,7 +100,7 @@ export function LessonVideoLink({ slug }: { slug: string }) {
   const api = useApi();
   const { userId } = useSession();
   const { Copy } = copy.useCopy();
-  const videos = useResource((signal) => api.query('academy', 'videos', undefined, videoList, { signal }), `lesson-video:${userId}`);
+  const videos = useResource((signal) => api.call(ACADEMY_VIDEOS, undefined, { signal }), `lesson-video:${userId}`);
   if (videos.resource.status !== 'ready' || !videos.resource.data.some((v) => v.slug === slug)) return null;
   return (
     <div>

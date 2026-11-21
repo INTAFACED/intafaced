@@ -9,6 +9,8 @@ import { useApi } from '../session';
 import { academyRoomPageCopy as copy } from './academy-room-page-copy';
 import { lessonHref } from './AcademyLearning';
 import { Select, type ActionControls } from './common';
+import { ACADEMY_UNPIN_LESSON } from '@intafaced/contracts/academy-unpin-lesson-procedures';
+import { ACADEMY_PIN_LESSON } from '@intafaced/contracts/academy-pin-lesson-procedures';
 
 /** A lesson as the room read hands it back: the catalogue's own summary, as the contract declares it. */
 const pinnedLessonSchema = academyCurriculumSummarySchema;
@@ -65,7 +67,7 @@ export function RoomPinnedLessons({
                         confirm: t('unpin'),
                         success: t('unpinned'),
                         content: <p>{t('unpinBody', { title: lesson.title })}</p>,
-                        run: () => api.mutate('academy', 'unpinLesson', { roomId, itemSlug: lesson.slug }, ok),
+                        run: () => api.call(ACADEMY_UNPIN_LESSON, { roomId, itemSlug: lesson.slug }),
                         done,
                       })
                     }
@@ -111,7 +113,7 @@ function PinLessonForm({
           confirm: t('pinConfirm'),
           success: t('pinned'),
           content: <p>{t('pinBody', { title: chosen.title })}</p>,
-          run: () => api.mutate('academy', 'pinLesson', { roomId, itemSlug: chosen.slug }, ok),
+          run: () => api.call(ACADEMY_PIN_LESSON, { roomId, itemSlug: chosen.slug }),
           done: () => {
             setSlug('');
             done();

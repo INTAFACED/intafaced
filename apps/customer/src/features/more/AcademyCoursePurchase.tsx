@@ -8,6 +8,8 @@ import { useApi } from '../session';
 import { WALLET_SECTIONS, useWallet, WalletProvider } from '../protocol';
 import { academyPurchaseCopy as copy } from './academy-purchase-copy';
 import { AcademyRefusal, GuardedButton } from './AcademyLmsParts';
+import { ACADEMY_COURSE_PURCHASE } from '@intafaced/contracts/academy-course-purchase-procedures';
+import { ACADEMY_ABANDON_COURSE_PURCHASE } from '@intafaced/contracts/academy-abandon-course-purchase-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type View = AcademyCoursePurchaseView;
@@ -44,10 +46,7 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
   const api = useApi();
   const wallet = useWallet();
   const { t } = copy.useCopy();
-  const read = useResource(
-    (signal) => api.query('academy', 'coursePurchase', { slug }, academyCoursePurchaseViewSchema, { signal }),
-    `course-purchase:${slug}`,
-  );
+  const read = useResource((signal) => api.call(ACADEMY_COURSE_PURCHASE, { slug }, { signal }), `course-purchase:${slug}`);
   const [last, setLast] = useState<View | null>(null);
   const ready = read.resource.status === 'ready' ? read.resource.data : null;
   useEffect(() => {
@@ -106,7 +105,7 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
         const stored = await api.mutate('academy', 'submitCoursePayment', { key, txHash: signed.hash }, academyCoursePurchaseViewSchema);
         if (!stored.ok) setRefusal(stored);
       } else if (signed.status === 'rejected') {
-        await api.mutate('academy', 'abandonCoursePurchase', { key }, academyCoursePurchaseViewSchema);
+        await api.call(ACADEMY_ABANDON_COURSE_PURCHASE, { key });
         setNote(t('rejected'));
       } else {
         // Not known whether it went out: Academy reads the chain for it, and the wallet is not asked again.
@@ -125,7 +124,7 @@ function PurchasePanel({ slug, onSettled }: { slug: string; onSettled?: (() => v
     inFlight.current = true;
     setSending(true);
     try {
-      const answer = await api.mutate('academy', 'abandonCoursePurchase', { key }, academyCoursePurchaseViewSchema);
+      const answer = await api.call(ACADEMY_ABANDON_COURSE_PURCHASE, { key });
       if (!answer.ok) setRefusal(answer);
     } finally {
       inFlight.current = false;

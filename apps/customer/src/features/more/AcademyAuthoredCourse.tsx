@@ -1,7 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  academyCourseLearnerViewSchema,
-  academyPublishedCourseListSchema,
   type AcademyCourseLearnerView,
   type AcademyOutlineItemKind,
   type AcademyPublishedCourseCard,
@@ -17,6 +15,10 @@ import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyCourseEnrol } from './AcademyCourseEnrol';
 import { AcademyCoursePurchase } from './AcademyCoursePurchase';
 import { CourseTeamContact } from './AcademyCourseMessages';
+import { ACADEMY_AUTHORED_COURSE } from '@intafaced/contracts/academy-authored-course-procedures';
+import { ACADEMY_PUBLIC_AUTHORED_COURSE } from '@intafaced/contracts/academy-public-authored-course-procedures';
+import { ACADEMY_PUBLIC_COURSE_BY_LINK } from '@intafaced/contracts/academy-public-course-by-link-procedures';
+import { ACADEMY_PUBLIC_AUTHORED_COURSES } from '@intafaced/contracts/academy-public-authored-courses-procedures';
 
 /**
  * Courses staff made on the founder console, on the learner side (AC-catalogue-03, AC-enrolment-01): the catalogue
@@ -174,9 +176,7 @@ export function AcademyAuthoredCourse({ slug, signedIn }: { slug: string; signed
   const { t } = copy.useCopy();
   const course = useResource(
     (signal) =>
-      signedIn
-        ? api.query('academy', 'authoredCourse', { slug }, academyCourseLearnerViewSchema, { signal })
-        : api.query('academy', 'publicAuthoredCourse', { slug }, academyCourseLearnerViewSchema, { signal }),
+      signedIn ? api.call(ACADEMY_AUTHORED_COURSE, { slug }, { signal }) : api.call(ACADEMY_PUBLIC_AUTHORED_COURSE, { slug }, { signal }),
     `authored-course:${signedIn ? 'in' : 'out'}:${slug}`,
   );
   // A re-read after an enrolment keeps the page (and its enrol block) on screen until the new read lands.
@@ -227,7 +227,7 @@ export function AcademyLinkedCourse({ slug, linkKey }: { slug: string; linkKey: 
   const { t } = copy.useCopy();
   const course = useResource(
     // A POST, so the key travels in the body and never in a URL a server logs. Reading the page writes nothing.
-    (signal) => api.mutate('academy', 'publicCourseByLink', { slug, key: linkKey }, academyCourseLearnerViewSchema, { signal }),
+    (signal) => api.call(ACADEMY_PUBLIC_COURSE_BY_LINK, { slug, key: linkKey }, { signal }),
     `linked-course:${slug}:${linkKey}`,
   );
   if (course.resource.status === 'loading') return <Loading />;
@@ -267,7 +267,7 @@ export function AcademyAuthoredCourseCards({ whenEmpty = null }: { whenEmpty?: R
   const api = useApi();
   const { t } = copy.useCopy();
   const cards = useResource(
-    (signal) => api.query('academy', 'publicAuthoredCourses', { limit: CARDS_PAGE }, academyPublishedCourseListSchema, { signal }),
+    (signal) => api.call(ACADEMY_PUBLIC_AUTHORED_COURSES, { limit: CARDS_PAGE }, { signal }),
     'public-authored-courses',
   );
   if (cards.resource.status === 'loading') return <Loading />;
