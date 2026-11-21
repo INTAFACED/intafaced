@@ -46,7 +46,6 @@ process.env.APP_ENV = 'test';
 const fromService = createRequire(`${SVC}index.ts`);
 const load = (name) => import(pathToFileURL(fromService.resolve(name)).href);
 const svc = (p) => import(`${SVC}${p}`);
-const { createEdgeContext, encodePrincipal, signPrincipalHeader } = await load('@intafaced/contracts');
 const { SCOPES } = await load('@intafaced/auth');
 const { BANK_ERROR_STATUS } = await svc('errors.ts');
 const { isUserVisibleBankCopyCode, userCopy } = await svc('user-copy.ts');
