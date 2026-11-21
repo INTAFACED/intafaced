@@ -10,7 +10,9 @@
 //!
 //! The `book` slice adds the order book (`book`), the engine over it (`engine`: the journal before every move, the
 //! order events, the cold start, reconcile), and the doors that reach it (`door::book`). The `serve` slice adds the
-//! binary that serves them.
+//! binary that serves them (`main.rs`): what the process says about itself (`status`: `/health`, `/ready` and each
+//! order operation's latency), the replay hold check and the boot that runs it (`holds`), admission and the expiry pass
+//! in the engine (`engine::admission`), and the scrape.
 //!
 //! The `spreads` slice adds options and combos to the book (`book::order_book`'s option and combo layers), owner-listed
 //! spreads with their own books (`book::spread`, the spread layer, the engine's listings and `spreadFilled`), the
@@ -18,10 +20,13 @@
 
 pub mod approval;
 pub mod book;
+pub mod bus;
 pub mod door;
 pub mod engine;
 pub mod env;
 pub mod errors;
 pub mod errors_table;
+pub mod holds;
 pub mod journal;
 pub mod refines;
+pub mod status;
