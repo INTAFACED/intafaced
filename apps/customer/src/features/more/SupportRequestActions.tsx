@@ -17,8 +17,7 @@ import {
   saveBase64,
 } from './support-attachments';
 import type { Ticket } from './support-schemas';
-import type { ratingSchema } from './support-calls';
-import type { z } from 'zod';
+import type { SupportRating } from '@intafaced/contracts/support-customer-procedures';
 
 const SCORE_KEY = {
   5: 'rateScoreOption5',
@@ -157,7 +156,7 @@ function RateControl({
   describedBy,
   rating,
   onChanged,
-}: ControlProps & { rating: { resource: Resource<z.infer<typeof ratingSchema> | null>; reload: () => void }; onChanged: () => void }) {
+}: ControlProps & { rating: { resource: Resource<SupportRating | null>; reload: () => void }; onChanged: () => void }) {
   const copy = deskCopy.useCopy();
   const api = useApi(),
     { userId } = useSession();
