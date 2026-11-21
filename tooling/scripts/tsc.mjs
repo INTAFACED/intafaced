@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * The one way to type-check in this repo: `node tooling/scripts/tsc.mjs <tsc's own arguments>`, a drop-in for `tsc`.
- * Every package's `typecheck` script calls it, tooling/ci/test-typecheck.mjs calls it for tsconfig.test.json, and the
- * worktree setup points every `node_modules/.bin/tsc` at it (installShims), so a hand-typed `npx tsc` takes it too.
+ * Every package.json script that type-checks or builds calls it, tooling/ci/test-typecheck.mjs calls it for
+ * tsconfig.test.json, and the worktree setup points every `node_modules/.bin/tsc` at it (installShims), so a hand-typed
+ * `npx tsc` takes it too.
  *
  * A `--noEmit` check of one project becomes, with nothing else changed (same compiler, same config):
  *   - incremental: `--incremental --tsBuildInfoFile <project dir>/node_modules/.cache/tsc/<config>.tsbuildinfo`, so a
@@ -18,13 +19,19 @@
  *     changed file that declares globals, skippedDependents below) every file is checked again. On 20 Nov 2026 a check
  *     made before the workspace packages were built kept 4 errors in two unchanged files of apps/customer after the
  *     build, and the pre-push hook refused a push the real compiler passed (INTAFACED/intafaced#9253).
- * Anything else (a build, a watch, files named on the command line, `--version`) runs tsc unchanged.
+ * A package build (`-p tsconfig.json`, emitting) runs as given, with no build-info or lock. Anything else (`--build`,
+ * a watch, files named on the command line, `--version`) runs tsc unchanged.
  *
  * Off CI, that check runs tsrs (oxc-project's Rust port of TypeScript 7, the checker t3code's packages run) in place of
  * tsc, when it is installed: apps/customer cold took 4.97 GB and 42 s with tsc 7.0.2 and 1.31 GB and 9 to 18 s with
  * tsrs, and 0.5 s at 0.43 GB warm (box, 21 Nov 2026, INTAFACED/project-state#3604). CI (`CI` set) keeps tsc, the judge.
  * tsrs also reports declaration-emit errors (TS2883) under --noEmit, which tsc 7.0 does not, so its check turns
  * declaration output off: the same answer as tsc on every package on 21 Nov. Its build-info and seed are its own.
+ * Off CI a package build runs tsrs too (build below): contracts' build peaked at 1.46 GB with tsc and 0.38 GB with
+ * tsrs. Of the 52 package builds on 21 Nov, 45 emitted the same .js and .d.ts bytes as tsc; the rest differ only by
+ * `import X, {} from` written `import X from`, and the order of union and intersection members, shown the same types
+ * by tsc (INTAFACED/project-state#3609). Every package.json script and every tool that type-checks or builds calls
+ * this file, never tsc itself (tsc.test.mjs stops a new one).
  *
  * Failure it prevents (INTAFACED/project-state#3374): builders ran bare `npx tsc` 527 times in four days, with no
  * incremental mode, no cache and no lock. One check of apps/customer took 10 s and 7 GB on the Mac, about 57 s and
@@ -82,8 +89,10 @@ const PASS_THROUGH = new Set([
  * incremental and locked.
  */
 export function planOf(argv, cwd, checker = 'tsc') {
-  if (!argv.includes('--noEmit') || argv.some((a) => PASS_THROUGH.has(a.split('=')[0]))) return { args: argv };
+  if (argv.some((a) => PASS_THROUGH.has(a.split('=')[0]))) return { args: argv };
   if (argv.some((a) => !a.startsWith('-') && /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(a))) return { args: argv };
+  // A package build (`-p tsconfig.json`, emitting) runs the same checker, unchanged: no build-info, no lock.
+  if (!argv.includes('--noEmit')) return checker === 'tsrs' ? { args: argv, checker } : { args: argv };
   const at = argv.findIndex((a) => a === '-p' || a === '--project');
   let project = at >= 0 ? argv[at + 1] : 'tsconfig.json';
   if (project === undefined) return { args: argv };
@@ -240,10 +249,31 @@ function tsc(args, cwd, { capture = false, checker = 'tsc' } = {}) {
   });
 }
 
+/** The error lines of a compiler's output. */
+export const errorsOf = (text) => text.split('\n').filter((l) => /\berror TS\d+:/.test(l));
+
+/**
+ * A package build with tsrs. tsrs refuses some declarations tsc 7.0 emits (TS2883, "cannot be named without a
+ * reference to ..."): five services on 21 Nov. A build whose only errors are those is built again by tsc, so it ends
+ * as tsc ends; any other error is printed as tsrs found it, TS2883 lines too.
+ */
+async function build(args, cwd) {
+  const first = await tsc(args, cwd, { capture: true, checker: 'tsrs' });
+  const errors = errorsOf(`${first.out}${first.err}`);
+  if (first.code !== 0 && errors.length > 0 && errors.every((l) => /\berror TS2883:/.test(l))) {
+    console.error(`tsc: tsrs refused ${errors.length} declaration(s) tsc 7.0 emits (TS2883); building with tsc`);
+    return tsc(args, cwd);
+  }
+  process.stdout.write(first.out);
+  process.stderr.write(first.err);
+  return first.code;
+}
+
 /** Runs tsc for these arguments; resolves to its exit code. */
 export async function run(argv, { cwd = process.cwd() } = {}) {
   const plan = planOf(argv, cwd, checkerOf());
-  if (!plan.buildInfo) return tsc(plan.args, cwd);
+  if (!plan.buildInfo && plan.checker !== 'tsrs') return tsc(plan.args, cwd);
+  if (!plan.buildInfo) return build(plan.args, cwd);
   // The output is held until it is known to be the answer to keep; a terminal still gets tsc's colours.
   const args = process.stdout.isTTY && !argv.some((a) => a.startsWith('--pretty')) ? [...plan.args, '--pretty'] : plan.args;
   const release = await lock(plan.buildInfo, plan.project);

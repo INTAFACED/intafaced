@@ -70,6 +70,12 @@ test('a --noEmit check of one project is made incremental; anything else runs ts
     ['--version'],
   ])
     assert.equal(planOf(args, pkg).buildInfo, undefined, args.join(' '));
+  assert.deepEqual(
+    planOf(['-p', 'tsconfig.json'], pkg, 'tsrs'),
+    { args: ['-p', 'tsconfig.json'], checker: 'tsrs' },
+    'a build: tsrs (#3609)',
+  );
+  for (const args of [['-b'], ['--watch'], ['src/a.ts'], ['--version']]) assert.equal(planOf(args, pkg, 'tsrs').checker, undefined);
 });
 
 test('a seeded new worktree checks from the last passing check, and a planted type error still fails, twice', () => {
@@ -220,28 +226,42 @@ test('an error stored by an earlier check is printed only when checking its file
   assert.equal(again.status, 0, again.stdout);
 });
 
-/** A typecheck script that runs tsc itself rather than the one command; the message names the fix. */
+/** A script that runs tsc itself rather than the one command. */
 export function bareTsc(script) {
-  return /(^|[\s&|;(])(npx |pnpm exec )?tsc(\s|$)/.test(script) && !script.includes('tooling/scripts/tsc.mjs');
+  return /(^|[\s&|;(])(npx |pnpm exec )?tsc(\s|$)/.test(script);
 }
 
-test("every package's typecheck runs tsc only through tooling/scripts/tsc.mjs", () => {
+/** A tool's line that spawns tsc itself (its binary, `npx tsc`), not a comment. */
+export function spawnsTsc(line) {
+  if (/^\s*(\/\/|\*|\/\*|#)/.test(line)) return false;
+  return /typescript['/,\s]+bin['/,\s]+tsc|BIN\(['"]tsc['"]\)|\[\s*['"]tsc['"]|\b(npx|pnpm exec) tsc\b/.test(line);
+}
+
+test('every package.json script and every tool runs tsc only through tooling/scripts/tsc.mjs', () => {
   assert.ok(bareTsc('tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs'), "the 527 runs' shape is caught");
-  assert.ok(bareTsc('node ./scripts/ensure-dep-types.mjs && tsc -p tsconfig.json --noEmit'));
+  assert.ok(bareTsc('tsc -p tsconfig.json'), 'a package build is caught (#3609)');
+  assert.ok(bareTsc('tsc --noEmit && vite build'));
   assert.ok(!bareTsc('node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs'));
+  assert.ok(spawnsTsc("  const r = spawnSync('npx', ['tsc', '--noEmit', '-p', '.'], {"), "report.mjs's old spawn is caught");
+  assert.ok(spawnsTsc("spawnSync(BIN('tsc'), ['-p', config])"));
+  assert.ok(spawnsTsc("const c = [join(ROOT, 'node_modules/typescript/bin/tsc')];"));
+  assert.ok(!spawnsTsc(' * a hand-typed `npx tsc` takes it too.'));
+  assert.ok(!spawnsTsc("spawnSync(process.execPath, [join(ROOT, 'tooling', 'scripts', 'tsc.mjs'), '-p', config])"));
+  const git = (...a) => spawnSync('git', a, { cwd: REPO, encoding: 'utf8' }).stdout.split('\n').filter(Boolean);
   const offenders = [];
-  for (const area of ['apps', 'packages', 'services', 'tooling']) {
-    for (const name of readdirSync(join(REPO, area))) {
-      const file = join(REPO, area, name, 'package.json');
-      if (!existsSync(file)) continue;
-      const script = JSON.parse(readFileSync(file, 'utf8')).scripts?.typecheck ?? '';
-      if (bareTsc(script)) offenders.push(`${area}/${name}`);
-    }
+  for (const file of git('ls-files', '*package.json', 'package.json'))
+    for (const [name, script] of Object.entries(JSON.parse(readFileSync(join(REPO, file), 'utf8')).scripts ?? {}))
+      if (bareTsc(script)) offenders.push(`${file} ${name}`);
+  for (const file of git('ls-files', '*.mjs', '*.cjs', '*.js', '*.ts', '*.sh', '.githooks/*')) {
+    if (/(^|\/)node_modules\/|\.test\.|\.d\.ts$|^tooling\/scripts\/tsc\.mjs$/.test(file) || !existsSync(join(REPO, file))) continue;
+    readFileSync(join(REPO, file), 'utf8')
+      .split('\n')
+      .forEach((line, i) => spawnsTsc(line) && offenders.push(`${file}:${i + 1}`));
   }
   assert.deepEqual(
     offenders,
     [],
-    'these typecheck scripts call tsc directly: write `node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit` instead (incremental, one at a time)',
+    'these call tsc directly; run tooling/scripts/tsc.mjs instead (tsrs off CI, tsc in CI): `node tooling/codemod/tsc-entry/rewrite.mjs` rewrites package.json scripts, and a tool spawns `node <repo>/tooling/scripts/tsc.mjs <args>`',
   );
 });
 

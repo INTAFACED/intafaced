@@ -108,7 +108,7 @@ function deep(rows) {
   const typeErrors = {};
   for (const app of readdirSync(join(REPO, 'apps'))) {
     if (!existsSync(join(REPO, 'apps', app, 'tsconfig.json'))) continue;
-    const r = spawnSync('npx', ['tsc', '--noEmit', '-p', '.'], {
+    const r = spawnSync('node', [join(REPO, 'tooling', 'scripts', 'tsc.mjs'), '--noEmit', '-p', '.'], {
       cwd: join(REPO, 'apps', app),
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,

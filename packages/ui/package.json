@@ -46,7 +46,7 @@
     "./lit/directions/*.css": "./src/lit/directions/*.css"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json",
     "typecheck": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
