@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { answerChecks, Changes, pruneImports, pruneSchemas, recordName, rewriteSite } from './index.mjs';
-import { applyEdits, freeNames, load, text } from './ast.mjs';
+import { applyEdits, freeNames, load, resolveRelative, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
 import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
@@ -122,6 +122,9 @@ test('a useApi mock with only mutate (or only query) gets a call to it, and the 
     ].join('\n'),
   );
   assert.equal(doublesIn(file).out.length, 2, "an object with mutate that isn't a useApi mock is left");
+  // Such a test reaches its component by `await import('./Room')`, with no extension, a .tsx file.
+  writeFileSync(join(dir, 'Room.tsx'), 'export const Room = 1;\n');
+  assert.equal(resolveRelative(file, './Room'), join(dir, 'Room.tsx'));
   const strip = (m) =>
     m
       .replace(/^call\(\s*this:[^\n]*\n/, 'call(\n')
