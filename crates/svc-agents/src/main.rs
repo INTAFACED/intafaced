@@ -298,6 +298,7 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
         transcript_retention_days: env.int("AGENTS_TRANSCRIPT_RETENTION_DAYS").unwrap_or(0),
         overage_grace: grace,
         tier_laws: parse_tier_laws(env.str("AGENTS_TIER_LAWS"))?,
+        navigator: svc_agents::navigator::Navigator::unwired(),
     })
 }
 

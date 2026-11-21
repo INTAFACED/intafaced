@@ -371,6 +371,13 @@ impl AgentsDoor {
                 &self.metering,
                 &self.runtime,
             ),
+            Slice::Navigator => crate::navigator::slice::handle(
+                ctx,
+                &self.store,
+                &self.gateway,
+                &self.metering,
+                &self.runtime,
+            ),
             other => Err(not_ported(other)),
         }
     }

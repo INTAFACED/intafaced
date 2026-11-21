@@ -90,6 +90,8 @@ pub struct Runtime {
     pub overage_grace: Option<Amount>,
     /// \`AGENTS_TIER_LAWS\`.
     pub tier_laws: TierLaws,
+    /// The navigator slice's outside reads and settings.
+    pub navigator: crate::navigator::Navigator,
 }
 
 impl Runtime {
@@ -101,6 +103,7 @@ impl Runtime {
             transcript_retention_days: 0,
             overage_grace: None,
             tier_laws: TierLaws::default(),
+            navigator: crate::navigator::Navigator::unwired(),
         }
     }
 }
