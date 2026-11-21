@@ -309,12 +309,13 @@ pub struct Added {
 }
 
 impl Added {
-    /// `ctx.addIssue({ code, path, message })`.
+    /// `ctx.addIssue({ code, path, message })`, or `{ code, message }` when the path is empty: zod then writes the path
+    /// after the message.
     pub fn at(path: Vec<Json>, message: impl Into<String>) -> Added {
         Added {
+            message_first: path.is_empty(),
             path,
             message: message.into(),
-            message_first: false,
         }
     }
 
