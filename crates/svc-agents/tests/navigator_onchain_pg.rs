@@ -343,7 +343,6 @@ impl World {
             own: svc_agents::own::Own::unwired(),
             team: svc_agents::team::Team::unwired(),
             background: svc_agents::background::Settings::default(),
-            team: svc_agents::team::Team::unwired(),
         })
         .unwrap()
     }
