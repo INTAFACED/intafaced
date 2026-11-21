@@ -14,7 +14,7 @@
 
 /* The top bar: the page's own matte black, no rule under it. */
 [data-direction='volt'] .tb {
-  background: color-mix(in srgb, var(--lit-page) 94%, transparent);
+  background: var(--lit-page);
   border-block-end-color: transparent;
   box-shadow: none;
 }
@@ -132,4 +132,31 @@
 /* Loading: the skeleton is a stone a step lighter than what it sits on, so the shape of what is coming reads. */
 [data-direction='volt'] [data-slot='skeleton'] {
   background: color-mix(in srgb, var(--lit-text-1) 9%, transparent);
+}
+
+/* Today's names the shipped components still read for gain, loss, warning and the allocation bar, re-pointed at Volt's
+   roles (intafaced issue 9302): without this, Volt drew today's green and pink, and in light a warning, gain or loss
+   as text fell under 3:1. The red-for-up preference (data-up-color, account/View.tsx) keeps swapping the pair. A bright
+   fill carries ink, as the spark does. */
+:root[data-look='lit'][data-direction='volt']:not([data-up-color='red']) {
+  --if-up: var(--lit-up);
+  --if-up-text: var(--lit-up-text);
+  --if-down: var(--lit-down);
+  --if-down-text: var(--lit-down-text);
+}
+:root[data-look='lit'][data-direction='volt'][data-up-color='red'] {
+  --if-up: var(--lit-down);
+  --if-up-text: var(--lit-down-text);
+  --if-down: var(--lit-up);
+  --if-down-text: var(--lit-up-text);
+}
+:root[data-look='lit'][data-direction='volt'] {
+  --if-on-up: var(--lit-on-accent);
+  --if-on-down: var(--lit-on-accent);
+  --if-up-hover: color-mix(in srgb, var(--if-up) 88%, var(--lit-on-accent));
+  --if-down-hover: color-mix(in srgb, var(--if-down) 88%, var(--lit-on-accent));
+  --color-up-text: var(--if-up-text);
+  --color-down-text: var(--if-down-text);
+  --if-warn: var(--lit-warn-text);
+  --if-alloc-2: var(--lit-text-3);
 }

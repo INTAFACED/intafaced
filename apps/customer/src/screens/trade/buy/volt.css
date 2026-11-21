@@ -19,6 +19,16 @@
   border-radius: var(--lit-radius-tile);
   background: var(--lit-solid-bg-sunken);
 }
+/* Two rows together read as one sunken well: only its outer corners round, a hairline between them. */
+[data-direction='volt'] .buy-row:has(+ .buy-row) {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+[data-direction='volt'] .buy-row + .buy-row {
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+  border-block-start: 1px solid var(--lit-line);
+}
 [data-direction='volt'] .buy-card [data-slot='button'] {
   border-radius: var(--lit-radius-key);
 }

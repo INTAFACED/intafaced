@@ -77,11 +77,11 @@ const TEST_ORDERS: Order[] = [
   { id: 'o3', time: '20 Nov 18:15', market: 'SOL/USDT', side: 'Buy', amount: '12.000 SOL', status: 'cancelled' },
 ];
 const ORDER_COLUMNS: TableColumn<Order>[] = [
-  { id: 'time', header: 'Time', value: (r) => r.time },
-  { id: 'market', header: 'Market', value: (r) => r.market },
-  { id: 'side', header: 'Side', value: (r) => r.side },
-  { id: 'amount', header: 'Amount', value: (r) => r.amount, numeric: true },
-  { id: 'status', header: 'Status', cell: (r) => <StatusTag status={r.status} />, align: 'end' },
+  { id: 'time', header: 'Time', value: (r) => r.time, width: '9rem' },
+  { id: 'market', header: 'Market', value: (r) => r.market, width: '7.5rem' },
+  { id: 'side', header: 'Side', value: (r) => r.side, width: '4.5rem' },
+  { id: 'amount', header: 'Amount', value: (r) => r.amount, numeric: true, width: '8rem' },
+  { id: 'status', header: 'Status', cell: (r) => <StatusTag status={r.status} />, align: 'end', width: '7rem' },
 ];
 
 function Block({ id, title, note, children }: { id: string; title: string; note?: ReactNode; children: ReactNode }) {
@@ -116,7 +116,9 @@ const SWATCHES = [
   ['accent', 'Spark'],
   ['accent-text', 'Spark as text'],
   ['up', 'Gain'],
+  ['up-text', 'Gain as text'],
   ['down', 'Loss'],
+  ['down-text', 'Loss as text'],
   ['warn-text', 'Warning'],
 ] as const;
 
@@ -278,8 +280,8 @@ export default function VoltKit() {
         <p className="vk-eyebrow">Volt kit · TEST figures</p>
         <h1>Every building block, in Volt</h1>
         <p>
-          The shipped components, drawn by the shipped tokens. One chartreuse spark on a heavy tinted black, phone first. Light: add{' '}
-          <code>&amp;scheme=light</code>.
+          The shipped components, drawn by the shipped tokens. One chartreuse spark on a heavy tinted black, phone first, in dark and in
+          light.
         </p>
       </header>
 
@@ -320,8 +322,14 @@ export default function VoltKit() {
 
       <Block id="object" title="The money object" note="Cash as matte black metal in front, crypto lit behind it.">
         <div className="vk-object">
-          <VoltStack portfolio={{ status: 'ready', data: TEST_PORTFOLIO, asOf: 0 }} hidden={false} />
-          <VoltStack portfolio={{ status: 'loading' }} hidden={false} />
+          <figure className="vk-state">
+            <figcaption>Ready</figcaption>
+            <VoltStack portfolio={{ status: 'ready', data: TEST_PORTFOLIO, asOf: 0 }} hidden={false} />
+          </figure>
+          <figure className="vk-state">
+            <figcaption>Loading</figcaption>
+            <VoltStack portfolio={{ status: 'loading' }} hidden={false} />
+          </figure>
         </div>
       </Block>
 

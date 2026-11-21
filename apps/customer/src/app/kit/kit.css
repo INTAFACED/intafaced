@@ -190,7 +190,7 @@
   font-size: var(--lit-type-label-size);
   font-weight: 600;
 }
-[data-direction='volt'] .vk-apart__chip:is([data-warn], [data-up]) {
+[data-direction='volt'] .vk-apart__chip[data-warn] {
   color: var(--lit-page);
 }
 [data-direction='volt'] .vk-apart p {
@@ -281,6 +281,16 @@
 }
 [data-direction='volt'] .vk-object .volt-stack {
   margin-block-start: 0;
+}
+[data-direction='volt'] .vk-state {
+  margin: 0;
+}
+[data-direction='volt'] .vk-state figcaption {
+  margin-block-end: 0.75rem;
+  font-size: var(--lit-type-micro-size);
+  letter-spacing: var(--lit-type-micro-tracking);
+  text-transform: uppercase;
+  color: var(--lit-text-2);
 }
 
 /* Action keys: Home's own row, without Home's wrapper spacing */
