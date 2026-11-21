@@ -235,6 +235,9 @@ import { loadGridPolicy } from './grid/policy.js';
 import { SqlGridStore } from './grid/store.js';
 import { VenueGrid } from './grid/venue-grid.js';
 import { SqlVenueGridStore } from './grid/venue-grid-store.js';
+import { RecurringBuys } from './recurring/recurring-buys.js';
+import { busRecurringNotices } from './recurring/notices.js';
+import { SqlRecurringStore, ageRecurringBuy } from './recurring/store.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
@@ -799,6 +802,21 @@ const venueGrid = userVenue
       now: () => new Date(),
     })
   : null;
+// The recurring buy of a basket on the person's own venue account (J-copy-bots-otc-16): with the door on, each slot buys
+// each coin as a venue order signed by the recurring-buy agent key the person's wallet approves; its rows are svc-trade's own.
+const recurringBuys = userVenue
+  ? new RecurringBuys({
+      door: userVenue,
+      store: new SqlRecurringStore(sql),
+      verification: () => botVerification,
+      keySeed: env.TRADE_AGENT_KEY_SEED,
+      liveTier: (userId) => venueGridTier.tierOf(userId),
+      freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+      notices: busRecurringNotices(bus, (message, fields) => app.log.warn(fields, message)),
+      platformPauses: readPlatformPauses,
+      now: () => new Date(),
+    })
+  : null;
 // Chart alert webhooks (CB-bots-api-signal-01): an alert's order is prepared through the user-venue door as the webhook's
 // creator, under the alert's own business key, for the person's wallet to sign and send; the door holds no key that signs.
 const signalLiveTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
@@ -906,6 +924,7 @@ export const appRouter = createTradeRouter(
   agentDesk,
   quantHalts,
   venueGrid,
+  recurringBuys,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -1323,6 +1342,9 @@ const gridJobs = createJobHost({ onError: (name, err) => app.log.error({ err, jo
 if (env.TRADE_ALGO_JOBS_ENABLED) gridJobs.every('trade.grid_tick', env.TRADE_ALGO_JOBS_INTERVAL_MS, () => grid.tickAll());
 if (env.TRADE_ALGO_JOBS_ENABLED && venueGrid)
   gridJobs.every('trade.venue_grid_tick', env.TRADE_ALGO_JOBS_INTERVAL_MS, () => venueGrid.tickAll());
+// The recurring buy's slots run with the algo scheduler: off, a rule is saved and waits.
+if (env.TRADE_ALGO_JOBS_ENABLED && recurringBuys)
+  gridJobs.every('trade.recurring_buy_tick', env.TRADE_ALGO_JOBS_INTERVAL_MS, () => recurringBuys.tickAll());
 const algoJobs = startAlgoJobs({
   trade,
   config: { enabled: env.TRADE_ALGO_JOBS_ENABLED, intervalMs: env.TRADE_ALGO_JOBS_INTERVAL_MS },
@@ -1704,7 +1726,7 @@ registerTestAgeDoor(app, {
   open: testAgeDoor,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
-  subjects: { 'otc-quote': ageOtcQuote(sql) },
+  subjects: { 'otc-quote': ageOtcQuote(sql), 'recurring-buy': ageRecurringBuy(sql) },
   installRawBody: false,
 });
 const copyLeaderFixturesStore = createCopyLeaderFixturesStore(sql);

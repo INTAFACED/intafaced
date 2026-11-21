@@ -257,6 +257,9 @@ export const en = {
   'notify.trade.copy_skipped.body.position_closed':
     'The leader closed a trade you no longer hold, so nothing was sold for you. You can see your positions on the follow.',
   'notify.trade.copy_skipped.body.refused': 'A copy of the leader’s trade could not be placed. You can see why in the follow’s skip log.',
+  'notify.trade.recurring_buy_suspended.title': 'Recurring buy paused: not enough {asset}',
+  'notify.trade.recurring_buy_suspended.body':
+    'Your recurring buy needed {amount} {asset} and your venue account had {free} {asset} free, so nothing was bought. It resumes by itself once the funds arrive.',
   'notify.trade.copy_stopped.title': 'Your follow stopped copying',
   'notify.trade.copy_stopped.body.follower': 'You stopped this follow. No new trades are copied for you. You can follow again any time.',
   'notify.trade.copy_stopped.body.follower_close_only':

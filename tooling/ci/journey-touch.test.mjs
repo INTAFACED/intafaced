@@ -864,7 +864,7 @@ test('14 Nov, #8322: a named change to venue-reads.mjs runs the journeys importi
   assert.equal(v.mode, 'files');
   assert.deepEqual(v.files, ['J-bank-13.pw.mjs', 'J-cex-spot-01.pw.mjs', 'J-cex-spot-03.pw.mjs']);
   assert.deepEqual(v.stack, [VENUE_READS]);
-  // The real folder: the journeys that import it (J-cex-spot-05 and J-copy-bots-otc-14 through venue.mjs, on the venue).
+  // The real folder: the journeys that import it (J-cex-spot-05 and J-copy-bots-otc-14 through venue.mjs, J-copy-bots-otc-16 directly too, on the venue).
   const real = checkoutJourneyTexts(ROOT);
   assert.deepEqual(stackImporters([VENUE_READS], real), [
     'J-cex-spot-01.pw.mjs',
@@ -872,6 +872,7 @@ test('14 Nov, #8322: a named change to venue-reads.mjs runs the journeys importi
     'J-cex-spot-03.pw.mjs',
     'J-cex-spot-05.pw.mjs',
     'J-copy-bots-otc-14.pw.mjs',
+    'J-copy-bots-otc-16.pw.mjs',
   ]);
 });
 

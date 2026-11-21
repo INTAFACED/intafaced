@@ -124,12 +124,6 @@ test(`${J} #1 opens Bots: the hub with one status and one link per bot type, eac
   }
 });
 
-// The one type with no engine yet, with the exact words its row and its own room give (BotsRoom NOT_BUILT).
-// No service is called for it, so there is no typed code to match: the refusal is these words, read exactly.
-const NOT_READY = {
-  'Recurring buy (DCA)': 'No recurring-order service exists. Use Convert for a single trade.',
-};
-
 /** My bots' words for each algo state (BotDetail BOT_WORD). */
 const STATE_WORD = { active: 'Running', paused: 'Paused', halted: 'Halted', cancelled: 'Stopped', completed: 'Finished' };
 
@@ -160,7 +154,8 @@ async function expectedStatuses(who) {
     'Volume-weighted (VWAP)': algo('vwap'),
     'Participation (POV)': algo('pov'),
     'Spot grid': 'Available',
-    'Recurring buy (DCA)': `Not available: ${NOT_READY['Recurring buy (DCA)']}`,
+    // The recurring buy is built (J-copy-bots-otc-16): set up from a coin page, on the person's own venue account.
+    'Recurring buy (DCA)': 'Available',
     'Strategy from Quant Studio': 'Available on paper only',
   };
 }
@@ -191,15 +186,13 @@ async function hub(page, botId) {
   // Every type exactly once, each status the one the service's own answers call for, each refusal in its words.
   expect(statuses).toEqual(await expectedStatuses(who));
 
-  // Following a refused type's link shows the same reason in its room, offers no form, and creates nothing.
+  // Following a type's link opens its own room and creates nothing: the recurring buy's room lists the person's rules.
   const before = await myAlgoIds();
   await page.getByRole('list', { name: 'Bot types', exact: true }).getByRole('link', { name: 'Recurring buy (DCA)', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Recurring buy (DCA)', level: 1, exact: true })).toBeVisible();
-  await expect(page.getByText('Not available', { exact: true })).toBeVisible();
-  await expect(page.getByText(NOT_READY['Recurring buy (DCA)'], { exact: true })).toBeVisible();
-  await expect(page.locator('form')).toHaveCount(0);
+  await expect(page.getByText('Set one up from any coin page with Recurring buy.', { exact: true })).toBeVisible();
   expect(await myAlgoIds()).toEqual(before);
-  await page.getByRole('button', { name: 'Back to Bots', exact: true }).click();
+  await page.goto('/bots');
   await expect(page.getByRole('heading', { name: 'Bots', level: 1, exact: true })).toBeVisible();
 
   // My bots is the service's list: the same ids, each with its state's word, and nothing else. This browser is new, so
