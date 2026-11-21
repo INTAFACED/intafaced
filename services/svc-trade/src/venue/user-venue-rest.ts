@@ -403,6 +403,27 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     );
   });
 
+  const isCandleInterval = (raw: string): raw is VenueCandleInterval => Object.hasOwn(VENUE_CANDLE_INTERVALS, raw);
+  // J-algo-dev-04 #2: the venue's candles on the spot market we list on an asset, public market data as the margin rules
+  // are; no account and no sign-in. A paper run prices from them.
+  app.get<{ Querystring: Query & { base?: string; interval?: string; limit?: string } }>(
+    '/api/v1/venue/spot-candles',
+    publicRead,
+    async (req, reply) => {
+      return answer(
+        reply,
+        async (d) => {
+          const base = req.query.base ?? '';
+          if (!/^[A-Za-z0-9]{1,20}$/.test(base)) throw new VenueWireError('base is the asset, as BTC');
+          const interval = req.query.interval ?? '';
+          if (!isCandleInterval(interval)) throw new VenueWireError(`interval is one of ${Object.keys(VENUE_CANDLE_INTERVALS).join(', ')}`);
+          return d.spotCandles(base, interval, whole(req.query.limit, 'limit', 500, 240));
+        },
+        req.query.venueId,
+      );
+    },
+  );
+
   // J-charts-desk-04 #6: public market data, as the candle and trade routes are; no account and no sign-in.
   app.get<{ Querystring: Query & { base?: string; since?: string } }>('/api/v1/venue/funding-history', publicRead, async (req, reply) => {
     return answer(reply, async (d) => {

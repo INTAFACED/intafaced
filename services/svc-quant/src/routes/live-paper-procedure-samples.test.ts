@@ -14,7 +14,7 @@ import type { ProcedureRecord, ProcedureSample } from '@intafaced/contracts/proc
 import { QUANT_LIVE_PROCEDURES } from '@intafaced/contracts/quant-live-procedures';
 import { QUANT_PAPER_PROCEDURES } from '@intafaced/contracts/quant-paper-procedures';
 import type { Bar } from '../engine/bars.js';
-import type { FeePort, HistoryPort } from '../engine/ports.js';
+import type { FeePort, VenuePricePort } from '../engine/ports.js';
 import { createMemoryLifecycleRepository } from '../lifecycle/memory-repository.js';
 import { createMemoryQuota } from '../quota/memory.js';
 import { createQuantRouter, type QuantRouterDeps } from '../router.js';
@@ -120,8 +120,8 @@ describe('each refusal leaves with the status its record lists', () => {
   const [lCheck, lDeploy] = QUANT_LIVE_PROCEDURES;
   const [pStart, pStop, pList, pGet] = QUANT_PAPER_PROCEDURES;
 
-  /** Closed hourly bars of one flat price, for any window. */
-  const history: HistoryPort = {
+  /** The venue's closed hourly candles of one flat price, for any window. */
+  const venuePrices: VenuePricePort = {
     wired: true,
     async bars({ fromMs, toMs }) {
       const bars: Bar[] = [];
@@ -129,7 +129,7 @@ describe('each refusal leaves with the status its record lists', () => {
         const p = parseAmount('100');
         bars.push({ openTimeMs: t, open: p, high: p, low: p, close: p });
       }
-      return bars;
+      return { venueMarket: 'BTC-USDC', test: true, bars };
     },
   };
 
@@ -296,25 +296,28 @@ describe('each refusal leaves with the status its record lists', () => {
     }
   });
 
-  it("once a bar has closed, a run's bars and published fee are read, each unwired one refused by name", async () => {
-    for (const [deps, code] of [
-      [{}, 'quant.backtest_lake_missing'],
-      [{ history }, 'quant.cost_unset'],
-    ] as const) {
-      // The run's own start and stop times are the store's clock, so the clock itself moves on.
-      vi.useFakeTimers({ toFake: ['Date'] });
-      try {
-        const { caller } = wired({ runs: createMemoryRunRepository(RUN_RESULT_MAX_BYTES), ...deps });
-        const id = await saved(caller, `TEST bars ${code}`);
-        const run = await caller.paper.start(start(id));
-        expect(run.priced).toBe(false);
-        vi.setSystemTime(Date.now() + 3 * HOUR);
-        expect(await refusal(caller.paper.get({ runId: run.runId }))).toEqual(listed(pGet, code));
-        expect(await refusal(caller.paper.start(start(id)))).toEqual(listed(pStart, code));
-        expect(await refusal(caller.paper.stop({ runId: run.runId }))).toEqual(listed(pStop, code));
-      } finally {
-        vi.useRealTimers();
-      }
+  it("once a bar has closed, the venue's candles and our published fee are read: no venue leaves it unpriced, no fee refuses", async () => {
+    // The run's own start and stop times are the store's clock, so the clock itself moves on.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const unwired = wired({ runs: createMemoryRunRepository(RUN_RESULT_MAX_BYTES) }).caller;
+      const first = await unwired.paper.start(start(await saved(unwired, 'TEST no venue')));
+      vi.setSystemTime(Date.now() + 3 * HOUR);
+      expect(await unwired.paper.get({ runId: first.runId })).toMatchObject({
+        priced: false,
+        trades: [],
+        prices: { venueMarket: null, test: false, unavailable: "the venue's price read is not wired (TRADE_URL is unset)" },
+      });
+      const { caller } = wired({ runs: createMemoryRunRepository(RUN_RESULT_MAX_BYTES), venuePrices });
+      const id = await saved(caller, 'TEST bars quant.cost_unset');
+      const run = await caller.paper.start(start(id));
+      expect(run.priced).toBe(false);
+      vi.setSystemTime(Date.now() + 3 * HOUR);
+      expect(await refusal(caller.paper.get({ runId: run.runId }))).toEqual(listed(pGet, 'quant.cost_unset'));
+      expect(await refusal(caller.paper.start(start(id)))).toEqual(listed(pStart, 'quant.cost_unset'));
+      expect(await refusal(caller.paper.stop({ runId: run.runId }))).toEqual(listed(pStop, 'quant.cost_unset'));
+    } finally {
+      vi.useRealTimers();
     }
   });
 
@@ -322,7 +325,7 @@ describe('each refusal leaves with the status its record lists', () => {
     const fees: FeePort = { wired: true, fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }) };
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
-      const { caller } = wired({ runs: createMemoryRunRepository(RUN_RESULT_MAX_BYTES), history, fees });
+      const { caller } = wired({ runs: createMemoryRunRepository(RUN_RESULT_MAX_BYTES), venuePrices, fees });
       const run = await caller.paper.start(start(await saved(caller, 'TEST priced')));
       vi.setSystemTime(Date.now() + 3 * HOUR);
       expect((await caller.paper.get({ runId: run.runId })).priced).toBe(true);
