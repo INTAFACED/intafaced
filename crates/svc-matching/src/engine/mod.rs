@@ -19,6 +19,7 @@ use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::time::Instant;
 
+use crate::approval::{dual_control_refuse, read_operator_id};
 use crate::book::order_book::{
     OrderBook, QueueLevel, outright_on_spread_refuse, spread_amend_refuse, spread_order_refuse,
 };
@@ -41,6 +42,7 @@ use crate::journal::replay::{
     EngineSnapshot, ReplayBooks, ReplayCancel, SnapshotSink, js_sort_cmp, replay_journal,
     snapshot_due,
 };
+use crate::rulebook::{self, Draft, Version};
 
 /// Where the order events go (`EventBus`): the topic, the payload and its idempotency key.
 pub trait EventBus {
@@ -179,35 +181,6 @@ pub struct SpreadOrderInput {
     pub client_order_id: Option<String>,
     pub environment: Option<String>,
     pub session_id: Option<String>,
-}
-
-/// `readOperatorId`: trimmed, blank is none.
-pub fn read_operator_id(raw: Option<&str>) -> Option<String> {
-    raw.map(|s| service_kit::schema::js_trim(s).to_owned())
-        .filter(|s| !s.is_empty())
-}
-
-/// `dualControlRefuse`: two distinct operator identities, or `missing_operator`.
-pub fn dual_control_refuse(operator: Option<&str>, confirm: Option<&str>) -> Option<Reject> {
-    let actor = read_operator_id(operator);
-    let confirm = read_operator_id(confirm);
-    let Some(actor) = actor else {
-        return Some(Reject::new(
-            "missing_operator",
-            "operator identity is required; the engine does not invent a caller",
-        ));
-    };
-    match confirm {
-        None => Some(Reject::new(
-            "missing_operator",
-            "confirming operator identity is required; the engine does not invent a second caller",
-        )),
-        Some(c) if c == actor => Some(Reject::new(
-            "missing_operator",
-            "confirming operator must be a distinct identity; the engine does not invent a second caller",
-        )),
-        Some(_) => None,
-    }
 }
 
 /// One live order, as the engine lists it (`EngineLiveOrder`).
@@ -486,6 +459,8 @@ pub struct MatchingEngine {
     /// The owner's spread listings, rebuilt from `spread_list` records. Empty means nothing is listed.
     spreads: HashMap<String, SpreadInstrument>,
     spread_fills: bool,
+    /// Owner rulebook versions in publish order, rebuilt from `rulebook_version` records. Empty is unpublished.
+    rulebook: Vec<Version>,
     /// Set for the whole book when the replay hold check cannot be asked (`admissionClosed`). Not journalled: the next
     /// boot asks again. While set, nothing matches.
     admission_closed: Option<String>,
@@ -511,6 +486,7 @@ impl MatchingEngine {
             modes: Modes::default(),
             spreads: HashMap::new(),
             spread_fills: parts.spread_fills,
+            rulebook: Vec::new(),
             admission_closed: None,
             hold_halted: BTreeMap::new(),
             announcing: false,
@@ -938,6 +914,77 @@ impl MatchingEngine {
         self.books
             .entry(market_id.to_owned())
             .or_insert_with(|| OrderBook::new(market_id))
+    }
+
+    /// `rulebookView()`: the public rulebook at the engine's clock.
+    pub fn rulebook_view(&self) -> Json {
+        rulebook::published_view(&self.rulebook, (self.clock)())
+    }
+
+    /// `rulebookHistory()`: every version, newest publish first.
+    pub fn rulebook_history(&self) -> Json {
+        rulebook::history_view(&self.rulebook, (self.clock)())
+    }
+
+    /// One version as the history writes it, or null.
+    pub fn rulebook_history_of(&self, version: &str) -> Json {
+        rulebook::history_of(&self.rulebook, version, (self.clock)())
+    }
+
+    /// `rulebookPrecheck(draft)`: whether a draft may be published, read before any approval is spent.
+    pub fn rulebook_precheck(&self, draft: &Draft) -> Precheck {
+        if let Some(existing) = self.rulebook.iter().find(|v| v.version == draft.version) {
+            return if existing.digest == draft.digest {
+                Precheck::Same
+            } else {
+                Precheck::Refused(rulebook::immutable_refuse(&draft.version))
+            };
+        }
+        match rulebook::effective_past(draft, (self.clock)()) {
+            Some(r) => Precheck::Refused(r),
+            None => Precheck::New,
+        }
+    }
+
+    /// `publishRulebook(draft, cmd)`: the door has spent the two-person approval; this journals the version with who
+    /// proposed and approved it, and only then serves it. The same draft again returns the first publish; other text
+    /// under a published id refuses.
+    pub fn publish_rulebook(
+        &mut self,
+        draft: &Draft,
+        operator_id: &str,
+        confirm_operator_id: &str,
+        approval_id: &str,
+    ) -> Result<RulebookPublish, EngineError> {
+        if let Some(rejected) = dual_control_refuse(Some(operator_id), Some(confirm_operator_id)) {
+            return Ok(RulebookPublish::Refused(rejected));
+        }
+        if let Some(existing) = self.rulebook.iter().find(|v| v.version == draft.version) {
+            return Ok(if existing.digest == draft.digest {
+                RulebookPublish::Published { already: true }
+            } else {
+                RulebookPublish::Refused(rulebook::immutable_refuse(&draft.version))
+            });
+        }
+        let now = (self.clock)();
+        if let Some(rejected) = rulebook::effective_past(draft, now) {
+            return Ok(RulebookPublish::Refused(rejected));
+        }
+        let at = Instant(now).iso();
+        let version = Version {
+            version: draft.version.clone(),
+            effective_at: draft.effective_at.clone().unwrap_or_else(|| at.clone()),
+            published_at: at,
+            supersedes: self.rulebook.last().map(|v| v.version.clone()),
+            digest: draft.digest.clone(),
+            sections: draft.sections.clone(),
+            operator_id: service_kit::schema::js_trim(operator_id).to_owned(),
+            confirm_operator_id: service_kit::schema::js_trim(confirm_operator_id).to_owned(),
+            approval_id: approval_id.to_owned(),
+        };
+        self.append(version.record())?;
+        self.rulebook.push(version);
+        Ok(RulebookPublish::Published { already: false })
     }
 
     fn drop_if_never_traded(&mut self, market_id: &str) {
@@ -1452,6 +1499,16 @@ impl MatchingEngine {
         self.books = into.books;
         self.modes = replay_modes(&records);
         self.spreads = spreads;
+        self.rulebook.clear();
+        for r in records
+            .iter()
+            .filter(|r| r.kind() == Some("rulebook_version"))
+        {
+            let v = Version::from_record(r);
+            if !self.rulebook.iter().any(|p| p.version == v.version) {
+                self.rulebook.push(v);
+            }
+        }
         self.admission_closed = None;
         self.hold_halted.clear();
         self.announcing = true;
@@ -1478,6 +1535,27 @@ impl MatchingEngine {
 fn unpriced_spread_fill<'a>(order: &EngineOrder, result: &'a SubmitResult) -> Option<&'a Fill> {
     order.spread.as_ref()?;
     result.fills.iter().find(|f| f.legs.is_none())
+}
+
+/// `rulebookPrecheck`'s answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Precheck {
+    /// Not published yet, and its time has not gone by.
+    New,
+    /// This exact version is published: a retry returns the first.
+    Same,
+    /// Other text under a published id, or a time gone by.
+    Refused(Reject),
+}
+
+/// `publishRulebook`'s answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RulebookPublish {
+    /// Journalled now, or (`already`) the same draft published before.
+    Published {
+        already: bool,
+    },
+    Refused(Reject),
 }
 
 /// `/^\d+(\.\d{1,18})?$/`: the mark's text, before it is read.

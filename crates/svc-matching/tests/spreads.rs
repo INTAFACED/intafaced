@@ -33,6 +33,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use service_kit::approvals::{ConsumeInput, Consumed};
 use service_kit::json::{self, Json};
 use service_kit::money::{Amount, Rounding, format_amount, mul_div, parse_amount};
 use service_kit::s2s;
@@ -40,7 +41,7 @@ use service_kit::s2s_verify::BodyBind;
 use service_kit::server::Request;
 use service_kit::time::Instant;
 use sha2::{Digest, Sha256};
-use svc_matching::approval::{ActionApproval, ApprovalConsumer, ConsumeError, ConsumeInput, Stub};
+use svc_matching::approval::{Approvals, Refused, Stub};
 use svc_matching::book::order_book::OrderBook;
 use svc_matching::book::spread::{
     SpreadLegInput, SpreadListingInput, read_spread_listing, spread_leg_fills,
@@ -1658,8 +1659,8 @@ mod doors {
         count: Arc<AtomicUsize>,
     }
 
-    impl ApprovalConsumer for Counting {
-        fn consume(&self, input: &ConsumeInput) -> Result<ActionApproval, ConsumeError> {
+    impl Approvals for Counting {
+        fn consume(&self, input: &ConsumeInput<'_>) -> Result<Consumed, Refused> {
             self.count.fetch_add(1, Ordering::SeqCst);
             self.inner.consume(input)
         }

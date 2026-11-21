@@ -10,7 +10,7 @@ use super::book::{
     amount, failed, flags_fields, ladder, limit_of, nullish_amount, ok, proof, text,
 };
 use super::{Outcome, Route};
-use crate::approval::{ApprovalBody, ApprovalConsumer, Authz, consume_venue_action};
+use crate::approval::{self, Approvals as Consumer, Denied, Spend};
 use crate::book::spread::{
     SpreadLegInput, SpreadListingInput, read_spread_listing, spread_identity,
 };
@@ -21,7 +21,7 @@ use crate::errors;
 
 /// What the listing door spends its approval with: the venue's consumer and its operator list.
 pub struct Approvals<'a> {
-    pub consumer: &'a dyn ApprovalConsumer,
+    pub consumer: &'a dyn Consumer,
     pub operator_ids: &'a [String],
 }
 
@@ -176,39 +176,39 @@ fn list(
             );
         }
     };
-    let authz = consume_venue_action(
+    let definition = spread_identity(&instrument);
+    let target = format!("spread_list:{}", instrument.spread_id);
+    let authz = approval::spend(
         approvals.consumer,
         approvals.operator_ids,
-        &ApprovalBody {
-            operator_id: typed_operator.map(str::to_owned),
-            confirm_operator_id: typed_confirm.map(str::to_owned),
-            approval_id: opt_text(body.get("approvalId")),
-            operation_id: opt_text(body.get("operationId")),
+        &Spend {
+            operator_id: typed_operator,
+            confirm_typed: typed_confirm,
+            approval_id: body.get("approvalId").as_str(),
+            operation_id: body.get("operationId").as_str(),
+            action_type: "matching.spread_list",
+            fields: &[
+                ("spreadId", instrument.spread_id.as_str()),
+                ("definition", definition.as_str()),
+            ],
+            target_id: &target,
         },
-        "matching.spread_list",
-        &[
-            ("spreadId", instrument.spread_id.clone()),
-            ("definition", spread_identity(&instrument)),
-        ],
-        &format!("spread_list:{}", instrument.spread_id),
     );
     let (operator, confirm) = match authz {
-        Authz::Approved {
+        Ok(a) => (a.operator_id, a.confirm_operator_id),
+        Err(Denied::Bad { code, message }) => {
+            return Outcome::Answer(errors::plain(400, &code, &message));
+        }
+        Err(Denied::Thrown(message)) => return Outcome::Answer(errors::thrown(&message)),
+        Err(Denied::Refused {
             operator_id,
             confirm_operator_id,
-            ..
-        } => (operator_id, confirm_operator_id),
-        Authz::Invalid(e) => return Outcome::Answer(errors::plain(400, &e.code, &e.message)),
-        Authz::Refused {
-            operator_id,
-            confirm_operator_id,
-            code,
-            message,
-        } => {
+            rejected,
+        }) => {
             return list_refused(
                 &spread_id,
-                &code,
-                &message,
+                &rejected.code,
+                &rejected.message,
                 operator_id.as_deref(),
                 confirm_operator_id.as_deref(),
             );

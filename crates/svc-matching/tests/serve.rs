@@ -32,7 +32,6 @@ use service_kit::metrics::{DURATION_BUCKETS, PROMETHEUS_CONTENT_TYPE};
 use service_kit::money::{format_amount, parse_amount};
 use service_kit::s2s_verify::BodyBind;
 use service_kit::server::{App, Door, Request};
-use svc_matching::approval::Unwired;
 use svc_matching::book::types::{EngineOrder, OrderType, Side, Tif};
 use svc_matching::door::{DoorConfig, MatchingDoor, Outcome};
 use svc_matching::engine::admission::{RestingHoldSubject, STARTUP_PUBLISH_ATTEMPTS};
@@ -204,7 +203,7 @@ fn door_over(engine: MatchingEngine, clock: fn() -> i64) -> MatchingDoor {
             edge_secret: None,
             edge_key: None,
             clock,
-            approvals: Box::new(Unwired),
+            approvals: Box::new(svc_matching::approval::Unwired),
             operator_ids: Vec::new(),
         },
         engine,

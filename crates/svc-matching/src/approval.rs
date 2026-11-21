@@ -1,325 +1,317 @@
-//! Identity's action-bound approvals, as matching spends them (`action-approval-consume.ts` and the router's
-//! `consumeVenueKill`). Two names typed into one body are attribution at most: a door that needs two people spends one
-//! single-use approval svc-identity issued for exactly this action, target and payload, proposed by the operator who
-//! calls and approved by a second, distinct operator. Both must be on the venue's published operator list
-//! (`MATCHING_OPERATOR_IDS`); an empty list lets no one act. An action that is not a protective brake also needs
-//! identity's attestation that both are founders.
+//! The two-person approval a venue or founder door spends (`action-approval-consume.ts`, and `consumeVenueKill` in
+//! `router.ts`). Two names typed in a body are attribution at most: the door names an approval and its operation,
+//! binds them to the action (`matchingActionPayloadHash`) and its target, and svc-identity consumes it once
+//! (`service_kit::approvals`). Both people must be on the venue's operator list (`MATCHING_OPERATOR_IDS`), the
+//! typed operator must be the one identity recorded as asking, a distinct second person must have approved, and every
+//! action but the protective brakes needs identity's attestation that the two are founders.
 //!
-//! The consumer is a part handed in once ([`ApprovalConsumer`]); with no `IDENTITY_URL` it is [`Unwired`], which
-//! refuses every approval.
+//! The rulebook publish spends one here; the `venue` and `operator` slices' doors spend theirs through the same call.
 
-use service_kit::json::Json;
-use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
-pub const ACTION_APPROVAL_UNWIRED: &str = "action_approval.identity_unwired";
-pub const ACTION_APPROVAL_MISSING: &str = "action_approval.missing";
-pub const ACTION_APPROVAL_NOT_FOUNDERS: &str = "action_approval.not_founders";
-pub const ACTION_APPROVAL_OPERATOR_MISMATCH: &str = "action_approval.operator_not_requester";
-pub const ACTION_APPROVAL_WRONG_ACTION: &str = "action_approval.wrong_action";
-pub const ACTION_APPROVAL_NOT_OPERATOR: &str = "action_approval.not_operator";
-pub const ACTION_APPROVAL_OPERATORS_UNSET: &str = "action_approval.operators_unset";
+use service_kit::approvals::{
+    ACTION_APPROVAL_CONSUME_FAILED, ConsumeError, ConsumeInput, Consumed, IdentityClient,
+    founder_verdict, payload_hash,
+};
+use service_kit::http::Fetch;
+use service_kit::schema::js_trim;
 
-/// `ActionApprovalConsumeError`: a code and its message, answered as a 400.
+use crate::book::types::Reject;
+
+/// The consuming service, as identity binds the approval to it.
+pub const TARGET_SERVICE: &str = "svc-matching";
+/// `ACTION_APPROVAL_UNWIRED`.
+pub const UNWIRED: &str = "action_approval.identity_unwired";
+/// `ACTION_APPROVAL_MISSING`.
+pub const MISSING: &str = "action_approval.missing";
+/// `ACTION_APPROVAL_NOT_FOUNDERS`.
+pub const NOT_FOUNDERS: &str = "action_approval.not_founders";
+/// `ACTION_APPROVAL_OPERATOR_MISMATCH`.
+pub const OPERATOR_MISMATCH: &str = "action_approval.operator_not_requester";
+/// `ACTION_APPROVAL_WRONG_ACTION`.
+pub const WRONG_ACTION: &str = "action_approval.wrong_action";
+/// `ACTION_APPROVAL_NOT_OPERATOR`.
+pub const NOT_OPERATOR: &str = "action_approval.not_operator";
+/// `ACTION_APPROVAL_OPERATORS_UNSET`.
+pub const OPERATORS_UNSET: &str = "action_approval.operators_unset";
+/// `MISSING_OPERATOR` (`halt.ts`).
+pub const MISSING_OPERATOR: &str = "missing_operator";
+
+/// Why a consume gave no approval.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConsumeError {
-    pub code: String,
-    pub message: String,
+pub enum Refused {
+    /// `ActionApprovalConsumeError`: its code and message; the door answers 400 with both.
+    Coded { code: String, message: String },
+    /// What the client threw (no reply from identity, an input out of bounds): Fastify's 500.
+    Thrown(String),
 }
 
-impl ConsumeError {
-    pub fn new(code: &str, message: impl Into<String>) -> ConsumeError {
-        ConsumeError {
-            code: code.to_owned(),
-            message: message.into(),
-        }
+/// `ActionApprovalConsumer`.
+pub trait Approvals: Send + Sync {
+    fn consume(&self, input: &ConsumeInput<'_>) -> Result<Consumed, Refused>;
+}
+
+/// `unwiredApprovalConsumer()`: no `IDENTITY_URL`, so nothing is ever approved.
+pub struct Unwired;
+
+impl Approvals for Unwired {
+    fn consume(&self, _: &ConsumeInput<'_>) -> Result<Consumed, Refused> {
+        Err(Refused::Coded {
+            code: UNWIRED.to_owned(),
+            message: "IDENTITY_URL is unpublished; matching halt does not invent a second person"
+                .to_owned(),
+        })
     }
 }
 
-/// What a door asks identity to consume (`ActionApprovalConsumeInput`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ConsumeInput {
-    pub approval_id: String,
-    pub operation_id: String,
-    pub payload_hash: String,
-    pub target_service: String,
-    pub target_id: String,
-    pub expected_version: String,
-}
+/// `createIdentityApprovalClient(IDENTITY_URL, INTERNAL_SERVICE_SECRET)` for svc-matching.
+pub struct Identity(IdentityClient);
 
-/// A consumed approval as identity answers it (`ActionApproval`), as far as matching reads it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ActionApproval {
-    pub approval_id: String,
-    pub action_type: String,
-    pub target_service: String,
-    pub target_id: String,
-    pub requester_id: String,
-    pub approver_id: Option<String>,
-    pub status: String,
-    pub approver_is_founder: Option<bool>,
-    pub requester_is_founder: Option<bool>,
-}
-
-/// Spends one approval at svc-identity.
-pub trait ApprovalConsumer {
-    fn consume(&self, input: &ConsumeInput) -> Result<ActionApproval, ConsumeError>;
-}
-
-/// `unwiredApprovalConsumer`: no `IDENTITY_URL`, so no approval is ever spent.
-pub struct Unwired;
-
-impl ApprovalConsumer for Unwired {
-    fn consume(&self, _: &ConsumeInput) -> Result<ActionApproval, ConsumeError> {
-        Err(ConsumeError::new(
-            ACTION_APPROVAL_UNWIRED,
-            "IDENTITY_URL is unpublished; matching halt does not invent a second person",
+impl Identity {
+    pub fn new(base_url: &str, secret: &str, fetch: Arc<dyn Fetch>, now: fn() -> i64) -> Identity {
+        Identity(IdentityClient::new(
+            TARGET_SERVICE,
+            base_url,
+            secret,
+            fetch,
+            now,
         ))
     }
 }
 
-/// `stubApprovalConsumer(approverId, requesterId)`: every approval consumes, for the action its target names, proposed
-/// and approved by these two founders. For tests and the wire replay only.
+impl Approvals for Identity {
+    fn consume(&self, input: &ConsumeInput<'_>) -> Result<Consumed, Refused> {
+        self.0.consume(input).map_err(|e| match e {
+            ConsumeError::Refused(message) => Refused::Coded {
+                code: ACTION_APPROVAL_CONSUME_FAILED.to_owned(),
+                message,
+            },
+            ConsumeError::Thrown(message) => Refused::Thrown(message),
+        })
+    }
+}
+
+/// `stubApprovalConsumer(approverId, requesterId)`: every consume answers this pair, attested founders, for the
+/// action its target names (`halt:BTC-USDT` is `matching.halt`). For tests and the wire replay's `set`.
 pub struct Stub {
     pub approver_id: String,
     pub requester_id: String,
 }
 
-impl ApprovalConsumer for Stub {
-    fn consume(&self, input: &ConsumeInput) -> Result<ActionApproval, ConsumeError> {
-        let verb = input
-            .target_id
-            .split_once(':')
-            .map_or(input.target_id.as_str(), |(v, _)| v);
-        let action_type = if verb.starts_with("matching.") {
-            verb.to_owned()
-        } else {
-            format!("matching.{verb}")
-        };
-        Ok(ActionApproval {
-            approval_id: input.approval_id.clone(),
-            action_type,
-            target_service: input.target_service.clone(),
-            target_id: input.target_id.clone(),
+impl Approvals for Stub {
+    fn consume(&self, input: &ConsumeInput<'_>) -> Result<Consumed, Refused> {
+        let verb = input.target_id.split(':').next().unwrap_or_default();
+        Ok(Consumed {
+            action_type: if verb.starts_with("matching.") {
+                verb.to_owned()
+            } else {
+                format!("matching.{verb}")
+            },
+            target_service: input.target_service.to_owned(),
+            target_id: input.target_id.to_owned(),
+            status: "CONSUMED".to_owned(),
             requester_id: self.requester_id.clone(),
             approver_id: Some(self.approver_id.clone()),
-            status: "CONSUMED".to_owned(),
             approver_is_founder: Some(true),
             requester_is_founder: Some(true),
         })
     }
 }
 
-/// `matchingActionPayloadHash`: `sha256:` and the hex digest of `JSON.stringify({ actionType, ...fields })`.
-pub fn payload_hash(action_type: &str, fields: &[(&str, String)]) -> String {
-    let mut o = vec![("actionType".to_owned(), Json::str(action_type))];
-    for (k, v) in fields {
-        o.push(((*k).to_owned(), Json::str(v.clone())));
-    }
-    let digest = Sha256::digest(Json::Object(o).compact().as_bytes());
-    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    format!("sha256:{hex}")
+/// `readOperatorId`: the id trimmed, or `None` when it is absent or blank.
+pub fn read_operator_id(raw: Option<&str>) -> Option<String> {
+    raw.map(js_trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
 }
 
-/// `sameUser`.
+/// `operatorRefuse(null)`.
+pub fn operator_refuse() -> Reject {
+    Reject::new(
+        MISSING_OPERATOR,
+        "operator identity is required; the engine does not invent a caller",
+    )
+}
+
+/// `dualControlRefuse(operatorId, confirmOperatorId)`: two distinct operator identities, or why not.
+pub fn dual_control_refuse(
+    operator_id: Option<&str>,
+    confirm_operator_id: Option<&str>,
+) -> Option<Reject> {
+    let Some(actor) = read_operator_id(operator_id) else {
+        return Some(operator_refuse());
+    };
+    match read_operator_id(confirm_operator_id) {
+        None => Some(Reject::new(
+            MISSING_OPERATOR,
+            "confirming operator identity is required; the engine does not invent a second caller",
+        )),
+        Some(confirm) if confirm == actor => Some(Reject::new(
+            MISSING_OPERATOR,
+            "confirming operator must be a distinct identity; the engine does not invent a second caller",
+        )),
+        Some(_) => None,
+    }
+}
+
+/// `sameUser(a, b)`.
 pub fn same_user(a: &str, b: &str) -> bool {
-    norm(a) == norm(b)
+    js_trim(a).to_lowercase() == js_trim(b).to_lowercase()
 }
 
-fn norm(s: &str) -> String {
-    service_kit::schema::js_trim(s).to_lowercase()
+/// `approvalEvidenceRef(approvalId)`: the consumed approval, as the evidence an emergency action needs.
+pub fn evidence_ref(approval_id: &str) -> String {
+    format!("action-approval:{approval_id}")
 }
 
-/// The brakes identity's founder attestation does not cover (`PROTECTIVE_OPERATOR_APPROVALS`, matching's rows).
-const PROTECTIVE: [(&str, &str); 4] = [
-    ("matching.halt", "halt"),
-    ("matching.halt_all", "halt_all"),
-    ("matching.reduce_only", "reduce_only"),
-    ("matching.post_only", "post_only"),
-];
-
-/// `founderAttestationVerdict`'s refusal for this action, or none.
-fn founder_refusal(
-    row: &ActionApproval,
-    action_type: &str,
-    target_id: &str,
-) -> Option<ConsumeError> {
-    let target = norm(target_id);
-    let verb = target.split_once(':').map_or(target.as_str(), |(v, _)| v);
-    let ty = norm(action_type);
-    if PROTECTIVE.iter().any(|(t, v)| *t == ty && *v == verb) {
-        return None;
-    }
-    let trim = service_kit::schema::js_trim;
-    let distinct = row.approver_id.as_deref().map(trim).is_some_and(|a| {
-        !a.is_empty() && a.to_lowercase() != trim(&row.requester_id).to_lowercase()
-    });
-    let forged = row.status != "CONSUMED"
-        || trim(&row.target_service) != "svc-matching"
-        || trim(&row.target_id) != trim(target_id)
-        || norm(&row.action_type) != ty
-        || !distinct;
-    let missing = row.approver_is_founder.is_none() && row.requester_is_founder.is_none();
-    if !forged && missing {
-        return Some(ConsumeError::new(
-            ACTION_APPROVAL_NOT_FOUNDERS,
-            "a founder-audience action needs identity to attest that the proposer and the approver are both founders",
-        ));
-    }
-    if forged || row.approver_is_founder != Some(true) || row.requester_is_founder != Some(true) {
-        return Some(ConsumeError::new(
-            ACTION_APPROVAL_NOT_FOUNDERS,
-            "the founder attestation does not match a distinct founder pair for this action",
-        ));
-    }
-    None
+/// `matchingActionPayloadHash(actionType, fields)`.
+pub fn action_payload_hash(action_type: &str, fields: &[(&str, &str)]) -> String {
+    payload_hash(action_type, fields)
 }
 
-/// What a door's approval came to (`consumeVenueKill`).
+/// The two people a consumed approval names, and its evidence.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Authz {
-    /// Spent: the proposer and the approver, as identity recorded them.
-    Approved {
-        operator_id: String,
-        confirm_operator_id: String,
-        evidence_refs: Vec<String>,
-    },
-    /// No operator named: answered as a 200 refusal, with the names the body typed.
+pub struct Authorized {
+    pub operator_id: String,
+    pub confirm_operator_id: String,
+    pub evidence_refs: Vec<String>,
+}
+
+/// Why a door spends no approval, as the door answers it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Denied {
+    /// No operator named: 200, `accepted: false`, with the typed names.
     Refused {
         operator_id: Option<String>,
         confirm_operator_id: Option<String>,
-        code: String,
-        message: String,
+        rejected: Reject,
     },
-    /// The approval does not stand: answered as a 400.
-    Invalid(ConsumeError),
+    /// `ActionApprovalConsumeError`: 400 with its code and message.
+    Bad { code: String, message: String },
+    /// What the client threw: Fastify's 500.
+    Thrown(String),
 }
 
-/// The body's own parts a door spends an approval with.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ApprovalBody {
-    pub operator_id: Option<String>,
-    pub confirm_operator_id: Option<String>,
-    pub approval_id: Option<String>,
-    pub operation_id: Option<String>,
+/// What a door asks to spend.
+pub struct Spend<'a> {
+    /// The operator acting: the body's `operatorId`, or the founder principal's user id.
+    pub operator_id: Option<&'a str>,
+    /// The typed second name, kept only to answer a refusal with.
+    pub confirm_typed: Option<&'a str>,
+    pub approval_id: Option<&'a str>,
+    pub operation_id: Option<&'a str>,
+    pub action_type: &'a str,
+    pub fields: &'a [(&'a str, &'a str)],
+    pub target_id: &'a str,
 }
 
-fn trimmed(v: Option<&String>) -> Option<String> {
-    v.map(|s| service_kit::schema::js_trim(s).to_owned())
-        .filter(|s| !s.is_empty())
+fn bad(code: &str, message: impl Into<String>) -> Denied {
+    Denied::Bad {
+        code: code.to_owned(),
+        message: message.into(),
+    }
 }
 
-/// Spend the approval for `action_type` on `target_id`, binding `fields`. `operator_ids` is the published list,
-/// trimmed and lower-cased.
-pub fn consume_venue_action(
-    approvals: &dyn ApprovalConsumer,
+/// `consumeVenueKill(parsed, actionType, fields, targetId)`: in the TypeScript's order, the operator, the approval's
+/// ids, the operator list, the consume, then what identity answered.
+pub fn spend(
+    approvals: &dyn Approvals,
     operator_ids: &[String],
-    body: &ApprovalBody,
-    action_type: &str,
-    fields: &[(&str, String)],
-    target_id: &str,
-) -> Authz {
-    let operator = trimmed(body.operator_id.as_ref());
-    let confirm = trimmed(body.confirm_operator_id.as_ref());
-    let Some(operator) = operator else {
-        return Authz::Refused {
+    s: &Spend<'_>,
+) -> Result<Authorized, Denied> {
+    let Some(operator_id) = read_operator_id(s.operator_id) else {
+        return Err(Denied::Refused {
             operator_id: None,
-            confirm_operator_id: confirm,
-            code: "missing_operator".to_owned(),
-            message: "operator identity is required; the engine does not invent a caller"
-                .to_owned(),
-        };
+            confirm_operator_id: read_operator_id(s.confirm_typed),
+            rejected: operator_refuse(),
+        });
     };
-    let is_operator = |id: &str| operator_ids.iter().any(|o| *o == norm(id));
-    let invalid = |code: &str, message: String| Authz::Invalid(ConsumeError::new(code, message));
-    let ids = (
-        trimmed(body.approval_id.as_ref()),
-        trimmed(body.operation_id.as_ref()),
-    );
-    let (Some(approval_id), Some(operation_id)) = ids else {
-        return invalid(
-            ACTION_APPROVAL_MISSING,
-            "approvalId and operationId are required; a typed-in second name is not approval"
-                .to_owned(),
-        );
-    };
-    // Stop before the single-use approval is spent: no operator list, or a typed name that is not on it.
+    let approval_id = s.approval_id.map(js_trim).unwrap_or_default();
+    let operation_id = s.operation_id.map(js_trim).unwrap_or_default();
+    if approval_id.is_empty() || operation_id.is_empty() {
+        return Err(bad(
+            MISSING,
+            "approvalId and operationId are required; a typed-in second name is not approval",
+        ));
+    }
     if operator_ids.is_empty() {
-        return invalid(
-            ACTION_APPROVAL_OPERATORS_UNSET,
-            "MATCHING_OPERATOR_IDS is unpublished; matching does not guess who is an operator"
-                .to_owned(),
-        );
+        return Err(bad(
+            OPERATORS_UNSET,
+            "MATCHING_OPERATOR_IDS is unpublished; matching does not guess who is an operator",
+        ));
     }
-    if !is_operator(&operator) {
-        return invalid(
-            ACTION_APPROVAL_NOT_OPERATOR,
-            "the requester is not an operator of this venue".to_owned(),
-        );
-    }
-    let consumed = match approvals.consume(&ConsumeInput {
-        approval_id,
-        operation_id,
-        payload_hash: payload_hash(action_type, fields),
-        target_service: "svc-matching".to_owned(),
-        target_id: target_id.to_owned(),
-        expected_version: "1".to_owned(),
-    }) {
-        Ok(c) => c,
-        Err(e) => return Authz::Invalid(e),
+    let is_operator = |id: &str| {
+        let id = js_trim(id).to_lowercase();
+        operator_ids.contains(&id)
     };
-    // The approval must be for exactly this door and target: identity stores the label the proposer typed.
-    if consumed.action_type != action_type
-        || consumed.target_service != "svc-matching"
-        || consumed.target_id != target_id
+    if !is_operator(&operator_id) {
+        return Err(bad(
+            NOT_OPERATOR,
+            "the requester is not an operator of this venue",
+        ));
+    }
+    let hash = payload_hash(s.action_type, s.fields);
+    let consumed = approvals
+        .consume(&ConsumeInput {
+            approval_id,
+            operation_id,
+            payload_hash: &hash,
+            target_service: TARGET_SERVICE,
+            target_id: s.target_id,
+            expected_version: "1",
+            replay: None,
+        })
+        .map_err(|e| match e {
+            Refused::Coded { code, message } => Denied::Bad { code, message },
+            Refused::Thrown(message) => Denied::Thrown(message),
+        })?;
+    if consumed.action_type != s.action_type
+        || consumed.target_service != TARGET_SERVICE
+        || consumed.target_id != s.target_id
         || consumed.status != "CONSUMED"
     {
-        return invalid(
-            ACTION_APPROVAL_WRONG_ACTION,
-            format!("the approval is not for {action_type} on {target_id}"),
-        );
+        return Err(bad(
+            WRONG_ACTION,
+            format!(
+                "the approval is not for {} on {}",
+                s.action_type, s.target_id
+            ),
+        ));
     }
-    if !same_user(&consumed.requester_id, &operator) {
-        return invalid(
-            ACTION_APPROVAL_OPERATOR_MISMATCH,
-            "operatorId is not the person who proposed this approval".to_owned(),
-        );
+    if !same_user(&consumed.requester_id, &operator_id) {
+        return Err(bad(
+            OPERATOR_MISMATCH,
+            "operatorId is not the person who proposed this approval",
+        ));
     }
-    // Never fall back to the requester: a second person approved, or nothing runs.
-    let approver = match &consumed.approver_id {
+    let approver_id = match &consumed.approver_id {
         Some(a) if !same_user(a, &consumed.requester_id) => a.clone(),
-        _ => {
-            return invalid(
-                ACTION_APPROVAL_MISSING,
-                "the approval has no distinct approver".to_owned(),
-            );
-        }
+        _ => return Err(bad(MISSING, "the approval has no distinct approver")),
     };
-    if !is_operator(&consumed.requester_id) || !is_operator(&approver) {
-        return invalid(
-            ACTION_APPROVAL_NOT_OPERATOR,
-            "both the proposer and the approver must be operators of this venue".to_owned(),
-        );
+    if !is_operator(&consumed.requester_id) || !is_operator(&approver_id) {
+        return Err(bad(
+            NOT_OPERATOR,
+            "both the proposer and the approver must be operators of this venue",
+        ));
     }
-    if let Some(e) = founder_refusal(&consumed, action_type, target_id) {
-        return Authz::Invalid(e);
+    match founder_verdict(&consumed, s.action_type, TARGET_SERVICE, s.target_id) {
+        None => {}
+        Some("missing") => {
+            return Err(bad(
+                NOT_FOUNDERS,
+                "a founder-audience action needs identity to attest that the proposer and the approver are both founders",
+            ));
+        }
+        Some(_) => {
+            return Err(bad(
+                NOT_FOUNDERS,
+                "the founder attestation does not match a distinct founder pair for this action",
+            ));
+        }
     }
-    Authz::Approved {
-        operator_id: consumed.requester_id.clone(),
-        confirm_operator_id: approver,
-        evidence_refs: vec![format!("action-approval:{}", consumed.approval_id)],
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_payload_hash_is_over_the_action_and_its_fields_in_order() {
-        // `matchingActionPayloadHash('matching.halt', { marketId: 'BTC-USDT' })` from the TypeScript.
-        let h = payload_hash("matching.halt", &[("marketId", "BTC-USDT".to_owned())]);
-        let expect = Sha256::digest(br#"{"actionType":"matching.halt","marketId":"BTC-USDT"}"#);
-        let hex: String = expect.iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(h, format!("sha256:{hex}"));
-    }
+    Ok(Authorized {
+        operator_id: consumed.requester_id,
+        confirm_operator_id: approver_id,
+        evidence_refs: vec![evidence_ref(approval_id)],
+    })
 }

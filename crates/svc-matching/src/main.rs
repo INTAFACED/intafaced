@@ -20,7 +20,6 @@ use service_kit::s2s_verify::{BodyBind, ServiceVerifier};
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
-use svc_matching::approval::Unwired;
 use svc_matching::bus::{JetStreamEvents, STREAM_SERVICE};
 use svc_matching::door::{DoorConfig, Keys, MatchingDoor};
 use svc_matching::engine::admission::EXPIRY_SWEEP_EVERY_MS;
@@ -175,9 +174,16 @@ fn serve(
             edge_secret: env.str("EDGE_PRINCIPAL_SECRET").map(str::to_owned),
             edge_key,
             clock: now_ms,
-            // The identity client that spends an approval at `IDENTITY_URL` is not written yet: until it is, every
-            // approval refuses, whatever `IDENTITY_URL` says, and no door that needs two people runs.
-            approvals: Box::new(Unwired),
+            // `createIdentityApprovalClient(IDENTITY_URL, ...)`, or the unwired consumer, which refuses every spend.
+            approvals: match env.str("IDENTITY_URL") {
+                Some(url) => Box::new(svc_matching::approval::Identity::new(
+                    url,
+                    &str_of("INTERNAL_SERVICE_SECRET"),
+                    fetch.clone(),
+                    || now_ms().div_euclid(1000),
+                )),
+                None => Box::new(svc_matching::approval::Unwired),
+            },
             operator_ids: env.operator_ids(),
         },
         engine,
