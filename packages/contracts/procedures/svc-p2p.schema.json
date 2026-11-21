@@ -2267,6 +2267,3983 @@
         }
       ]
     },
+    "p2p.offers.bulk": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "offers.bulk",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.bulk_scope_invalid": "BAD_REQUEST",
+        "p2p.idempotency_conflict": "CONFLICT",
+        "p2p.idempotency_in_progress": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["pause", "resume", "remove"]
+          },
+          "offerIds": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            }
+          },
+          "all": {
+            "type": "boolean",
+            "const": true
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 200
+          }
+        },
+        "required": ["action", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["pause", "resume", "remove"]
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "more": {
+            "type": "boolean"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "offerId": {
+                  "type": "string"
+                },
+                "ok": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["active", "paused", "closed"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "code": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["offerId", "ok", "status", "code"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["action", "replayed", "more", "results"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "p2p.bulk_names_or_all": {
+          "at": "input",
+          "says": "exactly one of offerIds and all is given"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "action": "pause",
+            "offerIds": ["33333333-3333-4333-8333-333333333333"],
+            "idempotencyKey": "bulk:pause:1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "p2p.bulk_names_or_all",
+          "input": {
+            "action": "pause",
+            "offerIds": ["33333333-3333-4333-8333-333333333333"],
+            "all": true,
+            "idempotencyKey": "bulk:pause:1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "action": "archive",
+            "offerIds": ["33333333-3333-4333-8333-333333333333"],
+            "idempotencyKey": "bulk:pause:1"
+          }
+        }
+      ]
+    },
+    "p2p.offers.close": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "offers.close",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.offer_not_found": "NOT_FOUND",
+        "p2p.not_a_party": "FORBIDDEN",
+        "p2p.offer_has_open_trades": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["offerId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "makerId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "asset": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "priceType": {
+            "type": "string",
+            "enum": ["fixed", "float"]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "minAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "maxAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "remainingAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "totalAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "filledAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "tradesCompleted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "referencePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "nonInstantMethods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "methodId": {
+                  "type": "string"
+                },
+                "windowSeconds": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["methodId", "windowSeconds"],
+              "additionalProperties": false
+            }
+          },
+          "acceptsNonInstant": {
+            "type": "boolean"
+          },
+          "releaseWindowSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "terms": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "closed"]
+          },
+          "pauseReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["method_removed"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closeReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["by_you", "sold_out"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private"]
+          },
+          "statusSince": {
+            "type": "string"
+          },
+          "relistedFrom": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relistedAs": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "makerId",
+          "side",
+          "asset",
+          "fiatCurrency",
+          "priceType",
+          "price",
+          "minAmount",
+          "maxAmount",
+          "remainingAmount",
+          "totalAmount",
+          "filledAmount",
+          "tradesCompleted",
+          "methods",
+          "nonInstantMethods",
+          "acceptsNonInstant",
+          "releaseWindowSeconds",
+          "terms",
+          "status",
+          "pauseReason",
+          "closeReason",
+          "visibility",
+          "statusSince",
+          "relistedFrom",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "accept": {
+        "figures": "the asset is 1 to 16 characters and price, minAmount, maxAmount, remainingAmount and referencePrice are unsigned amounts"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "offerId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "offerId": "not-an-id"
+          }
+        }
+      ]
+    },
+    "p2p.offers.create": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "offers.create",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.instrument_kms_required": "PRECONDITION_FAILED",
+        "p2p.trading_disabled": "FORBIDDEN",
+        "p2p.invalid_security_change_lock": "PRECONDITION_FAILED",
+        "p2p.security_change_lock_unwired": "PRECONDITION_FAILED",
+        "p2p.config_unset": "PRECONDITION_FAILED",
+        "p2p.buying_restricted": "CONFLICT",
+        "p2p.unsupported_fiat": "BAD_REQUEST",
+        "p2p.offer_methods_required": "BAD_REQUEST",
+        "p2p.instrument_method_unknown": "BAD_REQUEST",
+        "p2p.floating_not_allowed_for_method": "BAD_REQUEST",
+        "p2p.offer_method_no_destination": "BAD_REQUEST",
+        "p2p.non_instant_not_accepted": "BAD_REQUEST",
+        "p2p.offer_limit_exceeded": "BAD_REQUEST",
+        "p2p.release_window_out_of_bounds": "BAD_REQUEST",
+        "p2p.content_rules_invalid": "PRECONDITION_FAILED",
+        "p2p.content_rule_violation": "BAD_REQUEST",
+        "p2p.verification_limits_invalid": "PRECONDITION_FAILED",
+        "p2p.verification_level_unwired": "PRECONDITION_FAILED",
+        "p2p.verification_limit_currency": "BAD_REQUEST",
+        "p2p.verification_order_min": "BAD_REQUEST",
+        "p2p.verification_order_max": "BAD_REQUEST",
+        "p2p.terms_version_stale": "CONFLICT",
+        "p2p.terms_not_accepted": "FORBIDDEN",
+        "p2p.posting_thresholds_invalid": "PRECONDITION_FAILED",
+        "p2p.posting_threshold_not_met": "BAD_REQUEST",
+        "p2p.reference_price_unavailable": "BAD_REQUEST",
+        "p2p.insufficient_balance": "CONFLICT",
+        "p2p.idempotency_conflict": "CONFLICT",
+        "p2p.idempotency_in_progress": "CONFLICT",
+        "p2p.offer_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "asset": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "fiatCurrency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "priceType": {
+            "type": "string",
+            "enum": ["fixed", "float"]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "minAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "maxAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "totalAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "methods": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "required": ["id"]
+                }
+              ]
+            }
+          },
+          "terms": {
+            "type": "string",
+            "maxLength": 4000
+          },
+          "acceptsNonInstant": {
+            "type": "boolean"
+          },
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          },
+          "advertiserTermsVersion": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "releaseWindowSeconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["side", "asset", "fiatCurrency", "priceType", "price", "minAmount", "maxAmount", "methods"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "makerId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "asset": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "priceType": {
+            "type": "string",
+            "enum": ["fixed", "float"]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "minAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "maxAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "remainingAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "totalAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "filledAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "tradesCompleted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "referencePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "nonInstantMethods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "methodId": {
+                  "type": "string"
+                },
+                "windowSeconds": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["methodId", "windowSeconds"],
+              "additionalProperties": false
+            }
+          },
+          "acceptsNonInstant": {
+            "type": "boolean"
+          },
+          "releaseWindowSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "terms": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "closed"]
+          },
+          "pauseReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["method_removed"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closeReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["by_you", "sold_out"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private"]
+          },
+          "statusSince": {
+            "type": "string"
+          },
+          "relistedFrom": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relistedAs": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "makerId",
+          "side",
+          "asset",
+          "fiatCurrency",
+          "priceType",
+          "price",
+          "minAmount",
+          "maxAmount",
+          "remainingAmount",
+          "totalAmount",
+          "filledAmount",
+          "tradesCompleted",
+          "methods",
+          "nonInstantMethods",
+          "acceptsNonInstant",
+          "releaseWindowSeconds",
+          "terms",
+          "status",
+          "pauseReason",
+          "closeReason",
+          "visibility",
+          "statusSince",
+          "relistedFrom",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "checks": {
+        "p2p.idempotency_key_required": {
+          "at": "input",
+          "says": "offerId or idempotencyKey is given"
+        }
+      },
+      "accept": {
+        "figures": "the asset is 1 to 16 characters and price, minAmount, maxAmount, remainingAmount and referencePrice are unsigned amounts"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "side": "sell",
+            "asset": "USDC",
+            "fiatCurrency": "EUR",
+            "priceType": "fixed",
+            "price": "1",
+            "minAmount": "10",
+            "maxAmount": "100",
+            "methods": ["sepa"],
+            "offerId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "p2p.idempotency_key_required",
+          "input": {
+            "side": "sell",
+            "asset": "USDC",
+            "fiatCurrency": "EUR",
+            "priceType": "fixed",
+            "price": "1",
+            "minAmount": "10",
+            "maxAmount": "100",
+            "methods": ["sepa"]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "side": "sell",
+            "asset": "USDC",
+            "fiatCurrency": "EUR",
+            "priceType": "fixed",
+            "price": "1",
+            "minAmount": "10",
+            "maxAmount": "100",
+            "methods": [],
+            "offerId": "33333333-3333-4333-8333-333333333333"
+          }
+        }
+      ]
+    },
+    "p2p.offers.editQuota": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "offers.editQuota",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.config_unset": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "used": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "remaining": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "resetsAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": ["limit", "used", "remaining", "resetsAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "p2p.offers.get": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "offers.get",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.offer_not_found": "NOT_FOUND",
+        "p2p.offer_private": "NOT_FOUND",
+        "p2p.share_link_revoked": "CONFLICT",
+        "p2p.share_link_expired": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "shareToken": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{32}$"
+          }
+        },
+        "required": ["offerId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "makerId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "asset": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "priceType": {
+            "type": "string",
+            "enum": ["fixed", "float"]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "minAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "maxAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "remainingAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "totalAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "filledAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "tradesCompleted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "referencePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "nonInstantMethods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "methodId": {
+                  "type": "string"
+                },
+                "windowSeconds": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["methodId", "windowSeconds"],
+              "additionalProperties": false
+            }
+          },
+          "acceptsNonInstant": {
+            "type": "boolean"
+          },
+          "releaseWindowSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "terms": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "closed"]
+          },
+          "pauseReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["method_removed"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closeReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["by_you", "sold_out"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private"]
+          },
+          "statusSince": {
+            "type": "string"
+          },
+          "relistedFrom": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relistedAs": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "makerId",
+          "side",
+          "asset",
+          "fiatCurrency",
+          "priceType",
+          "price",
+          "minAmount",
+          "maxAmount",
+          "remainingAmount",
+          "totalAmount",
+          "filledAmount",
+          "tradesCompleted",
+          "methods",
+          "nonInstantMethods",
+          "acceptsNonInstant",
+          "releaseWindowSeconds",
+          "terms",
+          "status",
+          "pauseReason",
+          "closeReason",
+          "visibility",
+          "statusSince",
+          "relistedFrom",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "accept": {
+        "figures": "the asset is 1 to 16 characters and price, minAmount, maxAmount, remainingAmount and referencePrice are unsigned amounts"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "offerId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "offerId": "33333333-3333-4333-8333-333333333333",
+            "shareToken": "short"
+          }
+        }
+      ]
+    },
+    "p2p.offers.list": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "offers.list",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.offer_list_limit_unset": "PRECONDITION_FAILED",
+        "p2p.offer_cursor_invalid": "BAD_REQUEST"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "methodId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "makerId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "minFiat": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "fiatAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "sort": {
+            "type": "string",
+            "enum": ["price_asc", "price_desc"]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "makerId": {
+              "type": "string"
+            },
+            "side": {
+              "type": "string",
+              "enum": ["buy", "sell"]
+            },
+            "asset": {
+              "type": "string"
+            },
+            "fiatCurrency": {
+              "type": "string"
+            },
+            "priceType": {
+              "type": "string",
+              "enum": ["fixed", "float"]
+            },
+            "price": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "minAmount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "maxAmount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "remainingAmount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "totalAmount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "filledAmount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "tradesCompleted": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "referencePrice": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "methods": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "nonInstantMethods": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "methodId": {
+                    "type": "string"
+                  },
+                  "windowSeconds": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["methodId", "windowSeconds"],
+                "additionalProperties": false
+              }
+            },
+            "acceptsNonInstant": {
+              "type": "boolean"
+            },
+            "releaseWindowSeconds": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "terms": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["active", "paused", "closed"]
+            },
+            "pauseReason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["method_removed"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "closeReason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["by_you", "sold_out"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "visibility": {
+              "type": "string",
+              "enum": ["public", "private"]
+            },
+            "statusSince": {
+              "type": "string"
+            },
+            "relistedFrom": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "relistedAs": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "createdAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "makerId",
+            "side",
+            "asset",
+            "fiatCurrency",
+            "priceType",
+            "price",
+            "minAmount",
+            "maxAmount",
+            "remainingAmount",
+            "totalAmount",
+            "filledAmount",
+            "tradesCompleted",
+            "methods",
+            "nonInstantMethods",
+            "acceptsNonInstant",
+            "releaseWindowSeconds",
+            "terms",
+            "status",
+            "pauseReason",
+            "closeReason",
+            "visibility",
+            "statusSince",
+            "relistedFrom",
+            "createdAt"
+          ],
+          "additionalProperties": false
+        },
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "accept": {
+        "figures": "every ad: the asset is 1 to 16 characters and its figures are unsigned amounts"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        }
+      ]
+    },
+    "p2p.offers.mine": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "offers.mine",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.offer_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "closed"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["status"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "makerId": {
+              "type": "string"
+            },
+            "side": {
+              "type": "string",
+              "enum": ["buy", "sell"]
+            },
+            "asset": {
+              "type": "string"
+            },
+            "fiatCurrency": {
+              "type": "string"
+            },
+            "priceType": {
+              "type": "string",
+              "enum": ["fixed", "float"]
+            },
+            "price": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "minAmount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "maxAmount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "remainingAmount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "totalAmount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "filledAmount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "tradesCompleted": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "referencePrice": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "methods": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "nonInstantMethods": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "methodId": {
+                    "type": "string"
+                  },
+                  "windowSeconds": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["methodId", "windowSeconds"],
+                "additionalProperties": false
+              }
+            },
+            "acceptsNonInstant": {
+              "type": "boolean"
+            },
+            "releaseWindowSeconds": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "terms": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["active", "paused", "closed"]
+            },
+            "pauseReason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["method_removed"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "closeReason": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["by_you", "sold_out"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "visibility": {
+              "type": "string",
+              "enum": ["public", "private"]
+            },
+            "statusSince": {
+              "type": "string"
+            },
+            "relistedFrom": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "relistedAs": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "createdAt": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "makerId",
+            "side",
+            "asset",
+            "fiatCurrency",
+            "priceType",
+            "price",
+            "minAmount",
+            "maxAmount",
+            "remainingAmount",
+            "totalAmount",
+            "filledAmount",
+            "tradesCompleted",
+            "methods",
+            "nonInstantMethods",
+            "acceptsNonInstant",
+            "releaseWindowSeconds",
+            "terms",
+            "status",
+            "pauseReason",
+            "closeReason",
+            "visibility",
+            "statusSince",
+            "relistedFrom",
+            "createdAt"
+          ],
+          "additionalProperties": false
+        },
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "accept": {
+        "figures": "every ad: the asset is 1 to 16 characters and its figures are unsigned amounts"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "status": "paused",
+            "limit": 20
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "status": "draft",
+            "limit": 20
+          }
+        }
+      ]
+    },
+    "p2p.offers.page": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "offers.page",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.offer_list_limit_unset": "PRECONDITION_FAILED",
+        "p2p.offer_cursor_invalid": "BAD_REQUEST"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "methodId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "makerId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "minFiat": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "fiatAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "sort": {
+            "type": "string",
+            "enum": ["price_asc", "price_desc"]
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "offers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "makerId": {
+                  "type": "string"
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "asset": {
+                  "type": "string"
+                },
+                "fiatCurrency": {
+                  "type": "string"
+                },
+                "priceType": {
+                  "type": "string",
+                  "enum": ["fixed", "float"]
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "minAmount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "maxAmount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "remainingAmount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "totalAmount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "filledAmount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "tradesCompleted": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "referencePrice": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "methods": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                },
+                "nonInstantMethods": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "methodId": {
+                        "type": "string"
+                      },
+                      "windowSeconds": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["methodId", "windowSeconds"],
+                    "additionalProperties": false
+                  }
+                },
+                "acceptsNonInstant": {
+                  "type": "boolean"
+                },
+                "releaseWindowSeconds": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "terms": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["active", "paused", "closed"]
+                },
+                "pauseReason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["method_removed"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "closeReason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["by_you", "sold_out"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "visibility": {
+                  "type": "string",
+                  "enum": ["public", "private"]
+                },
+                "statusSince": {
+                  "type": "string"
+                },
+                "relistedFrom": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "relistedAs": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "makerId",
+                "side",
+                "asset",
+                "fiatCurrency",
+                "priceType",
+                "price",
+                "minAmount",
+                "maxAmount",
+                "remainingAmount",
+                "totalAmount",
+                "filledAmount",
+                "tradesCompleted",
+                "methods",
+                "nonInstantMethods",
+                "acceptsNonInstant",
+                "releaseWindowSeconds",
+                "terms",
+                "status",
+                "pauseReason",
+                "closeReason",
+                "visibility",
+                "statusSince",
+                "relistedFrom",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["offers", "nextCursor"],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "accept": {
+        "figures": "every ad: the asset is 1 to 16 characters and its figures are unsigned amounts"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 20,
+            "sort": "price_asc"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 20,
+            "sort": "newest"
+          }
+        }
+      ]
+    },
+    "p2p.offers.pause": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "offers.pause",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.offer_not_found": "NOT_FOUND",
+        "p2p.not_a_party": "FORBIDDEN",
+        "p2p.offer_not_active": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["offerId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "makerId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "asset": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "priceType": {
+            "type": "string",
+            "enum": ["fixed", "float"]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "minAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "maxAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "remainingAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "totalAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "filledAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "tradesCompleted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "referencePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "nonInstantMethods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "methodId": {
+                  "type": "string"
+                },
+                "windowSeconds": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["methodId", "windowSeconds"],
+              "additionalProperties": false
+            }
+          },
+          "acceptsNonInstant": {
+            "type": "boolean"
+          },
+          "releaseWindowSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "terms": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "closed"]
+          },
+          "pauseReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["method_removed"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closeReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["by_you", "sold_out"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private"]
+          },
+          "statusSince": {
+            "type": "string"
+          },
+          "relistedFrom": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relistedAs": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "makerId",
+          "side",
+          "asset",
+          "fiatCurrency",
+          "priceType",
+          "price",
+          "minAmount",
+          "maxAmount",
+          "remainingAmount",
+          "totalAmount",
+          "filledAmount",
+          "tradesCompleted",
+          "methods",
+          "nonInstantMethods",
+          "acceptsNonInstant",
+          "releaseWindowSeconds",
+          "terms",
+          "status",
+          "pauseReason",
+          "closeReason",
+          "visibility",
+          "statusSince",
+          "relistedFrom",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "accept": {
+        "figures": "the asset is 1 to 16 characters and price, minAmount, maxAmount, remainingAmount and referencePrice are unsigned amounts"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "offerId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "offerId": "not-an-id"
+          }
+        }
+      ]
+    },
+    "p2p.offers.relist": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "offers.relist",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.instrument_kms_required": "PRECONDITION_FAILED",
+        "p2p.trading_disabled": "FORBIDDEN",
+        "p2p.invalid_security_change_lock": "PRECONDITION_FAILED",
+        "p2p.security_change_lock_unwired": "PRECONDITION_FAILED",
+        "p2p.config_unset": "PRECONDITION_FAILED",
+        "p2p.buying_restricted": "CONFLICT",
+        "p2p.unsupported_fiat": "BAD_REQUEST",
+        "p2p.offer_methods_required": "BAD_REQUEST",
+        "p2p.instrument_method_unknown": "BAD_REQUEST",
+        "p2p.floating_not_allowed_for_method": "BAD_REQUEST",
+        "p2p.offer_method_no_destination": "BAD_REQUEST",
+        "p2p.non_instant_not_accepted": "BAD_REQUEST",
+        "p2p.offer_limit_exceeded": "BAD_REQUEST",
+        "p2p.release_window_out_of_bounds": "BAD_REQUEST",
+        "p2p.content_rules_invalid": "PRECONDITION_FAILED",
+        "p2p.content_rule_violation": "BAD_REQUEST",
+        "p2p.verification_limits_invalid": "PRECONDITION_FAILED",
+        "p2p.verification_level_unwired": "PRECONDITION_FAILED",
+        "p2p.verification_limit_currency": "BAD_REQUEST",
+        "p2p.verification_order_min": "BAD_REQUEST",
+        "p2p.verification_order_max": "BAD_REQUEST",
+        "p2p.terms_version_stale": "CONFLICT",
+        "p2p.terms_not_accepted": "FORBIDDEN",
+        "p2p.posting_thresholds_invalid": "PRECONDITION_FAILED",
+        "p2p.posting_threshold_not_met": "BAD_REQUEST",
+        "p2p.reference_price_unavailable": "BAD_REQUEST",
+        "p2p.insufficient_balance": "CONFLICT",
+        "p2p.idempotency_conflict": "CONFLICT",
+        "p2p.idempotency_in_progress": "CONFLICT",
+        "p2p.offer_not_found": "NOT_FOUND",
+        "p2p.not_a_party": "FORBIDDEN",
+        "p2p.offer_not_active": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["offerId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "makerId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "asset": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "priceType": {
+            "type": "string",
+            "enum": ["fixed", "float"]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "minAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "maxAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "remainingAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "totalAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "filledAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "tradesCompleted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "referencePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "nonInstantMethods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "methodId": {
+                  "type": "string"
+                },
+                "windowSeconds": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["methodId", "windowSeconds"],
+              "additionalProperties": false
+            }
+          },
+          "acceptsNonInstant": {
+            "type": "boolean"
+          },
+          "releaseWindowSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "terms": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "closed"]
+          },
+          "pauseReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["method_removed"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closeReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["by_you", "sold_out"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private"]
+          },
+          "statusSince": {
+            "type": "string"
+          },
+          "relistedFrom": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relistedAs": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "makerId",
+          "side",
+          "asset",
+          "fiatCurrency",
+          "priceType",
+          "price",
+          "minAmount",
+          "maxAmount",
+          "remainingAmount",
+          "totalAmount",
+          "filledAmount",
+          "tradesCompleted",
+          "methods",
+          "nonInstantMethods",
+          "acceptsNonInstant",
+          "releaseWindowSeconds",
+          "terms",
+          "status",
+          "pauseReason",
+          "closeReason",
+          "visibility",
+          "statusSince",
+          "relistedFrom",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "accept": {
+        "figures": "the asset is 1 to 16 characters and price, minAmount, maxAmount, remainingAmount and referencePrice are unsigned amounts"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "offerId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "offerId": "not-an-id"
+          }
+        }
+      ]
+    },
+    "p2p.offers.resume": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "offers.resume",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.trading_disabled": "FORBIDDEN",
+        "p2p.offer_not_found": "NOT_FOUND",
+        "p2p.not_a_party": "FORBIDDEN",
+        "p2p.offer_not_active": "BAD_REQUEST",
+        "p2p.invalid_security_change_lock": "PRECONDITION_FAILED",
+        "p2p.security_change_lock_unwired": "PRECONDITION_FAILED",
+        "p2p.reference_price_unavailable": "BAD_REQUEST",
+        "p2p.floating_not_allowed_for_method": "BAD_REQUEST",
+        "p2p.offer_method_no_destination": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["offerId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "makerId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "asset": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "priceType": {
+            "type": "string",
+            "enum": ["fixed", "float"]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "minAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "maxAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "remainingAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "totalAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "filledAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "tradesCompleted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "referencePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "nonInstantMethods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "methodId": {
+                  "type": "string"
+                },
+                "windowSeconds": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["methodId", "windowSeconds"],
+              "additionalProperties": false
+            }
+          },
+          "acceptsNonInstant": {
+            "type": "boolean"
+          },
+          "releaseWindowSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "terms": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "closed"]
+          },
+          "pauseReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["method_removed"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closeReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["by_you", "sold_out"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private"]
+          },
+          "statusSince": {
+            "type": "string"
+          },
+          "relistedFrom": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relistedAs": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "makerId",
+          "side",
+          "asset",
+          "fiatCurrency",
+          "priceType",
+          "price",
+          "minAmount",
+          "maxAmount",
+          "remainingAmount",
+          "totalAmount",
+          "filledAmount",
+          "tradesCompleted",
+          "methods",
+          "nonInstantMethods",
+          "acceptsNonInstant",
+          "releaseWindowSeconds",
+          "terms",
+          "status",
+          "pauseReason",
+          "closeReason",
+          "visibility",
+          "statusSince",
+          "relistedFrom",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "accept": {
+        "figures": "the asset is 1 to 16 characters and price, minAmount, maxAmount, remainingAmount and referencePrice are unsigned amounts"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "offerId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "offerId": "not-an-id"
+          }
+        }
+      ]
+    },
+    "p2p.offers.sellBalance": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "offers.sellBalance",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          }
+        },
+        "required": ["asset"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asset": {
+            "type": "string"
+          },
+          "available": {
+            "type": "string"
+          }
+        },
+        "required": ["asset", "available"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "available": "available is an unsigned amount"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "asset": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "asset": ""
+          }
+        }
+      ]
+    },
+    "p2p.offers.setVisibility": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "offers.setVisibility",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.offer_not_found": "NOT_FOUND",
+        "p2p.not_a_party": "FORBIDDEN",
+        "p2p.offer_not_active": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private"]
+          }
+        },
+        "required": ["offerId", "visibility"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "makerId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "asset": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "priceType": {
+            "type": "string",
+            "enum": ["fixed", "float"]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "minAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "maxAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "remainingAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "totalAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "filledAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "tradesCompleted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "referencePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "nonInstantMethods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "methodId": {
+                  "type": "string"
+                },
+                "windowSeconds": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["methodId", "windowSeconds"],
+              "additionalProperties": false
+            }
+          },
+          "acceptsNonInstant": {
+            "type": "boolean"
+          },
+          "releaseWindowSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "terms": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "closed"]
+          },
+          "pauseReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["method_removed"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closeReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["by_you", "sold_out"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private"]
+          },
+          "statusSince": {
+            "type": "string"
+          },
+          "relistedFrom": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relistedAs": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "makerId",
+          "side",
+          "asset",
+          "fiatCurrency",
+          "priceType",
+          "price",
+          "minAmount",
+          "maxAmount",
+          "remainingAmount",
+          "totalAmount",
+          "filledAmount",
+          "tradesCompleted",
+          "methods",
+          "nonInstantMethods",
+          "acceptsNonInstant",
+          "releaseWindowSeconds",
+          "terms",
+          "status",
+          "pauseReason",
+          "closeReason",
+          "visibility",
+          "statusSince",
+          "relistedFrom",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "accept": {
+        "figures": "the asset is 1 to 16 characters and price, minAmount, maxAmount, remainingAmount and referencePrice are unsigned amounts"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "offerId": "33333333-3333-4333-8333-333333333333",
+            "visibility": "private"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "offerId": "33333333-3333-4333-8333-333333333333",
+            "visibility": "hidden"
+          }
+        }
+      ]
+    },
+    "p2p.offers.shareLinks.create": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "offers.shareLinks.create",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.config_unset": "PRECONDITION_FAILED",
+        "p2p.offer_not_found": "NOT_FOUND",
+        "p2p.not_a_party": "FORBIDDEN",
+        "p2p.offer_not_active": "BAD_REQUEST",
+        "p2p.idempotency_conflict": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "linkId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31536000
+          }
+        },
+        "required": ["linkId", "offerId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": ["string", "null"]
+          },
+          "token": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{32}$"
+          }
+        },
+        "required": ["id", "offerId", "createdAt", "expiresAt", "revokedAt", "token"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "times": "createdAt, expiresAt and revokedAt (when set) are ISO 8601 date-times"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "linkId": "66666666-6666-4666-8666-666666666666",
+            "offerId": "33333333-3333-4333-8333-333333333333",
+            "seconds": 3600
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "linkId": "66666666-6666-4666-8666-666666666666",
+            "offerId": "33333333-3333-4333-8333-333333333333",
+            "seconds": 0
+          }
+        }
+      ]
+    },
+    "p2p.offers.shareLinks.list": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "offers.shareLinks.list",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.offer_not_found": "NOT_FOUND",
+        "p2p.not_a_party": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["offerId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "offerId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "expiresAt": {
+              "type": "string"
+            },
+            "revokedAt": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": ["id", "offerId", "createdAt", "expiresAt", "revokedAt"],
+          "additionalProperties": false
+        }
+      },
+      "accept": {
+        "times": "every link: createdAt, expiresAt and revokedAt (when set) are ISO 8601 date-times"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "offerId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "offerId": "not-an-id"
+          }
+        }
+      ]
+    },
+    "p2p.offers.shareLinks.revoke": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "offers.shareLinks.revoke",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.offer_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "linkId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["linkId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "offerId", "createdAt", "expiresAt", "revokedAt"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "times": "createdAt, expiresAt and revokedAt (when set) are ISO 8601 date-times"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "linkId": "66666666-6666-4666-8666-666666666666"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "linkId": "not-an-id"
+          }
+        }
+      ]
+    },
+    "p2p.offers.update": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "offers.update",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.offer_update_empty": "BAD_REQUEST",
+        "p2p.offer_not_found": "NOT_FOUND",
+        "p2p.not_a_party": "FORBIDDEN",
+        "p2p.offer_not_active": "BAD_REQUEST",
+        "p2p.invalid_security_change_lock": "PRECONDITION_FAILED",
+        "p2p.security_change_lock_unwired": "PRECONDITION_FAILED",
+        "p2p.offer_methods_required": "BAD_REQUEST",
+        "p2p.instrument_method_unknown": "BAD_REQUEST",
+        "p2p.floating_not_allowed_for_method": "BAD_REQUEST",
+        "p2p.offer_method_no_destination": "BAD_REQUEST",
+        "p2p.non_instant_not_accepted": "BAD_REQUEST",
+        "p2p.idempotency_conflict": "CONFLICT",
+        "p2p.idempotency_in_progress": "CONFLICT",
+        "p2p.config_unset": "PRECONDITION_FAILED",
+        "p2p.edit_quota_reached": "TOO_MANY_REQUESTS",
+        "p2p.verification_limits_invalid": "PRECONDITION_FAILED",
+        "p2p.verification_level_unwired": "PRECONDITION_FAILED",
+        "p2p.verification_limit_currency": "BAD_REQUEST",
+        "p2p.verification_order_min": "BAD_REQUEST",
+        "p2p.verification_order_max": "BAD_REQUEST",
+        "p2p.insufficient_balance": "CONFLICT",
+        "p2p.offer_limit_exceeded": "BAD_REQUEST",
+        "p2p.content_rules_invalid": "PRECONDITION_FAILED",
+        "p2p.content_rule_violation": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "minAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "maxAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "totalAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "methods": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "required": ["id"]
+                }
+              ]
+            }
+          },
+          "terms": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": ["offerId", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "makerId": {
+            "type": "string"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["buy", "sell"]
+          },
+          "asset": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "priceType": {
+            "type": "string",
+            "enum": ["fixed", "float"]
+          },
+          "price": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "minAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "maxAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "remainingAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "totalAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "filledAmount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "tradesCompleted": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "referencePrice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "nonInstantMethods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "methodId": {
+                  "type": "string"
+                },
+                "windowSeconds": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["methodId", "windowSeconds"],
+              "additionalProperties": false
+            }
+          },
+          "acceptsNonInstant": {
+            "type": "boolean"
+          },
+          "releaseWindowSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "terms": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "closed"]
+          },
+          "pauseReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["method_removed"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closeReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["by_you", "sold_out"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["public", "private"]
+          },
+          "statusSince": {
+            "type": "string"
+          },
+          "relistedFrom": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "relistedAs": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "makerId",
+          "side",
+          "asset",
+          "fiatCurrency",
+          "priceType",
+          "price",
+          "minAmount",
+          "maxAmount",
+          "remainingAmount",
+          "totalAmount",
+          "filledAmount",
+          "tradesCompleted",
+          "methods",
+          "nonInstantMethods",
+          "acceptsNonInstant",
+          "releaseWindowSeconds",
+          "terms",
+          "status",
+          "pauseReason",
+          "closeReason",
+          "visibility",
+          "statusSince",
+          "relistedFrom",
+          "createdAt"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "checks": {
+        "p2p.offer_update_empty": {
+          "at": "input",
+          "says": "at least one of price, minAmount, maxAmount, totalAmount, methods and terms is given"
+        }
+      },
+      "accept": {
+        "figures": "the asset is 1 to 16 characters and price, minAmount, maxAmount, remainingAmount and referencePrice are unsigned amounts"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "offerId": "33333333-3333-4333-8333-333333333333",
+            "idempotencyKey": "edit:offer:1",
+            "price": "1.01"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "p2p.offer_update_empty",
+          "input": {
+            "offerId": "33333333-3333-4333-8333-333333333333",
+            "idempotencyKey": "edit:offer:1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "offerId": "33333333-3333-4333-8333-333333333333",
+            "idempotencyKey": "short",
+            "price": "1.01"
+          }
+        }
+      ]
+    },
     "p2p.reputation.appeal": {
       "service": "svc-p2p",
       "module": "p2p",

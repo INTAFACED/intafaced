@@ -279,6 +279,7 @@ test(`${J} #1 opens the payout board: intents by state, owed, pending funding, s
   const sending = boardRow(page, keys.sending);
   await expect(sending).toHaveAttribute('data-payment-state', 'sending');
   await expect(sending).toHaveAttribute('data-chain-tx', '');
+  await expect(sending).toContainText(keys.sending);
   await expect(sending).toContainText(ben.wallet);
   await expect(sending).toContainText('Looked for on the chain');
   expect(await transfers(await rewardsWallet(), ben.wallet)).toEqual([]);
@@ -286,6 +287,7 @@ test(`${J} #1 opens the payout board: intents by state, owed, pending funding, s
   const paid = boardRow(page, keys.paid);
   const chainTx = await paid.getAttribute('data-chain-tx');
   expect(chainTx).toMatch(/^0x[0-9a-f]{64}$/);
+  await expect(paid).toContainText(keys.paid);
   await expect(paid).toContainText(chainTx);
   await expect(paid).toContainText(ann.wallet);
   // Failed: the chain reverted ANN's other payment; its transaction is shown and it is never sent again.
@@ -294,6 +296,7 @@ test(`${J} #1 opens the payout board: intents by state, owed, pending funding, s
   await expect(failed).toHaveAttribute('data-reason', 'campaigns.reward_payment_reverted');
   const revertedTx = await failed.getAttribute('data-chain-tx');
   expect(revertedTx).toMatch(/^0x[0-9a-f]{64}$/);
+  await expect(failed).toContainText(keys.failed);
   await expect(failed).toContainText(revertedTx);
   expect((await rpc('eth_getTransactionReceipt', [revertedTx])).status).toBe('0x0');
   run.write({ ...run.read(), paidTx: chainTx, cat });
