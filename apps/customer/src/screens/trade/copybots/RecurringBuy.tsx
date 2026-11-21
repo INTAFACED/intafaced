@@ -397,7 +397,7 @@ export function RecurringRoom({ path }: { path: string }) {
     <RecurringList />
   );
   return (
-    <Page>
+    <Page landmark={false}>
       <PageHeader title={share ? t('Recurring buy result') : t('Recurring buy (DCA)')} />
       {venueMode.mode === 'on' ? <VenueFrame mode={venueMode}>{body}</VenueFrame> : body}
     </Page>
