@@ -366,6 +366,13 @@ export interface SimSwitches {
   loseAnswers: number;
 }
 
+/**
+ * The most active builder-fee approvals one account may hold at a time, as the venue it stands for publishes: "Each user
+ * can have a maximum of 10 active builder code approvals at a time" (Hyperliquid `trading/builder-codes.md`, read 20 Nov
+ * 2026). An approval of zero is a revoke, which frees a place (J-derivatives-30).
+ */
+export const TEST_VENUE_BUILDER_APPROVAL_LIMIT = 10;
+
 /** As the venue it stands for publishes: "Builder code addresses must be in standard mode to accrue builder fees". */
 const TEST_VENUE_BUILDER_REQUIRED_MODE: VenueAccountMode = 'standard';
 
@@ -1604,6 +1611,7 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         return;
       case 'approve_builder_fee':
         if (compare(intent.maxFeeBps, ZERO) < 0) refuse(this.venue.id, 'venue_rejected', 'a builder fee approval cannot be negative');
+        this.checkApprovalPlace(state, intent.builder, intent.maxFeeBps);
         return;
       case 'amend_order': {
         if (!this.venue.amendsInPlace)
@@ -2089,6 +2097,21 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       makerFeeBps: r.makerFeeBps.known ? r.makerFeeBps : own.makerFeeBps,
       takerFeeBps: r.takerFeeBps.known ? r.takerFeeBps : own.takerFeeBps,
     };
+  }
+
+  /**
+   * A new builder's approval needs a free place: the account holds at most TEST_VENUE_BUILDER_APPROVAL_LIMIT active ones.
+   * Raising, lowering or revoking a builder it already approved takes none. Checked at prepare and again at submit.
+   */
+  private checkApprovalPlace(state: AccountState, builder: string, maxFeeBps: Amount): void {
+    if (compare(maxFeeBps, ZERO) === 0 || state.builderApprovals.has(builder.toLowerCase())) return;
+    const active = state.builderApprovals.size;
+    if (active >= TEST_VENUE_BUILDER_APPROVAL_LIMIT)
+      refuse(
+        this.venue.id,
+        'builder_approval_limit',
+        `this account already holds ${active} active builder fee approvals, the most ${this.venue.displayName} allows at a time (${TEST_VENUE_BUILDER_APPROVAL_LIMIT})`,
+      );
   }
 
   async builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>> {
@@ -3254,7 +3277,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         return accepted(prepared.nonce, null);
       }
       case 'approve_builder_fee':
-        state.builderApprovals.set(intent.builder.toLowerCase(), intent.maxFeeBps);
+        this.checkApprovalPlace(state, intent.builder, intent.maxFeeBps);
+        // An approval of zero is the revoke: the builder no longer holds an active approval, and its place is free.
+        if (compare(intent.maxFeeBps, ZERO) === 0) state.builderApprovals.delete(intent.builder.toLowerCase());
+        else state.builderApprovals.set(intent.builder.toLowerCase(), intent.maxFeeBps);
         return accepted(null, null);
       case 'approve_agent': {
         const address = intent.agentAddress.toLowerCase();

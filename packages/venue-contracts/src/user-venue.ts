@@ -553,6 +553,11 @@ export type VenueRefusalCode =
   | 'builder_fee_not_approved'
   /** The order's builder fee is above the venue's own published cap for its market (`UserVenueMarket.builderFeeCapBps`). */
   | 'builder_fee_above_cap'
+  /**
+   * The account already holds the most active builder-fee approvals the venue allows at a time, so it refuses one for
+   * another builder. The detail is the venue's own reason with its limit; revoking one of the others frees a place.
+   */
+  | 'builder_approval_limit'
   /** An agent key tried an owner-only action (withdraw, approvals). */
   | 'agent_not_permitted'
   /** The signer is not the account's owner or an approved agent. */

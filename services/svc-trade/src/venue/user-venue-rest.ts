@@ -767,16 +767,16 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-cex-spot-10 #6: the account's own fee tier, volume and rates as the venue reports them.
     '/api/v1/venue/fee-tier': async (d, _q, a) => d.accountFees(a),
+    // Read against our builder address alone, so an approval stays readable while the fee is blank (J-derivatives-30 #1).
     '/api/v1/venue/builder-fee-approval': async (d, _q, a) => {
-      const status = await d.status();
-      const builder = 'builder' in status ? status.builder : null;
+      const builder = d.publishedBuilderAddress();
       if (!builder)
         throw new VenueRefusalError({
           venueId: a.venueId,
           code: 'builder_fee_not_published',
           detail: 'our builder is not published (owner value blank)',
         });
-      return (await d.venue()).builderFeeApproval(a, builder.address);
+      return (await d.venue()).builderFeeApproval(a, builder);
     },
   };
   for (const path of [

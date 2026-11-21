@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Button, Dialog } from '../../../shared/ui';
 import { displayAmount, parseAmount } from '../../../shared/money';
-import { keys, type AsOf, type OrderIntent, type VenuePreview, type VenueUp } from '../venue-api';
+import { draftId, keys, type AsOf, type OrderIntent, type VenuePreview, type VenueUp } from '../venue-api';
 import { AsOfLine, Known, OutcomeLine, TestMark, word, type ActionResult, type RunAction, type VenueAccount } from './VenueKit';
 import { venueCopy } from './venue-copy';
 
@@ -81,6 +81,8 @@ export function ReviewDialog({
   const carries = carriesBuilderFee(p.builderFee);
   const approved = carries ? builderApproved(account, status) : true;
   const [approving, setApproving] = useState<ActionResult | null>(null);
+  // The draft this review's builder approval is asked under (keys.builderApproval).
+  const [approvalDraft] = useState(() => draftId());
   const [busy, setBusy] = useState(false);
   const feeBps = status.builder?.feeBps ?? '';
 
@@ -89,7 +91,7 @@ export function ReviewDialog({
     setBusy(true);
     const answer = await run(
       { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
-      { actionKey: keys.builderApproval(owner, status.builder.address, status.builder.feeBps) },
+      { actionKey: keys.builderApproval(owner, status.builder.address, status.builder.feeBps, undefined, approvalDraft) },
     );
     setBusy(false);
     setApproving(answer);
