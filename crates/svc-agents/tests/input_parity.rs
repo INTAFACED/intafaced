@@ -17,7 +17,7 @@ use svc_agents::door::inputs::{self, Refused};
 
 const VERDICTS: &str = include_str!("fixtures/input-parity/verdicts.golden.json");
 /// Each slice's cases, one file per slice (`door::Slice::ALL`).
-const CASES: [&str; 14] = [
+const CASES: [&str; 15] = [
     include_str!("fixtures/input-parity/door.golden.json"),
     include_str!("fixtures/input-parity/gateway.golden.json"),
     include_str!("fixtures/input-parity/runtime.golden.json"),
@@ -32,6 +32,7 @@ const CASES: [&str; 14] = [
     include_str!("fixtures/input-parity/own-runs.golden.json"),
     include_str!("fixtures/input-parity/own-controls.golden.json"),
     include_str!("fixtures/input-parity/own-sharing.golden.json"),
+    include_str!("fixtures/input-parity/webhooks.golden.json"),
 ];
 
 fn text(j: &Json) -> String {

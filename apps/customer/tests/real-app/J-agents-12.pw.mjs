@@ -1,5 +1,7 @@
 // World: none
+import { createHmac, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
@@ -21,10 +23,11 @@ import { EDGE, ROOT, api, json, toUnits } from './stack.mjs';
 // tells the person on their own sign-in. Runs are metered exactly as in J-agents-01: each run's cost is its usage at the
 // stack's TEST rate card (tooling/profiles/test-owner-values/agents.json), held in the session's usage window, and the
 // window settles once as a ledger fee when the session closes.
-// Red by name, never counted: #2 (a run started from an API key) is overtaken by the owner decision 2026-10-29, which keeps running to the
-// person's own session; #5 (webhooks) waits on the developer module's webhook delivery (developer-webhooks-001); run
-// notices wait on the run events of AG-sessions-04, not yet declared in packages/events. The journey's end (a background
-// run, events from a cursor, a webhook delivery) is therefore partial: only the cursor read is proven.
+// #3 also starts a background run on the person's own sign-in and reads its events from a cursor with the key, and #5
+// registers a webhook with the key on this test's own TEST receiver on loopback (the URL guard's dev/test hatch) and
+// reads one signed delivery per run the person then ends in their own session.
+// Red by name, never counted: #2 (a run started from an API key) is overtaken by the owner decision 2026-10-29, which
+// keeps running to the person's own session.
 const J = 'J-agents-12';
 const agents = agentsRun(J);
 
@@ -50,13 +53,14 @@ const TASK_REFUSAL = { code: 'agents.task_not_allowed', key: 'agents.refused.tas
 const NOT_YOUR_SESSION = 'agents.refused.session_closed';
 /** A run that is not the caller's reads exactly like one that does not exist (runs/routes.ts:87). */
 const NOT_YOUR_RUN = 'agents.run_not_found';
+/** A key is told a run is the person's own, before its scope is read (packages/contracts trpc.ts, `ownSession`). */
+const PERSON_ONLY = 'agents.execute_person_only';
 /** An id no session or run has. */
 const NO_SUCH_ID = '00000000-0000-4000-8000-000000000000';
 
 /** The steps that stay red by name, and why. Every failure inside them carries the name (`blockedBy`). */
 const BLOCKED = {
   2: `${J} #2 BLOCKED (owner decision 2026-10-29: runs start only from the person's own session): starting a run from an API key is overtaken`,
-  5: `${J} #5 BLOCKED (developer-webhooks-001): the developer module's webhook delivery is not on main, so no endpoint can be registered`,
   outside: `${J} outside BLOCKED (AG-sessions-04 events): intafaced.agents.run.completed is not declared in packages/events, so no run notice exists`,
 };
 
@@ -145,14 +149,6 @@ async function agentsProcedures() {
     path,
     type: procedure._def.type,
   }));
-}
-
-/** The developer room's procedures (`developerKeys.*` in svc-identity), from its built router: where its webhooks land. */
-async function developerProcedures() {
-  const { createDeveloperKeysRouter } = await import(
-    new URL('../../../../services/svc-identity/dist/developer-keys-router.js', import.meta.url).href
-  );
-  return Object.keys(createDeveloperKeysRouter({})._def.procedures);
 }
 
 /** Creates a key on the API keys page with the passkey's fresh step-up and returns its secret, shown once. */
@@ -439,14 +435,18 @@ test(`${J} #1 calls the session API with a key lacking the agents read scope: re
   // windows (usage.*) and log (log.*). The other routers (routes, the doors, ops, the agents' own rooms) are not
   // session reads, and a new read under these four prefixes fails the inventory check until it is added below.
   const reads = (await agentsProcedures())
-    .filter(({ path, type }) => type === 'query' && /^(session|run|usage|log)\./.test(path))
+    .filter(({ path, type }) => type === 'query' && /^(session|run|usage|log|webhook)\./.test(path))
     .map(({ path }) => path);
   expect(Object.keys(inputs).sort()).toEqual([...reads].sort());
   const sessionsBefore = await mine();
   const logBefore = await logOf(agents.account(), kept('sessionId'));
   for (const path of reads) scopeDenied(await call(kept('offKey'), path, inputs[path]), 'agents:read');
-  // A write is refused too, by the scope it needs.
-  scopeDenied(await call(kept('offKey'), 'session.open', { agentId: 'navigator' }, 'POST'), 'agents:execute');
+  // A webhook register is refused by the scope it needs, and a start by the person-only rule.
+  scopeDenied(
+    await call(kept('offKey'), 'webhook.register', { endpointId: NO_SUCH_ID, url: 'http://127.0.0.1:9/x' }, 'POST'),
+    'agents:read',
+  );
+  refusedWith(await call(kept('offKey'), 'session.open', { agentId: 'navigator' }, 'POST'), 403, PERSON_ONLY);
   // Nothing changed: the person's sessions and log read exactly as before, and the key with the scope reads the run.
   expect(await mine()).toEqual(sessionsBefore);
   expect(await logOf(agents.account(), kept('sessionId'))).toEqual(logBefore);
@@ -455,30 +455,58 @@ test(`${J} #1 calls the session API with a key lacking the agents read scope: re
 
 test(`${J} #2 opens a background run with a key holding the scope: a run id and a status`, async () => {
   // STALE under the owner decision 2026-10-29 ("never from API keys or delegated tokens"): a run starts only from the person's own session.
-  // Red by name and never counted. What the app does today: a key with agents:read cannot start a run, by the scope a
-  // run needs, and nothing is stored. No key can hold that scope: the keys page never offers agents:execute (the start
+  // Red by name and never counted. What the app does today: a key with agents:read cannot start a run, told the run is
+  // the person's own, and nothing is stored. No key can hold that scope: the keys page never offers agents:execute (the start
   // checks identity's list and the page), so there is no key with it to try.
   await blockedBy(BLOCKED[2], async () => {
     const sessionB = kept('sessionB');
     const logBefore = await logOf(agents.account(), sessionB);
     const runsBefore = ok(await personCall('run.list', { sessionId: sessionB, limit: 50 }));
-    scopeDenied(
+    refusedWith(
       await call(
         kept('onKey'),
         'run.complete',
         { sessionId: sessionB, requestId: `${sessionB}:from-key`, task: kept('task'), messages: [{ role: 'user', content: 'TEST' }] },
         'POST',
       ),
-      'agents:execute',
+      403,
+      PERSON_ONLY,
     );
     expect(await logOf(agents.account(), sessionB)).toEqual(logBefore);
     expect(ok(await personCall('run.list', { sessionId: sessionB, limit: 50 }))).toEqual(runsBefore);
   });
 });
 
-test(`${J} #3 lists events from a cursor: only later actions, only for the caller's session`, async () => {
+test(`${J} #3 tries to start a run with the key: refused, runs start only in the person's own session; then a background run started there, its events listed from a cursor`, async () => {
   const sessionId = kept('sessionId');
   const onKey = kept('onKey');
+  const sessionB = kept('sessionB');
+
+  // The person's code tries every way to start a run with the read-scoped key: each is refused with the typed reason
+  // that a run is the person's own (it starts only on their own sign-in, or from a schedule or trigger they set there),
+  // never with a scope to ask for, and no run exists after.
+  const sessionsBefore = await mine();
+  const logBBefore = await logOf(agents.account(), sessionB);
+  const runsBBefore = ok(await personCall('run.list', { sessionId: sessionB, limit: 50 }));
+  const tries = [
+    ['session.open', { agentId: 'navigator' }],
+    [
+      'run.complete',
+      { sessionId: sessionB, requestId: `${sessionB}:key-start`, task: kept('task'), messages: [{ role: 'user', content: ASK }] },
+    ],
+    [
+      'run.background.start',
+      { sessionId: sessionB, requestId: `${sessionB}:key-background`, task: kept('task'), ask: ASK, steps: 1, notice: 'inapp' },
+    ],
+    [
+      'own.schedules.create',
+      { id: NO_SUCH_ID, createKey: `${sessionB}:key-schedule`, repeat: 'once', intervalMinutes: 60, perRunCap: '1', ask: ASK },
+    ],
+  ];
+  for (const [procedure, input] of tries) refusedWith(await call(onKey, procedure, input, 'POST'), 403, PERSON_ONLY);
+  expect(await mine()).toEqual(sessionsBefore);
+  expect(await logOf(agents.account(), sessionB)).toEqual(logBBefore);
+  expect(ok(await personCall('run.list', { sessionId: sessionB, limit: 50 }))).toEqual(runsBBefore);
   const cursor = kept('cursorBeforeLater');
   const log = await logOf(agents.account(), sessionId);
   // Session A as the person's own log has it: the open, the room's run, the refused task, then the later run.
@@ -534,6 +562,46 @@ test(`${J} #3 lists events from a cursor: only later actions, only for the calle
   expect(bad.body.error.data.cause.code).toBe('agents.cursor_invalid');
   // The refusals changed nothing.
   expect(await logOf(agents.account(), sessionId)).toEqual(log);
+
+  // The person starts a background run in their own signed-in session; their code holds the cursor from before it and,
+  // once the run has finished, lists exactly what the run did after that cursor, all in that session.
+  const sessionC = ok(await personCall('session.open', { agentId: 'navigator' }, 'POST')).id;
+  try {
+    const held = ok(await call(onKey, 'session.events', { sessionId: sessionC, limit: 500 }));
+    expect(held.events.map(({ kind }) => kind)).toEqual(['session_open']);
+    const started = ok(
+      await personCall(
+        'run.background.start',
+        { sessionId: sessionC, requestId: `${sessionC}:background`, task: kept('task'), ask: LATER_ASK, steps: 1, notice: 'inapp' },
+        'POST',
+      ),
+    );
+    expect(started).toMatchObject({ sessionId: sessionC, state: 'queued', stepsTotal: 1 });
+    await expect
+      .poll(async () => ok(await personCall('run.background.get', { runId: started.runId })).state, {
+        message: `${J} #3: the background run finishes`,
+        timeout: 30_000,
+      })
+      .toBe('completed');
+    const finished = ok(await personCall('run.background.get', { runId: started.runId }));
+    const logC = await logOf(agents.account(), sessionC);
+    const after = ok(await call(onKey, 'session.events', { sessionId: sessionC, cursor: held.cursor, limit: 500 }));
+    expect(after).toEqual({ events: logC.filter(({ sequence }) => sequence > Number(held.cursor)), cursor: String(logC.at(-1).sequence) });
+    // The run's one step is the one metered action after the cursor, at the step's own cost.
+    expect(after.events.map(({ kind, status }) => ({ kind, status }))).toEqual([{ kind: 'completion', status: 'executed' }]);
+    expect(toUnits(after.events[0].cost)).toBe(toUnits(finished.steps[0].cost));
+    expect(toUnits(after.events[0].cost) > 0n).toBe(true);
+    for (const event of after.events) expect(event.sessionId).toBe(sessionC);
+    expect(JSON.stringify(after)).not.toContain(LATER_ASK);
+    // Another person's key reads none of it.
+    refusedWith(
+      await call(kept('otherKey'), 'session.events', { sessionId: sessionC, cursor: held.cursor, limit: 500 }),
+      404,
+      NOT_YOUR_SESSION,
+    );
+  } finally {
+    ok(await personCall('session.close', { sessionId: sessionC }, 'POST'));
+  }
 });
 
 test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal codes as keys, no prompt text`, async () => {
@@ -628,21 +696,172 @@ test(`${J} #4 retrieves the finished run: the stored reply, cost and refusal cod
   expect((await call(onKey, 'run.get', { runId })).body).toEqual(finished.body);
 });
 
-test(`${J} #5 registers a webhook: one delivery per finished run`, async () => {
-  // Webhook signing and delivery belong to the developer module (developer-webhooks-001), not on main. Red by name only
-  // while the register endpoint is absent: once it answers, this step no longer proves anything and must be rewritten.
-  // Both the agents service and the developer room (where developer-webhooks-001 lands) are probed.
-  const procedures = [...(await agentsProcedures()).map(({ path }) => path), ...(await developerProcedures())].filter((path) =>
-    /webhook/i.test(path),
-  );
-  const register = await call(kept('onKey'), 'webhook.register', { url: 'http://127.0.0.1:9/agents-hook' }, 'POST');
-  const absent = procedures.length === 0 && register.status === 404 && register.body.error?.data?.code === 'NOT_FOUND';
-  if (!absent) {
-    throw new Error(
-      `${J} #5 NEEDS A REWRITE: a webhook endpoint now exists (procedures ${JSON.stringify(procedures)}, register answered ${register.status} ${JSON.stringify(register.body).slice(0, 200)}); prove one delivery per finished run instead of the block`,
+test(`${J} #5 registers a webhook with the key: one signed delivery per finished run the person started in their own session`, async () => {
+  const onKey = kept('onKey');
+  // This test's own TEST receiver on loopback: every request it takes, with its headers and raw body.
+  const posts = [];
+  const hook = createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      posts.push({ path: req.url, headers: req.headers, raw: Buffer.concat(chunks).toString('utf8') });
+      res.statusCode = 200;
+      res.end();
+    });
+  });
+  await new Promise((resolve, reject) => {
+    hook.once('error', reject);
+    hook.listen(0, '127.0.0.1', resolve);
+  });
+  const hookPath = `/agents-12/${randomUUID()}`;
+  const hookUrl = `http://127.0.0.1:${hook.address().port}${hookPath}`;
+  const mine = () => posts.filter((p) => p.path === hookPath);
+  try {
+    // A key without the agents read scope cannot register; the key with it can, and is shown the secret once.
+    const endpointId = randomUUID();
+    scopeDenied(await call(kept('offKey'), 'webhook.register', { endpointId, url: hookUrl }, 'POST'), 'agents:read');
+    const made = ok(await call(onKey, 'webhook.register', { endpointId, url: hookUrl }, 'POST'));
+    expect(made).toEqual({
+      id: endpointId,
+      url: hookUrl,
+      createdAt: expect.any(String),
+      secret: expect.stringMatching(/^whsec_[0-9a-f]{64}$/),
+    });
+    expect(ok(await call(onKey, 'webhook.register', { endpointId, url: hookUrl }, 'POST'))).toEqual({ ...made, secret: null });
+    expect(ok(await call(onKey, 'webhook.list', { limit: 100 })).filter(({ id }) => id === endpointId)).toEqual([
+      { ...made, secret: null },
+    ]);
+    // Someone else's key sees no such endpoint and cannot take its id.
+    expect(ok(await call(kept('otherKey'), 'webhook.list', { limit: 100 })).filter(({ id }) => id === endpointId)).toEqual([]);
+    refusedWith(
+      await call(kept('otherKey'), 'webhook.register', { endpointId, url: hookUrl }, 'POST'),
+      409,
+      'agents.webhook_endpoint_conflict',
     );
+
+    // The person, on their own sign-in, ends three runs in a session of their own: one completed, one refused, and one
+    // background run; someone else ends a run in their own session.
+    const sessionD = ok(await personCall('session.open', { agentId: 'navigator' }, 'POST')).id;
+    let completed;
+    let refusedRunId;
+    let background;
+    try {
+      completed = ok(await personRun(sessionD, `${sessionD}:hook-completed`, kept('task'), ASK));
+      const refused = await personRun(sessionD, `${sessionD}:hook-refused`, 'support.reply', REFUSED_ASK);
+      expect(refused.status, JSON.stringify(refused.body).slice(0, 300)).not.toBe(200);
+      refusedRunId = ok(await personCall('run.list', { sessionId: sessionD, limit: 50 })).find(
+        ({ requestId }) => requestId === `${sessionD}:hook-refused`,
+      ).runId;
+      const started = ok(
+        await personCall(
+          'run.background.start',
+          { sessionId: sessionD, requestId: `${sessionD}:hook-background`, task: kept('task'), ask: LATER_ASK, steps: 1, notice: 'inapp' },
+          'POST',
+        ),
+      );
+      await expect
+        .poll(async () => ok(await personCall('run.background.get', { runId: started.runId })).state, { timeout: 30_000 })
+        .toBe('completed');
+      background = ok(await personCall('run.background.get', { runId: started.runId }));
+    } finally {
+      ok(await personCall('session.close', { sessionId: sessionD }, 'POST'));
+    }
+    const otherSession = ok(await as(kept('otherAccount'), '/api/agents/trpc/session.open', { agentId: 'navigator' }, 'POST')).id;
+    try {
+      ok(
+        await as(
+          kept('otherAccount'),
+          '/api/agents/trpc/run.complete',
+          {
+            sessionId: otherSession,
+            requestId: `${otherSession}:hook-other`,
+            task: kept('task'),
+            messages: [{ role: 'user', content: OTHER_ASK }],
+          },
+          'POST',
+        ),
+      );
+    } finally {
+      ok(await as(kept('otherAccount'), '/api/agents/trpc/session.close', { sessionId: otherSession }, 'POST'));
+    }
+
+    // Exactly one delivery per finished run, and nothing more after a further wait: no run from before the register,
+    // none of someone else's.
+    // The service's own record of what it owes this endpoint is written when each run ends: exactly these three.
+    const owed = ok(await call(onKey, 'webhook.deliveries', { endpointId, limit: 500 }));
+    expect(owed.map(({ runId }) => runId).sort()).toEqual([completed.runId, refusedRunId, background.runId].sort());
+    await expect.poll(() => mine().length, { message: `${J} #5: three deliveries`, timeout: 30_000 }).toBe(3);
+    const bodies = mine().map(({ raw }) => JSON.parse(raw));
+    const byRun = Object.fromEntries(bodies.map((b) => [b.runId, b]));
+    expect(Object.keys(byRun).sort()).toEqual([completed.runId, refusedRunId, background.runId].sort());
+
+    const stored = ok(await call(onKey, 'run.get', { runId: completed.runId }));
+    expect(byRun[completed.runId]).toEqual({
+      id: `agents.run.finished:${completed.runId}:3`,
+      type: 'agents.run.finished',
+      kind: 'run',
+      runId: completed.runId,
+      sessionId: sessionD,
+      agentId: 'navigator',
+      state: 'completed',
+      reply: stored.reply,
+      cost: stored.cost,
+      assetId: stored.assetId,
+      refusalCodes: [],
+    });
+    const refusedStored = ok(await call(onKey, 'run.get', { runId: refusedRunId }));
+    expect(refusedStored.refusalCodes).toEqual([TASK_REFUSAL.code]);
+    expect(byRun[refusedRunId]).toEqual({
+      id: `agents.run.finished:${refusedRunId}:3`,
+      type: 'agents.run.finished',
+      kind: 'run',
+      runId: refusedRunId,
+      sessionId: sessionD,
+      agentId: 'navigator',
+      state: 'refused',
+      reply: null,
+      cost: null,
+      assetId: null,
+      refusalCodes: [TASK_REFUSAL.code],
+    });
+    expect(byRun[background.runId]).toMatchObject({
+      id: `agents.background_run.finished:${background.runId}:1`,
+      type: 'agents.run.finished',
+      kind: 'background',
+      runId: background.runId,
+      sessionId: sessionD,
+      agentId: 'navigator',
+      state: 'completed',
+      reply: background.reply,
+      refusalCodes: [],
+    });
+    expect(toUnits(byRun[background.runId].cost)).toBe(toUnits(background.steps[0].cost));
+
+    // Each is signed with the endpoint's secret over its timestamp and exact body, and carries its event id as its key.
+    for (const post of mine()) {
+      const { id } = JSON.parse(post.raw);
+      expect(post.headers['x-intafaced-event-id']).toBe(id);
+      expect(post.headers['idempotency-key']).toBe(id);
+      const signature = createHmac('sha256', made.secret).update(`${post.headers['x-intafaced-timestamp']}.${post.raw}`).digest('hex');
+      expect(post.headers['x-intafaced-signature']).toBe(`v1=${signature}`);
+      for (const ask of ASKS) expect(post.raw).not.toContain(ask);
+    }
+
+    // The key reads the same three deliveries, each delivered on its first attempt; someone else's key reads none.
+    const read = ok(await call(onKey, 'webhook.deliveries', { endpointId, limit: 500 }));
+    expect(
+      read
+        .map(({ runId, state, attempts, lastStatus }) => ({ runId, state, attempts, lastStatus }))
+        .sort((a, b) => a.runId.localeCompare(b.runId)),
+    ).toEqual(
+      [completed.runId, refusedRunId, background.runId]
+        .sort()
+        .map((runId) => ({ runId, state: 'delivered', attempts: 1, lastStatus: 200 })),
+    );
+    expect(ok(await call(kept('otherKey'), 'webhook.deliveries', { endpointId, limit: 500 }))).toEqual([]);
+  } finally {
+    await new Promise((resolve) => hook.close(resolve));
   }
-  await blockedBy(BLOCKED[5], async () => undefined);
 });
 
 /** The out-of-app channels a run notice may go by; the in-app inbox row is written whatever they do. */

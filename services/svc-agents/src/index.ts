@@ -46,6 +46,8 @@ import { advanceBackgroundRuns } from './own/background.js';
 import { deliverTriggerEvent, tickSchedules, type AutoRunDeps } from './own/automation.js';
 import { OWN_RUN_TASK, ownGuardrail } from './own/routes.js';
 import { advanceSessionRuns, publishCompletedRuns } from './runs/background.js';
+import { RunWebhooks } from './webhooks/run-webhooks.js';
+import { isExplicitDevOrTest } from '@intafaced/config';
 import { createIdentityLinkedWallets, paymentMethodFunds } from './own/payment-method.js';
 import { teamFunds } from './team/funds.js';
 import { createChainBalance } from './chain-balance.js';
@@ -283,7 +285,13 @@ const ownCadence = {
   dailyLimit: env.AGENTS_SCHEDULE_DAILY_LIMIT ?? null,
 };
 
+// The run webhooks (J-agents-12 #5). Loopback over http is the URL guard's dev/test hatch only.
+const runWebhooks = new RunWebhooks(sql, {
+  allowLocalHttp: isExplicitDevOrTest(env.APP_ENV) && process.env.NODE_ENV !== 'production',
+});
+
 const appRouter = createAgentsRouter({
+  runWebhooks,
   routeChanges,
   runtime,
   // Parsed at boot: a malformed law stops the service here, never opens or closes a door at a call.
@@ -510,7 +518,7 @@ if (env.AGENTS_BACKGROUND_STEP_MS && env.AGENTS_SESSION_RUN_MAX_STEPS) {
     () => {
       if (advancing) return;
       advancing = true;
-      advanceSessionRuns(sql, runtime, stepMs)
+      advanceSessionRuns(sql, runtime, stepMs, 50, env.AGENTS_FEE_ASSET_ID)
         .catch((err: unknown) => app.log.warn({ err }, 'background session runs did not advance'))
         .then(() => publishCompletedRuns(sql, bus))
         .catch((err: unknown) => app.log.warn({ err }, 'finished background runs not announced'))
@@ -523,12 +531,19 @@ if (env.AGENTS_BACKGROUND_STEP_MS && env.AGENTS_SESSION_RUN_MAX_STEPS) {
   sessionRunTimer.unref();
 }
 
+// Every ended run's delivery is posted once a second; a delivery a crash left leased is posted when its lease ends.
+const webhookTimer = setInterval(() => {
+  runWebhooks.drain().catch((err: unknown) => app.log.warn({ err }, 'run webhooks not delivered'));
+}, 1_000);
+webhookTimer.unref();
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       clearInterval(transcriptPurge);
       clearInterval(unpublishedTimer);
       clearInterval(alertTimer);
+      clearInterval(webhookTimer);
       if (scheduleTimer) clearInterval(scheduleTimer);
       // Draining, not dropping: an in-flight settlement finishes before exit.
       await app.close();

@@ -190,6 +190,7 @@ import { ACADEMY_UNPIN_LESSON } from './academy-unpin-lesson-procedures.js';
 import { ACADEMY_UPLOAD_ASSIGNMENT_FILE } from './academy-upload-assignment-file-procedures.js';
 import { ACADEMY_VIDEOS } from './academy-videos-procedures.js';
 import { ACADEMY_WITHDRAW_RESIDENCY } from './academy-withdraw-residency-procedures.js';
+import { AGENTS_WEBHOOK_REGISTER, AGENTS_WEBHOOK_LIST, AGENTS_WEBHOOK_DELIVERIES } from './agents-webhooks-procedures.js';
 import { BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_CARRY, BANK_CASH_LEG_READ } from './bank-cash-leg-procedures.js';
 import {
   BANK_CREDIT_PREVIEWS_OVERVIEW,
@@ -1176,6 +1177,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ACADEMY_UPLOAD_ASSIGNMENT_FILE,
   ACADEMY_VIDEOS,
   ACADEMY_WITHDRAW_RESIDENCY,
+  AGENTS_WEBHOOK_REGISTER,
+  AGENTS_WEBHOOK_LIST,
+  AGENTS_WEBHOOK_DELIVERIES,
   BANK_CASH_LEG_OFFERS,
   BANK_CASH_LEG_CARRY,
   BANK_CASH_LEG_READ,

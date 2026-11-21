@@ -76,7 +76,7 @@
     },
     "opsAlerts.checkRule valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.checkRule\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.checkRule\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.checkRule absent anon": {
       "status": 401,
@@ -96,7 +96,7 @@
     },
     "opsAlerts.checkRule absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.checkRule\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.checkRule\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.checkRule wrong-type anon": {
       "status": 401,
@@ -116,7 +116,7 @@
     },
     "opsAlerts.checkRule wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.checkRule\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.checkRule\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.checkRule empty anon": {
       "status": 401,
@@ -136,7 +136,7 @@
     },
     "opsAlerts.checkRule empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.checkRule\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.checkRule\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.checkRule extra-key anon": {
       "status": 401,
@@ -156,7 +156,7 @@
     },
     "opsAlerts.checkRule extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.checkRule\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.checkRule\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.createRule valid anon": {
       "status": 401,
@@ -176,7 +176,7 @@
     },
     "opsAlerts.createRule valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.createRule\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.createRule\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.createRule absent anon": {
       "status": 401,
@@ -196,7 +196,7 @@
     },
     "opsAlerts.createRule absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.createRule\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.createRule\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.createRule wrong-type anon": {
       "status": 401,
@@ -216,7 +216,7 @@
     },
     "opsAlerts.createRule wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.createRule\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.createRule\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.createRule empty anon": {
       "status": 401,
@@ -236,7 +236,7 @@
     },
     "opsAlerts.createRule empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.createRule\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.createRule\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.createRule extra-key anon": {
       "status": 401,
@@ -256,7 +256,7 @@
     },
     "opsAlerts.createRule extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.createRule\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.createRule\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.desk valid anon": {
       "status": 401,
@@ -276,7 +276,7 @@
     },
     "opsAlerts.desk valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.desk\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.desk\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.desk absent anon": {
       "status": 401,
@@ -296,7 +296,7 @@
     },
     "opsAlerts.desk absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.desk\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.desk\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.desk wrong-type anon": {
       "status": 401,
@@ -316,7 +316,7 @@
     },
     "opsAlerts.desk wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.desk\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.desk\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.desk empty anon": {
       "status": 401,
@@ -336,7 +336,7 @@
     },
     "opsAlerts.desk empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.desk\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.desk\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.desk extra-key anon": {
       "status": 401,
@@ -356,7 +356,7 @@
     },
     "opsAlerts.desk extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.desk\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.desk\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.evaluate valid anon": {
       "status": 401,
@@ -376,7 +376,7 @@
     },
     "opsAlerts.evaluate valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.evaluate\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.evaluate\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.evaluate absent anon": {
       "status": 401,
@@ -396,7 +396,7 @@
     },
     "opsAlerts.evaluate absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.evaluate\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.evaluate\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.evaluate wrong-type anon": {
       "status": 401,
@@ -416,7 +416,7 @@
     },
     "opsAlerts.evaluate wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.evaluate\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.evaluate\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.evaluate empty anon": {
       "status": 401,
@@ -436,7 +436,7 @@
     },
     "opsAlerts.evaluate empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.evaluate\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.evaluate\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.evaluate extra-key anon": {
       "status": 401,
@@ -456,7 +456,7 @@
     },
     "opsAlerts.evaluate extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.evaluate\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.evaluate\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.policy valid anon": {
       "status": 401,
@@ -476,7 +476,7 @@
     },
     "opsAlerts.policy valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.policy\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.policy\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.policy absent anon": {
       "status": 401,
@@ -496,7 +496,7 @@
     },
     "opsAlerts.policy absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.policy\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.policy\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.policy wrong-type anon": {
       "status": 401,
@@ -516,7 +516,7 @@
     },
     "opsAlerts.policy wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.policy\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.policy\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.policy empty anon": {
       "status": 401,
@@ -536,7 +536,7 @@
     },
     "opsAlerts.policy empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.policy\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.policy\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.policy extra-key anon": {
       "status": 401,
@@ -556,7 +556,7 @@
     },
     "opsAlerts.policy extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.policy\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.policy\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.setNotifications valid anon": {
       "status": 401,
@@ -576,7 +576,7 @@
     },
     "opsAlerts.setNotifications valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setNotifications\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setNotifications\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.setNotifications absent anon": {
       "status": 401,
@@ -596,7 +596,7 @@
     },
     "opsAlerts.setNotifications absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setNotifications\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setNotifications\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.setNotifications wrong-type anon": {
       "status": 401,
@@ -616,7 +616,7 @@
     },
     "opsAlerts.setNotifications wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setNotifications\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setNotifications\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.setNotifications empty anon": {
       "status": 401,
@@ -636,7 +636,7 @@
     },
     "opsAlerts.setNotifications empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setNotifications\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setNotifications\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.setNotifications extra-key anon": {
       "status": 401,
@@ -656,7 +656,7 @@
     },
     "opsAlerts.setNotifications extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setNotifications\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setNotifications\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.setOverride valid anon": {
       "status": 401,
@@ -676,7 +676,7 @@
     },
     "opsAlerts.setOverride valid key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setOverride\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setOverride\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.setOverride absent anon": {
       "status": 401,
@@ -696,7 +696,7 @@
     },
     "opsAlerts.setOverride absent key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setOverride\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setOverride\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.setOverride wrong-type anon": {
       "status": 401,
@@ -716,7 +716,7 @@
     },
     "opsAlerts.setOverride wrong-type key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setOverride\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setOverride\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.setOverride empty anon": {
       "status": 401,
@@ -736,7 +736,7 @@
     },
     "opsAlerts.setOverride empty key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setOverride\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setOverride\",\"requestId\":\"<request>\"}}}"
     },
     "opsAlerts.setOverride extra-key anon": {
       "status": 401,
@@ -756,7 +756,7 @@
     },
     "opsAlerts.setOverride extra-key key": {
       "status": 403,
-      "body": "{\"error\":{\"message\":\"Scope \\\"admin:write\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setOverride\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+      "body": "{\"error\":{\"message\":\"agents.alerts_person_only\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"opsAlerts.setOverride\",\"requestId\":\"<request>\"}}}"
     }
   }
 }
