@@ -54,6 +54,15 @@ async function previewRoom(page, path, title, room) {
 }
 
 /** Every figure in the sample-data panels (an amount or a rate) is followed by its TEST label. */
+/** Picks the room's `index`th choice in the kit's choice group named `group` (with its words, when given) and sees it chosen. */
+async function choose(page, group, index, words) {
+  expect(index, `${group}: the choice is one the bank offers`).toBeGreaterThanOrEqual(0);
+  const choice = page.getByRole('group', { name: group, exact: true }).getByRole('button').nth(index);
+  if (words) await expect(choice).toHaveText(words);
+  await choice.click();
+  await expect(choice).toHaveAttribute('aria-pressed', 'true');
+}
+
 async function everyFigureTest(page) {
   for (const panel of await page.getByTestId('preview-engine').all()) {
     const text = (await panel.innerText()).replace(/\s+/g, ' ');
@@ -107,7 +116,7 @@ test(`${J} #1 opens the overdraft, personal loan and business term loan pages: s
   await expect(od).toContainText(`${view.overdraft.rate}% TEST`);
   await expect(od).toContainText(`${view.overdraft.limits[0]} EUR TEST`);
   const last = view.overdraft.monthlyCost.at(-1);
-  await page.getByRole('combobox', { name: 'Overdraft limit', exact: true }).selectOption(last.limit);
+  await choose(page, 'Overdraft limit', view.overdraft.limits.indexOf(last.limit));
   await expect(od).toContainText(`${last.cost} EUR TEST`);
   await expect(od).toContainText(`${view.overdraft.repaymentWindowMonths} months TEST`);
   await expect(page.getByRole('region', { name: 'Credit bureau reporting', exact: true })).toContainText('TEST');
@@ -118,8 +127,8 @@ test(`${J} #1 opens the overdraft, personal loan and business term loan pages: s
   const calc = page.getByTestId('preview-engine');
   await expect(calc).toContainText(`${view.personalLoan.amount} EUR TEST`);
   await expect(calc).toContainText(`${view.personalLoan.rate}% TEST`);
-  for (const t of view.personalLoan.terms) {
-    await page.getByRole('combobox', { name: 'Term', exact: true }).selectOption(String(t.termMonths));
+  for (const [i, t] of view.personalLoan.terms.entries()) {
+    await choose(page, 'Term', i, `${t.termMonths} months`);
     await expect(calc).toContainText(`${t.monthly} EUR TEST`);
     await expect(calc).toContainText(`${t.totalInterest} EUR TEST`);
   }
@@ -130,8 +139,8 @@ test(`${J} #1 opens the overdraft, personal loan and business term loan pages: s
   // Business term loan: the fee and the weekly payment for each term.
   await previewRoom(page, '/bank/business/loan', 'Business term loan', 'business_term_loan');
   const biz = page.getByTestId('preview-engine');
-  for (const t of view.businessTermLoan.terms) {
-    await page.getByRole('combobox', { name: 'Term', exact: true }).selectOption(String(t.weeks));
+  for (const [i, t] of view.businessTermLoan.terms.entries()) {
+    await choose(page, 'Term', i, `${t.weeks} weeks`);
     await expect(biz).toContainText(`${t.weekly} EUR TEST`);
     await expect(biz).toContainText(`${t.fee} EUR TEST`);
   }
@@ -213,7 +222,7 @@ test(`${J} #4 opens the credit-card application and rules: Submit shows the Prev
   await expect(rules).toContainText('gambling');
   await everyFigureTest(page);
 
-  await page.getByRole('combobox', { name: 'Card', exact: true }).selectOption('charge_card');
+  await choose(page, 'Card', 1, 'Charge card');
   await page.getByLabel('Yearly income', { exact: true }).fill('40000');
   const alert = await refused(page, page.getByRole('button', { name: 'Submit', exact: true }), {
     procedure: 'creditCard.application',

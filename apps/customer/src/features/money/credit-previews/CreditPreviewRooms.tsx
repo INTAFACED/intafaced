@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Button, Field } from '@intafaced/ui/lit';
+import { Button, Field, Segmented } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, RefusalBox, Table, type KeyValueRow, type Notice, type RoomState } from '@intafaced/ui/lit/templates';
 import { useResource } from '../../../shared/resource';
 import type { ApiClient, ApiResult, AppProcedure } from '../../../shared/api';
@@ -179,16 +179,12 @@ export function OverdraftPreviewRoom() {
       step={
         view && od ? (
           <div data-testid="credit-preview" data-room="overdraft">
-            <label>
-              <span>{c.t('overdraftLimit')}</span>
-              <select name="limit" value={chosen} onChange={(e) => setLimit(e.target.value)}>
-                {od.limits.map((l) => (
-                  <option key={l} value={l}>
-                    {money(c, l, view.currency)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <Segmented
+              label={c.t('overdraftLimit')}
+              value={chosen}
+              onChange={setLimit}
+              options={od.limits.map((l) => ({ value: l, label: money(c, l, view.currency) }))}
+            />
             <section aria-label={c.t('bureauTitle')}>
               <h2>{c.t('bureauTitle')}</h2>
               <EnginePanel name={c.t('bureauTitle')}>
@@ -266,16 +262,12 @@ export function PersonalLoanPreviewRoom() {
               maxLength={40}
               onChange={(e) => setName(e.target.value)}
             />
-            <label>
-              <span>{c.t('term')}</span>
-              <select name="term" value={chosen.termMonths} onChange={(e) => setTerm(Number(e.target.value))}>
-                {pl.terms.map((t) => (
-                  <option key={t.termMonths} value={t.termMonths}>
-                    {tk(c, 'termMonths', { n: t.termMonths })}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <Segmented
+              label={c.t('term')}
+              value={String(chosen.termMonths)}
+              onChange={(v) => setTerm(Number(v))}
+              options={pl.terms.map((t) => ({ value: String(t.termMonths), label: tk(c, 'termMonths', { n: t.termMonths }) }))}
+            />
           </div>
         ) : null
       }
@@ -328,16 +320,12 @@ export function BusinessLoanPreviewRoom() {
       step={
         view && bl && chosen ? (
           <div data-testid="credit-preview" data-room="business_term_loan">
-            <label>
-              <span>{c.t('term')}</span>
-              <select name="weeks" value={chosen.weeks} onChange={(e) => setWeeks(Number(e.target.value))}>
-                {bl.terms.map((t) => (
-                  <option key={t.weeks} value={t.weeks}>
-                    {tk(c, 'weeks', { n: t.weeks })}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <Segmented
+              label={c.t('term')}
+              value={String(chosen.weeks)}
+              onChange={(v) => setWeeks(Number(v))}
+              options={bl.terms.map((t) => ({ value: String(t.weeks), label: tk(c, 'weeks', { n: t.weeks }) }))}
+            />
           </div>
         ) : null
       }
@@ -471,13 +459,15 @@ export function CreditCardPreviewRoom() {
               void engine.act('submit', (client) => client.call(BANK_CREDIT_CARD_APPLICATION, { variant }));
             }}
           >
-            <label>
-              <span>{c.t('variant')}</span>
-              <select name="variant" value={variant} onChange={(e) => setVariant(e.target.value as typeof variant)}>
-                <option value="credit_card">{c.t('variant_credit_card')}</option>
-                <option value="charge_card">{c.t('variant_charge_card')}</option>
-              </select>
-            </label>
+            <Segmented
+              label={c.t('variant')}
+              value={variant}
+              onChange={setVariant}
+              options={[
+                { value: 'credit_card', label: c.t('variant_credit_card') },
+                { value: 'charge_card', label: c.t('variant_charge_card') },
+              ]}
+            />
             <Field
               label={c.t('income')}
               hint={c.t('incomeHint')}
