@@ -139,5 +139,13 @@
     "note": "The read is data in __fixtures__, which the rule should not count as source text.",
     "guard": null,
     "why": "Left unchanged for the rule's owner."
+  },
+  {
+    "file": "apps/customer/tests/real-app/J-agents-13.pw.mjs",
+    "target": "../../src/features/more/agents-catalogue-copy.ts",
+    "verdict": "left",
+    "asserts": "The refused rows in Activity show the room's own English words for each refusal code.",
+    "guard": null,
+    "why": "A journey test; its words need a record the journey can read, taken up separately."
   }
 ]

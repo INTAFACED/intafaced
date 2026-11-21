@@ -55,6 +55,7 @@ describe('room templates registry', () => {
       for (const [room, entry] of Object.entries(ROUTE_TEMPLATES)) {
         if (!isRoom(entry) || !entry.migrated) continue;
         const html = await renderPart({ name: room, route: opened(room) });
+        expect(html.startsWith('<!-- never settled -->'), `${room} settles`).toBe(false);
         const drawn = [...html.matchAll(/data-template="([a-z-]+)"/g)].map((m) => m[1]);
         expect(drawn, `${room} (${entry.migrated.file}) draws the ${entry.template} template`).toContain(entry.template);
       }

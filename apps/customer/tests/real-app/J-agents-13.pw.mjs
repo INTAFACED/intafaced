@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { agentsRun, createOwnAgent, openAgents, openNavigatorSession, openOwnAgent, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
-import { en as catalogueEnglish } from '../../src/features/more/agents-catalogue-copy.ts';
 import { api, toUnits } from './stack.mjs';
 
 // J-agents-13, in the running app (docs/roadmap/journeys.json): review what my agents did: analytics, a run trace and my
@@ -53,12 +52,13 @@ async function storedLog(outcome) {
   return rows;
 }
 
-/** The English words the room shows for a refusal code, from the room's own copy (agents-catalogue-copy.ts). */
+/** The English words the room shows for a refusal code, read from the room's own copy (agents-catalogue-copy.ts). */
+const CATALOGUE_COPY = readFileSync(new URL('../../src/features/more/agents-catalogue-copy.ts', import.meta.url), 'utf8');
 function refusalWordsOf(code) {
   const key = `refusal_${code.replace(/^agents\./, '')}`;
-  const words = Object.hasOwn(catalogueEnglish, key) ? catalogueEnglish[key] : undefined;
-  if (typeof words !== 'string') throw new Error(`${J}: the room has no words for ${code}`);
-  return words;
+  const line = new RegExp(`^\\s*'?${key.replace(/[.]/g, '\\.')}'?:\\s*'([^']+)'`, 'm').exec(CATALOGUE_COPY);
+  if (!line) throw new Error(`${J}: the room has no words for ${code}`);
+  return line[1];
 }
 
 /** The session the start ran, from the run file; a later step after a failed start says so. */

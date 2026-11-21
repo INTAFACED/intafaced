@@ -117,45 +117,116 @@ describe('limitFor (the card and the review dialog share one worst case)', () =>
     const rows = costRows({ side: 'sell', base: '0.001', price: '65000', baseAsset: 'BTC', quoteAsset: 'USDT', preview });
     expect(rows.limit).toBe(limitFor('sell', '0.001', preview, 'USDT'));
   });
-  it('BuyReview.tsx takes its figures from costRows and never from the bare helpers', async () => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    const preview = previewSchema.parse({
-      symbol: 'BTC/USDT',
-      side: 'sell',
+  // Every shape BuyReview draws differently: buy or sell, market (a protection price) or limit (none), a sizing price or
+  // none, a known fee or none, and the changed, error and busy notes. Each takes its figures from costRows alone.
+  const market = {
+    symbol: 'BTC/USDT',
+    base: 'BTC',
+    quote: 'USDT',
+    orderable: true,
+    tickSize: '0.01',
+    lotSize: '0.00001',
+    minAmount: null,
+    listedAt: null,
+  };
+  type Shape = {
+    name: string;
+    side: 'buy' | 'sell';
+    type: 'market' | 'limit';
+    price: string | null;
+    protectionPrice: string | null;
+    fee: { estimatedFee: string | null; feeAsset: string | null };
+    changed?: boolean;
+    message?: string | null;
+    busy?: boolean;
+  };
+  const shapes: Shape[] = [
+    {
+      name: 'a market buy',
+      side: 'buy',
       type: 'market',
-      amount: '0.001',
+      price: '65000',
+      protectionPrice: '65325.001',
+      fee: { estimatedFee: '0.065', feeAsset: 'USDT' },
+    },
+    {
+      name: 'a market buy, fee in the coin, price moved',
+      side: 'buy',
+      type: 'market',
+      price: '65000',
+      protectionPrice: '65325.001',
+      fee: { estimatedFee: '0.000001', feeAsset: 'BTC' },
+      changed: true,
+    },
+    {
+      name: 'a market buy with no sizing price',
+      side: 'buy',
+      type: 'market',
       price: null,
-      timeInForce: 'IOC',
-      holdAsset: 'BTC',
-      holdAmount: '0.001',
-      protectionPrice: '64674.999',
-      estimatedFee: '0.065',
-      feeAsset: 'USDT',
-      feeBps: 10,
-      feeRole: 'taker',
-      orderable: true,
-      refusals: [],
-    });
-    const draft = draftSchema.parse({
-      symbol: 'BTC/USDT',
+      protectionPrice: '65325.001',
+      fee: { estimatedFee: '0.065', feeAsset: 'USDT' },
+    },
+    {
+      name: 'a market buy with the fee unknown',
+      side: 'buy',
+      type: 'market',
+      price: '65000',
+      protectionPrice: '65325.001',
+      fee: { estimatedFee: null, feeAsset: null },
+      message: 'TEST refusal',
+    },
+    {
+      name: 'a limit buy',
+      side: 'buy',
+      type: 'limit',
+      price: '64000',
+      protectionPrice: null,
+      fee: { estimatedFee: '0.000001', feeAsset: 'BTC' },
+      busy: true,
+    },
+    {
+      name: 'a market sell',
       side: 'sell',
       type: 'market',
-      amount: '0.001',
-      timeInForce: 'IOC',
-      postOnly: false,
-      clientOrderId: 'TEST-1',
-    });
-    const market = {
-      symbol: 'BTC/USDT',
-      base: 'BTC',
-      quote: 'USDT',
-      orderable: true,
-      tickSize: '0.01',
-      lotSize: '0.00001',
-      minAmount: null,
-      listedAt: null,
-    };
-    for (const helper of [costRows, aboutValue, afterFee, afterQuoteFee, limitFor, protectedTotal]) vi.mocked(helper).mockClear();
+      price: '65000',
+      protectionPrice: '64674.999',
+      fee: { estimatedFee: '0.065', feeAsset: 'USDT' },
+    },
+    {
+      name: 'a market sell with no sizing price',
+      side: 'sell',
+      type: 'market',
+      price: null,
+      protectionPrice: '64674.999',
+      fee: { estimatedFee: '0.065', feeAsset: 'USDT' },
+      changed: true,
+    },
+    {
+      name: 'a market sell with the fee unknown',
+      side: 'sell',
+      type: 'market',
+      price: '65000',
+      protectionPrice: '64674.999',
+      fee: { estimatedFee: null, feeAsset: null },
+      busy: true,
+    },
+    {
+      name: 'a limit sell',
+      side: 'sell',
+      type: 'limit',
+      price: '66000',
+      protectionPrice: null,
+      fee: { estimatedFee: '0.065', feeAsset: 'USDT' },
+      message: 'TEST refusal',
+    },
+  ];
+  const bare = { aboutValue, afterFee, afterQuoteFee, limitFor, protectedTotal };
+  const shown = (id: string) => document.querySelector(`[data-testid="${id}"]`)?.textContent ?? null;
+
+  /** Draws the dialog and reads what it shows; the spies count only the dialog's own calls. */
+  async function draw(review: Parameters<typeof BuyReview>[0]['review'], notes: Pick<Shape, 'message' | 'busy'> = {}) {
+    for (const helper of [costRows, ...Object.values(bare)]) vi.mocked(helper).mockClear();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
@@ -163,31 +234,106 @@ describe('limitFor (the card and the review dialog share one worst case)', () =>
       await act(async () =>
         root.render(
           createElement(BuyReview, {
-            review: { draft, preview, price: '65000', changed: false },
+            review,
             market,
-            busy: false,
-            message: null,
+            busy: notes.busy ?? false,
+            message: notes.message ?? null,
             onCancel: () => undefined,
             onConfirm: () => undefined,
           }),
         ),
       );
-      const rows = costRows({ side: 'sell', base: '0.001', price: '65000', baseAsset: 'BTC', quoteAsset: 'USDT', preview });
-      const shown = (id: string) => document.querySelector(`[data-testid="${id}"]`)?.textContent;
-      // The least the seller gets is costRows' limit, after the fee (64.6), never the bare protectedTotal (64.67).
-      expect(shown('review-limit')).toBe(fmtUsd(rows.limit!));
-      expect(shown('review-limit')).not.toBe(fmtUsd(protectedTotal('sell', '0.001', '64674.999')!));
-      expect(shown('review-get')).toBe(formatGet(rows.get, 'BTC', 5, (_key, p) => `${p.amount} ${p.coin} after the fee`));
-      expect(vi.mocked(costRows)).toHaveBeenCalled();
-      for (const [name, helper] of Object.entries({ aboutValue, afterFee, afterQuoteFee, limitFor }))
-        expect(vi.mocked(helper), name).not.toHaveBeenCalled();
-      // The test's own call above is the only one: the dialog never asks for the bare total.
-      expect(vi.mocked(protectedTotal)).toHaveBeenCalledTimes(1);
+      const seen = { pay: shown('review-pay'), get: shown('review-get'), limit: shown('review-limit') };
+      const called = Object.entries(bare).flatMap(([name, helper]) => (vi.mocked(helper).mock.calls.length ? [name] : []));
+      return { seen, costRowsCalls: vi.mocked(costRows).mock.calls.length, called };
     } finally {
       await act(async () => root.unmount());
       host.remove();
       vi.unstubAllGlobals();
     }
+  }
+
+  it.each(shapes.map((shape) => [shape.name, shape] as const))(
+    'BuyReview.tsx takes its figures from costRows and never from the bare helpers: %s',
+    async (_name, shape) => {
+      const preview = previewSchema.parse({
+        symbol: 'BTC/USDT',
+        side: shape.side,
+        type: shape.type,
+        amount: '0.001',
+        price: shape.type === 'limit' ? shape.price : null,
+        timeInForce: shape.type === 'limit' ? 'GTC' : 'IOC',
+        holdAsset: shape.side === 'buy' ? 'USDT' : 'BTC',
+        holdAmount: shape.side === 'buy' ? '65.4' : '0.001',
+        protectionPrice: shape.protectionPrice,
+        ...shape.fee,
+        feeBps: 10,
+        feeRole: 'taker',
+        orderable: true,
+        refusals: [],
+      });
+      const draft = draftSchema.parse({
+        symbol: 'BTC/USDT',
+        side: shape.side,
+        type: shape.type,
+        amount: '0.001',
+        ...(shape.type === 'limit' ? { price: shape.price } : {}),
+        timeInForce: shape.type === 'limit' ? 'GTC' : 'IOC',
+        postOnly: false,
+        clientOrderId: 'TEST-1',
+      });
+      const { seen, costRowsCalls, called } = await draw({ draft, preview, price: shape.price, changed: shape.changed ?? false }, shape);
+      expect(costRowsCalls, 'the dialog reads costRows').toBeGreaterThan(0);
+      expect(called, 'bare helpers the dialog called').toEqual([]);
+      const rows = costRows({ side: shape.side, base: '0.001', price: shape.price, baseAsset: 'BTC', quoteAsset: 'USDT', preview });
+      expect(seen.limit).toBe(rows.limit == null ? '—' : fmtUsd(rows.limit));
+      expect(seen.get).toBe(formatGet(rows.get, 'BTC', 5, (_key, p) => `${p.amount} ${p.coin} after the fee`) ?? '—');
+      if (shape.side === 'buy') expect(seen.pay).toBe(rows.estimated == null ? '—' : fmtUsd(rows.estimated));
+    },
+  );
+
+  it('shows the limit after the fee on both sides, never the bare protected total', async () => {
+    for (const [side, protection, after, bareTotal] of [
+      ['sell', '64674.999', '$64.60', '$64.67'],
+      ['buy', '65325.001', '$65.40', '$65.33'],
+    ] as const) {
+      const fee = { estimatedFee: '0.065', feeAsset: 'USDT' };
+      const preview = previewSchema.parse({
+        symbol: 'BTC/USDT',
+        side,
+        type: 'market',
+        amount: '0.001',
+        price: null,
+        timeInForce: 'IOC',
+        holdAsset: side === 'buy' ? 'USDT' : 'BTC',
+        holdAmount: '0.001',
+        protectionPrice: protection,
+        ...fee,
+        feeBps: 10,
+        feeRole: 'taker',
+        orderable: true,
+        refusals: [],
+      });
+      const draft = draftSchema.parse({
+        symbol: 'BTC/USDT',
+        side,
+        type: 'market',
+        amount: '0.001',
+        timeInForce: 'IOC',
+        postOnly: false,
+        clientOrderId: 'TEST-1',
+      });
+      const { seen } = await draw({ draft, preview, price: '65000', changed: false });
+      expect(seen.limit, side).toBe(after);
+      expect(fmtUsd(protectedTotal(side, '0.001', protection)!), side).toBe(bareTotal);
+    }
+  });
+
+  it('with no review open, asks for no figures at all', async () => {
+    const { seen, costRowsCalls, called } = await draw(null);
+    expect(seen).toEqual({ pay: null, get: null, limit: null });
+    expect(costRowsCalls).toBe(0);
+    expect(called).toEqual([]);
   });
 });
 
