@@ -7,15 +7,21 @@ import {
   academyTopicSchema,
 } from '@intafaced/contracts/academy-courses';
 import {
-  founderCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
   partFrom,
   type PartLabels,
   explainRefusal,
+  founderRecordRead,
 } from '@/lib/desk';
 import type { HubDeskReply, HubView } from './hub-model';
+import {
+  ACADEMY_ADMIN_FEATURED_SLOT,
+  ACADEMY_ADMIN_CLEAR_FEATURED,
+  ACADEMY_ADMIN_CREATE_TOPIC,
+} from '@intafaced/contracts/academy-admin-records';
+import { ACADEMY_ADMIN_TOPICS } from '@intafaced/contracts/academy-admin-procedures';
 
 /**
  * The Learn hub desk as the signed-in founder. svc-academy records the founder from their own token. No money moves and
@@ -35,8 +41,8 @@ const readTopic = parseWith(academyTopicSchema);
 
 export async function loadHub(ctx: FounderCallContext): Promise<HubView> {
   const [slot, topics] = await Promise.all([
-    founderCall(ctx, 'academy', 'admin.featuredSlot', 'GET', undefined, readSlot),
-    founderCall(ctx, 'academy', 'admin.topics', 'GET', undefined, readTopics),
+    founderRecordRead(ctx, ACADEMY_ADMIN_FEATURED_SLOT, undefined, readSlot),
+    founderRecordRead(ctx, ACADEMY_ADMIN_TOPICS, undefined, readTopics),
   ]);
   return { slot: partFrom(slot, (d) => d, ACADEMY), topics: partFrom(topics, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
@@ -74,10 +80,10 @@ export async function changeHub(
   if (op === 'clear') {
     const parsed = academyClearFeaturedInputSchema.safeParse(input);
     if (!parsed.success) return { why: 'Why clear the featured slot? Say why in up to 500 characters.' };
-    return reply(await founderCall(ctx, 'academy', 'admin.clearFeatured', 'POST', parsed.data, readSlot), 'nothing is featured');
+    return reply(await founderRecordRead(ctx, ACADEMY_ADMIN_CLEAR_FEATURED, parsed.data, readSlot), 'nothing is featured');
   }
   const parsed = academyCreateTopicInputSchema.safeParse(input);
   if (!parsed.success)
     return { why: 'A topic needs a name of up to 60 characters and an address of 3 to 64 lower-case letters, digits and single hyphens.' };
-  return reply(await founderCall(ctx, 'academy', 'admin.createTopic', 'POST', parsed.data, readTopic), 'topic added');
+  return reply(await founderRecordRead(ctx, ACADEMY_ADMIN_CREATE_TOPIC, parsed.data, readTopic), 'topic added');
 }

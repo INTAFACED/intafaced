@@ -16,9 +16,12 @@ import {
   type PartLabels,
   explainRefusal,
   type RefusalView,
+  founderRecordRead,
 } from '@/lib/desk';
 import type { LearnerDeskReply, LearnersView, LearnerView } from './learners-model';
 import { isLearnerOp, learnerChange, type LearnerOp } from './learners-ops';
+import { ACADEMY_ADMIN_LEARNER, ACADEMY_ADMIN_LEARNER_PROGRESS, ACADEMY_ADMIN_LEARNERS } from '@intafaced/contracts/academy-admin-records';
+import { ACADEMY_ADMIN_LEARNER_TAGS } from '@intafaced/contracts/academy-admin-procedures';
 
 /**
  * One learner on the staff desk (J-academy-14), as the signed-in operator. svc-academy records the operator from their own
@@ -71,8 +74,8 @@ const readAdded = (raw: unknown): { added: number } | null =>
 export async function loadLearner(ctx: FounderCallContext, userId: string): Promise<LearnerView> {
   const [card, page, progress] = await Promise.all([
     founderCall(ctx, 'identity', 'learnerCard.lookup', 'GET', { userId }, readCard),
-    founderCall(ctx, 'academy', 'admin.learner', 'GET', { userId }, readPage),
-    founderCall(ctx, 'academy', 'admin.learnerProgress', 'GET', { userId }, readProgress),
+    founderRecordRead(ctx, ACADEMY_ADMIN_LEARNER, { userId }, readPage),
+    founderRecordRead(ctx, ACADEMY_ADMIN_LEARNER_PROGRESS, { userId }, readProgress),
   ]);
   return {
     userId,
@@ -94,8 +97,8 @@ export async function findLearner(ctx: FounderCallContext, term: string) {
 /** The learners report. Rows name accounts by id: each learner's page reads identity once, when it is opened. */
 export async function loadLearners(ctx: FounderCallContext, tag: string | null): Promise<LearnersView> {
   const [report, tags] = await Promise.all([
-    founderCall(ctx, 'academy', 'admin.learners', 'GET', tag ? { tag } : {}, readReport),
-    founderCall(ctx, 'academy', 'admin.learnerTags', 'GET', undefined, readTags),
+    founderRecordRead(ctx, ACADEMY_ADMIN_LEARNERS, tag ? { tag } : {}, readReport),
+    founderRecordRead(ctx, ACADEMY_ADMIN_LEARNER_TAGS, undefined, readTags),
   ]);
   return { tag, report: partFrom(report, (d) => d, ACADEMY), tags: partFrom(tags, (d) => d, ACADEMY) };
 }
