@@ -19,7 +19,7 @@ import { type BacktestLake, missingLake } from '../backtest/lake.js';
 import { type Context, type QuantBacktestResult, type QuantLifecycle, type QuantLiveCheck, TRPCError } from '@intafaced/contracts';
 import { DEFAULT_FLOOR_POLICY } from '../risk/rules.js';
 import { type DisclosureRepository } from '../disclosure/repository.js';
-import { type FeePort, type HistoryPort, missingFees, missingHistory } from '../engine/ports.js';
+import { type FeePort, type HistoryPort, type VenuePricePort, missingFees, missingHistory, missingVenuePrices } from '../engine/ports.js';
 import { type KeyIdempotencyRepository, createMemoryKeyIdempotencyRepository } from '../key-api/key-api.js';
 import { type LakeSettings, type LakeStore } from '../lake/lake.js';
 import { type LibraryRepository } from '../library/repository.js';
@@ -325,6 +325,8 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly history?: HistoryPort;
   /** The published fee schedule read. Omitted refuses `quant.cost_unset` naming fees. */
   readonly fees?: FeePort;
+  /** The venue's candle read a paper run prices from (J-algo-dev-04 #2). Omitted: every paper run is unpriced, saying why. */
+  readonly venuePrices?: VenuePricePort;
   /** Decides only whether a backtest window has closed, and where a rolling holdout begins. */
   readonly now?: () => number;
   /** The owner's out-of-sample criteria and holdout. Omitted, every one is blank: verdicts read inconclusive by name. */
@@ -418,6 +420,7 @@ export function createQuantCore(deps: QuantRouterDeps) {
   const lake = deps.lake ?? missingLake();
   const history = deps.history ?? missingHistory();
   const fees = deps.fees ?? missingFees();
+  const venuePrices = deps.venuePrices ?? missingVenuePrices();
   const now = deps.now ?? (() => Date.now());
   const judgement = deps.judgement ?? NO_JUDGEMENT;
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
@@ -598,7 +601,7 @@ export function createQuantCore(deps: QuantRouterDeps) {
     return paperView(
       paper,
       { id: found.id, version: version.version, modules: version.modules, risk: version.risk },
-      { fees, history },
+      { fees, prices: venuePrices },
       now(),
     );
   }
@@ -832,6 +835,7 @@ export function createQuantCore(deps: QuantRouterDeps) {
     lake,
     history,
     fees,
+    venuePrices,
     now,
     judgement,
     disclosure,
