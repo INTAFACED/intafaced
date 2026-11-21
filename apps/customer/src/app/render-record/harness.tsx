@@ -57,15 +57,15 @@ function counted() {
 }
 
 /**
- * Each part loads the whole app afresh, so a closed part leaves about 18 MB that nothing holds, and V8 lets 203 of them
- * pile up to 1.8 GB before it collects. Collected once the heap passes GC_AT (every 20 parts or so, not every part: one
- * collection takes about half a second), the worker stays under 1 GB. `--expose-gc`: vitest.render.config.ts.
+ * Each part loads the whole app afresh, so a closed part leaves about 18 MB that nothing holds, and V8 lets the 203 parts
+ * of the render recording pile up to 1.8 GB before it collects. Collected once the heap passes GC_AT (every 20 parts or
+ * so, not every part: one collection takes about half a second), its worker stays under 1 GB. `gc` exists where
+ * `--expose-gc` is set: vitest.render.config.ts, which render.compare.tsx requires. A unit test drawing a room or two
+ * needs no collection.
  */
 const GC_AT = 512e6;
 function collectAbove(bytes: number) {
-  const { gc } = globalThis as { gc?: () => void };
-  if (!gc) throw new Error('renderPart needs --expose-gc: run it through vitest.render.config.ts');
-  if (process.memoryUsage().heapUsed > bytes) gc();
+  if (process.memoryUsage().heapUsed > bytes) (globalThis as { gc?: () => void }).gc?.();
 }
 
 const tick = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 20))));
