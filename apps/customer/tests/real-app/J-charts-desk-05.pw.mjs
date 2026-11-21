@@ -76,19 +76,23 @@ async function paneValueAt(page, point) {
 /**
  * How far, in pixels, a painted height `y` (chart pixels) sits from where the pane now reads `value`. The Volume pane
  * rescales as the live bar's volume grows, so a line at a fixed value moves on screen after it is placed; this reads the
- * pane's own scale at the painted height (the whole pixel there and one either side) rather than trusting the scale at
- * the click.
+ * pane's own scale now rather than trusting the scale at the click. The scale is read at a quarter and three quarters of
+ * the pane's height, never at the painted height itself: the chart's pane-resize handle covers the pixels next to each
+ * pane separator (#8933), and a pointer there reads nothing, so a line the rescale carried near the pane's edge could not
+ * be read at its own height. The Volume pane's scale is linear, so two reads place every value on it.
  */
 async function pixelsFromValue(page, x, y, value) {
   const box = await chartHost(page).boundingBox();
   if (!box) throw new Error('the chart has no box');
-  const cy = Math.round(y);
-  const above = await paneValueAt(page, { x, y: box.y + cy - 1 });
-  const below = await paneValueAt(page, { x, y: box.y + cy + 1 });
-  const at = await paneValueAt(page, { x, y: box.y + cy });
-  const perPixel = Math.abs(above.value - below.value) / 2;
-  if (!(perPixel > 0)) throw new Error(`the pane reads no scale at y ${cy}`);
-  return Math.abs(at.value - value) / perPixel + Math.abs(y - cy);
+  const pane = (await paneBoxes(page)).find((b) => b.index === 1);
+  if (!pane) throw new Error('the chart has no Volume pane');
+  const [ya, yb] = [0.25, 0.75].map((f) => Math.round(pane.top + pane.height * f));
+  const a = await paneValueAt(page, { x, y: box.y + ya });
+  const b = await paneValueAt(page, { x, y: box.y + yb });
+  if (a.pane !== 1 || b.pane !== 1) throw new Error(`the Volume pane's scale was read on panes ${a.pane} and ${b.pane}`);
+  const perPixel = (b.value - a.value) / (yb - ya);
+  if (!(perPixel < 0)) throw new Error(`the Volume pane reads no scale between y ${ya} and ${yb}`);
+  return Math.abs(y - (ya + (value - a.value) / perPixel));
 }
 
 test.describe.configure({ mode: 'serial' });
@@ -232,6 +236,19 @@ test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price 
       const off = await pixelsFromValue(page, level.x, y1, Number(storedLevel[0]));
       expect(off, `line at ${y1}, ${off} px from where the pane reads the stored ${storedLevel[0]}`).toBeLessThanOrEqual(1.5);
     }
+  }).toPass({ timeout: 15_000 });
+
+  // The measure above reads a painted height next to the pane's top edge too, where the chart's pane-resize handle
+  // takes the pointer and the crosshair reads nothing (#8933): a height a pixel under the separator is measured from the
+  // same value as the clicked height, by exactly the pixels between them.
+  await expect(async () => {
+    const hostBox = await chartHost(page).boundingBox();
+    const here = await paneValueAt(page, level);
+    const clickedY = level.y - hostBox.y;
+    expect(await pixelsFromValue(page, level.x, clickedY, here.value)).toBeLessThanOrEqual(1.5);
+    const edgeY = volume.top + 1;
+    const fromEdge = await pixelsFromValue(page, level.x, edgeY, here.value);
+    expect(Math.abs(fromEdge - (clickedY - edgeY)), `at y ${edgeY}, ${fromEdge} px from y ${clickedY}`).toBeLessThanOrEqual(1.5);
   }).toPass({ timeout: 15_000 });
 
   // A ray and an info line on the Volume pane: each point stored at the value the pane reads under it, and each painted
