@@ -1,4 +1,4 @@
-// The parse, walk and edit helpers the call-records codemod shares (tooling/codemod/call-records/README.md).
+// The parse, walk and edit helpers the call-records codemod shares (tooling/codemod/call-records/run.mjs).
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parseSync } from 'oxc-parser';

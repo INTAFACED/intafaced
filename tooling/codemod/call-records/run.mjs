@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// The whole call-records codemod for one service, end to end (README.md beside this file):
+// The whole call-records codemod for one service, end to end (the steps this file runs):
 //   1. index.mjs writes the records, mounts them in the router and moves every caller;
 //   2. contracts is built and samples.mjs writes each record's samples, and names any record JSON Schema can't carry;
 //   3. if any, everything step 1 wrote is put back and step 1 runs again without those calls (they stay as they were);
 //   4. with --refusals, refusals.mjs lists what the service's own tests see each new record's handler refuse;
-//   5. procedures:write regenerates the registry and procedures/<service>.schema.json.
+//   5. procedures:write regenerates the registry and procedures/<service>.schema.json;
+//   6. doubles.mjs gives every test's API client double that reaches a record caller a `call` (its own query or mutate).
 // It starts only on a clean tree (nothing uncommitted under apps/, services/ or packages/contracts/), so step 3 can put
 // back exactly what step 1 wrote.
 //
@@ -78,6 +79,7 @@ export function run(argv) {
   }
   build();
   sh('pnpm', ['procedures:write'], { cwd: join(REPO, 'packages/contracts'), stdio: ['ignore', 'ignore', 'inherit'] });
+  sh('node', [here('doubles.mjs'), '--write'], { stdio: ['ignore', 'ignore', 'inherit'] });
   for (const f of [summary, unportable]) if (existsSync(f)) rmSync(f);
   console.log(JSON.stringify({ service, records: result.records.length, rewritten: result.rewritten, hand: result.hand }, null, 2));
 }

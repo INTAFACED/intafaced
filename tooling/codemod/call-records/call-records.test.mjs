@@ -1,4 +1,4 @@
-// The call-records codemod's own pieces, on small inputs (the codemod itself is proven by its runs: README.md).
+// The call-records codemod's own pieces, on small inputs (the codemod itself is proven by its runs: run.mjs).
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { answerChecks, pruneImports, recordName } from './index.mjs';
 import { freeNames, load } from './ast.mjs';
+import { CALL_METHOD, doublesIn } from './doubles.mjs';
 
 test('a record is named by its module and path, a leading segment that repeats the module dropped', () => {
   assert.equal(recordName('bank', 'deposits.addresses.list'), 'BANK_DEPOSITS_ADDRESSES_LIST');
@@ -70,4 +71,28 @@ test("a caller's own check on the answer is found, through its consts, so the ca
   assert.equal(answerChecks(p, a).length, 1);
   assert.match(answerChecks(p, a)[0], /^\.refine\(\) \(.*c\.ts:2\)$/);
   assert.deepEqual(answerChecks(p, b), []);
+});
+
+test("a test's API client double gets a call that sends the record to its own query or mutate", async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'a.test.ts');
+  writeFileSync(file, 'export const api = { query: () => 1, mutate: () => 2 };\nexport const done = { query: 1, mutate: 2, call: 3 };\n');
+  assert.equal(doublesIn(file).out.length, 1, 'a double with call already is left');
+  const sent = [];
+  const api = {
+    query: (...a) => (sent.push(['query', ...a]), 'q'),
+    mutate: (...a) => (sent.push(['mutate', ...a]), 'm'),
+  };
+  const method = CALL_METHOD.replace(/^call\(\s*this:[^\n]*\n/, 'call(\n')
+    .replace(/: \{ kind[^}]*\}/, '')
+    .replace(/\?: unknown/g, '')
+    .replace(/,$/, '');
+  const double = new Function('api', `return { ...api, ${method} };`)(api);
+  const record = { kind: 'query', module: 'notify', path: 'notify.list', output: 'schema' };
+  assert.equal(double.call(record, { limit: 1 }, { signal: 's' }), 'q');
+  assert.equal(double.call({ ...record, kind: 'mutation' }, { id: 'x' }), 'm');
+  assert.deepEqual(sent, [
+    ['query', 'notify', 'notify.list', { limit: 1 }, 'schema', { signal: 's' }],
+    ['mutate', 'notify', 'notify.list', { id: 'x' }, 'schema', undefined],
+  ]);
 });

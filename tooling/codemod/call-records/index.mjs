@@ -2,7 +2,7 @@
 // The call-records codemod: moves an app's calls to a service from "by name" (`api.query('bank', 'deposits.list', input,
 // schema)`) to the call's written record (`api.call(BANK_DEPOSITS_LIST, input)`), and writes the record from the
 // service's own router: its guard, input and answer schemas, moved into @intafaced/contracts, and the router mounting it
-// (`mountRecord`). What it can't move safely it leaves untouched and names. See README.md beside this file.
+// (`mountRecord`). What it can't move safely it leaves untouched and names. See run.mjs for the whole run.
 //
 //   node tooling/codemod/call-records/index.mjs --module bank [--paths deposits.,global.] [--service svc-bank]
 //        [--file bank-deposit-procedures] [--write]
