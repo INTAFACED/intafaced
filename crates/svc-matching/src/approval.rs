@@ -5,7 +5,6 @@
 //! The two people identity recorded must both be on the venue's own operator list (`MATCHING_OPERATOR_IDS`), and every
 //! switch but the four protective brakes also needs identity's attestation that they are two founders.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use service_kit::approvals::{ConsumeError, ConsumeInput, Consumed, IdentityClient};
@@ -121,15 +120,6 @@ impl Approvals for Stub {
             requester_is_founder: Some(true),
         })
     }
-}
-
-/// `parseOperatorIds(MATCHING_OPERATOR_IDS)`: comma separated, trimmed, lower case; blank is nobody.
-pub fn parse_operator_ids(raw: Option<&str>) -> HashSet<String> {
-    raw.unwrap_or("")
-        .split(',')
-        .map(|id| js_trim(id).to_lowercase())
-        .filter(|id| !id.is_empty())
-        .collect()
 }
 
 /// `sameUser`.

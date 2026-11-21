@@ -37,12 +37,13 @@ use service_kit::s2s_verify::BodyBind;
 use service_kit::server::Request;
 use service_kit::time::Instant;
 use sha2::Sha256;
-use svc_matching::approval::{Stub, parse_operator_ids};
+use svc_matching::approval::Stub;
 use svc_matching::book::types::{EngineOrder, OrderType, Side, Tif};
 use svc_matching::book::wire::to_wire;
 use svc_matching::door::venue::VenueConfig;
 use svc_matching::door::{DoorConfig, MatchingDoor, Outcome, ROUTES, Slice};
 use svc_matching::engine::{EngineParts, MatchingEngine, MemoryEventBus};
+use svc_matching::env::parse_operator_ids;
 use svc_matching::journal::io::{EngineJournal as _, MemoryJournal};
 use svc_matching::journal::record::JournalCommand;
 use svc_matching::journal::replay::MemorySnapshotSink;
@@ -282,6 +283,29 @@ fn moved_state(method: &str, a: &Recorded) -> bool {
         && !a.body.contains("\"applied\":false")
 }
 
+/// `/health`'s latency percentiles are the bucket bound a wall-clock reply time fell in, which moves with the machine:
+/// the recording wrote each as 0 (`wire-replay.test.ts`), and so does this.
+fn wall_clock_percentiles(body: &str) -> String {
+    let mut out = String::with_capacity(body.len());
+    let mut rest = body;
+    while let Some(at) = ["\"p50Ms\":", "\"p99Ms\":"]
+        .iter()
+        .filter_map(|k| rest.find(k).map(|i| (i, k.len())))
+        .min()
+    {
+        let (i, n) = at;
+        out.push_str(&rest[..i + n]);
+        rest = &rest[i + n..];
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        if digits > 0 {
+            out.push('0');
+            rest = &rest[digits..];
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The code a recorded body names, if any.
 fn code_of(body: &str) -> Option<String> {
     json::parse(body).ok().and_then(|j| match j.get("code") {
@@ -368,12 +392,18 @@ fn the_door_answers_every_recorded_request_it_decides_as_the_typescript_does() {
                 if let Some(p) = &pattern {
                     reached.insert(p.clone());
                 }
-                let outcome = door.decide(&Request {
+                let outcome = match door.decide(&Request {
                     method,
                     url,
                     headers: &headers,
                     body: &payload,
-                });
+                }) {
+                    Outcome::Answer(mut r) => {
+                        r.body = wall_clock_percentiles(&r.body);
+                        Outcome::Answer(r)
+                    }
+                    owed => owed,
+                };
                 let mut owe = |slices: &BTreeSet<Slice>, after: bool| {
                     owed_n += 1;
                     for &slice in slices {

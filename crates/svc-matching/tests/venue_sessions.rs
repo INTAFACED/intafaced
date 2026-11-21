@@ -33,7 +33,7 @@
     reason = "a test: a failure is the point"
 )]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use service_kit::json::{self, Json};
@@ -344,7 +344,7 @@ fn replay(records: &[JournalRecord]) -> Books {
 fn surveillance_door(engine: &mut MatchingEngine, method: &str, path: &str) -> Json {
     let venue = VenueConfig {
         approvals: Box::new(Unwired),
-        operator_ids: HashSet::new(),
+        operator_ids: Vec::new(),
     };
     let route = ROUTES
         .iter()

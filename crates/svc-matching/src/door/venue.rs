@@ -1,8 +1,6 @@
 //! The `venue` slice's doors, past the caller and input checks (`router.ts`): the market and venue mode switches, each
 //! spending one identity approval (`consumeVenueKill`), a dead session, and the surveillance reads and refusals.
 
-use std::collections::HashSet;
-
 use service_kit::approvals::{ConsumeInput, founder_verdict, payload_hash};
 use service_kit::json::Json;
 use service_kit::schema::Value;
@@ -23,8 +21,8 @@ use crate::errors;
 pub struct VenueConfig {
     /// `IDENTITY_URL`'s consumer, or [`crate::approval::Unwired`] without it.
     pub approvals: Box<dyn Approvals>,
-    /// `MATCHING_OPERATOR_IDS`, as [`crate::approval::parse_operator_ids`] reads it.
-    pub operator_ids: HashSet<String>,
+    /// `MATCHING_OPERATOR_IDS`, as [`crate::env::parse_operator_ids`] reads it.
+    pub operator_ids: Vec<String>,
 }
 
 fn ok(body: Json) -> Outcome {

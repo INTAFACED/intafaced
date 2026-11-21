@@ -10,17 +10,22 @@
 //!
 //! The `book` slice adds the order book (`book`), the engine over it (`engine`: the journal before every move, the
 //! order events, the cold start, reconcile), and the doors that reach it (`door::book`). The `serve` slice adds the
-//! binary that serves them.
+//! binary that serves them (`main.rs`): what the process says about itself (`status`: `/health`, `/ready` and each
+//! order operation's latency), the replay hold check and the boot that runs it (`holds`), admission and the expiry pass
+//! in the engine (`engine::admission`), and the scrape.
 //!
 //! The `venue` slice adds the mode switches, the venue halt, dead sessions and the surveillance evidence
 //! (`engine::venue`), their doors (`door::venue`), and the identity approval each switch spends (`approval`).
 
 pub mod approval;
 pub mod book;
+pub mod bus;
 pub mod door;
 pub mod engine;
 pub mod env;
 pub mod errors;
 pub mod errors_table;
+pub mod holds;
 pub mod journal;
 pub mod refines;
+pub mod status;

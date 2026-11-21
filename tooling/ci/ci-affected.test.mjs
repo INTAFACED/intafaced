@@ -8,6 +8,7 @@ import {
   diffBase,
   mergeEdges,
   readEdges,
+  reachesLook,
   runsEverything,
   sealNeeded,
   shardMatrix,
@@ -210,6 +211,23 @@ test('seal: the required jobs a classification needs', () => {
   assert(sealNeeded(rust, { ...ok, rust: 'skipped' }).length === 1, 'a skipped Rust job is a failure when the change reaches Rust');
   assert(sealNeeded(rust, ok).length === 1, 'a missing Rust job is a failure when the change reaches Rust');
   assert(sealNeeded(none, { ...ok, rust: 'skipped' }).length === 0, 'a change that reaches no Rust needs no Rust job');
+  const look = { full: false, affected: true, look: true };
+  assert(sealNeeded(look, { ...ok, 'tests-full': 'success', look: 'success' }).length === 0, 'look gate green');
+  assert(sealNeeded(look, { ...ok, 'tests-full': 'success', look: 'failure' }).length === 1, 'look gate red');
+  assert(
+    sealNeeded(look, { ...ok, 'tests-full': 'success', look: 'skipped' }).length === 1,
+    'a skipped look gate is a failure when the change draws a room',
+  );
+  assert(sealNeeded(none, { ...ok, look: 'skipped' }).length === 0, 'a change that draws no room needs no look gate');
+});
+
+test('reachesLook: a change a Customer room or the kit draws, or the gate itself (#9325)', () => {
+  assert(reachesLook(['apps/customer/src/screens/pay/index.tsx']), 'a Customer room');
+  assert(reachesLook(['packages/ui/src/lit/tokens.ts']), 'the kit');
+  assert(reachesLook(['tooling/ci/look-gate/policy.mjs']), 'the gate');
+  assert(reachesLook(['.github/workflows/look-pr.yml']), 'its workflow');
+  assert(!reachesLook(['apps/customer/README.md']), 'a doc draws nothing');
+  assert(!reachesLook(['services/svc-pay/src/x.ts', 'apps/admin/src/a.tsx']), 'a service or the console is not a Customer room');
 });
 
 test('shards: how many test jobs a run takes', () => {

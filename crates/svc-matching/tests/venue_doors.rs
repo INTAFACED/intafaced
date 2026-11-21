@@ -52,13 +52,12 @@ use service_kit::s2s::{self, SERVICE_HEADER};
 use service_kit::s2s_verify::BodyBind;
 use service_kit::server::Request;
 use sha2::{Digest, Sha256};
-use svc_matching::approval::{
-    Approvals, Identity, Refused, Stub, UNWIRED, Unwired, parse_operator_ids,
-};
+use svc_matching::approval::{Approvals, Identity, Refused, Stub, UNWIRED, Unwired};
 use svc_matching::door::venue::VenueConfig;
 use svc_matching::door::{DoorConfig, MatchingDoor, Outcome};
 use svc_matching::engine::venue::MISSING_OPERATOR;
 use svc_matching::engine::{EngineParts, Flags, MatchingEngine, MemoryEventBus};
+use svc_matching::env::parse_operator_ids;
 use svc_matching::journal::io::{EngineJournal, FileJournal, MemoryJournal};
 use svc_matching::journal::record::JournalCommand;
 use svc_matching::journal::replay::MemorySnapshotSink;
