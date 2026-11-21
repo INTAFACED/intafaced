@@ -1,5 +1,5 @@
 -- trade.recurring_buy_rules, trade.recurring_buy_slots, trade.recurring_buy_orders · a recurring buy of a basket on the
--- person's own venue account (J-copy-bots-otc-16, OWNER 226; src/recurring/recurring-buys.ts). Reversal:
+-- person's own venue account (J-copy-bots-otc-16; src/recurring/recurring-buys.ts). Reversal:
 -- 20261121080000_recurring_buys.down.sql
 --
 -- Nothing here is a balance. The person's coins and every fill are the venue's own record, read from it. A rule says what

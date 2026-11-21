@@ -423,7 +423,7 @@ const messages = {
     'No bot exists with that request, so it did not go through. You can set it up again.',
   'No bot type has that address.': 'No bot type has that address.',
   'No bots': 'No bots',
-  'No buy has run yet.': 'No buy has run yet.',
+  'No buy has run.': 'No buy has run.',
   'No buy runs again, and the coins it bought are sold for {asset} once, at the venue’s best bid.':
     'No buy runs again, and the coins it bought are sold for {asset} once, at the venue’s best bid.',
   'No copied fills': 'No copied fills',
@@ -444,7 +444,6 @@ const messages = {
   'No paper strategies': 'No paper strategies',
   'No payment needed': 'No payment needed',
   'No price available right now': 'No price available right now',
-  'No recurring buys yet': 'No recurring buys yet',
   'No sales': 'No sales',
   'No signals are published': 'No signals are published',
   'No trades on record': 'No trades on record',
@@ -896,6 +895,7 @@ const messages = {
     'You have no passkey or authenticator app, so closing everything cannot be confirmed.',
   'You have no passkey or authenticator app, so this withdrawal cannot be confirmed.':
     'You have no passkey or authenticator app, so this withdrawal cannot be confirmed.',
+  'You have no recurring buys': 'You have no recurring buys',
   'You have no signals': 'You have no signals',
   'You have no webhooks': 'You have no webhooks',
   'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.':

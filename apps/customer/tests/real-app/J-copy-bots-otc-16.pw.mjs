@@ -13,7 +13,7 @@ import { connectWhenAsked } from './dex.mjs';
 import { ageRecord } from './test-age.mjs';
 
 // J-copy-bots-otc-16, in the running app (docs/roadmap/journeys.json): set up a recurring buy of a basket and keep it
-// running. One test per step, titled "J-copy-bots-otc-16 #<n>"; #3 (savings routing) is Later (OWNER 226) and has none.
+// running. One test per step, titled "J-copy-bots-otc-16 #<n>"; #3 (savings routing) comes later and has none.
 // The rule trades on the person's own account at the stack's TEST venue simulator, with svc-trade's user-venue door on for
 // this file: INTAFACED holds and moves nothing. The person is a TEST account, verified, with a TEST wallet holding TEST
 // USDC on its venue account. The basket is three TEST spot markets of this file's own (ownSpotMarket), each with this

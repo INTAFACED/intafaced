@@ -416,7 +416,7 @@ function RecurringList() {
     <PageSection title={t('My recurring buys')}>
       <p className="cb-note-body">{t('Set one up from any coin page with Recurring buy.')}</p>
       {rules.length === 0 ? (
-        <EmptyState title={t('No recurring buys yet')} reason={t('A recurring buy you save shows here.')} />
+        <EmptyState title={t('You have no recurring buys')} reason={t('A recurring buy you save shows here.')} />
       ) : (
         <table className="cb-table" aria-label={t('My recurring buys')}>
           <thead>
@@ -611,7 +611,7 @@ function Confirm(props: { title: string; body: string; action: string; onCancel:
 
 function Slots({ rule }: { rule: RecurringRule }) {
   const { t } = roomCopy.useCopy();
-  if (rule.slots.length === 0) return <p className="cb-note-body">{t('No buy has run yet.')}</p>;
+  if (rule.slots.length === 0) return <p className="cb-note-body">{t('No buy has run.')}</p>;
   return (
     <table className="cb-table" aria-label={t('Buys')}>
       <thead>
