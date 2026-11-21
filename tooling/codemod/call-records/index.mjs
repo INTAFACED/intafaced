@@ -273,7 +273,9 @@ export function build(opts, planned) {
       }
       changes.edit(m.q.file, statementStart(m.q, stmt), statementEnd(m.q, stmt), '');
       changes.imp(m.q.file, contractsSpec(target), b.kind === 'type' ? `type ${m.name}` : m.name);
-      if (b.exported) changes.of(m.q.file).exports.add(b.kind === 'type' ? `type ${m.name}` : m.name);
+      // Re-exported only for a file that imports it from here; anyone else reads it from contracts.
+      if (b.exported && importersOf(m.q.file, m.name).length > 0)
+        changes.of(m.q.file).exports.add(b.kind === 'type' ? `type ${m.name}` : m.name);
     }
     // The router: each procedure is mounted from its record.
     for (const r of recs) {
@@ -504,6 +506,18 @@ export function write(result) {
   return touched;
 }
 
+/** The other files that import `name` from `file` (by its module name), the files a re-export of it must keep serving. */
+export function importersOf(file, name) {
+  const stem = basename(file).replace(/\.tsx?$/, '');
+  try {
+    return execFileSync('git', ['grep', '-l', '-w', name, '--', 'apps', 'packages', 'services'], { cwd: REPO, encoding: 'utf8' })
+      .split('\n')
+      .filter((f) => f && join(REPO, f) !== file && new RegExp(`from '[^']*${stem}(\\.js)?'`).test(readFileSync(join(REPO, f), 'utf8')));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * A caller's hand schema, once no call parses with it: each type read from it (`z.infer<typeof s>`, `z.output<...>`)
  * becomes the record's (`ProcedureOutput<typeof RECORD>`), and a re-export of it no other file imports is dropped, so
@@ -514,16 +528,7 @@ function retype(file, schemas) {
   const p = load(file);
   const edits = [];
   let used = false;
-  const importers = (name) => {
-    const rel = relative(REPO, file).replace(/\.tsx?$/, '');
-    try {
-      return execFileSync('git', ['grep', '-l', '-w', name, '--', 'apps', 'packages', 'services'], { cwd: REPO, encoding: 'utf8' })
-        .split('\n')
-        .filter((f) => f && join(REPO, f) !== file && readFileSync(join(REPO, f), 'utf8').includes(basename(rel)));
-    } catch {
-      return [];
-    }
-  };
+  const importers = (name) => importersOf(file, name);
   for (const [schema, recs] of schemas) {
     if (recs.size !== 1) continue;
     const rec = [...recs][0];
