@@ -1,5 +1,6 @@
 import { useRef } from 'react';
-import { z } from 'zod';
+import type { z } from 'zod';
+import { membershipOfferSchema } from '@intafaced/contracts/identity-account-room';
 import type { ApiClient } from '../../shared/api';
 import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
@@ -14,22 +15,7 @@ import { membershipCopy as copy } from './membership-copy';
  * its price and perks and nothing to press.
  */
 
-// hand-declared-ok: svc-identity's membership.offer output lives in the service (membership-router.ts), not in @intafaced/contracts.
-const tier = z
-  .object({
-    id: z.string(),
-    name: z.string(),
-    price: z.string(),
-    assetId: z.string(),
-    periodDays: z.number().int(),
-    perks: z.array(z.string()),
-  })
-  .strict();
-
-export const membershipOfferSchema = z.union([
-  z.object({ offered: z.literal(false), code: z.literal('identity.membership_not_offered') }).strict(),
-  z.object({ offered: z.literal(true), tiers: z.array(tier), current: z.null() }).strict(),
-]);
+export { membershipOfferSchema };
 export type MembershipOffer = z.infer<typeof membershipOfferSchema>;
 
 export function MembershipView({ offer }: { offer: MembershipOffer }) {

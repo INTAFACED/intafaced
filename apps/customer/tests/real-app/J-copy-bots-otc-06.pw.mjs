@@ -1,23 +1,24 @@
-// World: book
+// World: book, gates, restart
 import { test, expect } from './journey.mjs';
 import { api, journeyState, signOutBrowser, toUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow } from './copy.mjs';
+import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow, userIdOf } from './copy.mjs';
+import { venueForThisFile, venueInfo } from './venue.mjs';
+import { ledgerOwedTo, ledgerTrace, myCopyFees, onVenue, venueCopiedSell } from './copy-venue.mjs';
 
 // J-copy-bots-otc-06, in the running app (docs/roadmap/journeys.json): see what copying costs me and what a lead earns.
-// One test per step, titled "J-copy-bots-otc-06 #<n>", run in order. #1 makes the journey's start: a TEST leader listed by
-// the stack's TEST founder, a verified follower who follows it on screen, and two copied buys (the leader's own fills on
-// the TEST book), so the fee share has settled fills to show. The fee share is the stack's TEST copy fee share.
-// #2 to #6 run on what #1 made: the follower's copied position by average entry, then the leader's own desk (/trade/copy
-// ?tab=lead) and the leaderboard tab. Steps that are written but not built yet fail at their first missing part, quickly
-// (UNBUILT):
-// - #1: money activity has no fee-share row per copied fill (copying through the venue door, where our builder fee is
-//   earned, is not built; the TEST book has no builder fee).
-// - #3: the earnings panel is built, but its fee-share facts need #1's fills to have recorded a share, so it fails at
-//   the first missing total.
+// One test per step, titled "J-copy-bots-otc-06 #<n>", run in order. #1 makes the journey's start, twice over:
+// - on the TEST book, a TEST leader listed by the stack's TEST founder, a verified follower who follows it on screen, and
+//   two copied buys (the leader's own fills), which #2 reads as one copied position with two fills;
+// - on the venue, where our builder fee is earned: a second TEST leader on a TEST spot market of this file's own, and the
+//   same follower copying them onto their own agent account, until the copy of the leader's sell carries our builder fee
+//   and the leader's share of it is owed by INTAFACED (copy-venue.mjs `venueCopiedSell`, shared with J-copy-bots-otc-11).
+// #1 reads the follower's money activity against the venue's own record of the fill and the ledger's own record of the
+// share; #3 reads the venue leader's earnings panel against the ledger. #2 #4 #5 #6 run on the TEST-book start.
+// svc-trade's user-venue door is on for this file (venueForThisFile), so trade restarts once before and once after it,
+// and twice more inside the venue start.
 const J = 'J-copy-bots-otc-06';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
-const UNBUILT = { timeout: 5_000 };
 const SCALE = 10n ** 18n;
 /** A scaled amount as the service writes it: no trailing zeros, no grouping. */
 function fromUnits(units) {
@@ -47,6 +48,7 @@ const refusalCode = (body) => body?.error?.data?.cause?.code ?? JSON.stringify(b
 test.describe.configure({ mode: 'default' });
 // An action on a part that never appears fails in 15 s, not at the test's time limit.
 test.use({ actionTimeout: 15_000 });
+venueForThisFile(test);
 
 function state(key) {
   const value = run.read()[key];
@@ -54,16 +56,17 @@ function state(key) {
   return value;
 }
 
-test(`${J} #1 as a follower opens money activity after a copied fill: one fee-share row with fill, lead, asset, amount; no profit share`, async ({
+test(`${J} #1 as a follower opens activity after a copied fill: one row for the venue fill with the venue's fee and our builder fee, each named with its source, and the lead's share paid by INTAFACED; no profit share`, async ({
   page,
 }) => {
-  test.setTimeout(360_000);
+  test.setTimeout(600_000);
   const tag = Date.now().toString(36);
   const leader = await fundedTrader(page, 'jcl6', '2000');
   const leaderName = `Journey Costs ${tag}`;
   const leaderRef = await listLeader(leader, leaderName);
   const follower = await fundedTrader(page, 'jcf6', '1000');
   run.reset({ tag, leader, leaderName, leaderRef, follower });
+  // The TEST-book start #2 reads: two copied buys of the leader's own fills.
   await signIn(page, follower);
   await followOnScreen(page, follower, leaderRef, { perOrder: '50', total: '300', fixed: '20' });
   await leadFill(leader, 'buy', '0.001', `${J}-1-a-${tag}`);
@@ -71,27 +74,107 @@ test(`${J} #1 as a follower opens money activity after a copied fill: one fee-sh
   await expect(async () => {
     await expect(copiedOrders(await openFollow(page, leaderRef))).toHaveCount(2, { timeout: 2_000 });
   }).toPass({ timeout: 60_000 });
+  // The venue start, where the copied fill carries our builder fee.
+  const v = await venueCopiedSell(page, {
+    J,
+    tag,
+    follower,
+    code: 'JC6',
+    traderPrefix: 'jcv6',
+    leaderName: `Journey Costs Venue ${tag}`,
+  });
+  run.write({
+    vSymbol: v.symbol,
+    vLeader: v.leader,
+    vLeaderName: v.leaderName,
+    vLeaderRef: v.leaderRef,
+    vFollowId: v.followId,
+    vOwner: v.owner,
+    vSub: v.sub,
+    builder: v.builder,
+    vSellFill: v.sellFill,
+    vBalancesBefore: v.balancesBefore,
+  });
+  const { vSymbol, vLeader, vLeaderName, vOwner, vSub, vSellFill, vBalancesBefore } = run.read();
+  const vLeaderId = await userIdOf(vLeader);
 
-  await page.goto('/money/activity');
-  const rows = page.getByRole('row').filter({ hasText: 'Copy fee share' });
-  await expect(rows.first()).toBeVisible(UNBUILT);
-  await expect(rows).toHaveCount(2);
-  for (const row of await rows.all()) {
-    await expect(row).toContainText(leaderName);
-    await expect(row).toContainText('USDT');
-    await expect(row).toContainText(/Fill [0-9a-f-]{8}/);
+  // The fill as the venue itself reports it on the follower's own sub-account.
+  const fill = (await onVenue('/fills', vOwner, vSub, { since: new Date(0).toISOString() })).find((f) => f.fillId === vSellFill);
+  expect(fill, 'the venue reports the copied fill on the sub-account').toBeTruthy();
+  expect(toUnits(fill.builderFee)).toBeGreaterThan(0n);
+  // The share as svc-trade recorded it: the owner's TEST rate (the leader's own earnings say it) on our builder fee.
+  const earnings = await leadEarnings(vLeader);
+  const bps = BigInt(earnings.leaderShareBps);
+  const share = (toUnits(fill.builderFee) * bps) / 10_000n;
+  const fees = await myCopyFees(follower);
+  const row = fees.rows.find((r) => r.fillId === vSellFill);
+  expect(row.feeShare).toMatchObject({ state: 'owed', share: { asset: fill.feeAsset } });
+  expect(toUnits(row.feeShare.share.amount)).toBe(share);
+
+  // The ledger's own record: owed by INTAFACED to the lead once, under the fill's key, our own accounts only.
+  const trace = await ledgerTrace(row.feeShare.ledgerKey);
+  expect(trace).toMatchObject({ found: true, module: 'trade', reason: 'trade.fee_share.owed' });
+  expect(trace.postings).toHaveLength(2);
+  for (const p of trace.postings) {
+    expect(p.assetId).toBe(fill.feeAsset);
+    expect(toUnits(p.amount)).toBe(share);
   }
-  await expect(page.getByText(/profit share/i)).toHaveCount(0);
+  const owedTo = await ledgerOwedTo(vLeaderId, fill.feeAsset);
+  expect(trace.postings.find((p) => p.direction === 'debit')?.accountId).toBe(owedTo.accountId);
+  // Never charged to the follower on top: the sub-account was moved by exactly the fill, the venue's fee and our builder
+  // fee, as the venue reports them, and nothing more.
+  const after = await onVenue('/balances', vOwner, vSub);
+  const usdc = (rows) => toUnits(rows.find((b) => b.asset === 'USDC')?.total ?? '0');
+  const proceeds = (toUnits(fill.amount) * toUnits(fill.price)) / 10n ** 18n;
+  expect(usdc(after) - usdc(vBalancesBefore)).toBe(proceeds - toUnits(fill.venueFee) - toUnits(fill.builderFee));
+
+  // The follower's money activity: one row for that venue fill.
+  await signIn(page, follower);
+  await page.goto('/money/activity');
+  const copied = page.getByRole('table', { name: 'Copied trades', exact: true });
+  const rows = copied.getByRole('row').filter({ hasText: `Fill ${vSellFill}` });
+  await expect(rows).toHaveCount(1);
+  const shown = rows.first();
+  const units = async (testId) => toUnits(ungroup((await shown.getByTestId(testId).innerText()).match(/[\d.,]+/)[0]));
+  await expect(shown).toContainText(`Sold`);
+  await expect(shown).toContainText(vSymbol);
+  await expect(shown).toContainText(`Copying ${vLeaderName}`);
+  // The venue's fee and our builder fee, each as the venue reports it and named with its source.
+  const venueName = (await venueInfo()).displayName;
+  await expect(shown.getByTestId('money-copied-fill__venue-fee')).toContainText(`From ${venueName}, as it reports it`);
+  await expect(shown.getByTestId('money-copied-fill__venue-fee')).toContainText(fill.feeAsset);
+  expect(await units('money-copied-fill__venue-fee')).toBe(toUnits(fill.venueFee));
+  await expect(shown.getByTestId('money-copied-fill__builder-fee')).toContainText('From INTAFACED, charged on the venue');
+  await expect(shown.getByTestId('money-copied-fill__builder-fee')).toContainText(fill.feeAsset);
+  expect(await units('money-copied-fill__builder-fee')).toBe(toUnits(fill.builderFee));
+  // The lead's share of our builder fee: the fill, the lead, the asset and the amount; paid by INTAFACED, not charged.
+  const shareCell = shown.getByTestId('money-copied-fill__share');
+  await expect(shareCell).toContainText(`${fill.feeAsset} to ${vLeaderName}`);
+  expect(await units('money-copied-fill__share')).toBe(share);
+  await expect(shareCell).toContainText('Owed by INTAFACED in our ledger');
+  await expect(shareCell).toContainText('Paid by INTAFACED. Not charged to you.');
+  await expect(shown.getByTestId('money-copied-fill__id')).toHaveText(`Fill ${vSellFill}`);
+  // The copied buy is its own row: a spot buy carries no builder fee, so nothing is shared on it.
+  const buy = fees.rows.find((r) => r.followId === run.read().vFollowId && r.side === 'buy');
+  expect(buy.feeShare).toEqual({ state: 'none' });
+  await expect(copied.getByRole('row').filter({ hasText: `Fill ${buy.fillId}` })).toContainText(
+    'No builder fee on this fill, so nothing is shared',
+  );
+  await expect(page.getByText(/profit.share/i)).toHaveCount(0);
 });
 
 test(`${J} #2 opens a copied position with two fills and no funding data: average entry from the two fills; funding "Not set"`, async ({
   page,
 }) => {
   const follower = state('follower');
-  // The follower's own fills, as the spot API reports them: the follower is new, so these are the two copied buys.
-  const { body } = await (await api(follower)).get('/api/v1/account/trades?symbol=BTC%2FUSDT&limit=100');
-  const fills = (Array.isArray(body) ? body : (body.trades ?? [])).filter((f) => f.side === 'buy');
-  expect(fills, JSON.stringify(body).slice(0, 300)).toHaveLength(2);
+  // The follower's own fills, as the spot API reports them: the follower is new, so these are the two copied buys. #1
+  // waits for the two copied orders; their fills reach the trades read a moment later, so this waits for both.
+  let fills = [];
+  await expect(async () => {
+    const { body } = await (await api(follower)).get('/api/v1/account/trades?symbol=BTC%2FUSDT&limit=100');
+    fills = (Array.isArray(body) ? body : (body.trades ?? [])).filter((f) => f.side === 'buy');
+    expect(fills, JSON.stringify(body).slice(0, 300)).toHaveLength(2);
+  }).toPass({ timeout: 30_000 });
   const expected = averageEntry(fills);
 
   await signIn(page, follower);
@@ -108,25 +191,39 @@ test(`${J} #2 opens a copied position with two fills and no funding data: averag
 });
 
 test(`${J} #3 as a lead opens the earnings panel: the profit-share refusal text and the fee-share facts only`, async ({ page }) => {
-  const leader = state('leader');
+  const leader = state('vLeader');
+  const leaderId = await userIdOf(leader);
   const earnings = await leadEarnings(leader);
   await signIn(page, leader);
   await page.goto('/trade/copy?tab=lead');
   const panel = page.getByRole('region', { name: 'Your earnings' });
   await expect(panel).toBeVisible();
   await expect(panel).toContainText('Leaders are paid a share of the trading fee only, never a share of profit.');
-  // The fee-share facts: what was earned on the copied fills of #1, as a USDT total and one history row per recorded fee
-  // share, each with its fill. #1's fills must have recorded a share (UNBUILT until copying earns our builder fee).
-  const usdt = earnings.totals.find((x) => x.assetId === 'USDT');
-  expect(usdt, `${J}: no fee share is recorded for the lead's copied fills, so there are no fee-share facts to show`).toBeTruthy();
-  expect(toUnits(usdt.amount)).toBeGreaterThan(0n);
-  const rows = earnings.items.filter((x) => x.assetId === 'USDT');
-  expect(rows.reduce((a, x) => a + toUnits(x.amount), 0n)).toBe(toUnits(usdt.amount));
-  expect(ungroup(await panel.innerText())).toMatch(new RegExp(`Fee share earned\\s*${usdt.amount.replace(/[.]/g, '\\.')} USDT`));
+  // The fee-share facts: what was earned on #1's copied venue fill, as a total and one history row per recorded share,
+  // each with its fill, owed by INTAFACED in our ledger.
+  const usdc = earnings.totals.find((x) => x.assetId === 'USDC');
+  expect(usdc, `${J}: no fee share is recorded for the lead's copied fills`).toBeTruthy();
+  expect(toUnits(usdc.amount)).toBeGreaterThan(0n);
+  const rows = earnings.items.filter((x) => x.assetId === 'USDC');
+  expect(rows.reduce((a, x) => a + toUnits(x.amount), 0n)).toBe(toUnits(usdc.amount));
+  expect(rows.map((x) => x.venueFillId)).toContain(state('vSellFill'));
+  // The ledger rows reconcile to the fee-share history: each row's own ledger post is its amount, and what the ledger says
+  // INTAFACED owes the lead is the history's total.
+  for (const x of rows) {
+    const trace = await ledgerTrace(x.ledgerKey);
+    expect(trace).toMatchObject({ found: true, reason: 'trade.fee_share.owed' });
+    expect(toUnits(trace.postings.find((p) => p.direction === 'debit').amount)).toBe(toUnits(x.amount));
+  }
+  expect((await ledgerOwedTo(leaderId, 'USDC')).balance).toBe(toUnits(usdc.amount));
+  expect(ungroup(await panel.innerText())).toMatch(new RegExp(`Fee share earned\\s*${usdc.amount.replace(/[.]/g, '\\.')} USDC`));
   await expect(panel).toContainText('Leader’s share of the fee');
   await expect(panel).toContainText(/Profit share\s*Not offered/);
   const history = panel.getByRole('table', { name: 'Fee share history' }).locator('tbody tr:not([data-slot="table-empty-row"])');
   await expect(history).toHaveCount(earnings.items.length);
+  const ours = history.filter({ hasText: `Fill ${state('vSellFill')}` });
+  await expect(ours).toHaveCount(1);
+  await expect(ours).toContainText('USDC');
+  await expect(ours).toContainText('Owed by INTAFACED');
   // Only fee-share facts: no profit, loss, return or unrealised figure anywhere in the panel.
   await expect(panel).not.toContainText(/P&L|PnL|ROI|unreali[sz]ed|realised profit|return/i);
 });

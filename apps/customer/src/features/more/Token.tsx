@@ -1,14 +1,16 @@
 import { t as copyText, Text } from './copy';
 import { useEffect, useState, type ReactNode } from 'react';
 import { z } from 'zod';
+import { tokenProposalClosedSchema, tokenProposalViewSchema, tokenTallySchema } from '@intafaced/contracts/token-governance';
 import {
-  tokenAccessViewSchema,
-  tokenBurnedSupplySchema,
-  tokenProposalClosedSchema,
-  tokenProposalViewSchema,
-  tokenStakeViewSchema,
-  tokenTallySchema,
-} from '@intafaced/contracts/token-governance';
+  TOKEN_ACCESS_OF,
+  TOKEN_BURNED_SUPPLY,
+  TOKEN_CAST_VOTE,
+  TOKEN_CLOSE_PROPOSAL,
+  TOKEN_GET_PROPOSAL,
+  TOKEN_LIST_STAKES,
+  TOKEN_VOTING_POWER_OF_PROPOSAL,
+} from '@intafaced/contracts/token-procedures';
 import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
@@ -44,7 +46,8 @@ import {
   type VoteChoice,
 } from './token-ballot';
 import './token-governance.css';
-const stakeSchema = tokenStakeViewSchema.extend({ amount: decimalSchema });
+/** The stake statuses `listStakes` filters by. */
+const STAKE_STATUSES = ['all', 'active', 'pending', 'closed'] as const;
 const proposalSchema = tokenProposalViewSchema.extend({ id: proposalIdSchema });
 const tally = tokenTallySchema.extend({
   forWeight: decimalSchema,
@@ -182,6 +185,9 @@ function proposalDetailSchema(id: string) {
     }
   });
 }
+/** This pane's own checks over a proposal and over the power it weighs a vote with. */
+const detailReads = (id: string) => (p: unknown) => proposalDetailSchema(id).safeParse(p).success;
+const powerReads = (p: unknown) => powerSchema.safeParse(p).success;
 export type TokenTab = 'Staking' | 'Governance' | 'Economy' | 'Burn';
 /** `tab`: the section an address such as /token/economy or /token/burn opens on. */
 export function Token({ tab: first }: { tab?: TokenTab } = {}) {
@@ -195,26 +201,19 @@ export function Token({ tab: first }: { tab?: TokenTab } = {}) {
     [status, setStatus] = useState('all'),
     [limit, setLimit] = useState(50);
   const access = useResource(
-      (signal) => api.query('token', 'accessOf', undefined, tokenAccessViewSchema.extend({ staked: decimalSchema }), { signal }),
+      (signal) => api.call(TOKEN_ACCESS_OF, undefined, { signal, accept: (access) => decimalSchema.safeParse(access.staked).success }),
       `token-access:${userId}`,
     ),
     stakes = useResource(
       (signal) =>
-        api.query(
-          'token',
-          'listStakes',
-          { status, limit },
-          z
-            .array(stakeSchema)
-            .refine((rows) => rows.every((row) => row.userId === userId), copyText('token.stake.ownership.does.not.match.this.account')),
-          { signal },
+        api.call(
+          TOKEN_LIST_STAKES,
+          { status: STAKE_STATUSES.find((s) => s === status) ?? 'all', limit },
+          { signal, accept: (rows) => rows.every((row) => row.userId === userId) },
         ),
       `token-stakes:${userId}:${status}:${limit}`,
     ),
-    burned = useResource(
-      (signal) => api.query('token', 'burnedSupply', undefined, tokenBurnedSupplySchema.extend({ burned: decimalSchema }), { signal }),
-      `token-burn:${userId}`,
-    );
+    burned = useResource((signal) => api.call(TOKEN_BURNED_SUPPLY, undefined, { signal }), `token-burn:${userId}`);
   return (
     <div className="more-grid">
       <Tabs
@@ -430,12 +429,12 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
     return () => clearInterval(timer);
   }, []);
   const detail = useResource(
-    (signal) => api.query('token', 'getProposal', { proposalId: id }, proposalDetailSchema(id), { signal }),
+    (signal) => api.call(TOKEN_GET_PROPOSAL, { proposalId: id }, { signal, accept: detailReads(id) }),
     `proposal:${userId}:${id}`,
   );
   // Votes weigh the power fixed at creation, never today's stake.
   const power = useResource(
-    (signal) => api.query('token', 'votingPower.ofProposal', { proposalId: id }, powerSchema, { signal }),
+    (signal) => api.call(TOKEN_VOTING_POWER_OF_PROPOSAL, { proposalId: id }, { signal, accept: powerReads }),
     `voting-power:${userId}:${id}`,
   );
   const blocked = ballot.status === 'unreadable' || (ballot.status === 'ready' && ballot.data.status === 'unknown');
@@ -524,8 +523,8 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
         };
         setPreflight({ detail: { status: 'loading' }, power: { status: 'loading' } });
         const [fresh, currentPower] = await Promise.all([
-          api.query('token', 'getProposal', { proposalId: id }, proposalDetailSchema(id)),
-          api.query('token', 'votingPower.ofProposal', { proposalId: id }, powerSchema),
+          api.call(TOKEN_GET_PROPOSAL, { proposalId: id }, { accept: detailReads(id) }),
+          api.call(TOKEN_VOTING_POWER_OF_PROPOSAL, { proposalId: id }, { accept: powerReads }),
         ]);
         if (!canDispatch() || !api.canWrite()) return refuseBeforeDispatch(governanceRefusal('aborted', 'changed'));
         setPreflight({
@@ -546,14 +545,17 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
         }
         if (!canDispatch() || !api.canWrite()) return refuseBeforeDispatch(governanceRefusal('aborted', 'changed'));
         // No await separates the final identity guard and dispatch.
-        const result = await api.mutate(
-          'token',
-          'castVote',
+        const result = await api.call(
+          TOKEN_CAST_VOTE,
           { proposalId: id, choice, signature: signed.signature },
-          voteSchema.refine((vote) => vote.proposalId === id && vote.userId === actor && vote.choice === choice),
+          {
+            accept: (vote) =>
+              voteSchema.safeParse(vote).success && vote.proposalId === id && vote.userId === actor && vote.choice === choice,
+          },
         );
         try {
-          if (result.ok) saveBallot({ ...context, status: 'recorded', receipt: result.data });
+          // The receipt kept is the vote as this pane checked it.
+          if (result.ok) saveBallot({ ...context, status: 'recorded', receipt: voteSchema.parse(result.data) });
           else if (result.reason !== 'uncertain') saveBallot({ ...context, status: 'refused' });
         } catch {
           return governanceRefusal('uncertain', 'receiptStorage');
@@ -682,11 +684,14 @@ function Proposal({ id, action, ballot }: { id: string; action: ReturnType<typeo
                         </p>
                       ),
                       run: () =>
-                        api.mutate(
-                          'token',
-                          'closeProposal',
+                        api.call(
+                          TOKEN_CLOSE_PROPOSAL,
                           { proposalId: id },
-                          tokenProposalClosedSchema.extend({ id: proposalIdSchema, tally }).refine((closed) => closed.id === id),
+                          {
+                            accept: (closed) =>
+                              tokenProposalClosedSchema.extend({ id: proposalIdSchema, tally }).safeParse(closed).success &&
+                              closed.id === id,
+                          },
                         ),
                       done: refresh,
                     })

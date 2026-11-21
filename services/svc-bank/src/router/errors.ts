@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { TRPCError } from '@intafaced/contracts';
+import type { RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { DualControlError } from '../dual-control.js';
 import { ActionApprovalConsumeError } from '../action-approval-consume.js';
@@ -132,3 +133,11 @@ export async function guard<T>(fn: () => Promise<T>): Promise<T> {
     throw toTrpcError(err);
   }
 }
+
+/**
+ * svc-bank's one reader of its refusals for a door mounted from a record (`mountRecord`): the handler runs inside `guard`,
+ * so a refusal arrives already in its wire form, and its code is the `BankError` it was made from. Anything else (an
+ * opaque failure, a ledger fault) is not a named refusal and leaves as `guard` made it.
+ */
+export const bankRefusal: RefusalOf = (err) =>
+  err instanceof TRPCError && err.cause instanceof BankError ? { code: err.cause.code, error: err } : undefined;

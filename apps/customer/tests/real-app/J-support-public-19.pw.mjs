@@ -310,11 +310,29 @@ test(`${J} #4 post updates, then resolve: the component goes back to its own sta
   const RESOLVED = `TEST Card payments are back to normal (run ${RUN}).`;
 
   await update.getByLabel('Update', { exact: true }).fill(UPDATE);
-  await update.getByLabel('Impact now', { exact: true }).selectOption('minor');
+  // The update raises the impact from Minor (#3: degraded) to Major, so the component visibly follows the incident's
+  // newest status, not only its first one.
+  await update.getByLabel('Impact now', { exact: true }).selectOption('major');
   await update.getByRole('button', { name: 'Save update draft', exact: true }).click();
   await expect(outcome(a)).toContainText('Done: drafted');
   await publishEntry(a, b, UPDATE);
   await expect(card).toHaveAttribute('data-state', 'open');
+
+  // Before resolve: the component shows the incident's status, on the page's record and on /status.
+  const during = await statusRead();
+  const open = during.incidents.find((i) => i.title === INCIDENT_TITLE);
+  expect(open).toMatchObject({ impact: 'major', resolvedAt: null });
+  expect(open.updates.map((u) => u.body)).toEqual(expect.arrayContaining([TEMPLATE.body, UPDATE]));
+  expect(during.components.find((c) => c.id === 'payments')).toMatchObject({
+    state: 'partial_outage',
+    basis: 'incident',
+    incidentId: open.id,
+  });
+  const watcher = await browser.newPage({ baseURL: ORIGIN });
+  await watcher.goto('/status');
+  await expect(watcher.getByTestId('status-component-payments')).toHaveAttribute('data-state', 'partial_outage');
+  await expect(watcher.getByTestId(`status-incident-${open.id}`)).toContainText(UPDATE);
+  await watcher.context().close();
 
   await update.getByLabel('Update', { exact: true }).fill(RESOLVED);
   await update.getByRole('checkbox', { name: /resolves the incident/ }).check();
@@ -353,6 +371,41 @@ test(`${J} #4 post updates, then resolve: the component goes back to its own sta
       parentId: resolved.id,
     }),
   ).rejects.toThrow(/notify\.notice_incident_resolved/);
+
+  // A recurrence is a new incident: declared on its own, it gets its own id, the component follows it, and the resolved
+  // one stays resolved. It is resolved again here, so the steps after this start from no open incident of this run.
+  const RECUR_TITLE = `${INCIDENT_PREFIX} card payments are slow again (run ${RUN})`;
+  const recur = await publishNotice(
+    await draftNotice({
+      kind: 'incident',
+      title: RECUR_TITLE,
+      body: 'TEST Card payments are slow again.',
+      minutes: 5,
+      key: `j19-recur:${RUN}`,
+      impact: 'minor',
+      components: ['payments'],
+    }),
+    `j19-recur:${RUN}`,
+  );
+  const again = await statusRead();
+  const recurred = again.incidents.find((i) => i.title === RECUR_TITLE);
+  expect(recurred).toMatchObject({ resolvedAt: null, components: ['payments'] });
+  expect(recurred.id).not.toBe(resolved.id);
+  expect(again.incidents.find((i) => i.id === resolved.id).resolvedAt).not.toBeNull();
+  expect(again.components.find((c) => c.id === 'payments')).toMatchObject({ state: 'degraded', incidentId: recurred.id });
+  await publishNotice(
+    await draftNotice({
+      kind: 'incident',
+      title: RECUR_TITLE,
+      body: 'TEST Back to normal.',
+      minutes: 5,
+      key: `j19-recur-resolve:${RUN}`,
+      parentId: recur.id,
+      resolves: true,
+    }),
+    `j19-recur-resolve:${RUN}`,
+  );
+  expect((await statusRead()).components.find((c) => c.id === 'payments').incidentId).toBeNull();
   await a.context().close();
   await b.context().close();
 });

@@ -213,12 +213,16 @@ export const touchRoot = (t) =>
           : null;
 export const dependsOnLedgerClient = (m) =>
   ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].some((k) => m?.[k] && Object.hasOwn(m[k], LEDGER_CLIENT));
-const isMoneyPackage = (m) => m?.name === LEDGER_CLIENT || dependsOnLedgerClient(m);
+// A Rust service (`crates/svc-<x>`, manifestsAt) has no package.json to depend on the ledger client through: it holds its
+// own ledger and outside clients, and each one replaced a TypeScript service that depended on it (svc-tax, svc-academy).
+// It counts as money, failing closed, so a touch of `svc-<x>` stays money when its TypeScript is deleted.
+const isMoneyPackage = (m) => m?.name === LEDGER_CLIENT || dependsOnLedgerClient(m) || m?.rustService === true;
 /** The money code AGENTS.md "How work flows" 8 names: packages/ledger-client, every package that depends on it directly,
  *  and svc-edge, svc-ops, svc-protocol and svc-fix. `manifests` is manifestsAt(root). Their folders, e.g. `services/svc-bank`. */
 export const moneyCodeDirs = (manifests) =>
   new Set([
-    ...[...manifests].filter(([, m]) => isMoneyPackage(m)).map(([dir]) => dir),
+    // Not a Rust service's crate: the reach is read from the JavaScript coverage, which never reaches Rust.
+    ...[...manifests].filter(([, m]) => isMoneyPackage(m) && !m.rustService).map(([dir]) => dir),
     'services/svc-edge',
     'services/svc-ops',
     'services/svc-protocol',
@@ -230,7 +234,8 @@ export function moneyRule({ journeys, slices, manifests }) {
   const sliceMoney = (id) =>
     (bySlice.get(id)?.touches ?? []).some((t) => {
       const root = touchRoot(t);
-      return root === null || money.has(root);
+      // `svc-<x>` is `services/svc-<x>`, or `crates/svc-<x>` once it is a Rust service.
+      return root === null || money.has(root) || (root.startsWith('services/') && money.has(root.replace(/^services\//, 'crates/')));
     });
   const steps = {};
   for (const j of journeys) for (const st of j.steps ?? []) steps[`${j.id}#${st.n}`] = (st.slices ?? []).some(sliceMoney);
@@ -780,6 +785,12 @@ export function manifestsAt(root) {
       if (name.isDirectory() && existsSync(f)) manifests.set(`${parent}/${name.name}`, json(f));
     }
   }
+  // A Rust service: a crate named for the service it is (`crates/svc-tax`), read from its Cargo.toml (isMoneyPackage).
+  const crates = join(root, 'crates');
+  if (existsSync(crates))
+    for (const name of readdirSync(crates, { withFileTypes: true }))
+      if (name.isDirectory() && /^svc-[a-z0-9-]+$/.test(name.name) && existsSync(join(crates, name.name, 'Cargo.toml')))
+        manifests.set(`crates/${name.name}`, { name: name.name, rustService: true });
   return manifests;
 }
 

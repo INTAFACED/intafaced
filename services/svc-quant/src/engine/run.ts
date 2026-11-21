@@ -1,3 +1,4 @@
+import { QUANT_BACKTEST_HISTORY_PAGE_MAX } from '@intafaced/contracts/quant-backtest-procedures';
 import { createHash } from 'node:crypto';
 import {
   QUANT_BACKTEST_ASSUMPTIONS,
@@ -72,8 +73,8 @@ export const NO_JUDGEMENT: Judgement = {
 /** A delay longer than this many bars is refused as out of range: it would outlast most windows the history holds. */
 export const MAX_DELAY_BARS = 100;
 
-/** The most runs one history page lists. */
-export const BACKTEST_HISTORY_PAGE_MAX = 50;
+/** The most runs one history page lists, published with `backtest.history`'s record. */
+export const BACKTEST_HISTORY_PAGE_MAX = QUANT_BACKTEST_HISTORY_PAGE_MAX;
 
 /**
  * Every bar backtest's run key starts with this. The older fills-language `backtest.run` stores kind 'backtest' too,

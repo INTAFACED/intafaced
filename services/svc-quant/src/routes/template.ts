@@ -1,31 +1,18 @@
 import { QUANT_TEMPLATE_LIST_LIMIT_UNSET, QUANT_TEMPLATE_NOT_FOUND, QuantError } from '../errors.js';
-import { STUDIO_LIST_LIMIT_CAP } from '../studio/list-limit.js';
-import {
-  publicJurisdictionProcedure,
-  quantTemplateDetailSchema,
-  quantTemplateIdSchema,
-  quantTemplateListOutputSchema,
-  router,
-} from '@intafaced/contracts';
+import { router } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { QUANT_TEMPLATE_GET, QUANT_TEMPLATE_LIST } from '@intafaced/contracts/quant-template-procedures';
 import { templateSource } from '../studio/modules.js';
-import { z } from 'zod';
-import { toTrpc, accountField, type QuantCore } from './core.js';
+import { quantRefusal, toTrpc, type QuantCore } from './core.js';
+
+/** `list` and `get` are mounted from their records (`@intafaced/contracts/quant-template-procedures`). */
 
 export function templateRoutes(core: QuantCore) {
   const { templates, accountOf } = core;
   return router({
-    list: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z
-          .object({
-            limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional(),
-            cursor: quantTemplateIdSchema.optional().nullable(),
-            ...accountField,
-          })
-          .optional(),
-      )
-      .output(quantTemplateListOutputSchema)
-      .query(async ({ input, ctx }) => {
+    list: mountRecord(
+      QUANT_TEMPLATE_LIST,
+      async ({ input, ctx }) => {
         try {
           accountOf(ctx, input?.accountId);
           if (input?.limit === undefined)
@@ -35,12 +22,13 @@ export function templateRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
-    get: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ id: quantTemplateIdSchema, ...accountField }))
-      .output(quantTemplateDetailSchema)
-      .query(async ({ input, ctx }) => {
+    get: mountRecord(
+      QUANT_TEMPLATE_GET,
+      async ({ input, ctx }) => {
         try {
           accountOf(ctx, input.accountId);
           const versions = await templates.get(input.id);
@@ -49,6 +37,8 @@ export function templateRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }

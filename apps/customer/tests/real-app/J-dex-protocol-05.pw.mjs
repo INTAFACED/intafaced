@@ -7,8 +7,11 @@ import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, connectWhenAsked, dexRun, fundOnTestChain, testChain } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { api, journeyState, ROOT, stackUrl, tool } from './stack.mjs';
+import { api, journeyState, ROOT, stackUrl } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
+import { depositCustody, partnerPayIn } from './bank-desk.mjs';
+import { chainRpc, withMiningPaused } from './chain-node.mjs';
+import { userVenue, venueDoor } from './venue-room.mjs';
 
 // J-dex-protocol-05, in the running app (docs/roadmap/journeys.json): move value between a trading venue, the wallet and
 // another chain. One test per step, titled "J-dex-protocol-05 #<n>", run in order by one verified TEST account.
@@ -68,14 +71,6 @@ const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/to
 
 test.describe.configure({ mode: 'default' });
 
-/** The run's verified, funded TEST account, signed in. */
-async function person(page) {
-  const who = account.run.read().who;
-  expect(who, 'the start step made the account').toBeTruthy();
-  await signIn(page, who);
-  return who;
-}
-
 /** The run's account and its venue wallet's key, made by the start step. */
 function venueState() {
   const s = account.run.read();
@@ -89,22 +84,7 @@ function venueState() {
  * hooks below, and cleared only once the bank is connected again.
  */
 const custody = journeyState(`${J}-custody`);
-function bankDepositCustody(on) {
-  const before = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
-  if (on) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
-  else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = 'off';
-  if (!on) custody.write({ off: true });
-  try {
-    tool('local-test-stack.mjs', 'restart', 'bank');
-    if (on) custody.reset({});
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
-    else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = before;
-  }
-}
-const putCustodyBack = () => {
-  if (custody.read().off) bankDepositCustody(true);
-};
+const { bankDepositCustody, putCustodyBack } = depositCustody(custody);
 test.beforeAll(putCustodyBack);
 test.afterEach(putCustodyBack);
 
@@ -124,6 +104,7 @@ async function openRails(page) {
 let jobCtx;
 const stackCtx = () =>
   (jobCtx ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} })));
+const partnerPaid = partnerPayIn(stackCtx);
 
 /** The next authenticator code of the app #3 added, kept in the run so no code is used twice. */
 async function stepCode() {
@@ -156,25 +137,6 @@ async function addMoneyRequest(signedIn, requestId) {
   return body.result.data;
 }
 
-/** The TEST pay-in partner says a payment was paid, through its signed job door, as the partner would. */
-async function partnerPaid(body) {
-  const ctx = await stackCtx();
-  const raw = JSON.stringify(body);
-  const res = await fetch(`${ctx.url('bank')}/internal/jobs/payin-sim/paid`, {
-    method: 'POST',
-    redirect: 'error',
-    headers: {
-      'content-type': 'application/json',
-      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
-    },
-    body: raw,
-    signal: AbortSignal.timeout(30_000),
-  });
-  const answer = await res.json().catch(() => null);
-  if (res.status !== 200) throw new Error(`payin-sim/paid refused: ${res.status} ${JSON.stringify(answer).slice(0, 300)}`);
-  return answer;
-}
-
 /** The TEST pay-in partner's own address on the stack's TEST chain (tooling/scripts/local-test-chain.mjs PAYIN_PARTNER). */
 const PAYIN_PARTNER = '0x0000000000000000000000000000000000ba1d01';
 
@@ -201,52 +163,6 @@ async function deliveryOnChain(hash) {
 }
 
 // ── the venue account room (#1 to #3) ────────────────────────────────────────────────────────────────────────────────
-
-/** svc-trade's user-venue door as the person reads it: off, down, or the TEST venue with its deposit route. */
-async function venueDoor(who) {
-  const { status, body } = await (await api(who)).get('/api/v1/venue/status');
-  if (status !== 200) throw new Error(`venue status refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
-  return body;
-}
-
-/** Restarts trade with the user-venue door on (which starts the TEST venue) or off, and puts this process's env back. */
-function userVenue(on) {
-  const before = process.env.LOCAL_STACK_USER_VENUE;
-  if (on) process.env.LOCAL_STACK_USER_VENUE = 'on';
-  else delete process.env.LOCAL_STACK_USER_VENUE;
-  try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_USER_VENUE;
-    else process.env.LOCAL_STACK_USER_VENUE = before;
-  }
-}
-
-/** One call to the stack's TEST chain node. */
-async function chainRpc(method, params = []) {
-  const res = await fetch(testChain().gateUrl, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-  });
-  const body = await res.json();
-  if (body.error) throw new Error(`${method}: ${JSON.stringify(body.error)}`);
-  return body.result;
-}
-
-/**
- * Runs `fn` with the TEST chain's interval mining paused, so a block lands only when the step mines one, and puts the
- * interval back after, whatever happens. A transfer the wallet sends meanwhile stays pending until the step mines it.
- */
-async function withMiningPaused(fn) {
-  const interval = await chainRpc('anvil_getIntervalMining');
-  await chainRpc('evm_setIntervalMining', [0]);
-  try {
-    return await fn();
-  } finally {
-    await chainRpc('evm_setIntervalMining', [interval]);
-  }
-}
 
 /** The wallet's TEST USD on the TEST chain, in base units (6 decimals), read from the node itself. */
 async function chainUsd(address) {

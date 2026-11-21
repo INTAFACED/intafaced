@@ -5,8 +5,13 @@
 //! envelope's idempotency key, deduplicated by the server inside the stream's window), waiting for the stream's
 //! `PubAck` on its own reply inbox.
 //!
-//! Not served: TLS (`tls://`), several servers with fail-over (the first URL is used), reconnecting (a broken
-//! connection fails every later publish; the caller reports the event undelivered), and subscribing.
+//! A connection the server dropped is dialled again on the next request, and a request that failed on it is sent once
+//! more on the new one. The server drops a client that leaves its `PING`s unanswered (`Stale Connection`, about four
+//! minutes idle by default), and this client reads only while a request waits, so an idle service meets that on its
+//! first publish after a quiet spell. Sending a publish again is safe: the server deduplicates it by its
+//! `Nats-Msg-Id`. nats.js, which the TypeScript services use, reconnects the same way.
+//!
+//! Not served: TLS (`tls://`), several servers with fail-over (the first URL is used), and subscribing.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -112,6 +117,8 @@ pub fn parse_server(urls: &str) -> Result<Server, NatsError> {
 struct Conn {
     writer: TcpStream,
     reader: BufReader<TcpStream>,
+    /// This connection's reply inbox (`_INBOX.<token>`), subscribed as `<inbox>.*`.
+    inbox: String,
     next: u64,
     broken: Option<String>,
 }
@@ -219,7 +226,9 @@ impl Conn {
 /// A connection to one NATS server, publishing to JetStream. Shared between threads; one request at a time.
 pub struct JetStream {
     conn: Mutex<Conn>,
-    inbox: String,
+    server: Server,
+    name: String,
+    timeout: Duration,
 }
 
 fn random_token() -> Result<String, NatsError> {
@@ -228,64 +237,115 @@ fn random_token() -> Result<String, NatsError> {
     Ok(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
+/// Dials the server, says `CONNECT` as `name` and subscribes a fresh reply inbox.
+fn dial(server: &Server, name: &str, timeout: Duration) -> Result<Conn, NatsError> {
+    let addr = std::net::ToSocketAddrs::to_socket_addrs(&(server.host.as_str(), server.port))
+        .map_err(|e| err(format!("nats: {}:{}: {e}", server.host, server.port)))?
+        .next()
+        .ok_or_else(|| err(format!("nats: {} does not resolve", server.host)))?;
+    let stream = TcpStream::connect_timeout(&addr, timeout)
+        .map_err(|e| err(format!("nats: connect: {e}")))?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|e| err(e.to_string()))?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .map_err(|e| err(e.to_string()))?;
+    let reader = BufReader::new(stream.try_clone().map_err(|e| err(e.to_string()))?);
+    let mut conn = Conn {
+        writer: stream,
+        reader,
+        inbox: format!("_INBOX.{}", random_token()?),
+        next: 0,
+        broken: None,
+    };
+    let info = conn.line()?;
+    if !info.starts_with("INFO ") {
+        return Err(err(format!("nats: expected INFO, got {info:?}")));
+    }
+    let mut fields = vec![
+        ("verbose".to_owned(), Json::Bool(false)),
+        ("pedantic".to_owned(), Json::Bool(false)),
+        ("lang".to_owned(), Json::str("rust")),
+        ("version".to_owned(), Json::str("0.0.0")),
+        ("protocol".to_owned(), Json::int(1)),
+        ("headers".to_owned(), Json::Bool(true)),
+        ("no_responders".to_owned(), Json::Bool(true)),
+        ("name".to_owned(), Json::str(name)),
+    ];
+    if let Some(u) = &server.user {
+        fields.push(("user".to_owned(), Json::str(u.clone())));
+    }
+    if let Some(p) = &server.pass {
+        fields.push(("pass".to_owned(), Json::str(p.clone())));
+    }
+    if let Some(t) = &server.token {
+        fields.push(("auth_token".to_owned(), Json::str(t.clone())));
+    }
+    conn.send(format!("CONNECT {}\r\nPING\r\n", Json::Object(fields).compact()).as_bytes())?;
+    conn.until_pong()?;
+    let sub = format!("SUB {}.* 1\r\nPING\r\n", conn.inbox);
+    conn.send(sub.as_bytes())?;
+    conn.until_pong()?;
+    Ok(conn)
+}
+
+/// Sends one request on `conn` and waits for its reply on the connection's inbox.
+fn exchange(
+    conn: &mut Conn,
+    subject: &str,
+    msg_id: Option<&str>,
+    payload: &[u8],
+) -> Result<(Option<u16>, Vec<u8>), NatsError> {
+    conn.next += 1;
+    let reply = format!("{}.{}", conn.inbox, conn.next);
+    let mut frame = match msg_id {
+        Some(id) => {
+            let head = format!("NATS/1.0\r\nNats-Msg-Id: {id}\r\n\r\n");
+            let total = head.len() + payload.len();
+            let mut f =
+                format!("HPUB {subject} {reply} {} {total}\r\n{head}", head.len()).into_bytes();
+            f.extend_from_slice(payload);
+            f
+        }
+        None => {
+            let mut f = format!("PUB {subject} {reply} {}\r\n", payload.len()).into_bytes();
+            f.extend_from_slice(payload);
+            f
+        }
+    };
+    frame.extend_from_slice(b"\r\n");
+    let out = conn.send(&frame).and_then(|()| {
+        loop {
+            let m = conn.next_message()?;
+            // A late reply to an earlier request that timed out is not this one's.
+            if m.subject == reply {
+                break Ok((m.status, m.payload));
+            }
+        }
+    });
+    if let Err(e) = &out {
+        conn.broken = Some(e.0.clone());
+    }
+    out
+}
+
 impl JetStream {
     /// Connects as `name`, every read and write bounded by `timeout`.
     pub fn connect(urls: &str, name: &str, timeout: Duration) -> Result<JetStream, NatsError> {
         let server = parse_server(urls)?;
-        let addr = std::net::ToSocketAddrs::to_socket_addrs(&(server.host.as_str(), server.port))
-            .map_err(|e| err(format!("nats: {}:{}: {e}", server.host, server.port)))?
-            .next()
-            .ok_or_else(|| err(format!("nats: {} does not resolve", server.host)))?;
-        let stream = TcpStream::connect_timeout(&addr, timeout)
-            .map_err(|e| err(format!("nats: connect: {e}")))?;
-        stream
-            .set_read_timeout(Some(timeout))
-            .map_err(|e| err(e.to_string()))?;
-        stream
-            .set_write_timeout(Some(timeout))
-            .map_err(|e| err(e.to_string()))?;
-        let reader = BufReader::new(stream.try_clone().map_err(|e| err(e.to_string()))?);
-        let mut conn = Conn {
-            writer: stream,
-            reader,
-            next: 0,
-            broken: None,
-        };
-        let info = conn.line()?;
-        if !info.starts_with("INFO ") {
-            return Err(err(format!("nats: expected INFO, got {info:?}")));
-        }
-        let mut fields = vec![
-            ("verbose".to_owned(), Json::Bool(false)),
-            ("pedantic".to_owned(), Json::Bool(false)),
-            ("lang".to_owned(), Json::str("rust")),
-            ("version".to_owned(), Json::str("0.0.0")),
-            ("protocol".to_owned(), Json::int(1)),
-            ("headers".to_owned(), Json::Bool(true)),
-            ("no_responders".to_owned(), Json::Bool(true)),
-            ("name".to_owned(), Json::str(name)),
-        ];
-        if let Some(u) = &server.user {
-            fields.push(("user".to_owned(), Json::str(u.clone())));
-        }
-        if let Some(p) = &server.pass {
-            fields.push(("pass".to_owned(), Json::str(p.clone())));
-        }
-        if let Some(t) = &server.token {
-            fields.push(("auth_token".to_owned(), Json::str(t.clone())));
-        }
-        let inbox = format!("_INBOX.{}", random_token()?);
-        conn.send(format!("CONNECT {}\r\nPING\r\n", Json::Object(fields).compact()).as_bytes())?;
-        conn.until_pong()?;
-        conn.send(format!("SUB {inbox}.* 1\r\nPING\r\n").as_bytes())?;
-        conn.until_pong()?;
+        let conn = dial(&server, name, timeout)?;
         Ok(JetStream {
             conn: Mutex::new(conn),
-            inbox,
+            server,
+            name: name.to_owned(),
+            timeout,
         })
     }
 
     /// Sends one request and waits for its reply: the reply's status (a header-only `503` is no responders) and body.
+    /// A connection already broken is dialled again first; a request that fails on a connection that was working is
+    /// sent once more on a new one, since the server may have dropped it while it sat idle.
     fn request(
         &self,
         subject: &str,
@@ -296,40 +356,23 @@ impl JetStream {
             .conn
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(why) = &conn.broken {
-            return Err(err(format!("nats: the connection is broken: {why}")));
+        if let Some(why) = conn.broken.clone() {
+            *conn = dial(&self.server, &self.name, self.timeout).map_err(|e| {
+                err(format!(
+                    "nats: the connection broke ({why}) and redialling failed: {e}"
+                ))
+            })?;
         }
-        conn.next += 1;
-        let reply = format!("{}.{}", self.inbox, conn.next);
-        let mut frame = match msg_id {
-            Some(id) => {
-                let head = format!("NATS/1.0\r\nNats-Msg-Id: {id}\r\n\r\n");
-                let total = head.len() + payload.len();
-                let mut f =
-                    format!("HPUB {subject} {reply} {} {total}\r\n{head}", head.len()).into_bytes();
-                f.extend_from_slice(payload);
-                f
+        match exchange(&mut conn, subject, msg_id, payload) {
+            Ok(answer) => Ok(answer),
+            Err(first) => {
+                let _ = conn.writer.shutdown(std::net::Shutdown::Both);
+                *conn = dial(&self.server, &self.name, self.timeout)
+                    .map_err(|e| err(format!("{first}; redialling failed: {e}")))?;
+                exchange(&mut conn, subject, msg_id, payload)
+                    .map_err(|e| err(format!("{first}; again on a new connection: {e}")))
             }
-            None => {
-                let mut f = format!("PUB {subject} {reply} {}\r\n", payload.len()).into_bytes();
-                f.extend_from_slice(payload);
-                f
-            }
-        };
-        frame.extend_from_slice(b"\r\n");
-        let out = conn.send(&frame).and_then(|()| {
-            loop {
-                let m = conn.next_message()?;
-                // A late reply to an earlier request that timed out is not this one's.
-                if m.subject == reply {
-                    break Ok((m.status, m.payload));
-                }
-            }
-        });
-        if let Err(e) = &out {
-            conn.broken = Some(e.0.clone());
         }
-        out
     }
 
     /// A JetStream API call: its JSON answer, or the API's error as a refusal.
@@ -440,5 +483,112 @@ mod tests {
             r#"{"name":"INTAFACED_ACADEMY","subjects":["intafaced.academy.>"],"retention":"limits","max_age":7776000000000000,"duplicate_window":120000000000}"#
         );
         assert_eq!(stream_name("mining-pool", "X"), "X_MINING_POOL");
+    }
+
+    /// What the stand-in server does on one connection after its handshake.
+    type Serve = Box<dyn FnOnce(&mut BufReader<TcpStream>, &mut TcpStream) + Send>;
+
+    /// A stand-in server: each connection gets `INFO`, its `CONNECT`/`SUB` pings answered, then `serve` runs on it.
+    fn fake_server(serves: Vec<Serve>) -> (u16, std::thread::JoinHandle<usize>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| panic!("{e}"));
+        let port = listener
+            .local_addr()
+            .unwrap_or_else(|e| panic!("{e}"))
+            .port();
+        let handle = std::thread::spawn(move || {
+            let mut accepted = 0;
+            for serve in serves {
+                let (mut out, _) = listener.accept().unwrap_or_else(|e| panic!("{e}"));
+                accepted += 1;
+                let mut input = BufReader::new(out.try_clone().unwrap_or_else(|e| panic!("{e}")));
+                out.write_all(b"INFO {\"server_id\":\"fake\",\"headers\":true}\r\n")
+                    .unwrap_or_else(|e| panic!("{e}"));
+                let mut pongs = 0;
+                while pongs < 2 {
+                    let mut line = String::new();
+                    input.read_line(&mut line).unwrap_or_else(|e| panic!("{e}"));
+                    if line.starts_with("PING") {
+                        out.write_all(b"PONG\r\n").unwrap_or_else(|e| panic!("{e}"));
+                        pongs += 1;
+                    }
+                }
+                serve(&mut input, &mut out);
+            }
+            accepted
+        });
+        (port, handle)
+    }
+
+    /// Reads one `HPUB <subject> <reply> <head> <total>` and its bytes; answers a `PubAck` on the reply subject.
+    fn ack_one(input: &mut BufReader<TcpStream>, out: &mut TcpStream) {
+        let mut line = String::new();
+        input.read_line(&mut line).unwrap_or_else(|e| panic!("{e}"));
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        assert_eq!(parts.first().copied(), Some("HPUB"), "{line:?}");
+        let reply = parts.get(2).copied().unwrap_or("").to_owned();
+        let total: usize = parts.last().and_then(|n| n.parse().ok()).unwrap_or(0);
+        let mut body = vec![0u8; total + 2];
+        input
+            .read_exact(&mut body)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(String::from_utf8_lossy(&body).contains("Nats-Msg-Id: cert:1"));
+        let ack = br#"{"stream":"T_ACADEMY","seq":7}"#;
+        out.write_all(format!("MSG {reply} 1 {}\r\n", ack.len()).as_bytes())
+            .unwrap_or_else(|e| panic!("{e}"));
+        out.write_all(ack).unwrap_or_else(|e| panic!("{e}"));
+        out.write_all(b"\r\n").unwrap_or_else(|e| panic!("{e}"));
+    }
+
+    #[test]
+    fn a_connection_the_server_dropped_while_idle_is_dialled_again_and_the_publish_goes_through() {
+        // The first connection is dropped the way a server drops a client that left its pings unanswered.
+        let (port, server) = fake_server(vec![
+            Box::new(|_input, out| {
+                let _ = out.write_all(b"-ERR 'Stale Connection'\r\n");
+                let _ = out.shutdown(std::net::Shutdown::Both);
+            }),
+            Box::new(ack_one),
+        ]);
+        let js = JetStream::connect(
+            &format!("nats://127.0.0.1:{port}"),
+            "kit-test",
+            Duration::from_secs(5),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        std::thread::sleep(Duration::from_millis(100));
+        let ack = js
+            .publish("intafaced.academy.x", "cert:1", b"{}")
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!((ack.stream.as_str(), ack.seq), ("T_ACADEMY", 7));
+        assert_eq!(server.join().unwrap_or_else(|_| panic!("server")), 2);
+    }
+
+    #[test]
+    fn a_server_that_stays_away_fails_the_publish_and_the_next_one_tries_again() {
+        let (port, server) = fake_server(vec![Box::new(|_input, out| {
+            let _ = out.shutdown(std::net::Shutdown::Both);
+        })]);
+        let js = JetStream::connect(
+            &format!("nats://127.0.0.1:{port}"),
+            "kit-test",
+            Duration::from_secs(2),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(server.join().unwrap_or_else(|_| panic!("server")), 1);
+        // The listener is gone: the redial is refused, and the publish says so.
+        let first = js.publish("intafaced.academy.x", "cert:1", b"{}");
+        assert!(
+            first
+                .as_ref()
+                .is_err_and(|e| e.0.contains("redialling failed")),
+            "{first:?}"
+        );
+        let again = js.publish("intafaced.academy.x", "cert:1", b"{}");
+        assert!(
+            again
+                .as_ref()
+                .is_err_and(|e| e.0.contains("redialling failed")),
+            "{again:?}"
+        );
     }
 }

@@ -43,18 +43,6 @@ export const RECIPE_SOCKETS = {
     reason:
       '§13 — TRD-0171 posts a fee correction as a new balanced entry under trade.fill.fee.correction. It leaves the original trade.fill row. No production writer posts this yet; the recipe-gate catalog samples it and does not ledger.post.',
   },
-  feeShareBudgetFund: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      "§13 — sets collected builder-fee revenue aside for one venue's fee shares, keyed on the venue's claim. No production writer and no grant: fee shares wait for the owner's share rate (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
-  },
-  feeShareOwe: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      "§13 — a share of our fee on one fill owed to a lead trader or affiliate, from the venue's fee-share budget, keyed on the fill's earn key and the recipient. Refused with ledger.fee_share_rate_unset while the owner's share rate is unset, so no production writer and no grant (docs/adr/2026-11-10-launch-money-model.md, rule 1). The recipe-gate catalog samples it and does not ledger.post.",
-  },
   feeSharePayOut: {
     kind: 'socket',
     socket: '§13',

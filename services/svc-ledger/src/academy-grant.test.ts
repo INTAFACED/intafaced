@@ -5,8 +5,8 @@ import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 describe('svc-academy ledger grant (J-academy-07)', () => {
   it('may post academyPurchase and academyPurchaseRefund in the academy module, and nothing else', () => {
     expect(LEDGER_POST_ALLOWLIST['svc-academy']).toEqual({
-      academyPurchase: { module: 'academy', cite: 'services/svc-academy/src/purchases/purchase-ledger.ts' },
-      academyPurchaseRefund: { module: 'academy', cite: 'services/svc-academy/src/purchases/purchase-ledger.ts' },
+      academyPurchase: { module: 'academy', cite: 'crates/svc-academy/src/learner/purchases/mod.rs' },
+      academyPurchaseRefund: { module: 'academy', cite: 'crates/svc-academy/src/learner/purchases/mod.rs' },
     });
     expect(grantFor('svc-academy', 'deposit')).toBeUndefined();
     expect(grantFor('svc-academy', 'chargeEarn')).toBeUndefined();

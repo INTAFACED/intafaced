@@ -1,4 +1,6 @@
 import type { KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
+import type { ApiVersion } from '@intafaced/contracts/api-versions';
+import { ApiVersionDefaults } from '../api-version-default.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
@@ -3102,6 +3104,8 @@ export class AuthService {
     ipAllowlist?: string[];
     /** The key's rate limit for the edge (`installApiKeyRateExchange`); null while no tier is set. */
     rateLimit?: KeyRateLimit | null;
+    /** The account's default API version, applied by the edge to a call with no version header; null while not set. */
+    apiVersionDefault: ApiVersion | null;
   }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw await this.deadApiKeyRefusal(key);
@@ -3133,7 +3137,16 @@ export class AuthService {
       },
       this.tokens,
     );
-    return { accessToken, expiresAt, userId: verified.userId, keyId: verified.keyId, scopes: verified.scopes, mode: verified.mode };
+    const apiVersionDefault = await new ApiVersionDefaults(this.sql).versionOf(verified.userId);
+    return {
+      accessToken,
+      expiresAt,
+      userId: verified.userId,
+      keyId: verified.keyId,
+      scopes: verified.scopes,
+      mode: verified.mode,
+      apiVersionDefault,
+    };
   }
 
   /**

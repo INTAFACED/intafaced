@@ -1,4 +1,6 @@
 import type { VenueGrid } from './grid/venue-grid.js';
+import type { RecurringBuys } from './recurring/recurring-buys.js';
+import { recurringRouter } from './recurring/router.js';
 import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { agentDeskAdminRouter } from './venue/agent-desk-admin.js';
 import { quantLiveAdminRouter } from './quant/live-run/halts-admin.js';
@@ -6,6 +8,8 @@ import type { StrategyHaltDesk } from './quant/live-run/halts.js';
 import type { AgentDesk } from './venue/agent-desk.js';
 import { z } from 'zod';
 import { gridRouter } from './grid/router.js';
+import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
+import { COPY_MY_COPY_FEES } from '@intafaced/contracts/trade-copy-procedures';
 import type { GridService } from './grid/grid-service.js';
 import {
   JurisdictionError,
@@ -548,6 +552,14 @@ const copyFollowInput = z.object({
     .optional(),
 });
 
+/** svc-trade's refusals in their wire form, read once for every copy record (procedure-mount.ts). */
+const copyRefusalOf: RefusalOf = (err) => {
+  if (!(err instanceof TRPCError)) return undefined;
+  const cause: unknown = err.cause;
+  const code = typeof cause === 'object' && cause !== null && 'code' in cause ? cause.code : undefined;
+  return typeof code === 'string' ? { code, error: err } : undefined;
+};
+
 export function toTrpcError(err: unknown): TRPCError {
   const historyError = convertHistoryTrpcError(err);
   if (historyError) return historyError;
@@ -958,6 +970,7 @@ export function createTradeRouter(
   agentDesk?: AgentDesk | null,
   quantHalts?: StrategyHaltDesk | null,
   venueGrid?: VenueGrid | null,
+  recurring?: RecurringBuys | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -1035,8 +1048,9 @@ export function createTradeRouter(
     venue: ownVenueActivityRouter(venueActivity),
     /** `signals.*`: chart alert webhooks (signals/router.ts); the alert intake is the public REST route. */
     signals: signalsRouter(signals),
-    /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
-    bots: router({ grid: gridRouter(grid, venueGrid) }),
+    /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`.
+     * `bots.recurring.*`: the recurring buy of a basket on the person's own venue account (recurring/router.ts). */
+    bots: router({ grid: gridRouter(grid, venueGrid), recurring: recurringRouter(recurring) }),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),
@@ -2008,6 +2022,17 @@ export function createTradeRouter(
             return copy.leadEarnings(ctx.principal, input);
           }),
         ),
+
+      /** The caller's own copied venue fills, their fees as the venue reports them, and the lead's share (J-copy-bots-otc-06 #1). */
+      myCopyFees: mountRecord(
+        COPY_MY_COPY_FEES,
+        ({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+            return copy.myCopyFees(ctx.principal, input);
+          }),
+        copyRefusalOf,
+      ),
 
       /** The caller's own lead level: not set while the owner's thresholds are blank; the maximum ratio is never set (J-copy-bots-otc-06 #5). */
       leadLevel: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>

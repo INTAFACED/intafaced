@@ -35,7 +35,8 @@ export const academyCertIssueRuleSchema = z.object({
   mode: z.enum(ACADEMY_CERT_ISSUE_MODES),
   delayMinutes: z.number().int().positive().nullable(),
   revision: z.number().int().positive(),
-  updatedAt: z.coerce.date(),
+  /** When this revision was set, as the ISO instant svc-academy sends. */
+  updatedAt: z.string().datetime({ offset: true }),
 });
 export type AcademyCertIssueRule = z.infer<typeof academyCertIssueRuleSchema>;
 
@@ -46,7 +47,7 @@ export type AcademyCertIssueRule = z.infer<typeof academyCertIssueRuleSchema>;
 export const academyCertIssueSchema = z.object({
   mode: z.enum(ACADEMY_CERT_ISSUE_MODES),
   delayMinutes: z.number().int().positive().nullable(),
-  issuesAt: z.coerce.date().nullable(),
+  issuesAt: z.iso.datetime({ offset: true }).nullable(),
 });
 export type AcademyCertIssue = z.infer<typeof academyCertIssueSchema>;
 

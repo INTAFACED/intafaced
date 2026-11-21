@@ -215,7 +215,8 @@ type TrpcCallRecord = ProcedureRecord & TrpcTransport & { readonly module: CallM
 
 /**
  * `founderCall` through the call's record: the module, path and method come from the record, the input is checked by it
- * before it leaves, and the answer is parsed by `record.output` and the record's `accept` checks.
+ * before it leaves, and the answer is parsed by `record.output` and the record's `accept` checks. An input the record
+ * refuses is never sent: it is refused here as the service refuses it, a 400 with no code.
  */
 export async function founderRecordCall<R extends TrpcCallRecord>(
   ctx: FounderCallContext,
@@ -223,8 +224,27 @@ export async function founderRecordCall<R extends TrpcCallRecord>(
   input: ProcedureInput<R>,
   options: FounderCallOptions = {},
 ): Promise<FounderCallResult<ProcedureOutput<R>>> {
-  const checked: unknown = input === undefined ? undefined : record.input.parse(input);
-  return founderCall(
+  return founderAskedCall(ctx, record, input, options);
+}
+
+/**
+ * `founderRecordCall` for what a console form sent, not yet typed: the record checks it, and an input it refuses is
+ * never sent (the same 400 with no code).
+ */
+export async function founderAskedCall<R extends TrpcCallRecord>(
+  ctx: FounderCallContext,
+  record: R,
+  input: unknown,
+  options: FounderCallOptions = {},
+): Promise<FounderCallResult<ProcedureOutput<R>>> {
+  let checked: unknown;
+  if (input !== undefined) {
+    const parsed = record.input.safeParse(input);
+    if (!parsed.success) return { kind: 'refused', refusal: { code: null, message: parsed.error.message, status: 400 }, requestId: null };
+    checked = parsed.data;
+  }
+  // Boxed: `founderCall` reads a null parse as unreadable, and null is a real answer of a record whose reply is nullable.
+  const result = await founderCall(
     ctx,
     record.module,
     record.path,
@@ -232,8 +252,9 @@ export async function founderRecordCall<R extends TrpcCallRecord>(
     checked,
     (raw) => {
       const parsed = record.output.safeParse(raw);
-      return parsed.success && replyAccepted(record, parsed.data) ? (parsed.data as ProcedureOutput<R>) : null;
+      return parsed.success && replyAccepted(record, parsed.data) ? { reply: parsed.data as ProcedureOutput<R> } : null;
     },
     options,
   );
+  return result.kind === 'ok' ? { ...result, data: result.data.reply } : result;
 }

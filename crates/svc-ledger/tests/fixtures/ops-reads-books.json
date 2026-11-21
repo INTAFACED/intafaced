@@ -1,0 +1,656 @@
+{
+  "feeRevenue": [
+    {
+      "idempotencyKey": "fee-fund-USDT",
+      "module": "bank",
+      "reason": "bank.transfer.in",
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1000"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1000"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "fee-fund-BTC",
+      "module": "bank",
+      "reason": "bank.transfer.in",
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1000"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1000"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "fee-rev-1",
+      "module": "trade",
+      "reason": "trade.fill.fee",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "10.123456789012345678"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "10.123456789012345678"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "fee-rev-2",
+      "module": "pay",
+      "reason": "trade.fill.fee",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "fees:pay",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "2"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "2"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "fee-rev-3",
+      "module": "trade",
+      "reason": "trade.fill.fee",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.001"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "0.001"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "fee-back-rev-1",
+      "module": "trade",
+      "reason": "trade.fill.fee.correction",
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.5"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "0.5"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "insurance-rev-1",
+      "module": "futures",
+      "reason": "futures.insurance.fund",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "insurance-fund",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "77"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "77"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "builder-fee:test-venue:acct-1:f1",
+      "module": "trade",
+      "reason": "trade.builder_fee.earned",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "fees:builder",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "3"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "venue-builder-fee:test-venue",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "3"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "builder-fee:test-venue:acct-1:f2",
+      "module": "trade",
+      "reason": "trade.builder_fee.earned",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "fees:builder",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "2"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "venue-builder-fee:test-venue",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "2"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "builder-fee:other-venue:acct-9:f1",
+      "module": "trade",
+      "reason": "trade.builder_fee.earned",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "fees:builder",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "7"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "venue-builder-fee:other-venue",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "7"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "builder-fee-payout:test-venue:claim-1",
+      "module": "trade",
+      "reason": "trade.builder_fee.received",
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "venue-builder-fee:test-venue",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1.5"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "venue-builder-account:test-venue",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1.5"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "fee-rev-4",
+      "module": "pay",
+      "reason": "trade.fill.fee",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "fees:pay",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        }
+      ]
+    }
+  ],
+  "ownFunds": [
+    {
+      "idempotencyKey": "own-funds-user",
+      "module": "bank",
+      "reason": "test.move",
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1000"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1000"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "own-funds-merchant",
+      "module": "bank",
+      "reason": "test.move",
+      "entries": [
+        {
+          "ownerType": "module",
+          "ownerId": "pay:clearing:22222222-2222-4222-8222-222222222222",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "40"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "40"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "own-funds-burn",
+      "module": "bank",
+      "reason": "test.move",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "burn",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "5"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "5"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "own-funds-held",
+      "module": "bank",
+      "reason": "test.move",
+      "entries": [
+        {
+          "ownerType": "module",
+          "ownerId": "ops:hold-confirm:test-held-funds",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "9"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "9"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "own-funds-reward",
+      "module": "bank",
+      "reason": "test.move",
+      "entries": [
+        {
+          "ownerType": "module",
+          "ownerId": "campaigns:lock:reward-1",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "3"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "3"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "own-funds-clearing",
+      "module": "bank",
+      "reason": "test.move",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "futures-loss",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "11"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "11"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "own-funds-fee",
+      "module": "bank",
+      "reason": "test.move",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "12.500000000000000001"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "12.500000000000000001"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "own-funds-insurance",
+      "module": "bank",
+      "reason": "test.move",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "insurance-fund",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "77"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "77"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "own-funds-mm",
+      "module": "bank",
+      "reason": "test.move",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.25"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "0.25"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "own-funds-reserve",
+      "module": "bank",
+      "reason": "test.move",
+      "entries": [
+        {
+          "ownerType": "module",
+          "ownerId": "bank:loan-reserve",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "300"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "builder-fee:test-venue:acct-1:f1",
+      "module": "trade",
+      "reason": "trade.builder_fee.earned",
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "fees:builder",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "4"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "venue-builder-fee:test-venue",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "4"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "builder-fee-payout:test-venue:claim-1",
+      "module": "trade",
+      "reason": "trade.builder_fee.received",
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "venue-builder-fee:test-venue",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "4"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "venue-builder-account:test-venue",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "4"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "own-funds-move:venue-builder-account:test-venue:USDC:stmt-1",
+      "module": "treasury",
+      "reason": "treasury.own_funds.moved",
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "venue-builder-account:test-venue",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1.5"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "partner-reserve:bank",
+          "assetId": "USDC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1.5"
+        }
+      ]
+    }
+  ],
+  "deposit": {
+    "idempotencyKey": "deposit:crypto-native:tx-wm-1",
+    "module": "ledger",
+    "reason": "deposit.credited",
+    "entries": [
+      {
+        "ownerType": "treasury",
+        "ownerId": "rail:crypto-native",
+        "assetId": "USDT",
+        "kind": "available",
+        "purpose": "",
+        "direction": "credit",
+        "amount": "1"
+      },
+      {
+        "ownerType": "user",
+        "ownerId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "assetId": "USDT",
+        "kind": "available",
+        "purpose": "",
+        "direction": "debit",
+        "amount": "1"
+      }
+    ]
+  }
+}

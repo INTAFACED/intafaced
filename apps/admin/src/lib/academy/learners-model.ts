@@ -1,6 +1,6 @@
 import type { AcademyLearnerPage, AcademyLearnerProgress, AcademyLearners } from '@intafaced/contracts/academy-learner-desk';
 import type { IdentityLearnerCard } from '@intafaced/contracts/identity-learner-card';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * The staff desk for one learner (J-academy-14). Pure, so the server loader, the route and the browser component share it.

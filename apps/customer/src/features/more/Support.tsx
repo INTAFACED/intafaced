@@ -1,5 +1,4 @@
 import { useRef, useState, type ReactNode } from 'react';
-import { z } from 'zod';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Field, Tabs } from '../../shared/ui';
@@ -30,9 +29,17 @@ import {
   type StatusFilter,
 } from './support-desk';
 import { readRatedTicketIds } from './support-calls';
-import { CATEGORY_VALUES, ticketSchema, type Ticket } from './support-schemas';
-import { supportRequestFormsSchema, type SupportField, type SupportFieldValue } from '@intafaced/contracts/support-forms';
-import { SUPPORT_MESSAGE_HEADERS_MAX, supportCategoriesSchema } from '@intafaced/contracts/support-categories';
+import { CATEGORY_VALUES, type Ticket } from './support-schemas';
+import type { SupportField, SupportFieldValue } from '@intafaced/contracts/support-forms';
+import { SUPPORT_MESSAGE_HEADERS_MAX } from '@intafaced/contracts/support-categories';
+import {
+  SUPPORT_CATEGORIES,
+  SUPPORT_CREATE,
+  SUPPORT_CREATED_BY_REQUEST,
+  SUPPORT_GET,
+  SUPPORT_LIST_MINE,
+  SUPPORT_REQUEST_FORMS,
+} from '@intafaced/contracts/support-customer-procedures';
 import { formAnswers, formReady, RequestTypeFields, type FormAnswers } from './SupportRequestForm';
 
 import '../../shared/support-desk.css';
@@ -78,13 +85,10 @@ export function Support({ path }: { path: string }) {
   const recovered = useRef<Ticket | null | undefined>(undefined);
   const createAction = useAction('support-create', {
     recover: async (reference) => {
-      const read = await api.query(
-        'support',
-        'createdByRequest',
+      const read = await api.call(
+        SUPPORT_CREATED_BY_REQUEST,
         { clientRequestId: reference },
-        ticketSchema
-          .nullable()
-          .refine((row) => row === null || row.userId === userId, copyText('support.created.ticket.does.not.match.this.account')),
+        { accept: (row) => row === null || row.userId === userId },
       );
       recovered.current = read.ok ? read.data : undefined;
       return read;
@@ -105,16 +109,7 @@ export function Support({ path }: { path: string }) {
   const followed = useResource(
     (signal) =>
       followsId
-        ? api.query(
-            'support',
-            'get',
-            { ticketId: followsId },
-            ticketSchema.refine(
-              (row) => row.id === followsId && row.userId === userId,
-              copyText('support.ticket.identity.does.not.match.this.account'),
-            ),
-            { signal },
-          )
+        ? api.call(SUPPORT_GET, { ticketId: followsId }, { signal, accept: (row) => row.id === followsId && row.userId === userId })
         : Promise.resolve({ ok: true as const, data: null }),
     `support-follows:${userId}:${followsId ?? ''}`,
   );
@@ -135,16 +130,7 @@ export function Support({ path }: { path: string }) {
     ) : null;
   const limit = 200;
   const tickets = useResource(
-    (signal) =>
-      api.query(
-        'support',
-        'listMine',
-        { limit },
-        z
-          .array(ticketSchema)
-          .refine((rows) => rows.every((row) => row.userId === userId), copyText('support.ticket.ownership.does.not.match.this.account')),
-        { signal },
-      ),
+    (signal) => api.call(SUPPORT_LIST_MINE, { limit }, { signal, accept: (rows) => rows.every((row) => row.userId === userId) }),
     `support:${userId}:${limit}`,
   );
   // Which requests already carry a rating. A failed read shows no chip rather than a wrong one.
@@ -326,16 +312,10 @@ function NewRequest({
   // A paste over the cap is refused with the cap, never cut short: what was pasted is what would be sent.
   const headersTooLong = category === 'phishing' && headers.trim().length > SUPPORT_MESSAGE_HEADERS_MAX;
   // The request types the desk set up, each with its questions (SP-tickets-03). Unread or none: a general request.
-  const catalogue = useResource(
-    (signal) => api.query('support', 'requestForms', undefined, supportRequestFormsSchema, { signal }),
-    `support-forms:${userId}`,
-  );
+  const catalogue = useResource((signal) => api.call(SUPPORT_REQUEST_FORMS, undefined, { signal }), `support-forms:${userId}`);
   const forms = catalogue.resource.status === 'ready' ? catalogue.resource.data : null;
   // Where each category goes (SP-tickets-01): a fraud report goes to compliance, or cannot be sent and says why.
-  const routes = useResource(
-    (signal) => api.query('support', 'categories', undefined, supportCategoriesSchema, { signal }),
-    `support-categories:${userId}`,
-  );
+  const routes = useResource((signal) => api.call(SUPPORT_CATEGORIES, undefined, { signal }), `support-categories:${userId}`);
   // A fraud report can be sent only when the service says where it goes; anything else (unread, refused, or a service
   // that does not list it) blocks the send and says why.
   const fraudRow =
@@ -391,9 +371,8 @@ function NewRequest({
               />
             ),
             run: async () => {
-              const result = await api.mutate(
-                'support',
-                'create',
+              const result = await api.call(
+                SUPPORT_CREATE,
                 {
                   category,
                   subject: subject.trim(),
@@ -403,10 +382,10 @@ function NewRequest({
                   ...(sendForm ? { form: sendForm } : {}),
                   clientRequestId,
                 },
-                ticketSchema.refine(
-                  (row) => row.userId === userId && row.subject === subject.trim() && row.body === body.trim() && row.category === category,
-                  copyText('support.created.ticket.does.not.match.this.account'),
-                ),
+                {
+                  accept: (row) =>
+                    row.userId === userId && row.subject === subject.trim() && row.body === body.trim() && row.category === category,
+                },
               );
               if (result.ok) created = result.data;
               return result;

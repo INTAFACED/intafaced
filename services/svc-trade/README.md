@@ -193,6 +193,20 @@ quote; the same key for another ask refuses `trade.venue_sell_quote_key_reused` 
 `trade.venue_sell_quote_not_spot`, an unknown market `trade.venue_sell_quote_market_unknown`. Nothing is sent and the
 ledger posts nothing. Finance reads them in `admin.convertDesk.venueSellQuotes`.
 
+**Convert on the person's own venue account (J-cex-spot-11).** `src/venue/venue-convert.ts`, routes under
+`/api/v1/venue/convert/` (`pairs`, `route`, `quote`, `accept`, `limit`, `submit`, `history`). A quote holds nothing: the
+venue's best price on the side it meets, bounded by `TRADE_MARKET_SLIPPAGE_CAP_BPS` into an IOC limit price, sized so a
+buy never costs more than the typed spend, with the venue's own preview of its fee and ours (none on a buy). Nothing is
+sent or locked; the quote is stored in `trade.venue_convert_quotes` under the caller's `quoteKey`. Accepting prepares one
+venue order under `convert:<owner>:<quoteId>`, so a double press, the same quote id twice and Check again are one action;
+past `TRADE_CONVERT_ACCEPT_WINDOW_MS` (owner value; blank refuses `trade.convert_window_unset`) an unsigned action is
+refused at accept and at submit (`trade.convert_quote_expired`). A limit convert rests one GTC order under
+`convert:<owner>:limit:<limitKey>`. The door refuses a `convert:` key on its plain routes (`trade.venue_convert_only`).
+`TRADE_CONVERT_ENABLED` off refuses `trade.convert_disabled`; a cash currency refuses `trade.convert_cash_not_offered` (no
+partner is set). History reads each accepted order's fills from the venue by client id. The ledger posts nothing for the
+swap; a sell's builder fee is posted once per fill by the builder-fee poster. The older `convert.*` tRPC path settles on
+our own book and is the custodial layer, kept and switched off with it.
+
 **The person's own venue trading, for svc-tax (J-cex-spot-01 #11).** `venue.ownActivity` (tRPC mutation, svc-tax only,
 `serviceProcedureFor`; contract `packages/contracts/src/trade-venue-activity.ts`; code `src/venue/own-activity.ts`) answers
 one person's venue accounts with each one's balances and every spot fill, as the venue reports them at the moment of the

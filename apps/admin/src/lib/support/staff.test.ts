@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { recordReads } from './record-reply';
+import { SUPPORT_DESK_STAFF_LIST, SUPPORT_DESK_STAFF_POLICY } from '@intafaced/contracts/support-desk-procedures';
 import { explainSupportFailure } from './refusal';
-import {
-  availabilityGate,
-  heartbeatNote,
-  readStaffAvailabilityRequest,
-  readStaffPolicy,
-  readStaffRoster,
-  type StaffMemberView,
-} from './staff';
+import { availabilityGate, heartbeatNote, readStaffAvailabilityRequest, type StaffMemberView } from './staff';
 import { readActionRequest } from './model';
 
 const A = '11111111-1111-4111-8111-111111111111';
@@ -26,24 +21,28 @@ const member = (over: Partial<StaffMemberView> = {}): StaffMemberView => ({
 describe('readers', () => {
   it('reads a roster only when every row reads', () => {
     const row = (over: Partial<StaffMemberView> = {}) => ({ ...member(over), groups: [] });
-    expect(readStaffRoster([row(), row({ userId: B, role: 'lead' })])).toHaveLength(2);
-    expect(readStaffRoster([row(), { ...row(), availability: 'away' }])).toBeNull();
-    expect(readStaffRoster({})).toBeNull();
-    expect(readStaffRoster([])).toEqual([]);
+    expect(recordReads(SUPPORT_DESK_STAFF_LIST, [row(), row({ userId: B, role: 'lead' })])).toHaveLength(2);
+    expect(recordReads(SUPPORT_DESK_STAFF_LIST, [row(), { ...row(), availability: 'away' }])).toBeNull();
+    expect(recordReads(SUPPORT_DESK_STAFF_LIST, {})).toBeNull();
+    expect(recordReads(SUPPORT_DESK_STAFF_LIST, [])).toEqual([]);
   });
   it('reads each person’s groups (teams), and a row without them is not guessed at', () => {
-    expect(readStaffRoster([{ ...member(), groups: [{ id: 'g1', name: 'Payments' }] }])?.[0]?.groups).toEqual([
+    expect(recordReads(SUPPORT_DESK_STAFF_LIST, [{ ...member(), groups: [{ id: 'g1', name: 'Payments' }] }])?.[0]?.groups).toEqual([
       { id: 'g1', name: 'Payments' },
     ]);
-    expect(readStaffRoster([member()])).toBeNull();
-    expect(readStaffRoster([{ ...member(), groups: [{ id: 'g1' }] }])).toBeNull();
+    expect(recordReads(SUPPORT_DESK_STAFF_LIST, [member()])).toBeNull();
+    expect(recordReads(SUPPORT_DESK_STAFF_LIST, [{ ...member(), groups: [{ id: 'g1' }] }])).toBeNull();
   });
   it('reads the policy and refuses one that contradicts itself', () => {
-    expect(readStaffPolicy({ automaticOffline: 'not_set', heartbeatWindowSeconds: null })).toMatchObject({ automaticOffline: 'not_set' });
-    expect(readStaffPolicy({ automaticOffline: 'set', heartbeatWindowSeconds: 90 })).toMatchObject({ heartbeatWindowSeconds: 90 });
-    expect(readStaffPolicy({ automaticOffline: 'set', heartbeatWindowSeconds: null })).toBeNull();
-    expect(readStaffPolicy({ automaticOffline: 'not_set', heartbeatWindowSeconds: 90 })).toBeNull();
-    expect(readStaffPolicy({ automaticOffline: 'set', heartbeatWindowSeconds: 0 })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_STAFF_POLICY, { automaticOffline: 'not_set', heartbeatWindowSeconds: null })).toMatchObject({
+      automaticOffline: 'not_set',
+    });
+    expect(recordReads(SUPPORT_DESK_STAFF_POLICY, { automaticOffline: 'set', heartbeatWindowSeconds: 90 })).toMatchObject({
+      heartbeatWindowSeconds: 90,
+    });
+    expect(recordReads(SUPPORT_DESK_STAFF_POLICY, { automaticOffline: 'set', heartbeatWindowSeconds: null })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_STAFF_POLICY, { automaticOffline: 'not_set', heartbeatWindowSeconds: 90 })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_STAFF_POLICY, { automaticOffline: 'set', heartbeatWindowSeconds: 0 })).toBeNull();
   });
   it('says plainly that a blank window moves nobody', () => {
     expect(heartbeatNote({ automaticOffline: 'not_set', heartbeatWindowSeconds: null })).toContain('not set');

@@ -106,16 +106,52 @@ describe('assertSignerMaySign', () => {
     },
   );
 
-  it('keeps withdrawal, every approval, every sub-account action and a market margin move owner-only', () => {
+  it('keeps withdrawal, every approval, every sub-account action, a market margin move, a spot-perps move, a mode change and a vault move owner-only', () => {
     expect([...OWNER_ONLY_INTENTS].sort()).toEqual([
       'approve_agent',
       'approve_builder_fee',
       'create_sub_account',
       'market_margin_transfer',
       'revoke_agent',
+      'set_account_mode',
+      'spot_perps_transfer',
       'sub_account_transfer',
+      'vault_transfer',
       'withdraw',
     ]);
+  });
+
+  it('refuses an agent key a spot-perps move and a mode change; the owner may sign both (J-derivatives-29 #3 #6)', () => {
+    const classMove: VenueIntent = {
+      kind: 'spot_perps_transfer',
+      direction: 'perps_to_spot',
+      asset: 'USDC',
+      amount: parseAmount('200'),
+      moveKey: 'class-move:0xowner:to-spot:d-1',
+    };
+    const modeChange: VenueIntent = { kind: 'set_account_mode', mode: 'standard', changeKey: 'account-mode:0xowner:standard:c-1' };
+    for (const intent of [classMove, modeChange]) {
+      expect(refusalCode(() => assertSignerMaySign(account, agent, intent))).toBe('agent_not_permitted');
+      expect(() => assertSignerMaySign(account, owner, intent)).not.toThrow();
+    }
+  });
+
+  it('refuses an agent key a vault move and a vault move on a sub-account; the owner may sign one (J-derivatives-31 #2 #5)', () => {
+    const vaultMove: VenueIntent = {
+      kind: 'vault_transfer',
+      vault: '0xvault',
+      direction: 'deposit',
+      asset: 'USDC',
+      amount: parseAmount('100'),
+      moveKey: 'vault-move:0xowner:0xvault:deposit:d-1',
+    };
+    expect(refusalCode(() => assertSignerMaySign(account, agent, vaultMove))).toBe('agent_not_permitted');
+    expect(() => assertSignerMaySign(account, owner, vaultMove)).not.toThrow();
+    expect(refusalCode(() => assertSignerMaySign({ ...account, subAccount: '0xsub' }, owner, vaultMove))).toBe('not_offered');
+    expect(refusalCode(() => assertSignerMaySign(account, owner, { ...vaultMove, amount: parseAmount('0') }))).toBe('venue_rejected');
+    expect(refusalCode(() => assertSignerMaySign(account, owner, { ...vaultMove, moveKey: '00000000-0000-4000-8000-000000000000' }))).toBe(
+      'invalid_client_order_key',
+    );
   });
 
   it("refuses an agent key a move into a market deployer's margin account, and refuses it on a sub-account (J-derivatives-27 #7)", () => {

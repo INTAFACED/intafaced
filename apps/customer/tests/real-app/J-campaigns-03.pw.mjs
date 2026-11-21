@@ -2,17 +2,21 @@
 // Stack: fresh
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { ADMIN, founderSignIn } from './admin.mjs';
+import { founderPagesOf } from './admin.mjs';
 import { signIn } from './desk.mjs';
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { api, fund, journeyState, signOutBrowser, signUpInBrowser, tool } from './stack.mjs';
+import { api, fund, journeyState, signOutBrowser, signUpInBrowser, stepState, tool } from './stack.mjs';
 import { agePast } from './test-age.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
 import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { TEST_VENUE_DEPOSIT_ADDRESS } from '../../../../tooling/scripts/local-test-venue.mjs';
 import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
+import { call, data, openHub, operatorPair, potFunding } from './campaign-desk.mjs';
+import { chainUsd, mineBlocks } from './chain-node.mjs';
+import { sumDecimal } from './reward-funds.mjs';
+import { ownerDoor } from './venue-room.mjs';
 
 // J-campaigns-03, in the running app (docs/roadmap/journeys.json): see what I have earned, what is on hold, and why.
 // One test per step, titled "J-campaigns-03 #<n>", run in order. The launch money model (OWNER 226, OWNER 288): a reward
@@ -30,6 +34,7 @@ import { otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFil
 // custodial layer's, with TEST USDT from the trade-fee pot, and run while the stack has custody on.
 const J = 'J-campaigns-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+const state = stepState(run, J);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const SYMBOL = 'BTC/USDT';
 const TRADE = '0.001';
@@ -42,27 +47,8 @@ const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 
 test.describe.configure({ mode: 'default' });
 
-function state(...keys) {
-  const s = run.read();
-  for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
-  return s;
-}
-
-let gates;
-let ctx;
-let pair;
-async function operators() {
-  gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
-  ctx ??= await gates.makeContext({ log: () => {} });
-  pair ??= await gates.approverSessions(ctx);
-  return { ctx, pair };
-}
-
-const data = (res, what) => {
-  const row = res.json?.result?.data;
-  if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return row;
-};
+const operators = operatorPair();
+const { fundPotFromFees } = potFunding(operators, ASSET);
 
 /** A TEST task campaign with one step (buy BTC/USDT once) and every field the activation gate needs. */
 async function liveCampaign(name, { holdSeconds, asset = ASSET, amount = REWARD, budget = '0.05', lock = null }) {
@@ -99,19 +85,6 @@ async function liveCampaign(name, { holdSeconds, asset = ASSET, amount = REWARD,
   return live;
 }
 
-/** Founder A asks to sweep earned builder fees into the USDC reward pot; founder B approves, which posts it. */
-async function fundPot(reference, amount) {
-  const { ctx, pair } = await operators();
-  const a = await pair.a.campaignsOpsToken();
-  const b = await pair.b.campaignsOpsToken();
-  data(
-    await ctx.edge.mutate('campaigns', 'ops.pot.request', { reference, sourceModule: 'builder', asset: ASSET, amount }, a),
-    'ops.pot.request',
-  );
-  const funded = data(await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, b), 'ops.pot.approve');
-  expect(funded.state, JSON.stringify(funded)).toBe('posted');
-}
-
 const person = (handle) => ({
   handle,
   email: `${handle}@local-test.invalid`,
@@ -129,15 +102,6 @@ async function verifyAs(page, who, level) {
   await expect(page.getByText('Your reviewed request')).toBeVisible();
   tool('local-test-gates.mjs', 'verify');
   await signOutBrowser(page.context());
-}
-
-const trpc = (procedure, input) => `/api/campaigns/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`;
-
-async function call(who, method, procedure, input) {
-  const client = await api(who);
-  const res = method === 'GET' ? await client.get(trpc(procedure, input)) : await client.post(`/api/campaigns/trpc/${procedure}`, input);
-  if (!res.body?.result) throw new Error(`${procedure} refused (${res.status}): ${JSON.stringify(res.body).slice(0, 300)}`);
-  return res.body.result.data;
 }
 
 const mine = (who) => call(who, 'GET', 'rewards.mine', {});
@@ -166,14 +130,6 @@ async function completeAll(who, ids) {
   }
 }
 
-async function openHub(page) {
-  await page.goto('/uc/promotion');
-  const hub = page.getByTestId('rewards-hub');
-  await expect(hub).toBeVisible();
-  await expect(hub).not.toHaveAttribute('data-state', 'loading', { timeout: 30_000 });
-  return hub;
-}
-
 const row = (hub, campaignId) => hub.locator(`[data-testid="reward-row"][data-campaign="${campaignId}"]`);
 const total = (hub, status) => hub.locator(`[data-testid="rewards-total"][data-status="${status}"][data-asset="${ASSET}"]`);
 
@@ -182,39 +138,7 @@ const total = (hub, status) => hub.locator(`[data-testid="rewards-total"][data-s
 venueForThisFile(test);
 const traderKey = privateKeyToAccount(keccak256(toHex(`intafaced TEST venue journey trader ${J} ${RUN}`)));
 const traderOwner = traderKey.address.toLowerCase();
-
-/** One action through svc-trade's user-venue door as `who`: prepare, sign with the TEST key, submit. */
-async function door(who, intent, actionKey) {
-  const session = await api(who);
-  const signer = { role: 'owner', address: traderOwner };
-  const prepared = await session.post('/api/v1/venue/prepare', { owner: traderOwner, signer, intent, ...(actionKey ? { actionKey } : {}) });
-  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
-  const p = prepared.body.prepared;
-  const t = p.typedData;
-  const signature = await traderKey.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
-  const sent = await session.post('/api/v1/venue/submit', {
-    actionKey: prepared.body.actionKey,
-    signature: { digest: p.digest, signature, signedBy: traderOwner },
-  });
-  expect(sent.status, JSON.stringify(sent.body).slice(0, 400)).toBe(200);
-  expect(sent.body.outcome, JSON.stringify(sent.body.outcome).slice(0, 400)).toMatchObject({ definite: true, accepted: true });
-  return sent.body;
-}
-
-/** Adds decimal strings exactly (no float). */
-function sumDecimal(values) {
-  const scale = 18;
-  const units = (x) => {
-    const [w, f = ''] = String(x).split('.');
-    return BigInt(w + f.padEnd(scale, '0'));
-  };
-  const sum = values
-    .reduce((n, v) => n + units(v), 0n)
-    .toString()
-    .padStart(scale + 1, '0');
-  const frac = sum.slice(-scale).replace(/0+$/, '');
-  return frac ? `${sum.slice(0, -scale)}.${frac}` : sum.slice(0, -scale);
-}
+const door = ownerDoor(traderKey);
 
 /**
  * Builder fees the TEST venue credits us on this file's own sells: `who` approves our builder fee, sells SELL_SIZE BTC
@@ -285,33 +209,6 @@ async function earnBuilderFees(who, sells) {
 }
 
 const TRANSFER_FN = 'function transfer(address to, uint256 value) returns (bool)';
-/** TEST USD (6 decimals) `address` holds on the TEST chain, read from the node itself. */
-async function chainUsd(address) {
-  const res = await fetch(GATE_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'eth_call',
-      params: [{ to: TOKEN_USD.address, data: `0x70a08231${address.slice(2).toLowerCase().padStart(64, '0')}` }, 'latest'],
-    }),
-  });
-  return BigInt((await res.json()).result);
-}
-
-/** Mines `n` empty blocks on the stack's TEST chain (`evm_mine`, the TEST chain's own control), for the venue's confirmations. */
-async function mineBlocks(n) {
-  for (let i = 0; i < n; i += 1) {
-    const res = await fetch(testChain().gateUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'evm_mine', params: [] }),
-    });
-    const body = await res.json();
-    if (body.error) throw new Error(`evm_mine: ${JSON.stringify(body.error)}`);
-  }
-}
 
 /**
  * Pays INTAFACED's TEST rewards wallet from our own TEST builder fees, as the launch money model moves them: this file's
@@ -396,35 +293,10 @@ async function fundTradePot(reference, amount) {
 /** Adds two decimal strings exactly (no float). */
 const addDecimal = (a, b) => sumDecimal([a, b]);
 
-/** Funds the pot with builder fees once svc-trade has posted them to the ledger (it posts on its own cadence). */
-async function fundPotFromFees(reference, amount) {
-  await expect
-    .poll(
-      async () => {
-        try {
-          await fundPot(`${reference}-${Date.now().toString(36)}`, amount);
-          return 'posted';
-        } catch (err) {
-          return String(err).slice(0, 200);
-        }
-      },
-      { timeout: 90_000, intervals: [5_000] },
-    )
-    .toBe('posted');
-}
-
 // ── The platform posting freeze, as the founders' freeze desk does it (A asks, B approves, A runs) ─────────────────────
 
 const founders = { a: null, b: null };
-async function founderPages(browser) {
-  for (const key of ['a', 'b']) {
-    if (founders[key]) continue;
-    founders[key] = await (await browser.newContext()).newPage();
-    await founderSignIn(founders[key], key);
-    await founders[key].goto(`${ADMIN}/`, { waitUntil: 'load' });
-  }
-  return founders;
-}
+const founderPages = founderPagesOf(founders);
 
 const freezeStep = (page, body) =>
   page.evaluate(async (payload) => {

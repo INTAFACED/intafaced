@@ -31,6 +31,7 @@
  * FAIL fails a verdict step, which then stands for that head and any head with the same tree (ciReviewVerdict).
  */
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync, realpathSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -182,12 +183,14 @@ export function groupedChanges(before, after) {
 }
 
 /**
- * The diff with each GENERATED_JSON file's two lines replaced by jsonChanges of them. Only a section whose
- * `diff --git` header names that exact path on both sides is summarised: a rename into or out of it, or any other
- * path, stays whole, so nothing else can hide behind the name. git's header lines (new, deleted, mode, index) stay.
+ * The diff with each GENERATED_JSON file's two lines replaced by jsonChanges of them, and the call-record export's
+ * sections summarised by summarizeExports (`readBlob` reads a changed export file's two sides; without it those stay
+ * whole). Only a section whose `diff --git` header names that exact path on both sides is summarised: a rename into or
+ * out of it, or any other path, stays whole, so nothing else can hide behind the name. git's header lines (new,
+ * deleted, mode, index) stay.
  */
-export function summarizeGenerated(diff) {
-  return diff
+export function summarizeGenerated(diff, { readBlob = null } = {}) {
+  return summarizeExports(diff, readBlob)
     .split(/^(?=diff --git )/m)
     .map((part) => {
       const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(part);
@@ -223,6 +226,233 @@ export function summarizeGenerated(diff) {
       return Buffer.byteLength(out) < Buffer.byteLength(part) ? out : part;
     })
     .join('');
+}
+
+/**
+ * The call records' generated export (packages/contracts `procedures:write`, held by its drift test
+ * procedureSchemaDrift): pretty-printed JSON `{ "$comment", "procedures": { "<record name>": {...} } }`, once one file
+ * per package (`packages/<pkg>/procedures.schema.json`), now one per serving service
+ * (`packages/<pkg>/procedures/<service>.schema.json`). A file added or deleted is one hunk of its every line: the old
+ * file's deletion is 2,561,955 bytes and svc-academy's new file 433 KB (intafaced #9313, weed project-state#3522),
+ * each over MAX_DIFF_BYTES, so no split could review them, and every record pull request adds to these files.
+ */
+export const RECORD_EXPORT = /^packages\/[a-z0-9][a-z0-9-]*\/procedures(?:\.schema\.json|\/[a-z0-9][a-z0-9-]*\.schema\.json)$/;
+
+/** git's id for a blob holding this text: what a diff's `index` line abbreviates. */
+export const blobId = (text) =>
+  createHash('sha1')
+    .update(`blob ${Buffer.byteLength(text)}\0`)
+    .update(text)
+    .digest('hex');
+
+/** `readBlob` for summarizeGenerated: a blob's text, by the id an `index` line gives, from the git repository at `dir`. */
+export const gitBlobs = (dir) => (id) =>
+  execFileSync('git', ['-C', dir, 'cat-file', 'blob', id], {
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+
+/**
+ * JSON text without the whitespace between its tokens: JSON.stringify of what it parses to gives the same text only when
+ * it repeats no key (JSON.parse keeps the last of two), writes its strings as JSON.stringify does and holds nothing else.
+ */
+const compactJson = (text) => {
+  let out = '';
+  let from = 0;
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (c === '\\') i++;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === ' ' || c === '\n' || c === '\t' || c === '\r') {
+      out += text.slice(from, i);
+      from = i + 1;
+    }
+  }
+  return out + text.slice(from);
+};
+
+/** The most bytes of summary lines under one `@@` line of an export section's summary (summarizeExports). */
+export const SUMMARY_RUN = 100_000;
+
+const isMap = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/** One side of an export file as { comment, records }, or undefined when its text is not exactly that form. */
+const exportForm = (text) => {
+  let j;
+  try {
+    j = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  if (!isMap(j) || Object.keys(j).join('\n') !== '$comment\nprocedures' || typeof j.$comment !== 'string') return undefined;
+  if (!isMap(j.procedures) || !Object.values(j.procedures).every(isMap)) return undefined;
+  if (compactJson(text) !== JSON.stringify(j)) return undefined;
+  return { comment: j.$comment, records: j.procedures };
+};
+
+const EXPORT_HEADER =
+  /^(index |new file mode |deleted file mode |old mode |new mode |similarity index |dissimilarity index |rename from |rename to |--- |\+\+\+ )/;
+
+/**
+ * One diff section as an export file's two sides, or null when it is not one, read whole and exactly: both paths of
+ * its `diff --git` line are export paths, its header lines are only git's own (no copy), and each side's text is the
+ * blob its `index` line names (blobId). A file added or deleted is read from its one hunk; a changed one from
+ * `readBlob`, the blobs themselves. A rename with no change has no hunk and no index line: it stays whole (it is small).
+ */
+const exportSection = (section, readBlob) => {
+  const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(section);
+  if (!m || !RECORD_EXPORT.test(m[1]) || !RECORD_EXPORT.test(m[2])) return null;
+  const lines = section.replace(/\n$/, '').split('\n');
+  const at = lines.findIndex((l) => l.startsWith('@@'));
+  if (at < 0) return null;
+  const head = lines.slice(1, at);
+  if (!head.every((l) => EXPORT_HEADER.test(l))) return null;
+  const index = head.map((l) => /^index ([0-9a-f]{7,40})\.\.([0-9a-f]{7,40})(?: [0-7]{6})?$/.exec(l)).filter(Boolean);
+  if (index.length !== 1) return null;
+  const [, oldId, newId] = index[0];
+  const created = head.some((l) => l.startsWith('new file mode '));
+  const deleted = head.some((l) => l.startsWith('deleted file mode '));
+  if (created !== /^0+$/.test(oldId) || deleted !== /^0+$/.test(newId) || (created && deleted)) return null;
+  // An added or deleted file's one hunk, every line of one sign (so no second `@@`): the file's text, its last newline
+  // as the diff says.
+  const fromHunk = (sign) => {
+    let body = lines.slice(at + 1);
+    let end = '\n';
+    if (body.at(-1) === '\\ No newline at end of file') {
+      body = body.slice(0, -1);
+      end = '';
+    }
+    if (!body.every((l) => l.startsWith(sign))) return null;
+    return body.map((l) => l.slice(1)).join('\n') + end;
+  };
+  const read = (id) => {
+    try {
+      return readBlob ? readBlob(id) : null;
+    } catch {
+      return null;
+    }
+  };
+  const before = created ? null : deleted ? fromHunk('-') : read(oldId);
+  const after = deleted ? null : created ? fromHunk('+') : read(newId);
+  const exact = (text, id) => typeof text === 'string' && blobId(text).startsWith(id);
+  if ((!created && !exact(before, oldId)) || (!deleted && !exact(after, newId))) return null;
+  const was = created ? null : exportForm(before);
+  const now = deleted ? null : exportForm(after);
+  if (was === undefined || now === undefined) return null;
+  return {
+    oldPath: m[1],
+    newPath: m[2],
+    head: head.filter((l) => !/^(--- |\+\+\+ )/.test(l)),
+    was,
+    now,
+    bytes: Buffer.byteLength(section),
+    lines: [],
+  };
+};
+
+/** Whether the diff changes an export file in place, whose two sides summarizeGenerated reads through `readBlob`. */
+export const exportBlobsNeeded = (diff) =>
+  diffSections(diff).some((s) => {
+    const m = /^diff --git a\/(\S+) b\/(\S+)\n/.exec(s);
+    const head = s.slice(0, s.search(/^@@/m) >>> 0);
+    return m && RECORD_EXPORT.test(m[1]) && RECORD_EXPORT.test(m[2]) && /^@@/m.test(s) && !/^(new|deleted) file mode /m.test(head);
+  });
+
+/**
+ * The diff with the call-record export's sections summarised: the records of every export file in it are compared by
+ * name, old side against new. Each record added (+) or removed (-) is shown whole, each change to one (~) at every
+ * depth by jsonChanges, and records that only moved between files, unchanged, are one line per pair of files, on both
+ * (> moved out, < moved in); a record moved and changed is named on both and its changes are shown under its new file.
+ * A name on more than one file of one side is shown whole on each. Each section keeps its own `diff --git` line and
+ * git's header lines, in the diff's own order, so a review in parts gets every file's part. Nothing is left out: a
+ * section not read exactly (exportSection) stays whole, and so does the whole diff when the summary is no smaller.
+ */
+export function summarizeExports(diff, readBlob = null) {
+  const records = (names) => `${names.length} record${names.length === 1 ? '' : 's'}`;
+  const sections = diffSections(diff);
+  const files = sections.map((s) => exportSection(s, readBlob));
+  const read = files.filter(Boolean);
+  if (read.length === 0) return diff;
+  const olds = new Map();
+  const news = new Map();
+  const put = (side, name, file, record) => {
+    if (!side.has(name)) side.set(name, []);
+    side.get(name).push({ file, record });
+  };
+  for (const f of read) {
+    for (const [n, r] of Object.entries(f.was?.records ?? {})) put(olds, n, f, r);
+    for (const [n, r] of Object.entries(f.now?.records ?? {})) put(news, n, f, r);
+  }
+  const pairs = new Map(); // `${from path}\n${to path}` -> { from, to, same: [names], moved: [names] }
+  const changed = []; // [file, lines]: under the file a record is in now
+  const once = []; // [file, lines]: a name on more than one file of a side
+  for (const name of [...new Set([...olds.keys(), ...news.keys()])].sort()) {
+    const o = olds.get(name) ?? [];
+    const n = news.get(name) ?? [];
+    const key = show(name);
+    if (o.length === 1 && n.length === 1) {
+      const [{ file: from, record: a }, { file: to, record: b }] = [o[0], n[0]];
+      const lines = show(a) === show(b) ? [] : jsonChanges(a, b, key);
+      if (show(a) !== show(b) && lines.length === 0) lines.push(`~ ${key}: the same entries in another order ${show(a)} -> ${show(b)}`);
+      if (from.oldPath === to.newPath) {
+        changed.push([to, lines]);
+        continue;
+      }
+      const k = `${from.oldPath}\n${to.newPath}`;
+      if (!pairs.has(k)) pairs.set(k, { from, to, same: [], moved: [] });
+      const p = pairs.get(k);
+      if (lines.length === 0) p.same.push(name);
+      else {
+        p.moved.push(name);
+        changed.push([to, [`~ ${key}: moved here from ${from.oldPath}, and changed:`, ...lines]]);
+      }
+      continue;
+    }
+    if (o.length > 1 || n.length > 1)
+      once.push([(n[0] ?? o[0]).file, [`! ${key} is in ${o.length} old and ${n.length} new export files: each shown whole`]]);
+    for (const { file, record } of o) file.lines.push(`- ${key} ${show(record)}`);
+    for (const { file, record } of n) file.lines.push(`+ ${key} ${show(record)}`);
+  }
+  for (const [file, lines] of once) file.lines.push(...lines);
+  for (const { from, to, same, moved } of pairs.values()) {
+    if (same.length) {
+      from.lines.push(`> ${records(same)} moved unchanged to ${to.newPath}: ${show(same)}`);
+      to.lines.push(`< ${records(same)} moved here unchanged from ${from.oldPath}: ${show(same)}`);
+    }
+    if (moved.length) from.lines.push(`> ${records(moved)} moved to ${to.newPath} and changed, the changes shown there: ${show(moved)}`);
+  }
+  for (const [file, lines] of changed) file.lines.push(...lines);
+  const comment = (side) => (side ? { $comment: side.comment } : {});
+  const out = sections.map((s, i) => {
+    const f = files[i];
+    if (!f) return s;
+    const lines = [...jsonChanges(comment(f.was), comment(f.now)), ...f.lines];
+    if (lines.length === 0) lines.push('= the text changed, and every record and the $comment are the same JSON');
+    const count = (side) => (side ? Object.keys(side.records).length : 0);
+    // Its lines in runs of at most SUMMARY_RUN bytes, each under an `@@` line, where splitDiff may part a large one.
+    const runs = [];
+    for (const l of lines) {
+      const last = runs.at(-1);
+      if (last && last.bytes + Buffer.byteLength(l) + 1 <= SUMMARY_RUN) {
+        last.lines.push(l);
+        last.bytes += Buffer.byteLength(l) + 1;
+      } else runs.push({ lines: [l], bytes: Buffer.byteLength(l) + 1 });
+    }
+    let n = 0;
+    return [
+      `diff --git a/${f.oldPath} b/${f.newPath}`,
+      ...f.head,
+      `[generated call-record export (procedures:write), ${f.bytes} bytes of diff; summarised by the CI review job from its whole old and new text, each the blob its index line names, with the records of all ${read.length} export files this diff reads compared by name, old side against new (the whitespace between JSON tokens is not compared): ${count(f.was)} records before and ${count(f.now)} after in this file; every record added (+) or removed (-) shown whole, every change to one (~) at every depth, and records that only moved between files, unchanged, one line naming them on both files (> moved out, < moved in); ${lines.length} lines, under ${runs.length} @@ line(s)]`,
+      ...runs.flatMap((r) => [`@@ summary lines ${n + 1}-${(n += r.lines.length)} of ${lines.length} @@`, ...r.lines]),
+      '',
+    ].join('\n');
+  });
+  const size = (list) => list.reduce((t, s, i) => t + (files[i] ? Buffer.byteLength(s) : 0), 0);
+  return size(out) < size(sections) ? out.join('') : diff;
 }
 
 /** A file section's path, from its `diff --git` line. */
@@ -476,7 +706,10 @@ export function citedOwnerItems(diff) {
  * The project-state decided rows a diff's added lines of the brief cite ("project-state row d74"), in order, or []:
  * OWNER.md closed as history at item 303, so a later decision of the owner's is recorded in project-state
  * `open-list/decided/dN.md`, which quotes his words (intafaced #8265, CI review FAIL on 3e9000de: no OWNER.md item holds
- * the 12 Nov test sentence, so the route could never pass it).
+ * the 12 Nov test sentence, so the route could never pass it). Since project-state row d117 (17 Nov) a new decision has
+ * no row file: his words stand in the body of a merged project-state PR labelled `decision`, cited as "project-state
+ * decision PR #N" and returned as `#N` (intafaced #9186, CI review FAIL on 8b3f6cdc: the 20 Nov look decision had no
+ * row to cite, so the route could never pass it).
  */
 export function citedRows(diff) {
   const rows = new Set();
@@ -485,6 +718,7 @@ export function citedRows(diff) {
     if (l.startsWith('diff --git ')) inBrief = l.endsWith(` b/${BRIEF_PATH}`);
     if (!inBrief || !l.startsWith('+') || l.startsWith('+++ ')) continue;
     for (const m of l.matchAll(/\bproject-state row d(\d{1,4})\b/g)) rows.add(`d${Number(m[1])}`);
+    for (const m of l.matchAll(/\bproject-state decision PR #(\d{1,6})\b/g)) rows.add(`#${Number(m[1])}`);
   }
   return [...rows];
 }
@@ -511,14 +745,20 @@ export function ownerRecordSection({ items, ref, rows = new Map() }) {
   const body = [
     ...[...items].map(([n, t]) => (t === null ? `Item ${n}: OWNER.md has no item ${n}.` : quoted(t))),
     ...[...rows].map(([r, t]) =>
-      t === null ? `Row ${r}: project-state has no row ${r}.` : `Row ${r} (project-state open-list/decided/${r}.md):\n${quoted(t.trim())}`,
+      r.startsWith('#')
+        ? t === null
+          ? `Decision PR ${r}: project-state has no merged pull request ${r} into main labelled \`decision\`.`
+          : `Decision PR ${r} (project-state, merged into main, labelled \`decision\`; its body):\n${quoted(t.trim())}`
+        : t === null
+          ? `Row ${r}: project-state has no row ${r}.`
+          : `Row ${r} (project-state open-list/decided/${r}.md):\n${quoted(t.trim())}`,
     ),
   ];
   const cites = [items.size ? `items ${[...items.keys()].join(', ')}` : '', rows.size ? `rows ${[...rows.keys()].join(', ')}` : '']
     .filter(Boolean)
     .join(' and ');
   return [
-    `The owner's record. The job read the items${rows.size ? ' and rows' : ''} the diff's added lines of this brief cite from project-state OWNER.md${rows.size ? ' and open-list/decided/' : ''} at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${cites || 'no item'}.`,
+    `The owner's record. The job read the items${rows.size ? ' and rows' : ''} the diff's added lines of this brief cite from project-state OWNER.md${rows.size ? ' and open-list/decided/ (a row dN) or its merged `decision` pull requests (a #N: the body, as long as it was not edited after the merge)' : ''} at ${ref} (trusted input, private: never repeat it beyond the words the diff itself quotes). The diff cites ${cites || 'no item'}.`,
     'BEGIN OWNER RECORD',
     ...body,
     'END OWNER RECORD',
@@ -526,7 +766,7 @@ export function ownerRecordSection({ items, ref, rows = new Map() }) {
 }
 
 /** OWNER.md from project-state's default branch, with the commit it was read at (the token reads project-state). */
-export async function readOwnerRecord(token, get = getText, rows = []) {
+export async function readOwnerRecord(token, get = getText, rows = [], gql = postGraphql) {
   const repo = 'INTAFACED/project-state';
   const ref = await get(`/repos/${repo}/commits/main`, 'application/vnd.github.sha', token);
   if (ref.status !== 200 || !SHA40.test(ref.text.trim())) throw new Error(`could not read project-state's main: HTTP ${ref.status}`);
@@ -536,6 +776,10 @@ export async function readOwnerRecord(token, get = getText, rows = []) {
   // A cited row, at the same commit; one that isn't there is no record, which blocks the entry (REVIEW.md's route).
   const read = new Map();
   for (const row of rows) {
+    if (/^#\d{1,6}$/.test(row)) {
+      read.set(row, await readDecisionPull(row.slice(1), token, gql));
+      continue;
+    }
     if (!/^d\d{1,4}$/.test(row)) throw new Error(`not a row: ${row}`);
     const f = await get(`/repos/${repo}/contents/open-list/decided/${row}.md?ref=${sha}`, 'application/vnd.github.raw', token);
     if (f.status === 404) read.set(row, null);
@@ -543,6 +787,38 @@ export async function readOwnerRecord(token, get = getText, rows = []) {
     else read.set(row, f.text.trim() === '' ? null : f.text);
   }
   return { text: r.text, ref: sha, rows: read };
+}
+
+/** A cited decision PR's body, or null when it is no record: not found, not merged into main, not labelled `decision`
+ *  by the time it merged, or its body edited after it merged (project-state row d117: "a decision that changes a rule is
+ *  one `decision` pull request quoting him"). Unlike a row file read at main's commit, a body or label can change with no
+ *  commit and no check, so only what stood when it merged counts (intafaced #9187's fresh review). */
+export const DECISION_PULL_QUERY = `query($n: Int!) { repository(owner: "INTAFACED", name: "project-state") { pullRequest(number: $n) {
+  mergedAt baseRefName body lastEditedAt labels(first: 50) { nodes { name } }
+  timelineItems(itemTypes: [LABELED_EVENT], first: 100) { nodes { ... on LabeledEvent { createdAt label { name } } } } } } }`;
+async function readDecisionPull(n, token, gql) {
+  const f = await gql(DECISION_PULL_QUERY, { n: Number(n) }, token);
+  if (f.status !== 200) throw new Error(`could not read project-state pull request #${n}: HTTP ${f.status}`);
+  let out;
+  try {
+    out = JSON.parse(f.text);
+  } catch {
+    throw new Error(`could not read project-state pull request #${n}: no JSON`);
+  }
+  const p = out?.data?.repository?.pullRequest;
+  if (!p) {
+    if ((out?.errors ?? []).every((e) => e?.type === 'NOT_FOUND')) return null;
+    throw new Error(`could not read project-state pull request #${n}: ${JSON.stringify(out?.errors ?? 'no data').slice(0, 300)}`);
+  }
+  const merged = Date.parse(p.mergedAt ?? '');
+  const by = (t) => Number.isFinite(Date.parse(t ?? '')) && Date.parse(t) <= merged;
+  const ok =
+    Number.isFinite(merged) &&
+    p.baseRefName === 'main' &&
+    (p.labels?.nodes ?? []).some((l) => l?.name === 'decision') &&
+    (p.timelineItems?.nodes ?? []).some((e) => e?.label?.name === 'decision' && by(e.createdAt)) &&
+    (p.lastEditedAt == null || by(p.lastEditedAt));
+  return ok && String(p.body ?? '').trim() !== '' ? String(p.body) : null;
 }
 
 /** The prompt: the brief from the default branch, then the diff fenced as untrusted data. */
@@ -643,6 +919,19 @@ async function getText(path, accept, token = process.env.GH_TOKEN) {
     throw new Error(
       `GitHub ${res.status} on GET ${path}: stopping, not retrying${isBudgetResponse(res) ? `; ${budgetLine(res.headers.get('x-ratelimit-reset'))}` : ''}`,
     );
+  return { status: res.status, text };
+}
+
+/** A GraphQL read (a cited decision PR's edit and label times, which REST does not give); a 403 or 429 stops, as in getText. */
+async function postGraphql(query, variables, token) {
+  const res = await fetch('https://api.github.com/graphql', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const text = await res.text();
+  if (res.status === 403 || res.status === 429) throw new Error(`GitHub ${res.status} on GraphQL: stopping, not retrying`);
   return { status: res.status, text };
 }
 
@@ -938,6 +1227,21 @@ async function cmdDiff(dir) {
   const r = await getText(`/repos/${repo}/compare/${pull.base}...${pull.head}`, 'application/vnd.github.v3.diff');
   if (r.status !== 200) throw new Error(`could not read the diff ${pull.base.slice(0, 7)}...${pull.head.slice(0, 7)}: HTTP ${r.status}`);
   readableDiff(r.text, pull);
+  // A call-record export changed in place is summarised from its two whole sides (summarizeExports): the blobs at the
+  // merge base and the head, fetched as the test part's source fetches them. Unread, those sections stay whole.
+  let readBlob = null;
+  if (exportBlobsNeeded(r.text)) {
+    const ws = process.env.GITHUB_WORKSPACE ?? '.';
+    try {
+      const c = await getText(`/repos/${repo}/compare/${pull.base}...${pull.head}?per_page=1`, 'application/vnd.github+json');
+      const mergeBase = c.status === 200 ? String(JSON.parse(c.text)?.merge_base_commit?.sha ?? '') : '';
+      if (!SHA40.test(mergeBase)) throw new Error(`no merge base (HTTP ${c.status})`);
+      execFileSync('git', ['-C', ws, 'fetch', '--no-tags', '--quiet', '--depth=1', 'origin', mergeBase, pull.head], { stdio: 'ignore' });
+      readBlob = gitBlobs(ws);
+    } catch (e) {
+      console.log(`export blobs: not read (${String(e.message).split('\n')[0]}); a changed export file stays whole`);
+    }
+  }
   // The changed look-baseline images, old and new, when the diff is small enough to review at all.
   let images = [];
   if (Buffer.byteLength(r.text) <= MAX_DIFF_BYTES) {
@@ -955,7 +1259,7 @@ async function cmdDiff(dir) {
   };
   console.log(
     await writeReviewInputs(dir, {
-      diff: summarizeGenerated(r.text),
+      diff: summarizeGenerated(r.text, { readBlob }),
       base: pull.base,
       head: pull.head,
       pr: pull.number,

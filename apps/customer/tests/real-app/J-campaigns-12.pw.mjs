@@ -1,12 +1,11 @@
 // World: book, restart, stack
 import { keccak256, toHex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { chosePro, signIn, signUp } from './desk.mjs';
-import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
-import { api, journeyState, tool } from './stack.mjs';
-import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
+import { signIn } from './desk.mjs';
+import { TOKEN_USD } from './dex.mjs';
+import { api, journeyState, stepState } from './stack.mjs';
 import { chainBalance, otherTraderKey, otherTraderRun, testDeposit, testVenue, venueForThisFile, venueRecord } from './venue.mjs';
+import { data, myRewards, operatorPair, traderDoor as door, traderOf } from './campaign-desk.mjs';
 
 // J-campaigns-12, in the running app (docs/roadmap/journeys.json): take part in a lucky draw. One test per step, titled
 // "J-campaigns-12 #<n>", run in order. The draw is this run's TEST campaign, made by the stack's two LOCAL TEST founders
@@ -19,6 +18,7 @@ import { chainBalance, otherTraderKey, otherTraderRun, testDeposit, testVenue, v
 const J = 'J-campaigns-12';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${RUN}`);
+const state = stepState(run, J);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
 const ASSET = 'USDC';
 const DAY = 86_400_000;
@@ -42,27 +42,7 @@ const QUESTION = 'Does INTAFACED run chance-based rewards such as a lucky draw, 
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 
-function state(...keys) {
-  const s = run.read();
-  for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
-  return s;
-}
-
-let gates;
-let ctx;
-let pair;
-async function operators() {
-  gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
-  ctx ??= await gates.makeContext({ log: () => {} });
-  pair ??= await gates.approverSessions(ctx);
-  return { ctx, pair };
-}
-
-const data = (res, what) => {
-  const row = res.json?.result?.data;
-  if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return row;
-};
+const operators = operatorPair();
 
 /** This run's TEST draw, live now, made and approved by the two TEST founders. */
 async function liveDraw(name) {
@@ -92,73 +72,9 @@ async function liveDraw(name) {
   return live;
 }
 
-/** Basic verification through the verification room, granted by the stack's TEST reviewer. */
-async function verifyBasic(page) {
-  await page.goto('/verification');
-  await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
-  await page.getByLabel('Country code').fill('DE');
-  await page.getByRole('button', { name: 'Review request' }).click();
-  await page.getByRole('button', { name: 'Submit this request' }).click();
-  await expect(page.getByText('Your reviewed request')).toBeVisible();
-  tool('local-test-gates.mjs', 'verify');
-}
-
 /** The person's own TEST wallet: a key made from this run's name, holding nothing real. */
 const walletKeyOf = (who) => keccak256(toHex(`intafaced TEST draw wallet ${J} ${RUN} ${who.handle}`));
-const sheet = (page) => page.locator('[data-sheet="sign"]');
-
-/** Connects the person's TEST wallet to their account on Wallet's Venue account tab, as svc-protocol records it. */
-async function connectWallet(page, who, privateKey) {
-  await installTestWallet(page, { chainId: CHAIN_ID, privateKey, rpcUrl: testChain().gateUrl });
-  await signIn(page, who);
-  await page.goto('/wallet');
-  await page.getByRole('button', { name: 'Venue account', exact: true }).click();
-  await expect(page).toHaveURL(/\/wallet\/venue$/);
-  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
-  await page.getByRole('button', { name: 'Connect to my account' }).click();
-  await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
-  await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
-}
-
-/** A TEST person: signed up in Pro, basic verification, their own TEST wallet connected. */
-async function trader(browser, prefix) {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await chosePro(page);
-  const who = await signUp(page, prefix);
-  await verifyBasic(page);
-  const key = walletKeyOf(who);
-  const wallet = privateKeyToAccount(key).address.toLowerCase();
-  fundOnTestChain(wallet, 'venue');
-  const connecting = await (await browser.newContext()).newPage();
-  await connectWallet(connecting, who, key);
-  await connecting.context().close();
-  await context.close();
-  return { who, key, wallet };
-}
-
-/** One action through svc-trade's user-venue door as `who`, signed with their own TEST wallet: prepare, sign, submit. */
-async function door(p, intent, actionKey) {
-  const session = await api(p.who);
-  const signer = { role: 'owner', address: p.wallet };
-  const prepared = await session.post('/api/v1/venue/prepare', { owner: p.wallet, signer, intent, ...(actionKey ? { actionKey } : {}) });
-  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
-  const t = prepared.body.prepared.typedData;
-  const signature = await privateKeyToAccount(p.key).signTypedData({
-    domain: t.domain,
-    types: t.types,
-    primaryType: t.primaryType,
-    message: t.message,
-  });
-  const sent = await session.post('/api/v1/venue/submit', {
-    actionKey: prepared.body.actionKey,
-    signature: { digest: prepared.body.prepared.digest, signature, signedBy: p.wallet },
-  });
-  expect(sent.status, JSON.stringify(sent.body).slice(0, 400)).toBe(200);
-  expect(sent.body.outcome, JSON.stringify(sent.body.outcome).slice(0, 400)).toMatchObject({ definite: true, accepted: true });
-  return sent.body;
-}
-
+const trader = traderOf(walletKeyOf);
 let orders = 0;
 /** A TEST bid for `amount` BTC at PRICE from another TEST trader on the venue, so the person's sells fill against it. */
 async function restingBid(amount) {
@@ -229,12 +145,6 @@ async function boardOf(who, campaignId) {
   const res = await (await api(who)).get(`/api/campaigns/trpc/draw.board?input=${encodeURIComponent(JSON.stringify({ campaignId }))}`);
   if (!res.body?.result) throw new Error(`draw.board refused (${res.status}): ${JSON.stringify(res.body).slice(0, 300)}`);
   return res.body.result.data;
-}
-
-async function myRewards(who) {
-  const res = await (await api(who)).get(`/api/campaigns/trpc/rewards.mine?input=${encodeURIComponent('{}')}`);
-  if (!res.body?.result) throw new Error(`rewards.mine refused (${res.status}): ${JSON.stringify(res.body).slice(0, 300)}`);
-  return res.body.result.data.rewards;
 }
 
 /** The draw page, ready. */

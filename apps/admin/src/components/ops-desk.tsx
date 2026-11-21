@@ -23,7 +23,7 @@ import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
 import { ProtocolTrust } from '@/components/protocol-trust';
 import { AgentsRoutesDesk } from '@/components/agents-routes-desk';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { fetchDesk, fetchPage } from '@/lib/ops-desk/browser';
 import { DESKS } from '@/lib/ops-desk/catalog';
 import { ownServerFailureText } from '@/lib/ops-desk/own-server';

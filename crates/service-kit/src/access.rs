@@ -50,15 +50,18 @@ const SESSION_MFA_SCOPES: [&str; 4] = [
     "pay:onboard",
 ];
 
+/// `hasScope(granted, scope)`: the scope held, or implied by one held.
+pub fn has_scope(granted: &[String], scope: &str) -> bool {
+    granted
+        .iter()
+        .any(|s| s == scope || IMPLIED.iter().any(|(from, to)| s == from && *to == scope))
+}
+
 /// `requireScope(principal, scope)`: the scope held (or implied), not exercised from an API key or sub-account when it
 /// may not be, and with two-factor where the scope needs it. `code` is `scope.denied`, `scope.interactive_only` or
 /// `mfa.required`.
 pub fn require_scope(p: &Principal, scope: &str) -> Result<(), Refused> {
-    let held = p
-        .scopes
-        .iter()
-        .any(|s| s == scope || IMPLIED.iter().any(|(from, to)| s == from && *to == scope));
-    if !held {
+    if !has_scope(&p.scopes, scope) {
         return Err(Refused {
             message: format!("Scope \"{scope}\" is required"),
             code: "scope.denied".to_owned(),

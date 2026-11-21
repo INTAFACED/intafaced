@@ -7,5 +7,5 @@ import 'server-only';
  */
 export { asTier, type TierView } from './control-model';
 export { loadApprovalQueue, loadDashboard, loadTreasury, type ApprovalQueueData, type DashboardData, type TreasuryData } from './loaders';
-export { parseWith, payCall, type PayCallContext, type PayCallResult } from './pay-call';
+export { parseWith, payCall, payRecordCall, type PayCallContext, type PayCallResult } from './pay-call';
 export { asList } from './registry-model';

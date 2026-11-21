@@ -172,8 +172,8 @@ export const FLAG_REGISTRY: readonly FlagDef[] = [
   def('token.paperPublished', 'token', 'I', 'Token paper public', NOT_ENFORCED),
 
   // Drop II · Lobby preview
-  // `svc-academy` has no flag check on any procedure: `academy-service.ts`
-  // creates rooms and seats users at every drop. The console said "Awaiting
+  // `svc-academy` has no flag check on any procedure: its lobby service
+  // (`crates/svc-academy/src/lobbies/`) creates rooms and seats users at every drop. The console said "Awaiting
   // drop II" over a lobby that was open.
   def('academy.inviteLobbies', 'academy', 'II', 'Invite-only preview lobbies', NOT_ENFORCED),
   def('mining.mainnet', 'mining-pool', 'II', 'PoW pool on mainnet', NOT_ENFORCED),

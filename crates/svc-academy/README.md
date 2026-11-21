@@ -1,17 +1,12 @@
 # svc-academy (Rust)
 
-The Academy, ported from `services/svc-academy` one slice at a time. Until the switch, the TypeScript service serves the Academy; this crate is in neither compose nor the stack.
+The Academy. It replaced the TypeScript service (`services/svc-academy`, deleted in the change that made this crate serve; read it in git history before that merge), ported one slice at a time. Compose runs it from its own image (`Dockerfile`, after the one-shot `svc-academy-migrate`), and the local test stack builds and starts the binary.
 
 ## The door
 
 Every call the TypeScript router serves is one row of `src/door/calls.rs`: path, query or mutation, scope or public, guarded or not, approval-gated or not, and the slice that owns it. `src/door/mod.rs` answers in the TypeScript's order: find the call and check its method; for a scoped call, authenticate, check the scope and the region; read and check the input; for an approval-gated call, check the operator and the approval ids; then the slice answers. A guarded call turns a refusal into its answer by the error table (`src/door/errors_table.rs`, through `errors::Refusal::guarded`); an unguarded one answers a 500 with the refusal's own words.
 
-`calls.rs`, `errors_table.rs`, `schemas.json` and the parity fixtures are generated from the TypeScript by `scripts/record-door.mjs`; never edit them by hand:
-
-```sh
-TZ=UTC node --import tsx crates/svc-academy/scripts/record-door.mjs          # write
-TZ=UTC node --import tsx crates/svc-academy/scripts/record-door.mjs --check  # fail when stale
-```
+`calls.rs`, `errors_table.rs`, `schemas.json` and the parity fixtures were recorded from the TypeScript by `scripts/record-door.mjs`. With the TypeScript deleted they are the reference: a change to a call is made in these files and the Rust together, and the recorders (`scripts/record-*.mjs`) exit 2 saying there is nothing to record from.
 
 ## Where things are
 
@@ -26,7 +21,7 @@ TZ=UTC node --import tsx crates/svc-academy/scripts/record-door.mjs --check  # f
 | `src/env.rs`            | every environment key, its default and refusal                                                                 |
 | `src/slices/<slice>.rs` | each slice's handlers; a call not ported yet refuses as not ported                                             |
 | `src/lobbies/`          | the lobbies' store, seat rules, scenes, calendar, stream provider and outside clients (`slices/lobbies.rs`)    |
-| `migrations/`           | the same files as `services/svc-academy/drizzle`, built in; `svc-academy migrate [--down]`                     |
+| `migrations/`           | the `academy` schema's migrations (the TypeScript's `drizzle` files), built in; `svc-academy migrate [--down]` |
 
 ## Porting a slice
 
@@ -42,12 +37,7 @@ The replay fails on any difference the door decides (401, scope 403, input 400, 
 
 Calls that consume an approval but are not flagged approval-gated in the table (`createSeason`, `revokeCert`, `grantCertException`) call `access::approval_precheck` themselves where the TypeScript handler does.
 
-`tests/fixtures/lobbies-parity.golden.json` is recorded from the TypeScript (after `pnpm --filter "@intafaced/svc-academy^..." build`):
-
-```sh
-TZ=UTC node --import tsx crates/svc-academy/scripts/record-lobbies.mjs          # write
-TZ=UTC node --import tsx crates/svc-academy/scripts/record-lobbies.mjs --check  # fail when stale
-```
+`tests/fixtures/lobbies-parity.golden.json` was recorded from the TypeScript (`scripts/record-lobbies.mjs`) and is the reference now.
 
 ## Tests
 

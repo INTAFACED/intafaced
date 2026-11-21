@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BOOT_SCRIPT, VIEW_KEY, homeBoot } from './boot';
 import { LOOK_KEY, resolveLook } from './look';
+import { savePreferences } from '../shared/preferences';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const html = document.documentElement;
@@ -102,8 +103,17 @@ describe('the boot script', () => {
     expect(html.hasAttribute('data-boot')).toBe(false);
   });
 
-  it('reads the key the app keeps its layout preference under', () => {
-    expect(readFileSync(join(here, '../shared/preferences.ts'), 'utf8')).toContain(`const key = '${VIEW_KEY}';`);
+  it('reads the key the app keeps its layout preference under: a Pro choice the app saved leaves Home unmarked', () => {
+    history.replaceState(null, '', '/home');
+    localStorage.clear();
+    savePreferences({ layoutMode: 'pro' });
+    expect(JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}')).toMatchObject({ layoutMode: 'pro' });
+    html.removeAttribute('data-boot');
+    new Function(BOOT_SCRIPT)();
+    expect(html.hasAttribute('data-boot')).toBe(false);
+    savePreferences({ layoutMode: 'simple' });
+    new Function(BOOT_SCRIPT)();
+    expect(html.getAttribute('data-boot')).toBe('home');
   });
 
   it('sets the look the app will set, on every path, before the first paint', () => {

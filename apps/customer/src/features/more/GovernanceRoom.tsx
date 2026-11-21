@@ -1,6 +1,17 @@
-// hand-declared-ok: svc-token's governance outputs are declared in its router; packages/contracts has no token schemas yet
 import { useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from 'react';
 import { z } from 'zod';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import {
+  TOKEN_CREATE_PROPOSAL,
+  TOKEN_DELEGATE,
+  TOKEN_DELEGATION,
+  TOKEN_EDIT_PROPOSAL,
+  TOKEN_FOLLOW_SPACE,
+  TOKEN_GOVERNANCE_CANCEL,
+  TOKEN_GOVERNANCE_HOME,
+  TOKEN_LIST_PROPOSALS,
+  TOKEN_TREASURY,
+} from '@intafaced/contracts/token-procedures';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, parseAmount } from '../../shared/money';
@@ -9,7 +20,7 @@ import { usePreferences } from '../../shared/preferences';
 import { Button, DataTable, EmptyState, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea } from './common';
 import { governanceRoomCopy } from './governance-room-copy';
-import { TOKEN_VOTING_TYPES } from '@intafaced/contracts/token-governance';
+import { TOKEN_VOTING_TYPES, type TokenVotingType } from '@intafaced/contracts/token-governance';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type T = ReturnType<typeof governanceRoomCopy.forLocale>['t'];
@@ -21,49 +32,13 @@ const PAGE = 50;
 const PAGE_CAP = 200;
 
 const iso = z.string().datetime({ offset: true });
-const proposalSchema = z.object({
-  id: z.string().min(1).max(512),
-  kind: z.enum(KINDS),
-  status: z.enum(STATUSES),
-  opensAt: iso,
-  closesAt: iso,
-  createdAt: iso,
-  title: z.string().nullable(),
-  bodyMd: z.string().nullable(),
-  authorId: z.string().nullable(),
-  /** Set when a governance moderator, admin or controller cancelled it. Its votes stay. */
-  cancel: z.object({ reason: z.string(), at: iso }).nullable(),
-  counts: z.object({
-    votes: z.number().int().nonnegative(),
-    for: z.number().int().nonnegative(),
-    against: z.number().int().nonnegative(),
-    abstain: z.number().int().nonnegative(),
-  }),
-});
-type Proposal = z.infer<typeof proposalSchema>;
-const accessCode = z.enum([
-  'token.proposer_rule_unset',
-  'token.proposal_limit_unset',
-  'token.proposal_not_allowed',
-  'token.proposal_limit_reached',
-]);
-const homeSchema = z.object({
-  spaceId: z.string(),
-  following: z.boolean(),
-  proposal: z.object({ code: accessCode.nullable(), minStake: decimalSchema.nullable() }),
-});
-type Home = z.infer<typeof homeSchema>;
-const followSchema = z.object({ spaceId: z.string(), following: z.boolean() });
-const delegationSchema = z.object({ delegateeUserId: z.null(), blocker: z.literal('no_chain_service') });
-const treasurySchema = z.object({
-  minted: decimalSchema.nullable(),
-  burned: decimalSchema,
-  bought: decimalSchema.nullable(),
-  toRewards: decimalSchema.nullable(),
-  distributed: decimalSchema.nullable(),
-  lastBuyback: z.object({ bought: decimalSchema, burned: decimalSchema, toRewards: decimalSchema, executedAt: iso }).nullable(),
-});
-
+type Proposal = ProcedureOutput<typeof TOKEN_LIST_PROPOSALS>[number];
+type Home = ProcedureOutput<typeof TOKEN_GOVERNANCE_HOME>;
+/** This room's own check over a proposal: every instant it shows is a real ISO timestamp. */
+const instantsRead = (p: Proposal) =>
+  [p.opensAt, p.closesAt, p.createdAt, ...(p.cancel ? [p.cancel.at] : [])].every((at) => iso.safeParse(at).success);
+/** The stake a proposal needs is an exact decimal, as this room displays it. */
+const homeReads = (h: Home) => h.proposal.minStake === null || decimalSchema.safeParse(h.proposal.minStake).success;
 /** A UTC minute for a service timestamp; the `datetime` attribute keeps the exact value. */
 function When({ at }: { at: string }) {
   return <time dateTime={at}>{`${new Date(at).toISOString().slice(0, 16).replace('T', ' ')} UTC`}</time>;
@@ -147,7 +122,7 @@ export function GovernanceSpace() {
   const t = useWords();
   const api = useApi();
   const { userId } = useSession();
-  const home = useResource((signal) => api.query('token', 'governanceHome', undefined, homeSchema, { signal }), `gov-home:${userId}`);
+  const home = useResource((signal) => api.call(TOKEN_GOVERNANCE_HOME, undefined, { signal, accept: homeReads }), `gov-home:${userId}`);
   return (
     <Panel title={t('space')} aria-label={t('space')}>
       <Read resource={home.resource} retry={home.reload}>
@@ -180,15 +155,20 @@ export function GovernanceProposals({
   // The create request's retry handle lives here, not in the form, so closing and reopening the form after no answer
   // still resends under the same handle. Changed content is a new request with a new handle.
   const attempt = useRef<{ request: string; handle: string } | null>(null);
-  const home = useResource((signal) => api.query('token', 'governanceHome', undefined, homeSchema, { signal }), `gov-home:${userId}`);
+  const home = useResource((signal) => api.call(TOKEN_GOVERNANCE_HOME, undefined, { signal, accept: homeReads }), `gov-home:${userId}`);
+  const listStatus = STATUSES.find((s) => s === status);
+  const listKind = KINDS.find((k) => k === kind);
   const list = useResource(
     (signal) =>
-      api.query(
-        'token',
-        'listProposals',
-        { limit, ...(status !== 'all' ? { status } : {}), ...(kind !== 'all' ? { kind } : {}), ...(q.trim() ? { q: q.trim() } : {}) },
-        z.array(proposalSchema).max(limit),
-        { signal },
+      api.call(
+        TOKEN_LIST_PROPOSALS,
+        {
+          limit,
+          ...(listStatus ? { status: listStatus } : {}),
+          ...(listKind ? { kind: listKind } : {}),
+          ...(q.trim() ? { q: q.trim() } : {}),
+        },
+        { signal, accept: (rows) => rows.length <= limit && rows.every(instantsRead) },
       ),
     `gov-list:${userId}:${status}:${kind}:${q.trim()}:${limit}`,
   );
@@ -314,7 +294,7 @@ function SpaceCard({ home, t, onChanged }: { home: Home; t: T; onChanged: () => 
   async function follow() {
     setBusy(true);
     setFailure(null);
-    const result = await api.mutate('token', 'followSpace', { following: true }, followSchema);
+    const result = await api.call(TOKEN_FOLLOW_SPACE, { following: true });
     setBusy(false);
     if (!result.ok) setFailure(result);
     onChanged();
@@ -355,8 +335,8 @@ function ProposalForm({
   onClose: () => void;
 }) {
   const api = useApi();
-  const [kind, setKind] = useState<string>(editing?.kind ?? '');
-  const [votingType, setVotingType] = useState<string>('basic');
+  const [kind, setKind] = useState<(typeof KINDS)[number] | ''>(editing?.kind ?? '');
+  const [votingType, setVotingType] = useState<TokenVotingType>('basic');
   const [choices, setChoices] = useState('');
   const [title, setTitle] = useState(editing?.title ?? '');
   const [body, setBody] = useState(editing?.bodyMd ?? '');
@@ -377,7 +357,11 @@ function ProposalForm({
         opensAt: opens !== localValue(editing.opensAt) ? instant(opens) : undefined,
         closesAt: closes !== localValue(editing.closesAt) ? instant(closes) : undefined,
       };
-      const result = await api.mutate('token', 'editProposal', { proposalId: editing.id, title, bodyMd: body, ...window }, proposalSchema);
+      const result = await api.call(
+        TOKEN_EDIT_PROPOSAL,
+        { proposalId: editing.id, title, bodyMd: body, ...window },
+        { accept: instantsRead },
+      );
       setBusy(false);
       setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
       if (result.ok || result.reason === 'uncertain') onDone();
@@ -398,9 +382,13 @@ function ProposalForm({
     ]);
     if (attempt && attempt.current?.request !== request) attempt.current = { request, handle: `proposal-form:${userId}:${Date.now()}` };
     const handle = attempt?.current?.handle ?? `proposal-form:${userId}:${Date.now()}`;
-    const result = await api.mutate(
-      'token',
-      'createProposal',
+    // The kind select is required, so the browser sends no form without one.
+    if (kind === '') {
+      setBusy(false);
+      return;
+    }
+    const result = await api.call(
+      TOKEN_CREATE_PROPOSAL,
       {
         kind,
         body: {},
@@ -411,7 +399,7 @@ function ProposalForm({
         ...(discussion ? { discussionLink: discussion } : {}),
         ...window,
       },
-      proposalSchema,
+      { accept: instantsRead },
     );
     setBusy(false);
     setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
@@ -425,7 +413,7 @@ function ProposalForm({
       {!editing && (
         <label className="field">
           <span>{t('kind')}</span>
-          <select value={kind} onChange={(e) => setKind(e.target.value)} required>
+          <select value={kind} onChange={(e) => setKind(KINDS.find((k) => k === e.target.value) ?? '')} required>
             <option value="">{t('chooseKind')}</option>
             {KINDS.map((k) => (
               <option key={k} value={k}>
@@ -438,7 +426,7 @@ function ProposalForm({
       {!editing && (
         <label className="field">
           <span>{t('votingType')}</span>
-          <select value={votingType} onChange={(e) => setVotingType(e.target.value)}>
+          <select value={votingType} onChange={(e) => setVotingType(TOKEN_VOTING_TYPES.find((v) => v === e.target.value) ?? 'basic')}>
             {TOKEN_VOTING_TYPES.map((type) => (
               <option key={type} value={type}>
                 {t(type)}
@@ -487,7 +475,7 @@ function CancelForm({ t, proposal, onDone, onClose }: { t: T; proposal: Proposal
     event.preventDefault();
     setBusy(true);
     setOutcome(null);
-    const result = await api.mutate('token', 'governance.cancel', { proposalId: proposal.id, reason }, proposalSchema);
+    const result = await api.call(TOKEN_GOVERNANCE_CANCEL, { proposalId: proposal.id, reason }, { accept: instantsRead });
     setBusy(false);
     setOutcome(result.ok ? { ok: true } : { ok: false, failure: result });
     if (result.ok || result.reason === 'uncertain') onDone();
@@ -517,17 +505,14 @@ export function GovernanceDelegation() {
   const t = useWords();
   const api = useApi();
   const { userId } = useSession();
-  const read = useResource(
-    (signal) => api.query('token', 'delegation', undefined, delegationSchema, { signal }),
-    `gov-delegation:${userId}`,
-  );
+  const read = useResource((signal) => api.call(TOKEN_DELEGATION, undefined, { signal }), `gov-delegation:${userId}`);
   const [delegatee, setDelegatee] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Refusal | null>(null);
   async function delegate() {
     setBusy(true);
     setFailure(null);
-    const result = await api.mutate('token', 'delegate', { delegateeUserId: delegatee.trim() || null }, z.unknown());
+    const result = await api.call(TOKEN_DELEGATE, { delegateeUserId: delegatee.trim() || null });
     setBusy(false);
     if (!result.ok) setFailure(result);
     read.reload();
@@ -556,7 +541,7 @@ export function GovernanceTreasury() {
   const t = useWords();
   const api = useApi();
   const { userId } = useSession();
-  const read = useResource((signal) => api.query('token', 'treasury', undefined, treasurySchema, { signal }), `gov-treasury:${userId}`);
+  const read = useResource((signal) => api.call(TOKEN_TREASURY, undefined, { signal }), `gov-treasury:${userId}`);
   const figure = (value: string | null): ReactNode => value ?? t('notReported');
   return (
     <Panel title={t('treasury')} aria-label={t('treasury')}>

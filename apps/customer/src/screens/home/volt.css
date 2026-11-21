@@ -1,0 +1,208 @@
+/*
+ * The Volt direction on Home: only under data-direction="volt"; nothing here applies by default.
+ * The balance comes first and largest, in the wide grotesk with its decimals quieter; the money object (VoltStack) is a
+ * matte black card in front of a chartreuse one, the screen's one spark; the inbox and the getting-started list follow.
+ * Role tokens only. Unlayered on purpose: Home's own sheet is in `@layer components`, which this must override.
+ */
+[data-direction='volt'] .if-home {
+  display: flex;
+  flex-direction: column;
+}
+[data-direction='volt'] .if-home > .home-grid {
+  order: 1;
+}
+[data-direction='volt'] .if-home > .home-inbox {
+  order: 2;
+  margin-block-start: var(--lit-gap-section);
+}
+@media (max-width: 1279px) {
+  [data-direction='volt'] .home-started-slot {
+    order: 1;
+  }
+}
+
+/* The balance: a quiet label, then the figure, heavy and wide, its cents a step back. */
+[data-direction='volt'] .home-label {
+  font-size: var(--lit-type-micro-size);
+  letter-spacing: var(--lit-type-micro-tracking);
+  text-transform: uppercase;
+  color: var(--lit-text-2);
+}
+[data-direction='volt'] .home-label > span:first-child,
+[data-direction='volt'] .home-label .home-tile-link {
+  white-space: nowrap;
+}
+/* Phone: the label row stays one line. "Customise Home" keeps its words as its name but shows only its sliders, a
+   round key at the row's end, so "Est. total value" and the row never wrap (intafaced issue 9302). */
+@media (max-width: 767px) {
+  [data-direction='volt'] .home-label {
+    flex-wrap: nowrap;
+    gap: var(--if-space-1-5);
+  }
+  [data-direction='volt'] .home-label .home-customise {
+    flex: none;
+    justify-content: center;
+    inline-size: 2.25rem;
+    block-size: 2.25rem;
+    margin-inline-start: 0;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--lit-secondary-bg);
+    box-shadow: var(--lit-secondary-shadow);
+    color: var(--lit-text-1);
+    font-size: 0;
+    letter-spacing: 0;
+  }
+}
+[data-direction='volt'] .home-total {
+  block-size: auto;
+  margin-block-start: var(--if-space-3);
+  flex-wrap: wrap;
+  row-gap: var(--if-space-2);
+}
+[data-direction='volt'] .home-total [data-slot='hero-number'] {
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-weight: 600;
+  font-size: clamp(2.75rem, 12.5vw, 4.5rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
+  color: var(--lit-text-1);
+}
+[data-direction='volt'] .home-total [data-slot='hero-number'] ::part(fraction),
+[data-direction='volt'] .home-total [data-slot='hero-number'] ::part(decimal) {
+  color: var(--lit-text-3);
+  font-weight: 500;
+}
+[data-direction='volt'] .home-change {
+  margin-block-start: var(--if-space-3);
+}
+
+/* The money object follows the actions directly; the rest of Home comes after it. */
+[data-direction='volt'] .home-main {
+  display: flex;
+  flex-direction: column;
+}
+[data-direction='volt'] .home-actions ~ * {
+  order: 2;
+}
+[data-direction='volt'] .home-main > .volt-stack {
+  order: 1;
+}
+
+/* The actions: one row of stone keys on the page itself (no panel); no colour, the spark is the money object's. */
+[data-direction='volt'] .home-actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  max-inline-size: 36rem;
+  margin-block-start: var(--lit-gap-section);
+  padding: 0;
+  gap: var(--if-space-2);
+  background: none;
+  box-shadow: none;
+}
+[data-direction='volt'] .home-actions::before {
+  content: none;
+}
+[data-direction='volt'] .home-actions > * {
+  padding-inline: 0.5rem;
+  border-radius: var(--lit-radius-key);
+  background: var(--lit-secondary-bg);
+  color: var(--lit-secondary-fg);
+  box-shadow: var(--lit-secondary-shadow);
+  font-weight: 600;
+}
+[data-direction='volt'] .if-home .home-actions > [data-slot='button']:first-child {
+  background: var(--lit-text-1);
+  color: var(--lit-page);
+  box-shadow: none;
+}
+
+/* The money object: two cards, cash in front as matte black metal, crypto behind it lit in chartreuse. */
+.volt-stack {
+  position: relative;
+  display: grid;
+  margin-block-start: var(--lit-gap-section);
+  padding-block-start: 2.25rem;
+  max-inline-size: 30rem;
+}
+.volt-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-radius: var(--lit-radius-panel);
+  text-decoration: none;
+}
+.volt-card--back {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 1.5rem;
+  block-size: 6rem;
+  flex-direction: row;
+  align-items: flex-start;
+  padding: 0.625rem 1.25rem;
+  background: var(--lit-object-spark-bg);
+  color: var(--lit-object-spark-fg);
+  box-shadow: var(--lit-fill-shadow);
+}
+.volt-card--back .volt-card__label,
+.volt-card--back .volt-card__peek {
+  font-weight: 600;
+}
+.volt-card--back .volt-card__peek {
+  margin-inline-start: auto;
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+}
+.volt-card--front {
+  position: relative;
+  min-block-size: 12.5rem;
+  padding: 1.25rem 1.375rem 1.375rem;
+  /* matte black metal in both schemes: a soft top light, a hairline lip and a heavy shadow under it */
+  background: var(--lit-object-bg);
+  color: var(--lit-object-fg);
+  box-shadow: var(--lit-object-shadow);
+}
+.volt-card__top {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+.volt-card__mark {
+  opacity: 0.9;
+}
+.volt-card--front .volt-card__label {
+  font-size: var(--lit-type-label-size);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+.volt-card__figure {
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-weight: 600;
+  font-size: 2rem;
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+@media (min-width: 768px) {
+  .volt-stack {
+    max-inline-size: 36rem;
+  }
+  .volt-card--front {
+    min-block-size: 14rem;
+  }
+  .volt-card__figure {
+    font-size: 2.5rem;
+  }
+}
+.volt-card:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 0.1875rem;
+}
+
+/* Loading, on the black card: the skeleton is the card's own ink, faint, so its shape reads in both schemes. */
+.volt-card--front [data-slot='skeleton'] {
+  background: color-mix(in srgb, var(--lit-object-fg) 16%, transparent);
+}

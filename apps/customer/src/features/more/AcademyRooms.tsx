@@ -1,6 +1,18 @@
 import { t as copyText, Text } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
+import {
+  ACADEMY_CREATE_ROOM,
+  ACADEMY_END_SESSION,
+  ACADEMY_JOIN,
+  ACADEMY_LEAVE,
+  ACADEMY_ROOMS,
+  ACADEMY_ROOM,
+  ACADEMY_SESSION,
+  ACADEMY_START_SESSION,
+  ACADEMY_ROOM_KINDS,
+  academySessionSchema,
+} from '@intafaced/contracts/academy-learner-procedures';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema } from '../../shared/money';
@@ -8,30 +20,9 @@ import { Button, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, type ActionControls } from './common';
 import { SessionMedia } from './SessionMedia';
 import { RoomNotes } from './AcademyRoomNotes';
-import { ROOM_KINDS, RoomCalendar, RoomKindFilter, RoomPinnedLessons, pinnedLessonSchema } from './AcademyRoomPage';
-const uuid = z.string().guid(),
-  room = z.object({
-    id: uuid,
-    slug: z.string(),
-    name: z.string(),
-    kind: z.string(),
-    access: z.enum(['free', 'staked', 'invite']),
-    minStake: decimalSchema,
-    capacity: z.number().int().positive(),
-    hostId: uuid,
-  });
-const session = z.object({
-  id: uuid,
-  roomId: uuid,
-  title: z.string(),
-  hostId: uuid,
-  status: z.enum(['scheduled', 'live', 'ended', 'cancelled']),
-  startsAt: z.string(),
-  endsAt: z.string().nullable(),
-  streamProvider: z.string().nullable(),
-  scene: z.record(z.string(), z.unknown()),
-  sceneFingerprint: z.string().min(1),
-});
+import { ROOM_KINDS, RoomCalendar, RoomKindFilter, RoomPinnedLessons } from './AcademyRoomPage';
+// `scheduleSession`, `invite` and `updateScene` have no record: the door coerces their dates and takes any scene object,
+// which no exported schema reaches the same verdicts on (`packages/contracts/src/academy-learner-procedures.test.ts`).
 export function AcademyRooms({ action }: { action: ActionControls }) {
   const api = useApi(),
     { userId } = useSession();
@@ -51,20 +42,13 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
     [sceneId, setSceneId] = useState(''),
     [seat, setSeat] = useState('');
   const rooms = useResource(
-      (signal) => api.query('academy', 'rooms', { limit, ...(kindFilter ? { kind: kindFilter } : {}) }, z.array(room), { signal }),
+      (signal) =>
+        api.call(ACADEMY_ROOMS, { limit, ...(kindFilter ? { kind: kindFilter as (typeof ACADEMY_ROOM_KINDS)[number] } : {}) }, { signal }),
       `rooms:${userId}:${limit}:${kindFilter}`,
     ),
     detail = useResource(
       (signal) =>
-        selected
-          ? api.query(
-              'academy',
-              'room',
-              { roomId: selected, limit },
-              z.object({ room, sessions: z.array(session), pinnedLessons: z.array(pinnedLessonSchema) }),
-              { signal },
-            )
-          : Promise.resolve({ ok: true as const, data: null }),
+        selected ? api.call(ACADEMY_ROOM, { roomId: selected, limit }, { signal }) : Promise.resolve({ ok: true as const, data: null }),
       `room:${userId}:${selected}:${limit}`,
     );
   return (
@@ -152,12 +136,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                                 </p>
                               ),
                               run: async () => {
-                                const result = await api.mutate(
-                                  'academy',
-                                  'join',
-                                  { sessionId: s.id },
-                                  z.object({ role: z.enum(['host', 'speaker', 'attendee']) }),
-                                );
+                                const result = await api.call(ACADEMY_JOIN, { sessionId: s.id });
                                 if (result.ok) setSeat(`${s.id}: ${result.data.role}`);
                                 return result;
                               },
@@ -181,7 +160,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                                   {s.title}.
                                 </p>
                               ),
-                              run: () => api.mutate('academy', 'leave', { sessionId: s.id }, z.object({ ok: z.literal(true) })),
+                              run: () => api.call(ACADEMY_LEAVE, { sessionId: s.id }),
                               done: () => {
                                 setSeat('');
                                 detail.reload();
@@ -211,7 +190,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                                       <Text k="academyrooms.for.its.participants" />
                                     </p>
                                   ),
-                                  run: () => api.mutate('academy', 'startSession', { sessionId: s.id }, session),
+                                  run: () => api.call(ACADEMY_START_SESSION, { sessionId: s.id }),
                                   done: detail.reload,
                                 })
                               }
@@ -233,7 +212,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                                       <Text k="academyrooms.for.all.participants" />
                                     </p>
                                   ),
-                                  run: () => api.mutate('academy', 'endSession', { sessionId: s.id }, session),
+                                  run: () => api.call(ACADEMY_END_SESSION, { sessionId: s.id }),
                                   done: detail.reload,
                                 })
                               }
@@ -288,8 +267,12 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                               api.mutate(
                                 'academy',
                                 'scheduleSession',
-                                { roomId: selected, title: title.trim(), startsAt: new Date(starts).toISOString() },
-                                session,
+                                {
+                                  roomId: selected,
+                                  title: title.trim(),
+                                  startsAt: new Date(starts).toISOString(),
+                                },
+                                academySessionSchema,
                               ),
                             done: detail.reload,
                           });
@@ -330,7 +313,11 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                               api.mutate(
                                 'academy',
                                 'invite',
-                                { roomId: selected, userId: invite, ...(expires ? { expiresAt: new Date(expires).toISOString() } : {}) },
+                                {
+                                  roomId: selected,
+                                  userId: invite,
+                                  ...(expires ? { expiresAt: new Date(expires).toISOString() } : {}),
+                                },
                                 z.object({ ok: z.literal(true) }),
                               ),
                           });
@@ -347,7 +334,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                           value={expires}
                           onChange={(e) => setExpires(e.target.value)}
                         />
-                        <Button type="submit" disabled={action.disabled || !uuid.safeParse(invite).success}>
+                        <Button type="submit" disabled={action.disabled || !z.guid().safeParse(invite).success}>
                           <Text k="academyrooms.review.invitation" />
                         </Button>
                       </form>
@@ -384,12 +371,14 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                 />
               ),
               run: () =>
-                api.mutate(
-                  'academy',
-                  'createRoom',
-                  { slug, name: name.trim(), kind, access, capacity: Number(capacity), ...(stake ? { minStake: stake } : {}) },
-                  room,
-                ),
+                api.call(ACADEMY_CREATE_ROOM, {
+                  slug,
+                  name: name.trim(),
+                  kind: kind as (typeof ACADEMY_ROOM_KINDS)[number],
+                  access: access as 'free' | 'staked' | 'invite',
+                  capacity: Number(capacity),
+                  ...(stake ? { minStake: stake } : {}),
+                }),
               done: rooms.reload,
             });
           }}
@@ -431,46 +420,11 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
     </div>
   );
 }
-const vec = z.object({ x: z.number().finite(), y: z.number().finite() }),
-  scene = z
-    .object({
-      version: z.literal(1),
-      stage: z
-        .object({ width: z.number().positive().max(10000), height: z.number().positive().max(10000), backgroundKey: z.string().optional() })
-        .optional(),
-      avatars: z
-        .array(
-          z.object({
-            id: z.string(),
-            participantId: z.string(),
-            position: vec,
-            facing: z.number().optional(),
-            labelKey: z.string().optional(),
-          }),
-        )
-        .max(200)
-        .optional(),
-      props: z
-        .array(z.object({ id: z.string(), kind: z.string(), position: vec, rotation: z.number().optional() }))
-        .max(500)
-        .optional(),
-    })
-    .strict();
 function Scene({ id, action }: { id: string; action: ActionControls }) {
   const api = useApi(),
     { userId } = useSession();
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
-  const data = useResource(
-    (signal) =>
-      api.query(
-        'academy',
-        'session',
-        { sessionId: id },
-        z.object({ session: session.extend({ scene }), occupancy: z.number().int().nonnegative() }),
-        { signal },
-      ),
-    `scene:${userId}:${id}`,
-  );
+  const data = useResource((signal) => api.call(ACADEMY_SESSION, { sessionId: id }, { signal }), `scene:${userId}:${id}`);
   return (
     <Panel title={copyText('academyrooms.session.scene')}>
       <Read resource={data.resource} retry={data.reload}>
@@ -555,7 +509,7 @@ function Scene({ id, action }: { id: string; action: ActionControls }) {
                           'academy',
                           'updateScene',
                           { sessionId: id, scene: next, expectedFingerprint: d.session.sceneFingerprint },
-                          session,
+                          academySessionSchema,
                         ),
                       done: () => {
                         setPoint(null);

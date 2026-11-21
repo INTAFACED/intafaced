@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { asDesk, clearOfGuestWindowEdge, ensureDeskGroup } from './help-centre.mjs';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { journeyState, ORIGIN, restartWith, ROOT, STACK_PORTS, stackFile, tool } from './stack.mjs';
+import { journeyState, ORIGIN, restartService, ROOT, STACK_PORTS, stackFile } from './stack.mjs';
 
 // J-support-public-03, in the running app (docs/roadmap/journeys.json): someone with no account asks for help, confirms
 // their address by the emailed link, and reads and replies on that one request by link. svc-support stores the request and
@@ -124,7 +124,7 @@ test(`${J} #2 sending it shows "check your email" and opens no request yet`, asy
 test(`${J} #3 with no email sender, the send says so with vendor.email and the request waits`, async ({ browser }) => {
   const email = address('nosender');
   const subject = `TEST ${J} ${RUN} no sender`;
-  restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', false);
+  await restartService('support', { LOCAL_STACK_SUPPORT_GUEST_MAIL: 'off' });
   let restored = false;
   try {
     const page = await guest(browser);
@@ -138,7 +138,7 @@ test(`${J} #3 with no email sender, the send says so with vendor.email and the r
     const pending = await storedGuestRequests(subject);
     expect(pending.map((row) => [row.status, row.ticket_id])).toEqual([['pending_delivery', null]]);
     // The request was kept, waiting: once a sender exists, sending the same form again mails that request's link.
-    restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
+    await restartService('support', { LOCAL_STACK_SUPPORT_GUEST_MAIL: undefined });
     restored = true;
     await form.getByRole('button', { name: 'Send request' }).click();
     await expect(page.getByTestId('support-guest-check-email')).toBeVisible({ timeout: 15_000 });
@@ -146,7 +146,7 @@ test(`${J} #3 with no email sender, the send says so with vendor.email and the r
     // The mail went out for that same pending request, not a new one.
     expect((await storedGuestRequests(subject)).map((row) => row.id)).toEqual([pending[0].id]);
   } finally {
-    if (!restored) restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
+    if (!restored) await restartService('support', { LOCAL_STACK_SUPPORT_GUEST_MAIL: undefined });
   }
 });
 
@@ -190,7 +190,7 @@ test(`${J} #5 too many requests from one address are refused with no request sto
   const busy = `TEST ${J} ${RUN} busy `;
   expect((await storedGuestRequests(busy)).map((row) => row.subject)).toEqual([1, 2, 3].map((n) => `${busy}${n}`));
   // With the owner's limit blank, every guest request refuses and names the setting.
-  restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_RATE', false);
+  await restartService('support', { LOCAL_STACK_SUPPORT_GUEST_RATE: 'off' });
   try {
     const blank = await guest(browser);
     const other = address('unset');
@@ -200,7 +200,7 @@ test(`${J} #5 too many requests from one address are refused with no request sto
     expect(guestMail(other)).toHaveLength(0);
     expect(await storedGuestRequests(`TEST ${J} ${RUN} unset`)).toHaveLength(0);
   } finally {
-    restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_RATE', true);
+    await restartService('support', { LOCAL_STACK_SUPPORT_GUEST_RATE: undefined });
   }
 });
 
@@ -238,15 +238,8 @@ test(`${J} #6 the guest reads and replies through the link on that one request; 
 test(`${J} #7 an expired link is refused as expired, with a way back to the form`, async ({ browser }) => {
   test.setTimeout(240_000);
   const email = address('expired');
-  const before = process.env.LOCAL_STACK_SUPPORT_GUEST_LINK_TTL;
   // Links last one minute for this step only.
-  process.env.LOCAL_STACK_SUPPORT_GUEST_LINK_TTL = '1';
-  try {
-    tool('local-test-stack.mjs', 'restart', 'support');
-  } finally {
-    if (before === undefined) delete process.env.LOCAL_STACK_SUPPORT_GUEST_LINK_TTL;
-    else process.env.LOCAL_STACK_SUPPORT_GUEST_LINK_TTL = before;
-  }
+  await restartService('support', { LOCAL_STACK_SUPPORT_GUEST_LINK_TTL: '1' });
   try {
     const page = await guest(browser);
     const subject = `TEST ${J} ${RUN} expired`;
@@ -269,7 +262,7 @@ test(`${J} #7 an expired link is refused as expired, with a way back to the form
     await expect(page).toHaveURL(/\/support\/new$/);
     await expect(page.getByTestId('support-guest-new')).toBeVisible();
   } finally {
-    tool('local-test-stack.mjs', 'restart', 'support');
+    await restartService('support');
   }
 });
 

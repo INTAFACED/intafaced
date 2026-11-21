@@ -283,6 +283,12 @@ pub fn issues_json(issues: &[Issue]) -> Json {
 /// `Err(message)` is a refine that threw.
 pub trait Refiner {
     fn refine(&self, id: &str, value: &Value) -> Result<bool, String>;
+    /// A `superRefine` named `id`: the issues its `ctx.addIssue` calls add, each a path and a message (code `custom`,
+    /// and the parse goes on, as zod 3's form of `addIssue` sets it). A service without one refuses the name.
+    fn super_refine(&self, id: &str, value: &Value) -> Result<Vec<(Vec<Json>, String)>, String> {
+        let _ = value;
+        Err(format!("no superRefine named {id}"))
+    }
 }
 
 /// A refine threw: the parse stops, and tRPC answers 400 with this message.
@@ -308,6 +314,8 @@ enum Check {
         msg: Option<String>,
         abort: bool,
     },
+    /// `superRefine(fn)`: the service's own code adds its issues.
+    Super(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -322,7 +330,9 @@ enum Kind {
     String,
     Number,
     Boolean,
-    Date { coerce: bool },
+    Date {
+        coerce: bool,
+    },
     Unknown,
     Enum(Vec<Json>),
     Literal(Vec<Json>),
@@ -335,12 +345,17 @@ enum Kind {
     Dunion(String, Vec<usize>),
     Record(usize, usize),
     Lazy(usize),
+    /// `.pipe()`: the first part's output into the second; any issue but an unrecognized key stops the pipe.
+    Pipe(usize, usize),
 }
 
 #[derive(Debug, Clone)]
 struct Node {
     kind: Kind,
     checks: Vec<Check>,
+    /// The part's own `error` where it gives one message for any input but `undefined` (recorded as `definedMsg`):
+    /// that message on the type issue the part raises; an absent input keeps zod's own.
+    defined_msg: Option<String>,
 }
 
 /// zod's `optin` and `optout`: whether an absent key is allowed in, and whether `undefined` may come out.
@@ -468,6 +483,11 @@ fn read_check(c: &Json) -> Result<Check, String> {
             }
         }
         "int" => Check::Int,
+        "super" => Check::Super(
+            field_str(c, "id")
+                .ok_or("a superRefine without its name")?
+                .to_owned(),
+        ),
         "refine" => Check::Refine {
             id: field_str(c, "id")
                 .ok_or("a refine without its name")?
@@ -556,13 +576,26 @@ fn read_node(n: &Json) -> Result<Node, String> {
             ids(n, "options")?,
         ),
         "record" => Kind::Record(field_usize(n, "key")?, field_usize(n, "value")?),
+        "pipe" => Kind::Pipe(field_usize(n, "in")?, field_usize(n, "out")?),
         other => return Err(format!("an unknown part {other}")),
     };
-    let checks = match n.get("checks") {
+    let checks: Vec<Check> = match n.get("checks") {
         Some(Json::Array(c)) => c.iter().map(read_check).collect::<Result<_, _>>()?,
         _ => Vec::new(),
     };
-    Ok(Node { kind, checks })
+    // A stopped pipe marks its payload aborted, which skips its own checks; no recorded pipe carries any.
+    if matches!(kind, Kind::Pipe(..)) && !checks.is_empty() {
+        return Err("a pipe with its own checks".to_owned());
+    }
+    let defined_msg = field_str(n, "definedMsg").map(str::to_owned);
+    if defined_msg.is_some() && !(matches!(kind, Kind::String) && checks.is_empty()) {
+        return Err("an own error is recorded only on a string without checks".to_owned());
+    }
+    Ok(Node {
+        kind,
+        checks,
+        defined_msg,
+    })
 }
 
 /// The length a length check reads (`input.length`), and whether it has one at all (`_whenHasLength`).
@@ -633,7 +666,7 @@ impl Schema {
                 | Kind::Default(a, _)
                 | Kind::Lazy(a) => vec![*a],
                 Kind::Union(o) | Kind::Dunion(_, o) => o.clone(),
-                Kind::Record(k, v) => vec![*k, *v],
+                Kind::Record(k, v) | Kind::Pipe(k, v) => vec![*k, *v],
                 _ => Vec::new(),
             };
             if let Some(bad) = refs.iter().find(|r| **r >= schema.nodes.len()) {
@@ -693,6 +726,8 @@ impl Schema {
             }
             Kind::Default(..) => (Optin::Defaulted, false),
             Kind::Nullable(inner) | Kind::Lazy(inner) => self.optin(*inner, depth + 1),
+            // `optin` is the first part's, `optout` the second's.
+            Kind::Pipe(from, to) => (self.optin(*from, depth + 1).0, self.optin(*to, depth + 1).1),
             Kind::Union(options) | Kind::Dunion(_, options) => {
                 let each: Vec<_> = options.iter().map(|o| self.optin(*o, depth + 1)).collect();
                 let optin = if each.iter().any(|(i, _)| *i == Optin::Defaulted) {
@@ -726,7 +761,9 @@ impl Schema {
                 v.push(Some(Json::Null));
                 Some(v)
             }
-            Kind::Default(inner, _) | Kind::Lazy(inner) => self.admitted(*inner, depth + 1),
+            Kind::Default(inner, _) | Kind::Lazy(inner) | Kind::Pipe(inner, _) => {
+                self.admitted(*inner, depth + 1)
+            }
             _ => None,
         }
     }
@@ -1027,6 +1064,14 @@ impl Schema {
                     .at(path.clone()),
                 );
             }
+            Check::Super(id) => {
+                for (path, message) in refiner.super_refine(id, &p.value).map_err(Thrown)? {
+                    p.issues.push(
+                        Issue::new(vec![("code", Json::str("custom"))], message, Cont::Yes)
+                            .at(path),
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -1056,7 +1101,15 @@ impl Schema {
         match &node.kind {
             Kind::String => {
                 if !matches!(p.value, Value::String(_)) {
-                    p.issues.push(Self::invalid_type("string", &p.value));
+                    let mut issue = Self::invalid_type("string", &p.value);
+                    if let Some(msg) = node
+                        .defined_msg
+                        .as_ref()
+                        .filter(|_| p.value != Value::Undefined)
+                    {
+                        issue.message.clone_from(msg);
+                    }
+                    p.issues.push(issue);
                 }
             }
             Kind::Number => match p.value {
@@ -1194,6 +1247,14 @@ impl Schema {
                 return Ok(r);
             }
             Kind::Lazy(inner) => return self.run(*inner, p, refiner, d),
+            // `handlePipeResult`: the second part runs only on what passed the first.
+            Kind::Pipe(from, to) => {
+                let left = self.run(*from, p, refiner, d)?;
+                if left.issues.iter().any(|i| i.code() != "unrecognized_keys") {
+                    return Ok(left);
+                }
+                return self.run(*to, left, refiner, d);
+            }
             Kind::Union(options) => {
                 if let [only] = options.as_slice() {
                     return self.run(*only, p, refiner, d);
@@ -1561,6 +1622,25 @@ mod tests {
         assert_eq!(
             verdict(&s, "{}"),
             r#"[{"expected":"date","code":"invalid_type","received":"Invalid Date","path":[],"message":"Invalid input: expected date, received Date"}]"#
+        );
+    }
+
+    /// `z.string({ error: (i) => (i.input === undefined ? undefined : 'M') })`, as zod 4 answers it.
+    #[test]
+    fn a_string_with_its_own_error_names_it_for_any_input_but_an_absent_one() {
+        let s = schema(
+            r#"[{"t":"object","shape":[["a",1],["b",2]]},{"t":"nullable","in":2},{"t":"string","definedMsg":"M"}]"#,
+        );
+        assert_eq!(
+            verdict(&s, r#"{"a":7}"#),
+            r#"[{"expected":"string","code":"invalid_type","path":["a"],"message":"M"},{"expected":"string","code":"invalid_type","path":["b"],"message":"Invalid input: expected string, received undefined"}]"#
+        );
+        assert!(
+            Schema::from_json(
+                &json::parse(r#"{"nodes":[{"t":"number","definedMsg":"M"}]}"#)
+                    .unwrap_or(Json::Null)
+            )
+            .is_err()
         );
     }
 }

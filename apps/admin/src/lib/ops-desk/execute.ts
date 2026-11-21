@@ -4,6 +4,7 @@ import {
   explainRefusal,
   failureRefusal,
   founderCall,
+  founderRecordCall,
   type DeskRequest,
   type ExecuteFn,
   type ExecuteReply,
@@ -11,6 +12,7 @@ import {
 } from '@/lib/desk';
 import { treasuryTransport } from '@/lib/ledger';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
+import { MARKET_OPS_TAKEDOWN_LISTING, MARKET_VET } from '@intafaced/contracts/market-procedures';
 import { normaliseCostAmount } from '@/lib/venue-economics';
 import { isRecord } from '@intafaced/contracts/guards';
 
@@ -22,18 +24,6 @@ import { isRecord } from '@intafaced/contracts/guards';
  * service's operator scope (market:ops, admin:write) and a verified second factor; the service checks both itself and
  * its refusal is shown in words (admin-BACKEND-NEEDS.md, item 27).
  */
-
-interface VetAnswer {
-  readonly changed: boolean;
-  readonly vendorId: string;
-  readonly status: string;
-}
-
-export function readVetAnswer(raw: unknown): VetAnswer | null {
-  if (!isRecord(raw) || typeof raw.changed !== 'boolean' || !isRecord(raw.vendor)) return null;
-  const { id, status } = raw.vendor;
-  return typeof id === 'string' && typeof status === 'string' ? { changed: raw.changed, vendorId: id, status } : null;
-}
 
 interface AmbassadorAnswer {
   readonly userId: string;
@@ -111,16 +101,6 @@ export function readCardFundingAnswer(raw: unknown): CardFundingAnswer | null {
   if (!isRecord(raw) || typeof raw.kind !== 'string' || typeof raw.amount !== 'string' || typeof raw.partnerRef !== 'string') return null;
   if (!(raw.threshold === null || typeof raw.threshold === 'string')) return null;
   return { kind: raw.kind, amount: raw.amount, threshold: raw.threshold, partnerRef: raw.partnerRef };
-}
-
-interface TakedownAnswer {
-  readonly listingId: string;
-  readonly status: string;
-}
-
-export function readTakedownAnswer(raw: unknown): TakedownAnswer | null {
-  if (!isRecord(raw) || typeof raw.listingId !== 'string' || typeof raw.status !== 'string') return null;
-  return { listingId: raw.listingId, status: raw.status };
 }
 
 interface VenueCostAnswer {
@@ -232,20 +212,18 @@ const WRONG_STATE: ExecuteReply = {
 export function opsExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request: DeskRequest, ids: { approvalId: string; operationId: string }): Promise<ExecuteReply> => {
     if (request.kind === 'market.vendor.vet') {
-      const result = await founderCall(
-        ctx,
-        'market',
-        'vet',
-        'POST',
-        { vendorId: request.vendorId, decision: request.decision, reason: request.reason, ...ids },
-        readVetAnswer,
-      );
+      const result = await founderRecordCall(ctx, MARKET_VET, {
+        vendorId: request.vendorId,
+        decision: request.decision,
+        reason: request.reason,
+        ...ids,
+      });
       if (result.kind !== 'ok') return failureRefusal('svc-market', 'market', result);
-      const a = result.data;
-      if (a.vendorId !== request.vendorId || a.status !== request.decision) return WRONG_STATE;
+      const { changed, vendor } = result.data;
+      if (vendor.id !== request.vendorId || vendor.status !== request.decision) return WRONG_STATE;
       return {
         ok: true,
-        detail: `svc-market answered and its returned vendor record is ${a.status}${a.changed ? '' : ' (it already was, so nothing changed)'}.`,
+        detail: `svc-market answered and its returned vendor record is ${vendor.status}${changed ? '' : ' (it already was, so nothing changed)'}.`,
       };
     }
     if (request.kind === 'academy.ambassador.freeze' || request.kind === 'academy.ambassador.unfreeze') {
@@ -375,14 +353,12 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       return { ok: true, detail: `svc-bank answered: the card partner took the instruction, reference ${a.partnerRef}.` };
     }
     if (request.kind === 'market.listing.takedown') {
-      const result = await founderCall(
-        ctx,
-        'market',
-        'ops.takedownListing',
-        'POST',
-        { listingId: request.listingId, reason: request.reason, ...ids, clientRequestId: ids.operationId },
-        readTakedownAnswer,
-      );
+      const result = await founderRecordCall(ctx, MARKET_OPS_TAKEDOWN_LISTING, {
+        listingId: request.listingId,
+        reason: request.reason,
+        ...ids,
+        clientRequestId: ids.operationId,
+      });
       if (result.kind !== 'ok') return failureRefusal('svc-market', 'market', result);
       const a = result.data;
       if (a.listingId !== request.listingId || a.status !== 'taken_down') return WRONG_STATE;

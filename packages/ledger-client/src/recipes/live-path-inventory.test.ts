@@ -73,6 +73,31 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
       }
     }
   }
+
+  // A Rust service (`crates/svc-<x>`) sends a recipe through its client's `.post_recipe(`: in a file that calls it, each
+  // string literal naming a recipe is a caller. Its tests (the `#[cfg(test)]` module, and `tests/`) are not production.
+  const cratesRoot = join(repoRoot, 'crates');
+  const rustSources = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) return rustSources(path);
+      return entry.name.endsWith('.rs') ? [path] : [];
+    });
+  for (const service of existsSync(cratesRoot) ? readdirSync(cratesRoot) : []) {
+    const src = join(cratesRoot, service, 'src');
+    if (!service.startsWith('svc-') || !existsSync(src)) continue;
+    for (const full of rustSources(src)) {
+      const text = (readFileSync(full, 'utf8').split('#[cfg(test)]')[0] ?? '').replace(/\/\/.*$/gm, '');
+      if (!/\.post_recipe\(/.test(text)) continue;
+      const rel = relative(repoRoot, full).replace(/\\/g, '/');
+      for (const [, name] of text.matchAll(/"([A-Za-z][A-Za-z0-9_]*)"/g)) {
+        if (name === undefined || !Object.hasOwn(recipes, name)) continue;
+        const list = found.get(name) ?? [];
+        if (!list.includes(rel)) list.push(rel);
+        found.set(name, list);
+      }
+    }
+  }
   return found;
 }
 
@@ -87,8 +112,6 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'buybackOrderHoldRelease', fingerprint: '10956b0267e4' },
   { name: 'buybackTakerFill', fingerprint: 'feb69e826223' },
   { name: 'bankTransferReversal', fingerprint: '56a8770216cd' },
-  { name: 'feeShareBudgetFund', fingerprint: '735444de9a10' },
-  { name: 'feeShareOwe', fingerprint: 'dc85cf8681c9' },
   { name: 'feeSharePayOut', fingerprint: '8c5f9df47085' },
   { name: 'partnerFeeSettle', fingerprint: 'fa297367e6cc' },
   { name: 'feeGiveBackOwe', fingerprint: '3c7e9fe3e86f' },
@@ -115,8 +138,6 @@ const BUYBACK_ORDER = 'services/svc-trade/src/spot/buyback-order.ts';
 const BUYBACK_FILLS = 'services/svc-trade/src/spot/trade-service/fills.ts';
 const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new Map([
   ['marketMakerSeedFund', [RECIPE_GATE_CATALOG]],
-  ['feeShareBudgetFund', [RECIPE_GATE_CATALOG]],
-  ['feeShareOwe', [RECIPE_GATE_CATALOG]],
   ['feeSharePayOut', [RECIPE_GATE_CATALOG]],
   ['partnerFeeSettle', [RECIPE_GATE_CATALOG]],
   ['feeGiveBackOwe', [RECIPE_GATE_CATALOG]],
@@ -142,11 +163,11 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (107 = 91 live + 16 socket)', () => {
+  it('pins live vs §13 socket counts on tip (107 = 93 live + 14 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 91, socket: 16 });
+    expect(counts).toEqual({ live: 93, socket: 14 });
     expect(inventory.recipes).toHaveLength(107);
-    expect(liveRecipeKeys(inventory)).toHaveLength(91);
+    expect(liveRecipeKeys(inventory)).toHaveLength(93);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });
 

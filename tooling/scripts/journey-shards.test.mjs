@@ -356,19 +356,34 @@ test('the planner as the workflow calls it prints shards that hold every real jo
   assert.equal(new Set(printed).size, printed.length);
 });
 
-test("a pull request's run never takes more than 12 shards, and is never the full suite (project-state#3377)", () => {
+test("a pull request's run takes the shards its target asks, at most 30, and is never the full suite (project-state#3377, #3035)", () => {
   const min = 60_000;
-  assert.equal(PR_MAX_SHARDS, 12);
+  assert.equal(PR_MAX_SHARDS, 30);
   const timed = (n, each) => {
     const files = Array.from({ length: n }, (_, i) => `J-x-${String(i).padStart(3, '0')}.pw.mjs`);
     return { files, durations: new Map(files.map((f) => [f, each * min])) };
   };
+  // #9170's bounded set (run 44668020108): 65 files, about 194 minutes, at the 10-minute target. A pull request's run
+  // takes the 20 shards the target asks; packed into a run by hand's 10 they ran 20 to 25 minutes each.
+  const bounded = timed(65, 3);
+  assert.equal(
+    targetedShards(bounded.files, bounded.durations, 10 * min, undefined, true),
+    20,
+    "a pull request's run: what the target asks",
+  );
+  assert.equal(targetedShards(bounded.files, bounded.durations, 10 * min), TARGETED_MAX_SHARDS, 'a run by hand keeps its cap');
   // Planted, the past mistake (#8836's run 44250481099: 355 files planned as a full run): a run by hand still fails open
-  // to the full plan, a pull request's stops at 12.
-  const big = timed(120, 5);
-  assert.equal(targetedShards(big.files, big.durations, 15 * min), 60, 'a run by hand: planned as a full run');
-  assert.equal(targetedShards(big.files, big.durations, 15 * min, undefined, true), 12, "a pull request's run: 12");
-  assert.equal(targetedShards(timed(60, 5).files, timed(60, 5).durations, 15 * min, undefined, true), 10, 'under the cap: unchanged');
+  // to the full plan, a pull request's stops at 30.
+  const big = timed(400, 5);
+  assert.equal(targetedShards(big.files, big.durations, 15 * min), MAX_SHARDS, 'a run by hand: planned as a full run');
+  assert.equal(targetedShards(big.files, big.durations, 15 * min, undefined, true), 30, "a pull request's run: 30");
+  assert.equal(
+    targetedShards(timed(60, 5).files, timed(60, 5).durations, 15 * min, undefined, true),
+    20,
+    'under the cap: what the target asks',
+  );
+  // Few files take as few shards as before.
+  assert.equal(targetedShards(timed(3, 5).files, timed(3, 5).durations, 10 * min, undefined, true), 2);
   // The planner refuses a pull request's run with no journeys input (the full suite).
   const out = spawnSync('node', [fileURLToPath(new URL('./journey-shards.mjs', import.meta.url)), '--shards', 'auto', '--pull'], {
     encoding: 'utf8',

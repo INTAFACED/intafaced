@@ -1,6 +1,8 @@
 import { TRPCError } from '@trpc/server';
-import { publicProcedure, scopedProcedure, supportContactChannelsSchema, supportContactSetInputSchema } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { SUPPORT_CONTACT_CHANNELS, SUPPORT_DESK_SET_CONTACT_CHANNELS } from '@intafaced/contracts/support-desk-settings-procedures';
 import { ContactStaleError, contactChangesOf, type ContactBook } from './contact-channels.js';
+import { supportRefusal } from './record-refusal.js';
 import { requireSupportOps, type SupportService } from './support-service.js';
 import { userCopy } from './user-copy.js';
 
@@ -12,14 +14,13 @@ import { userCopy } from './user-copy.js';
  */
 export function contactProcedures(book: ContactBook, support: Pick<SupportService, 'listStaff'>) {
   return {
-    contactChannels: publicProcedure.output(supportContactChannelsSchema).query(() => book.get()),
+    contactChannels: mountRecord(SUPPORT_CONTACT_CHANNELS, () => book.get(), supportRefusal),
 
-    setContactChannels: scopedProcedure('support:ops')
-      .input(supportContactSetInputSchema)
-      .output(supportContactChannelsSchema)
-      .mutation(async ({ ctx, input }) => {
-        requireSupportOps(ctx.principal!);
-        const actorId = ctx.principal!.userId;
+    setContactChannels: mountRecord(
+      SUPPORT_DESK_SET_CONTACT_CHANNELS,
+      async ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        const actorId = ctx.principal.userId;
         const actor = (await support.listStaff()).find((member) => member.userId === actorId);
         if (actor?.role !== 'lead') {
           throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('support.not_lead') });
@@ -38,6 +39,8 @@ export function contactProcedures(book: ContactBook, support: Pick<SupportServic
           }
           throw err;
         }
-      }),
+      },
+      supportRefusal,
+    ),
   };
 }

@@ -1,0 +1,1191 @@
+{
+  "nodes": [
+    {
+      "t": "object",
+      "shape": [
+        ["idempotencyKey", 1],
+        ["module", 2],
+        ["reason", 3],
+        ["entries", 4],
+        ["meta", 15],
+        ["correlationId", 19]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 8 },
+        { "k": "max_length", "n": 200 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "array", "el": 5, "checks": [{ "k": "min_length", "n": 2 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["account", 6],
+        ["direction", 13],
+        ["amount", 14]
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 7],
+        ["ownerId", 8],
+        ["assetId", 9],
+        ["kind", 10],
+        ["purpose", 11]
+      ],
+      "checks": [{ "k": "super", "id": "owner_id_space" }]
+    },
+    { "t": "enum", "values": ["user", "subaccount", "module", "house", "treasury"] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 16 }
+      ]
+    },
+    { "t": "enum", "values": ["available", "hold", "escrow", "stake", "collateral"] },
+    { "t": "optional", "in": 12 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    { "t": "enum", "values": ["debit", "credit"] },
+    {
+      "t": "string",
+      "checks": [{ "k": "regex", "src": "/^\\d{1,20}(\\.\\d{1,18})?$/", "msg": "entry amounts are unsigned decimal strings" }]
+    },
+    { "t": "optional", "in": 16 },
+    { "t": "record", "key": 17, "value": 18 },
+    { "t": "string" },
+    { "t": "unknown" },
+    { "t": "optional", "in": 20 },
+    { "t": "string" },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 22],
+        ["ownerId", 23]
+      ]
+    },
+    { "t": "enum", "values": ["user", "subaccount", "module", "house", "treasury"] },
+    { "t": "string" },
+    { "t": "object", "shape": [["idempotencyKey", 25]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 512 }
+      ]
+    },
+    { "t": "object", "shape": [["txId", 27]] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 22],
+        ["ownerId", 23],
+        ["chainAccount", 29]
+      ]
+    },
+    { "t": "optional", "in": 30 },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^0x[0-9a-fA-F]{40}$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["account", 32],
+        ["from", 39],
+        ["to", 40]
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 33],
+        ["ownerId", 34],
+        ["assetId", 35],
+        ["kind", 36],
+        ["purpose", 37]
+      ],
+      "checks": [{ "k": "super", "id": "owner_id_space" }]
+    },
+    { "t": "enum", "values": ["user", "subaccount", "module", "house", "treasury"] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 16 }
+      ]
+    },
+    { "t": "enum", "values": ["available", "hold", "escrow", "stake", "collateral"] },
+    { "t": "optional", "in": 38 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 33],
+        ["ownerId", 34],
+        ["assetId", 42],
+        ["kind", 36],
+        ["purpose", 37],
+        ["limit", 44],
+        ["cursor", 46]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "super", "id": "owner_id_space" }]
+    },
+    { "t": "optional", "in": 43 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 16 }
+      ]
+    },
+    { "t": "default", "in": 45, "value": 50 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "optional", "in": 47 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 256 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 49],
+        ["ownerId", 50],
+        ["from", 51],
+        ["bucketSeconds", 52]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "enum", "values": ["user", "subaccount"] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "literal", "values": [60, 300, 3600, 14400, 86400] },
+    {
+      "t": "object",
+      "shape": [
+        ["reason", 54],
+        ["confirmOperatorId", 57],
+        ["approvalId", 60],
+        ["operationId", 61]
+      ]
+    },
+    { "t": "pipe", "in": 55, "out": 56 },
+    { "t": "string", "checks": [{ "k": "trim" }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 12 },
+        { "k": "max_length", "n": 500 }
+      ]
+    },
+    { "t": "optional", "in": 58 },
+    { "t": "nullable", "in": 59 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["confirmOperatorId", 63],
+        ["approvalId", 66],
+        ["operationId", 67]
+      ]
+    },
+    { "t": "optional", "in": 64 },
+    { "t": "nullable", "in": 65 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["confirmOperatorId", 69],
+        ["approvalId", 72],
+        ["operationId", 73]
+      ]
+    },
+    { "t": "optional", "in": 70 },
+    { "t": "nullable", "in": 71 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "object", "shape": [["txId", 75]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    { "t": "object", "shape": [["businessKey", 77]], "catchall": "strict" },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 512 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["assetId", 79],
+        ["from", 81],
+        ["to", 83],
+        ["before", 85]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "refine", "id": "from_before_to", "path": ["to"], "msg": "from must be before to" }]
+    },
+    { "t": "optional", "in": 80 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 32 }] },
+    { "t": "optional", "in": 82 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 84 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "optional", "in": 86 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "regex", "src": "/^[1-9]\\d{0,18}$/" },
+        { "k": "refine", "id": "seq_within_int8", "msg": "past the largest sequence the ledger can hold" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["prefix", 88],
+        ["after", 89]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "regex", "src": "/^(user|subaccount|module|house|treasury):(.{1,128})$/" }] },
+    { "t": "optional", "in": 90 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    { "t": "object", "shape": [], "catchall": "strict" },
+    { "t": "object", "shape": [["accountId", 93]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["state", 95],
+        ["action", 97]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 96 },
+    { "t": "enum", "values": ["active", "halted", "retired"] },
+    { "t": "optional", "in": 98 },
+    { "t": "enum", "values": ["deposit", "withdraw", "trade", "transfer"] },
+    { "t": "object", "shape": [["assetId", 100]], "catchall": "strict" },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Z0-9]{1,16}$/", "msg": "asset ids are 1-16 upper-case letters or digits" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["approvalId", 102],
+        ["operationId", 103],
+        ["edit", 104]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 100],
+        ["kind", 105],
+        ["precision", 106],
+        ["networks", 107],
+        ["defaultNetworkId", 118],
+        ["allowedActions", 119],
+        ["state", 96],
+        ["reason", 120]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "super", "id": "asset_body" }]
+    },
+    { "t": "enum", "values": ["crypto", "fiat", "native", "commodity"] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 18, "incl": true }] },
+    { "t": "array", "el": 108, "checks": [{ "k": "max_length", "n": 64 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["networkId", 109],
+        ["label", 110],
+        ["contract", 111],
+        ["links", 113]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [{ "k": "regex", "src": "/^[a-z0-9][a-z0-9_-]{0,31}$/", "msg": "network ids are 1-32 lower-case letters, digits, - or _" }]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 112 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 114 },
+    { "t": "array", "el": 115, "checks": [{ "k": "max_length", "n": 8 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["label", 116],
+        ["url", 117]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "max_length", "n": 512 },
+        { "k": "regex", "src": "/^https:\\/\\/[^\\s/?#]+\\.[^\\s/?#]+(?:[/?#]\\S*)?$/", "msg": "links are https addresses" }
+      ]
+    },
+    { "t": "nullable", "in": 109 },
+    { "t": "array", "el": 98, "checks": [{ "k": "max_length", "n": 4 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 100],
+        ["kind", 105],
+        ["precision", 106],
+        ["networks", 107],
+        ["defaultNetworkId", 118],
+        ["allowedActions", 119],
+        ["state", 96],
+        ["revision", 122],
+        ["updatedAt", 123]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "super", "id": "asset_body" }]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "int" }] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["accountId", 93],
+        ["key", 125],
+        ["value", 126],
+        ["reason", 127],
+        ["revision", 128]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "regex",
+          "src": "/^[a-z][a-z0-9_.:-]{0,63}$/",
+          "msg": "a key is lower case: a letter, then letters, digits, _ . : or -, 64 at most"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 500 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 12 }, { "k": "max_length", "n": 500 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 2147483646, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["accountId", 93],
+        ["key", 125],
+        ["reason", 127],
+        ["revision", 130],
+        ["approvalId", 131],
+        ["operationId", 132]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "number",
+      "checks": [
+        { "k": "int" },
+        { "k": "gt", "v": 0, "incl": true },
+        { "k": "lt", "v": 2147483646, "incl": true },
+        { "k": "refine", "id": "revision_set", "msg": "a key that was never set has nothing to delete" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 128 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 128 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 134],
+        ["ownerId", 135],
+        ["reportingAssetId", 136],
+        ["inventFifoFromHistory", 137],
+        ["lotsFromHistory", 139],
+        ["costBasis", 141],
+        ["lots", 144],
+        ["marks", 156],
+        ["navInputs", 159]
+      ]
+    },
+    { "t": "enum", "values": ["user", "subaccount", "module", "house", "treasury"] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "optional", "in": 138 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 140 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 142 },
+    { "t": "nullable", "in": 143 },
+    { "t": "string" },
+    { "t": "optional", "in": 145 },
+    {
+      "t": "object",
+      "shape": [
+        ["closed", 146],
+        ["open", 152]
+      ]
+    },
+    { "t": "array", "el": 147 },
+    {
+      "t": "object",
+      "shape": [
+        ["assetId", 148],
+        ["costBasis", 149],
+        ["proceeds", 151]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "nullable", "in": 150 },
+    { "t": "string", "definedMsg": "JS number refused — amounts are decimal strings" },
+    { "t": "nullable", "in": 150 },
+    { "t": "array", "el": 153 },
+    {
+      "t": "object",
+      "shape": [
+        ["assetId", 154],
+        ["qtyRemaining", 150],
+        ["costBasis", 155]
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "nullable", "in": 150 },
+    { "t": "optional", "in": 157 },
+    { "t": "record", "key": 158, "value": 150 },
+    { "t": "string" },
+    { "t": "optional", "in": 160 },
+    { "t": "object", "shape": [["cashReporting", 150]] },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 162],
+        ["complete", 163],
+        ["ownerId", 165],
+        ["accountId", 167],
+        ["legalEntityId", 169],
+        ["regulatorId", 171],
+        ["reportingPeriod", 173],
+        ["lotIds", 175],
+        ["inventCostBasis", 178],
+        ["lotsFromHistory", 180],
+        ["inventFifoFromHistory", 182],
+        ["costBasis", 184]
+      ]
+    },
+    { "t": "enum", "values": ["nav", "sftp", "regulator"] },
+    { "t": "optional", "in": 164 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 166 },
+    { "t": "string" },
+    { "t": "optional", "in": 168 },
+    { "t": "string" },
+    { "t": "optional", "in": 170 },
+    { "t": "string" },
+    { "t": "optional", "in": 172 },
+    { "t": "string" },
+    { "t": "optional", "in": 174 },
+    { "t": "string" },
+    { "t": "optional", "in": 176 },
+    { "t": "array", "el": 177 },
+    { "t": "string" },
+    { "t": "optional", "in": 179 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 181 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 183 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 185 },
+    { "t": "nullable", "in": 186 },
+    { "t": "string" },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 188],
+        ["role", 189],
+        ["treatAsBook", 191],
+        ["ownerAuthorized", 193],
+        ["adapterAmount", 195],
+        ["bookAmount", 197],
+        ["breakId", 198],
+        ["firstSeenAt", 200],
+        ["now", 202],
+        ["autoClear", 204],
+        ["resolve", 206]
+      ]
+    },
+    { "t": "enum", "values": ["chain", "fiat", "off_exchange", "break"] },
+    { "t": "optional", "in": 190 },
+    { "t": "enum", "values": ["adapter", "book"] },
+    { "t": "optional", "in": 192 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 194 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 196 },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "optional", "in": 196 },
+    { "t": "optional", "in": 199 },
+    { "t": "string" },
+    { "t": "optional", "in": 201 },
+    { "t": "string" },
+    { "t": "optional", "in": 203 },
+    { "t": "string" },
+    { "t": "optional", "in": 205 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 207 },
+    { "t": "enum", "values": ["operator", "auto"] },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 209],
+        ["complete", 210],
+        ["clientOwnerId", 212],
+        ["corporateOwnerId", 214],
+        ["commingle", 216],
+        ["periodId", 218],
+        ["recipes", 220],
+        ["inventReserve", 223],
+        ["reserveAmount", 225],
+        ["reserveRecipeId", 228],
+        ["claimFullyReserved", 230]
+      ]
+    },
+    { "t": "enum", "values": ["segregation", "close", "por"] },
+    { "t": "optional", "in": 211 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 213 },
+    { "t": "string" },
+    { "t": "optional", "in": 215 },
+    { "t": "string" },
+    { "t": "optional", "in": 217 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 219 },
+    { "t": "string" },
+    { "t": "optional", "in": 221 },
+    { "t": "array", "el": 222 },
+    { "t": "string" },
+    { "t": "optional", "in": 224 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 226 },
+    { "t": "nullable", "in": 227 },
+    { "t": "string" },
+    { "t": "optional", "in": 229 },
+    { "t": "string" },
+    { "t": "optional", "in": 231 },
+    { "t": "boolean" },
+    {
+      "t": "object",
+      "shape": [
+        ["kind", 233],
+        ["dependency", 234],
+        ["dependencyStatus", 236],
+        ["acceptNewRisk", 238],
+        ["writers", 240],
+        ["sourcesOfTruth", 243],
+        ["splitBrain", 246],
+        ["ownerSloSet", 248],
+        ["sloTargetMs", 250],
+        ["observedLatencyMs", 252],
+        ["observedCount", 254]
+      ]
+    },
+    { "t": "enum", "values": ["risk", "split_brain", "slo"] },
+    { "t": "optional", "in": 235 },
+    { "t": "string" },
+    { "t": "optional", "in": 237 },
+    { "t": "enum", "values": ["ok", "degraded", "down"] },
+    { "t": "optional", "in": 239 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 241 },
+    { "t": "array", "el": 242 },
+    { "t": "string" },
+    { "t": "optional", "in": 244 },
+    { "t": "array", "el": 245 },
+    { "t": "string" },
+    { "t": "optional", "in": 247 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 249 },
+    { "t": "boolean" },
+    { "t": "optional", "in": 251 },
+    { "t": "string" },
+    { "t": "optional", "in": 253 },
+    { "t": "string" },
+    { "t": "optional", "in": 255 },
+    { "t": "string" },
+    {
+      "t": "object",
+      "shape": [
+        ["from", 257],
+        ["to", 258]
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "object", "shape": [["txIds", 260]], "catchall": "strict" },
+    {
+      "t": "array",
+      "el": 261,
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 20 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["after", 263],
+        ["limit", 267]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "nullable", "in": 264 },
+    {
+      "t": "object",
+      "shape": [
+        ["finishedAt", 265],
+        ["id", 266]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
+    { "t": "object", "shape": [["asOf", 269]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 271],
+        ["controlId", 272],
+        ["status", 273],
+        ["compared", 274],
+        ["phase", 275],
+        ["errorCode", 281],
+        ["asOf", 285],
+        ["readAt", 286],
+        ["margin", 287],
+        ["sources", 291],
+        ["outsideSide", 299],
+        ["periodStart", 300],
+        ["periodEnd", 301],
+        ["accounts", 302],
+        ["assets", 304],
+        ["reconcilingItems", 320]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    { "t": "enum", "values": ["started", "PASS", "FAIL", "ERROR", "UNSET", "NOTHING_TO_COMPARE"] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
+    { "t": "union", "options": [276, 278] },
+    { "t": "object", "shape": [["status", 277]], "catchall": "strict" },
+    { "t": "literal", "values": ["unset"] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 279],
+        ["value", 280]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["set"] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    { "t": "union", "options": [276, 282] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 283],
+        ["value", 284]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["set"] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "union", "options": [276, 288] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 289],
+        ["value", 290]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["set"] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^(0|[1-9]\\d*)(\\.\\d{1,18})?$/" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["ledger", 292],
+        ["outside", 294],
+        ["parity", 294]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "object", "shape": [["asOf", 293]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "union", "options": [295, 297] },
+    { "t": "object", "shape": [["asOf", 296]], "catchall": "strict" },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "object", "shape": [["asOf", 298]], "catchall": "strict" },
+    { "t": "literal", "values": ["unset"] },
+    { "t": "enum", "values": ["unset", "snapshot", "unavailable", "not_applicable"] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "array", "el": 303 },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "uuid",
+          "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
+        }
+      ]
+    },
+    { "t": "array", "el": 305 },
+    {
+      "t": "object",
+      "shape": [
+        ["assetId", 306],
+        ["observed", 307],
+        ["expected", 310],
+        ["difference", 312],
+        ["tolerance", 314],
+        ["reconcilingItems", 316],
+        ["residual", 317],
+        ["missing", 318]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Za-z0-9]{2,16}$/" }] },
+    { "t": "union", "options": [308, 309] },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^-?(0|[1-9]\\d*)(\\.\\d{1,18})?$/" }] },
+    { "t": "literal", "values": ["unset"] },
+    { "t": "union", "options": [308, 311] },
+    { "t": "literal", "values": ["unset"] },
+    { "t": "union", "options": [308, 313] },
+    { "t": "literal", "values": ["unset"] },
+    { "t": "union", "options": [290, 315] },
+    { "t": "literal", "values": ["unset"] },
+    { "t": "optional", "in": 308 },
+    { "t": "optional", "in": 308 },
+    { "t": "optional", "in": 319 },
+    { "t": "enum", "values": ["ledger", "outside"] },
+    { "t": "optional", "in": 321 },
+    { "t": "array", "el": 322, "checks": [{ "k": "max_length", "n": 2000 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["source", 323],
+        ["id", 324],
+        ["kind", 325],
+        ["assetId", 306],
+        ["amount", 308]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["svc-pay"] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "enum", "values": ["held", "reversal_unfunded"] },
+    {
+      "t": "object",
+      "shape": [
+        ["evaluations", 327],
+        ["next", 335]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "array", "el": 328 },
+    {
+      "t": "object",
+      "shape": [
+        ["run", 329],
+        ["finishedAt", 330],
+        ["severity", 331]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 271],
+        ["controlId", 272],
+        ["status", 273],
+        ["compared", 274],
+        ["phase", 275],
+        ["errorCode", 281],
+        ["asOf", 285],
+        ["readAt", 286],
+        ["margin", 287],
+        ["sources", 291],
+        ["outsideSide", 299],
+        ["periodStart", 300],
+        ["periodEnd", 301],
+        ["assets", 304],
+        ["reconcilingItems", 320]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "union", "options": [276, 332] },
+    {
+      "t": "object",
+      "shape": [
+        ["status", 333],
+        ["value", 334]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "literal", "values": ["set"] },
+    { "t": "enum", "values": ["info", "warning", "critical"] },
+    { "t": "nullable", "in": 264 }
+  ],
+  "inputs": {
+    "post": 0,
+    "balance": 6,
+    "balances": 21,
+    "txByKey": 24,
+    "txById": 26,
+    "portfolio": 28,
+    "history": 31,
+    "historyPage": 41,
+    "holdingsHistory": 48,
+    "freeze": 53,
+    "unfreeze": 62,
+    "reconcile": 68,
+    "txGet": 74,
+    "trace": 76,
+    "txList": 78,
+    "accountSearch": 87,
+    "stats": 91,
+    "metadataRead": 92,
+    "assetsList": 94,
+    "assetsGet": 99,
+    "assetApplyEdit": 101,
+    "assetEdit": 104,
+    "assetPrecision": 106,
+    "registryAsset": 121,
+    "metadataSet": 124,
+    "metadataDelete": 129,
+    "statementPnl": 133,
+    "reportExport": 161,
+    "custody": 187,
+    "financeClose": 208,
+    "resilience": 232,
+    "feeRevenue": 256,
+    "transactionsExist": 259,
+    "reconciliationEvaluations": 262,
+    "restoreWatermark": 268,
+    "controlRun": 270,
+    "evaluationFeed": 326
+  }
+}

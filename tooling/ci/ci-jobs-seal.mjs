@@ -15,11 +15,13 @@
  * - A pull request's own ci.yml may differ from main's: a change to it is a gate file, so the seal's CI review step
  *   holds it to the independent review. This script never runs or reads the pull request's code.
  *
- *   GH_TOKEN=... REPO=owner/name HEAD_SHA=<sha> (PR_NUMBER=<n> | MERGE_GROUP_HEAD_SHA=<sha>) node tooling/ci/ci-jobs-seal.mjs
+ *   REPO=owner/name HEAD_SHA=<sha> (PR_NUMBER=<n> | MERGE_GROUP_HEAD_SHA=<sha>) node tooling/ci/ci-jobs-seal.mjs
+ *   (CI sets GH_TOKEN; run by hand, it reads through the logged-in gh: github-fetch.mjs)
  */
 import { SHARD_COUNT, classify, sealNeeded, shardMatrix } from './ci-affected.mjs';
 import { MODEL_JOB, START_JOB, isModelDown, pullFiles } from './journey-seal.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
+import { githubFetch, githubToken } from './github-fetch.mjs';
 
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml';
 
@@ -165,14 +167,23 @@ export function modelVerdict({ runs, jobs, sha }) {
 /**
  * What the Doctrine gates judge a change by, as main holds it (project-state#3326). LINT_PATHS, the lint rules and their
  * ceilings (tooling/lint/ratchet.json), are read from main afresh when the Doctrine gates job runs (lint-ratchet.mjs
- * mainRef), so a re-run of that job judges by them. GATE_PATHS, the gate list, is read from the run's merge commit, which
- * a re-run keeps, so only a new head judges by it. The per-file baselines that may only shrink (dead-code,
+ * mainRef), so a re-run of that job judges by them. GATE_PATHS, the gate list, is read from the tree the job judges: a
+ * Doctrine gates job that ran FRESH_MAIN_STEP judged the pull request's head merged again onto main as it was when the
+ * job started, so a re-run of that job alone judges by the gate list main holds now; one without it (a merge commit made
+ * before ci.yml had the step) judged the run's merge commit, which a re-run keeps, so only a new head judges by it. The
+ * per-file baselines that may only shrink (dead-code,
  * conflict-keys) are left out: a shrink on main can't let through a change CI passed, and they shrink many times a day
  * (#9081 would have stopped three clean merges in the replay). A folder ends in `/`.
  */
 export const LINT_PATHS = ['.oxlintrc.json', 'tooling/lint/'];
 export const GATE_PATHS = ['tooling/ci/gates.mjs'];
 export const RULE_PATHS = [...LINT_PATHS, ...GATE_PATHS];
+/** ci.yml's Doctrine gates step that fetches main afresh and merges the pull request's head onto it again before any
+ *  gate runs (project-state#3035: on 20 Nov 2026 two gate-list changes on main made #9170, #9171 and #9176 merge main,
+ *  push and run everything again, 41 to 97 minutes from their first push). */
+export const FRESH_MAIN_STEP = 'Judge on main as it is now';
+/** Whether a Doctrine gates job judged on main as it was when the job started: its FRESH_MAIN_STEP succeeded. */
+export const judgedOnFreshMain = (job) => (job?.steps ?? []).some((s) => s?.name === FRESH_MAIN_STEP && s?.conclusion === 'success');
 /** GitHub makes a pull request's merge commit just before CI's run is created; a gate change merged this close before
  *  the run may not be in it, so it counts as after. */
 export const RULE_MARGIN_MS = 60_000;
@@ -181,10 +192,13 @@ export const RULE_MARGIN_MS = 60_000;
  *  attempt's merge commit, so its created_at still decides. null when no run. */
 export const rulesTakenAt = (run) => (run?.created_at ? new Date(Date.parse(run.created_at) - RULE_MARGIN_MS).toISOString() : null);
 
+/** The newest Doctrine gates job that started. */
+const newestGates = (jobs) => [...(jobs ?? [])].filter((j) => j?.name === CI_JOBS.gates && j?.started_at).sort((a, b) => b.id - a.id)[0];
+
 /** The moment the newest Doctrine gates job read main's lint rules: its start (the fetch is a later step of it). Without
  *  one, the run's creation. */
 export const lintTakenAt = (run, jobs) => {
-  const gates = [...(jobs ?? [])].filter((j) => j?.name === CI_JOBS.gates && j?.started_at).sort((a, b) => b.id - a.id)[0];
+  const gates = newestGates(jobs);
   return gates ? new Date(Date.parse(gates.started_at)).toISOString() : rulesTakenAt(run);
 };
 
@@ -193,24 +207,26 @@ export const lintTakenAt = (run, jobs) => {
  * CI on a head from before a new rule and merged after it, 3 in 170 merges, one turning main red). `changes` are main's
  * commits on RULE_PATHS after rulesTakenAt(run): { path, sha, date, title }. A lint change counts only after the newest
  * Doctrine gates job started (lintTakenAt), and is cleared by re-running that job; a gate-list change counts after the
- * run was created, and is cleared by merging origin/main and pushing. With no CI run judgeCiJobs already holds the
- * merge. Returns { ok, lines }. Pure.
+ * same moment, and is cleared the same way, when that newest job judged on main afresh (judgedOnFreshMain); else it
+ * counts after the run was created, and is cleared by merging origin/main and pushing. With no CI run judgeCiJobs
+ * already holds the merge. Returns { ok, lines }. Pure.
  */
 export function rulesVerdict({ run, jobs, changes }) {
   if (!run) return { ok: true, lines: [] };
-  const gateAt = rulesTakenAt(run);
+  const gatesJob = newestGates(jobs);
+  const fresh = judgedOnFreshMain(gatesJob);
   const lintAt = lintTakenAt(run, jobs);
+  const gateAt = fresh ? lintAt : rulesTakenAt(run);
   const late = (changes ?? []).filter((c) => Date.parse(c.date) > Date.parse(LINT_PATHS.includes(c.path) ? lintAt : gateAt));
   if (!late.length) return { ok: true, lines: [`main's rules: unchanged since CI run ${run.id} judged this head by them`] };
   const seen = new Map();
   for (const c of late) seen.set(c.sha, { ...c, paths: [...(seen.get(c.sha)?.paths ?? []), c.path] });
-  const gatesJob = [...(jobs ?? [])].filter((j) => j?.name === CI_JOBS.gates).sort((a, b) => b.id - a.id)[0];
   return {
     ok: false,
     lines: [...seen.values()].map((c) =>
-      c.paths.some((p) => GATE_PATHS.includes(p))
+      !fresh && c.paths.some((p) => GATE_PATHS.includes(p))
         ? `main changed ${c.paths.join(', ')} in ${c.sha.slice(0, 10)} at ${c.date} ("${c.title}"), after CI run ${run.id} took main's gate list (${gateAt}): merge origin/main and push, so CI runs the gates main has now (a re-run keeps the old list)`
-        : `main changed ${c.paths.join(', ')} in ${c.sha.slice(0, 10)} at ${c.date} ("${c.title}"), after the Doctrine gates job read main's lint rules (${lintAt}): re-run it (gh run rerun ${run.id} --job ${gatesJob?.id ?? '<its id>'}); it reads main's rules afresh and starts the seal again`,
+        : `main changed ${c.paths.join(', ')} in ${c.sha.slice(0, 10)} at ${c.date} ("${c.title}"), after the Doctrine gates job read main's ${fresh ? 'rules' : 'lint rules'} (${lintAt}): re-run it (gh run rerun ${run.id} --job ${gatesJob?.id ?? '<its id>'}); it reads main's rules afresh and starts the seal again`,
     ),
   };
 }
@@ -229,7 +245,7 @@ export async function ruleChanges(get, repo, since, until) {
 }
 
 async function api(path, token) {
-  const res = await fetch(`https://api.github.com${path}`, {
+  const res = await githubFetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
   });
   if (!res.ok) throw new Error(httpMessage(path, res, (await res.text()).slice(0, 200)));
@@ -248,11 +264,12 @@ export async function changedFiles(get, repo, number) {
 }
 
 async function main() {
-  const { GH_TOKEN, REPO, HEAD_SHA, PR_NUMBER, MERGE_GROUP_HEAD_SHA } = process.env;
+  const { REPO, HEAD_SHA, PR_NUMBER, MERGE_GROUP_HEAD_SHA } = process.env;
+  const GH_TOKEN = githubToken();
   const queue = Boolean(MERGE_GROUP_HEAD_SHA);
   const sha = queue ? MERGE_GROUP_HEAD_SHA : HEAD_SHA;
-  if (!GH_TOKEN || !REPO || !/^[0-9a-f]{40}$/.test(sha ?? '') || (!queue && !/^\d+$/.test(PR_NUMBER ?? ''))) {
-    console.error('::error title=CI merge seal::ci-jobs-seal needs GH_TOKEN, REPO, and HEAD_SHA with PR_NUMBER or MERGE_GROUP_HEAD_SHA');
+  if (!REPO || !/^[0-9a-f]{40}$/.test(sha ?? '') || (!queue && !/^\d+$/.test(PR_NUMBER ?? ''))) {
+    console.error('::error title=CI merge seal::ci-jobs-seal needs REPO, and HEAD_SHA with PR_NUMBER or MERGE_GROUP_HEAD_SHA');
     process.exit(1);
   }
   const get = (p) => api(p, GH_TOKEN);

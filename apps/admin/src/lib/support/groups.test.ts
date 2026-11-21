@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { memberGate, readDeskScope, readGroupActionRequest, readGroups, saveGate, scopeSentence, type DeskGroupView } from './groups';
+import { recordReads } from './record-reply';
+import { SUPPORT_DESK_GROUPS_LIST, SUPPORT_DESK_SCOPE } from '@intafaced/contracts/support-desk-procedures';
+import { memberGate, readGroupActionRequest, saveGate, scopeSentence, type DeskGroupView } from './groups';
 import { readActionRequest } from './model';
 import type { StaffMemberView } from './staff';
 
@@ -26,15 +28,15 @@ const staff = (userId: string, role: 'agent' | 'lead'): StaffMemberView => ({
 
 describe('readers', () => {
   it('reads groups only when every one reads', () => {
-    expect(readGroups([group(), group({ id: B, name: 'KYC' })])).toHaveLength(2);
-    expect(readGroups([group(), { id: B }])).toBeNull();
-    expect(readGroups([])).toEqual([]);
-    expect(readGroups({})).toBeNull();
+    expect(recordReads(SUPPORT_DESK_GROUPS_LIST, [group(), group({ id: B, name: 'KYC' })])).toHaveLength(2);
+    expect(recordReads(SUPPORT_DESK_GROUPS_LIST, [group(), { id: B }])).toBeNull();
+    expect(recordReads(SUPPORT_DESK_GROUPS_LIST, [])).toEqual([]);
+    expect(recordReads(SUPPORT_DESK_GROUPS_LIST, {})).toBeNull();
   });
   it('reads the scope strictly', () => {
-    expect(readDeskScope({ restricted: false, groups: [], seesAllGroups: false })).toMatchObject({ restricted: false });
-    expect(readDeskScope({ restricted: true, groups: [{ id: G }], seesAllGroups: false })).toBeNull();
-    expect(readDeskScope({ restricted: 'yes', groups: [], seesAllGroups: false })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_SCOPE, { restricted: false, groups: [], seesAllGroups: false })).toMatchObject({ restricted: false });
+    expect(recordReads(SUPPORT_DESK_SCOPE, { restricted: true, groups: [{ id: G }], seesAllGroups: false })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_SCOPE, { restricted: 'yes', groups: [], seesAllGroups: false })).toBeNull();
   });
   it('says what the scope means in plain words', () => {
     expect(scopeSentence({ restricted: false, groups: [], seesAllGroups: false })).toBe(

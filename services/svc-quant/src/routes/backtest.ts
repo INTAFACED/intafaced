@@ -1,5 +1,4 @@
 import {
-  BACKTEST_HISTORY_PAGE_MAX,
   BAR_BACKTEST_KEY_PREFIX,
   type StoredBacktest,
   isBarBacktest,
@@ -17,19 +16,19 @@ import {
   QUANT_RUN_NOT_FOUND,
   QuantError,
 } from '../errors.js';
+import { QUANT_RUN_LABEL_MAX, publicJurisdictionProcedure, router } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
-  QUANT_RUN_LABEL_MAX,
-  publicJurisdictionProcedure,
-  quantAccountRulesSchema,
-  quantBacktestFeeSchema,
-  quantBacktestHistorySchema,
-  quantBacktestInputSchema,
-  quantBacktestResultSchema,
-  quantMonteCarloInputSchema,
-  quantMonteCarloSchema,
-  quantReportSchema,
-  router,
-} from '@intafaced/contracts';
+  QUANT_BACKTEST_ACCOUNT_RULES,
+  QUANT_BACKTEST_FEE,
+  QUANT_BACKTEST_HISTORY,
+  QUANT_BACKTEST_MONTE_CARLO,
+  QUANT_BACKTEST_RENAME,
+  QUANT_BACKTEST_RESULT,
+  QUANT_BACKTEST_RUN,
+  QUANT_BACKTEST_START,
+} from '@intafaced/contracts/quant-backtest-procedures';
+import { QUANT_BACKTEST_REPORT } from '@intafaced/contracts/quant-result-share-procedures';
 import { type QuantContext, claimKeyIdempotency } from '../key-api/key-api.js';
 import { type RunResultBody } from '../runs/types.js';
 import { backtestBodyOf, runBacktest } from '../backtest/run.js';
@@ -41,18 +40,9 @@ import { trackRun } from '../runs/track.js';
 import { verdictCriteriaOf } from '../lifecycle/gate.js';
 import { withQuantSpan } from '../tracing.js';
 import { z } from 'zod';
-import {
-  environmentInput,
-  toTrpc,
-  costEvidence,
-  runDetailOutput,
-  backtestOutput,
-  accountField,
-  writeKeyField,
-  missingStrategy,
-  type QuantCore,
-} from './core.js';
+import { quantRefusal, toTrpc, runDetailOutput, accountField, missingStrategy, type QuantCore } from './core.js';
 
+/** Every call but `get` is mounted from its record (`@intafaced/contracts/quant-backtest-procedures`). */
 export function backtestRoutes(core: QuantCore) {
   const {
     deps,
@@ -71,39 +61,9 @@ export function backtestRoutes(core: QuantCore) {
     ownedBar,
   } = core;
   return router({
-    run: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z
-          .object({
-            strategyId: z.string(),
-            strategyVersion: z.number().int().positive().optional().nullable(),
-            symbol: z.string(),
-            walkForward: z
-              .object({
-                inSampleFrom: z.string().optional(),
-                inSampleTo: z.string().optional(),
-                outOfSampleFrom: z.string().optional(),
-                outOfSampleTo: z.string().optional(),
-              })
-              .optional()
-              .nullable(),
-            outOfSampleStatus: z.enum(['passed', 'failed', 'inconclusive']).optional().nullable(),
-            costModel: z
-              .object({
-                fees: costEvidence.optional().nullable(),
-                slippage: costEvidence.optional().nullable(),
-                latency: costEvidence.optional().nullable(),
-              })
-              .optional()
-              .nullable(),
-            strategyVariantCount: z.number().int().optional(),
-            ...accountField,
-            ...writeKeyField,
-          })
-          .merge(environmentInput),
-      )
-      .output(backtestOutput)
-      .mutation(async ({ input, ctx }) =>
+    run: mountRecord(
+      QUANT_BACKTEST_RUN,
+      async ({ input, ctx }) =>
         withQuantSpan('quant.backtest.run', { language: 'fills' }, async () => {
           try {
             const accountId = accountOf(ctx, input.accountId);
@@ -164,7 +124,8 @@ export function backtestRoutes(core: QuantCore) {
             toTrpc(err);
           }
         }),
-      ),
+      quantRefusal,
+    ),
 
     get: publicJurisdictionProcedure('quant', 'fiat')
       .input(z.object({ runId: z.string().min(1), ...accountField }))
@@ -204,10 +165,9 @@ export function backtestRoutes(core: QuantCore) {
       }),
 
     /** The published rate a bar backtest of this symbol charges, with the schedule version. Read only. */
-    fee: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ symbol: z.string().min(1).max(32) }))
-      .output(quantBacktestFeeSchema)
-      .query(async ({ input }) => {
+    fee: mountRecord(
+      QUANT_BACKTEST_FEE,
+      async ({ input }) => {
         try {
           const symbol = input.symbol.trim();
           const fee = await fees.fee(symbol);
@@ -215,22 +175,21 @@ export function backtestRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /** The simulated account's published margin rules (ENGINE RK-5), read only; a blank one reads null. */
-    accountRules: publicJurisdictionProcedure('quant', 'fiat')
-      .output(quantAccountRulesSchema)
-      .query(() => judgement.account),
+    accountRules: mountRecord(QUANT_BACKTEST_ACCOUNT_RULES, () => judgement.account, quantRefusal),
 
     /**
      * Runs a saved signal-rules version on the exchange's own closed bars (AL-backtest-01, AL-backtest-02). The run key
      * is derived from everything that decides the result, so the same inputs read back the same stored run and a lost
      * reply is answered by pressing Run again. A refusal before the engine stores no row.
      */
-    start: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantBacktestInputSchema.extend(accountField))
-      .output(quantBacktestResultSchema)
-      .mutation(async ({ input, ctx }) =>
+    start: mountRecord(
+      QUANT_BACKTEST_START,
+      async ({ input, ctx }) =>
         withQuantSpan('quant.backtest.start', { language: 'rules' }, async () => {
           try {
             const accountId = accountOf(ctx, input.accountId);
@@ -309,13 +268,13 @@ export function backtestRoutes(core: QuantCore) {
             toTrpc(err);
           }
         }),
-      ),
+      quantRefusal,
+    ),
 
     /** A stored bar backtest of the caller's own. Another account's run reads as not found. */
-    result: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ runId: z.string().min(1), ...accountField }))
-      .output(quantBacktestResultSchema)
-      .query(async ({ input, ctx }) => {
+    result: mountRecord(
+      QUANT_BACKTEST_RESULT,
+      async ({ input, ctx }) => {
         try {
           const userId = accountOf(ctx, input.accountId);
           const row = await runs.get({ userId, id: input.runId });
@@ -325,17 +284,18 @@ export function backtestRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /**
      * Monte Carlo resampling of one finished bar backtest of the caller's (RC-algo-dev-04; J-algo-dev-16 #3): the
      * owner's path count and fewest round trips, the caller's seed. Deterministic, so the same run, count and seed
      * read back the same distribution every time; nothing is stored and nothing moves.
      */
-    monteCarlo: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantMonteCarloInputSchema.extend(accountField))
-      .output(quantMonteCarloSchema)
-      .query(async ({ input, ctx }) => {
+    monteCarlo: mountRecord(
+      QUANT_BACKTEST_MONTE_CARLO,
+      async ({ input, ctx }) => {
         try {
           const userId = accountOf(ctx, input.accountId);
           const row = await runs.get({ userId, id: input.runId });
@@ -371,21 +331,14 @@ export function backtestRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /** The caller's own bar backtests, newest first, with label, version and outcome (AL-backtest-03). */
-    history: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z.object({
-          limit: z.number().int().min(1).max(BACKTEST_HISTORY_PAGE_MAX),
-          cursor: z.string().optional().nullable(),
-          /** Only one strategy's runs (its own page). Another account's strategy id simply matches none. */
-          strategyId: z.string().min(1).max(128).optional(),
-          ...accountField,
-        }),
-      )
-      .output(quantBacktestHistorySchema)
-      .query(async ({ input, ctx }) => {
+    history: mountRecord(
+      QUANT_BACKTEST_HISTORY,
+      async ({ input, ctx }) => {
         try {
           const userId = accountOf(ctx, input.accountId);
           const cursor = input.cursor?.trim() ? input.cursor.trim() : null;
@@ -412,16 +365,17 @@ export function backtestRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /**
      * Names one of the caller's own runs. The same label again changes nothing; the run and its stored result are
      * never touched. Another account's run reads as not found.
      */
-    rename: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ runId: z.string().min(1), label: z.string(), ...accountField }))
-      .output(z.object({ runId: z.string(), label: z.string() }))
-      .mutation(async ({ input, ctx }) => {
+    rename: mountRecord(
+      QUANT_BACKTEST_RENAME,
+      async ({ input, ctx }) => {
         try {
           const userId = accountOf(ctx, input.accountId);
           const label = input.label.trim();
@@ -435,19 +389,22 @@ export function backtestRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
-    /** The print document of one of the caller's own bar backtests (AL-report-03). Derived on read. */
-    report: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ runId: z.string().min(1), ...accountField }))
-      .output(quantReportSchema)
-      .query(async ({ input, ctx }) => {
+    /** The print document of one of the caller's own bar backtests (AL-report-03), mounted from its record. Derived on read. */
+    report: mountRecord(
+      QUANT_BACKTEST_REPORT,
+      async ({ input, ctx }) => {
         try {
           const owned = await ownedBar(accountOf(ctx, input.accountId), input.runId);
           return reportOf(presentBacktest(owned.stored, owned.id));
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }

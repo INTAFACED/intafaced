@@ -1,16 +1,15 @@
 // World: book, restart, stack
 import { keccak256, toHex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { chosePro, signIn, signUp } from './desk.mjs';
-import { CHAIN_ID, TOKEN_USD, fundOnTestChain, testChain } from './dex.mjs';
-import { api, journeyState, tool } from './stack.mjs';
+import { signIn } from './desk.mjs';
+import { CHAIN_ID, TOKEN_USD, testChain } from './dex.mjs';
+import { api, journeyState, stepState, tool } from './stack.mjs';
 import { ageRecord } from './test-age.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 import { testVenue, venueForThisFile } from './venue.mjs';
-import { chainReceipt, rewardFunds, sumDecimal } from './reward-funds.mjs';
-import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { chainReceipt, rewardFunds, rpc, sumDecimal } from './reward-funds.mjs';
+import { campaignLauncher, data, join, signsThroughUs, traderOf, usdUnits } from './campaign-desk.mjs';
 
 // J-campaigns-19, in the running app (docs/roadmap/journeys.json): finance checks payouts, recovers a stuck one, and
 // settles a distribution. One test per step, titled "J-campaigns-19 #<n>", run in order. The operator is the stack's
@@ -29,6 +28,8 @@ import { GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 const J = 'J-campaigns-19';
 const RUN = process.env.JOURNEY_RUN_ID ?? 'local';
 const run = journeyState(`${J}-${RUN}`);
+const state = stepState(run, J);
+const signedThroughUs = signsThroughUs(J, RUN);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
 const ASSET = 'USDC';
 const DAY = 86_400_000;
@@ -56,12 +57,6 @@ const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a
 test.describe.configure({ mode: 'default' });
 venueForThisFile(test);
 
-function state(...keys) {
-  const s = run.read();
-  for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
-  return s;
-}
-
 let gates;
 let ctx;
 let pair;
@@ -73,33 +68,11 @@ async function operators() {
 }
 const funds = rewardFunds({ J, RUN, operators });
 
-const data = (res, what) => {
-  const row = res.json?.result?.data;
-  if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
-  return row;
-};
-
 async function opsQuery(path, input) {
   const { ctx, pair } = await operators();
   return data(await ctx.edge.query('campaigns', path, input, await pair.a.campaignsOpsToken()), path);
 }
 const plan = (campaignId) => opsQuery('ops.campaigns.distribution.plan', { campaignId });
-
-/** One TEST campaign, live now, made by A, approved by B, activated by A. */
-async function liveCampaign(definition) {
-  const { ctx, pair } = await operators();
-  const a = await pair.a.campaignsOpsToken();
-  const b = await pair.b.campaignsOpsToken();
-  const made = data(await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition, a), 'ops.campaigns.create');
-  data(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'submit', revision: 1 }, a), 'submit');
-  data(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'approve', revision: 1 }, b), 'approve');
-  const live = data(
-    await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'activate', revision: 1 }, a),
-    'activate',
-  );
-  expect(live.state).toBe('active');
-  return live;
-}
 
 /** An airdrop's TEST definition: its pool shared by venue equity at `snapshotAt`. */
 const airdrop = (name, pool, snapshotAt) => ({
@@ -127,6 +100,8 @@ async function verifyBasic(page) {
 }
 
 const walletKeyOf = (who) => keccak256(toHex(`intafaced TEST payout wallet ${J} ${RUN} ${who.handle}`));
+const trader = traderOf(walletKeyOf, { verifyBasic, connectWallet });
+const liveCampaign = campaignLauncher(operators);
 const sheet = (page) => page.locator('[data-sheet="sign"]');
 
 /** Connects the person's TEST wallet to their account on Wallet's Venue account tab, as svc-protocol records it. */
@@ -144,59 +119,8 @@ async function connectWallet(page, who, privateKey) {
   await expect(page.getByRole('heading', { name: /Connected/ })).toBeVisible();
 }
 
-/** A TEST person: signed up in Pro, basic verification, their own TEST wallet connected. */
-async function trader(browser, prefix) {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await chosePro(page);
-  const who = await signUp(page, prefix);
-  await verifyBasic(page);
-  const key = walletKeyOf(who);
-  const wallet = privateKeyToAccount(key).address.toLowerCase();
-  fundOnTestChain(wallet, 'venue');
-  const connecting = await (await browser.newContext()).newPage();
-  await connectWallet(connecting, who, key);
-  await connecting.context().close();
-  await context.close();
-  return { who, key, wallet };
-}
-
-/** One action through svc-trade's user-venue door as `p`, signed with their own TEST wallet: prepare, sign, submit. */
-async function door(p, intent, actionKey) {
-  const session = await api(p.who);
-  const signer = { role: 'owner', address: p.wallet };
-  const prepared = await session.post('/api/v1/venue/prepare', { owner: p.wallet, signer, intent, ...(actionKey ? { actionKey } : {}) });
-  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
-  const t = prepared.body.prepared.typedData;
-  const signature = await privateKeyToAccount(p.key).signTypedData({
-    domain: t.domain,
-    types: t.types,
-    primaryType: t.primaryType,
-    message: t.message,
-  });
-  const sent = await session.post('/api/v1/venue/submit', {
-    actionKey: prepared.body.actionKey,
-    signature: { digest: prepared.body.prepared.digest, signature, signedBy: p.wallet },
-  });
-  expect(sent.status, JSON.stringify(sent.body).slice(0, 400)).toBe(200);
-  expect(sent.body.outcome, JSON.stringify(sent.body.outcome).slice(0, 400)).toMatchObject({ definite: true, accepted: true });
-}
-
 const venueId = async () => (await testVenue('/venue')).body.venue.id;
 const venueAccount = async (p) => ({ venueId: await venueId(), owner: p.wallet, subAccount: null });
-
-/** The person approves our builder fee through the door once, so their venue account is one they signed through us. */
-async function signedThroughUs(p) {
-  const status = (await (await api(p.who)).get('/api/v1/venue/status')).body;
-  expect(status, JSON.stringify(status).slice(0, 300)).toMatchObject({ enabled: true, test: true });
-  const markets = await testVenue('/markets', { account: null });
-  const cap = markets.body.value.find((m) => m.symbol === 'BTC-USDC').builderFeeCapBps.value;
-  await door(
-    p,
-    { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: cap },
-    `approve-builder:${p.wallet}:${J}:${RUN}`,
-  );
-}
 
 /** TEST funds on the person's own venue account, by the TEST venue's deposit control (each reference credits once). */
 async function venueFunds(p, amount) {
@@ -208,11 +132,6 @@ async function venueFunds(p, amount) {
   });
   expect(funded.status, JSON.stringify(funded.body)).toBe(200);
 }
-
-const join = async (who, campaignId) => {
-  const joined = await (await api(who)).post('/api/campaigns/trpc/participation.join', { campaignId });
-  expect(joined.body?.result?.data?.created, JSON.stringify(joined.body).slice(0, 300)).toBe(true);
-};
 
 /** The person reads their own airdrop records: in their own request, their connected wallet is noted on their open shares. */
 async function mine(who) {
@@ -248,16 +167,6 @@ async function owedPlan(campaignId) {
   return plan(campaignId);
 }
 
-async function rpc(method, params) {
-  const res = await fetch(GATE_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
-  });
-  const body = await res.json();
-  if (body.error) throw new Error(`${method}: ${JSON.stringify(body.error)}`);
-  return body.result;
-}
 const topic = (address) => `0x${address.slice(2).toLowerCase().padStart(64, '0')}`;
 
 /** Every TEST USD transfer from `from` to `to`, read from the TEST chain's own logs (not from us). */
@@ -266,12 +175,6 @@ async function transfers(from, to) {
     { address: TOKEN_USD.address, fromBlock: '0x0', toBlock: 'latest', topics: [TRANSFER_TOPIC, topic(from), topic(to)] },
   ]);
   return logs.filter((l) => !l.removed).map((l) => ({ tx: l.transactionHash.toLowerCase(), value: BigInt(l.data) }));
-}
-
-/** TEST USD units (6 decimals) of a USDC decimal amount. */
-function usdUnits(amount) {
-  const [w, f = ''] = String(amount).split('.');
-  return BigInt(w + f.padEnd(6, '0').slice(0, 6));
 }
 
 /** The founder console's payout board, signed in as founder A, optionally on one airdrop's plan. */
@@ -376,6 +279,7 @@ test(`${J} #1 opens the payout board: intents by state, owed, pending funding, s
   const sending = boardRow(page, keys.sending);
   await expect(sending).toHaveAttribute('data-payment-state', 'sending');
   await expect(sending).toHaveAttribute('data-chain-tx', '');
+  await expect(sending).toContainText(keys.sending);
   await expect(sending).toContainText(ben.wallet);
   await expect(sending).toContainText('Looked for on the chain');
   expect(await transfers(await rewardsWallet(), ben.wallet)).toEqual([]);
@@ -383,6 +287,7 @@ test(`${J} #1 opens the payout board: intents by state, owed, pending funding, s
   const paid = boardRow(page, keys.paid);
   const chainTx = await paid.getAttribute('data-chain-tx');
   expect(chainTx).toMatch(/^0x[0-9a-f]{64}$/);
+  await expect(paid).toContainText(keys.paid);
   await expect(paid).toContainText(chainTx);
   await expect(paid).toContainText(ann.wallet);
   // Failed: the chain reverted ANN's other payment; its transaction is shown and it is never sent again.
@@ -391,6 +296,7 @@ test(`${J} #1 opens the payout board: intents by state, owed, pending funding, s
   await expect(failed).toHaveAttribute('data-reason', 'campaigns.reward_payment_reverted');
   const revertedTx = await failed.getAttribute('data-chain-tx');
   expect(revertedTx).toMatch(/^0x[0-9a-f]{64}$/);
+  await expect(failed).toContainText(keys.failed);
   await expect(failed).toContainText(revertedTx);
   expect((await rpc('eth_getTransactionReceipt', [revertedTx])).status).toBe('0x0');
   run.write({ ...run.read(), paidTx: chainTx, cat });

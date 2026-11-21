@@ -123,7 +123,7 @@ export const voucherRedemptionSchema = z.object({
   createdAt: iso,
   reward: z.object({
     rewardKey: z.string(),
-    state: z.lazy(() => z.enum(REWARD_STATES)),
+    state: z.enum(REWARD_STATES),
     reason: z.string().nullable(),
     ledgerTxId: z.string().nullable(),
     postedAt: iso.nullable(),

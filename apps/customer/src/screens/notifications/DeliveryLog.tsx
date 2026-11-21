@@ -8,7 +8,8 @@ import { centreCopy } from './centre-copy';
 import { notifyCopy } from './copy';
 import { TestFigureTag } from './NotificationRow';
 import { NotifyNav } from './NotifyNav';
-import { deliveries, type Delivery, type Notification } from './notify-api';
+import { channelStatus, deliveries, type Delivery, type Notification } from './notify-api';
+import { ServiceOffNotice } from '../../shared/service-off';
 import { describe } from './notify-view';
 import { deliveryWords, refusalKey, sortDeliveries } from './prefs';
 import { useInboxView } from './use-notifications';
@@ -72,7 +73,7 @@ export default function DeliveryLog() {
   );
 }
 
-type Records = { status: 'idle' } | { status: 'loading' } | { status: 'failed' } | { status: 'ready'; rows: Delivery[] };
+type Records = { status: 'idle' } | { status: 'loading' } | { status: 'failed' } | { status: 'ready'; rows: Delivery[]; emailOff: boolean };
 
 function Row({
   item,
@@ -94,8 +95,11 @@ function Row({
     setOpen(next);
     if (!next || records.status === 'ready' || records.status === 'loading') return;
     setRecords({ status: 'loading' });
-    const result = await deliveries(api, item.id);
-    setRecords(result.ok ? { status: 'ready', rows: sortDeliveries(result.data) } : { status: 'failed' });
+    // The platform's own channel state beside the record: with no email sender, no email copy can exist, and the record says
+    // which outside service that waits on (vendor.email) rather than leaving the missing row unexplained.
+    const [result, channels] = await Promise.all([deliveries(api, item.id), channelStatus(api)]);
+    const emailOff = channels.ok && channels.data.some((c) => c.channel === 'email' && !c.configured);
+    setRecords(result.ok ? { status: 'ready', rows: sortDeliveries(result.data), emailOff } : { status: 'failed' });
   }
   return (
     <div className="nf-delivery">
@@ -142,6 +146,9 @@ function Row({
                 </li>
               ))}
             </ul>
+          )}
+          {records.status === 'ready' && records.emailOff && !records.rows.some((row) => row.channel === 'email') && (
+            <ServiceOffNotice code="vendor.email" action={copy.t('emailCopyAction')} className="nf-why" role="note" />
           )}
         </div>
       )}
