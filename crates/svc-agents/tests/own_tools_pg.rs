@@ -6,7 +6,7 @@
 //! - `services/svc-agents/src/own/guardrails.test.ts`, the database cases that reach `own.tool.try`, the reviewer, the
 //!   review list and check, or the unpublished sweep, through the `AgentsDoor` with signed principals. Each case's
 //!   setup that is a later slice's call is done here as that call does it: `own.session.open` binds `ownGuardrail` with
-//!   `runtime::act::open_own_session`, `own.consents.grant` and `revoke` are their SQL, and the person's decisions
+//!   `runtime::open_own_session`, `own.consents.grant` and `revoke` are their SQL, and the person's decisions
 //!   (`own.approval.approve`, `reject`, `edit`) are the route's few lines over `decide_and_run` and the request store.
 //!   What only those calls' answers show (`own.inbox`, `own.runs`, `own.consents.list`, the route's own person check)
 //!   is named in each case as owed to its slice.
@@ -55,9 +55,10 @@ use svc_agents::own::gates::parse_policy_baseline;
 use svc_agents::own::notices::{self, APPROVAL_REQUESTED, Scope};
 use svc_agents::own::tool_try::{Call, approval_refused, decide_and_run, own_guardrail};
 use svc_agents::own::{Own, OwnError, guard, store};
-use svc_agents::runtime::act::{ActError, ActInput, ActResult, act, open_own_session};
+use svc_agents::runtime::act::{ActError, ActInput, ActResult, act};
 use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::guardrails::{parse_guardrail, serialise_guardrail};
+use svc_agents::runtime::open_own_session;
 use svc_agents::runtime::{
     self, ACTION_COMPLETED, ACTION_REJECTED, Rt, Runtime, SessionRecord, ThinkInput,
 };
@@ -344,6 +345,7 @@ impl World {
             advisors: svc_agents::advisors::Advisors::unwired(),
             background: svc_agents::background::Settings::default(),
             own: self.own(baseline, ttl, reviewer),
+            team: svc_agents::team::Team::unwired(),
         })
         .unwrap();
         People {

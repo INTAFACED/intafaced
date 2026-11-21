@@ -56,6 +56,8 @@ use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
 use svc_agents::runtime::{Rt, Runtime};
 use svc_agents::self_freeze::IdentitySelfFreezeRead;
+use svc_agents::team::Team;
+use svc_agents::team::membership::TeamMembershipHttp;
 use svc_agents::timers::{self, Timer};
 
 fn process_env() -> BTreeMap<String, String> {
@@ -500,6 +502,32 @@ fn own(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Own, String> {
     })
 }
 
+/// The team's read (`index.ts`): svc-bank's team membership while `BANK_URL` is set, else none, so every team call
+/// refuses `agents.membership_unavailable`.
+fn team(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Team, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default();
+    let mut team = Team::unwired();
+    if let Some(url) = env.str("BANK_URL").filter(|u| !u.is_empty()) {
+        team.membership = Some(Box::new(TeamMembershipHttp::new(
+            url,
+            CallSigner::new("svc-agents", "svc-bank", secret, keyed),
+            fetch.clone(),
+        )));
+    }
+    Ok(team)
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "the door is built once from each part the binary made, in index.ts's order"
@@ -511,7 +539,7 @@ fn door(
     gateway: GatewaySlice,
     ready: ReadyInput,
     runtime: Runtime,
-    advisors: Advisors,
+    (advisors, team): (Advisors, Team),
     fetch: &Arc<dyn Fetch>,
 ) -> Result<AgentsDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
@@ -531,6 +559,7 @@ fn door(
         },
         advisors,
         own: own(env, fetch)?,
+        team,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
@@ -607,8 +636,16 @@ fn serve(
     let metering = metering(env, bus.clone(), &fetch)?;
     let runtime = runtime(env, &fetch)?;
     let advisors = advisors(env, &fetch)?;
+    let team = team(env, &fetch)?;
     let door = door(
-        env, store, metering, gateway, ready, runtime, advisors, &fetch,
+        env,
+        store,
+        metering,
+        gateway,
+        ready,
+        runtime,
+        (advisors, team),
+        &fetch,
     )?;
 
     let app = App {

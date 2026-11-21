@@ -17,7 +17,7 @@ import {
   type QuantSplitPreset,
   type QuantVerdictCriteria,
 } from '@intafaced/contracts';
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
+import { div, formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import {
   QUANT_ACCOUNT_RULE_UNSET,
   QUANT_BACKTEST_FILLS_MISSING,
@@ -35,7 +35,7 @@ import { compileSignalRules } from '../studio/modules.js';
 import { barSpanMs, coverageOf, type Bar, type BarSize } from './bars.js';
 import { logOf } from './log.js';
 import { metricsOf } from './metrics.js';
-import type { FeePort, HistoryPort } from './ports.js';
+import { missingMarginRules, type FeePort, type HistoryPort, type MarginRulesPort } from './ports.js';
 import { simulateSignalRules, type EquityStop, type MarginAccount } from './simulate.js';
 import { sectionsOf, verdictOf } from './verdict.js';
 import { checksOf, returnOf } from './checks.js';
@@ -59,16 +59,28 @@ export interface Judgement {
   readonly holdoutStart: string | null;
   /** The thresholds the overfitting and sensitivity checks warn above. */
   readonly checks: QuantCheckThresholds;
-  /** The simulated account's margin rules (ENGINE RK-5). */
-  readonly account: QuantAccountRules;
+  /** The simulated account (ENGINE RK-5): our margin-call warning, and the venue's published rules, read per market. */
+  readonly account: AccountJudgement;
+}
+
+/** Our margin-call warning, an owner value (null while blank), and the read of the venue's margin rules. */
+export interface AccountJudgement {
+  readonly marginCallPercent: string | null;
+  readonly venue: MarginRulesPort;
 }
 
 export const NO_JUDGEMENT: Judgement = {
   criteria: { minTrades: null, minReturnPercent: null, maxDrawdownPercent: null, maxShortfallPercent: null },
   holdoutStart: null,
   checks: { maxSampleGapPercent: null, maxVariants: null, maxOffsetShiftPercent: null },
-  account: { mode: 'netting', maxLeverage: null, marginCallPercent: null, stopOutPercent: null },
+  account: { marginCallPercent: null, venue: missingMarginRules() },
 };
+
+/** The account rules a margin run on `symbol` follows now: the venue's, read from it, and our warning beside them. */
+export async function accountRulesFor(account: AccountJudgement, symbol: string): Promise<QuantAccountRules> {
+  const venue = await account.venue.rules(symbol);
+  return { mode: 'netting', ...venue, marginCallPercent: account.marginCallPercent };
+}
 
 /** A delay longer than this many bars is refused as out of range: it would outlast most windows the history holds. */
 export const MAX_DELAY_BARS = 100;
@@ -254,7 +266,7 @@ export async function prepareBacktest(
   const rules = compileSignalRules(strategy.modules).rules;
   const split = splitOf(input.split, fromMs, toMs, barSpanMs(rules.barSize as BarSize));
   const holdout = holdoutOf(input.enforceHoldout === true, judgement.holdoutStart, split?.outOfSampleFromMs ?? toMs, now);
-  const account = accountOf(input.simulatedAccount, judgement.account);
+  const account = input.simulatedAccount ? accountOf(input.simulatedAccount, await accountRulesFor(judgement.account, rules.symbol)) : null;
   const fee = await fees.fee(rules.symbol);
   const feeRole = role as PreparedBacktest['feeRole'];
   const prepared = {
@@ -295,34 +307,51 @@ export async function prepareBacktest(
 const LEVERAGE = /^\d{1,4}(\.\d{1,2})?$/;
 
 /**
- * The margin account a run asks for (ENGINE RK-5), or null for a cash account. The leverage is the developer's, from 1
- * up to the owner's maximum; the margin-call and stop-out levels are the owner's. Any blank refuses by name and nothing
- * runs; nothing is defaulted.
+ * The margin account a run asks for (ENGINE RK-5, J-algo-dev-02 #5). The leverage is the developer's, from 1 up to the
+ * venue's published maximum on the market; the venue closes the position at its published maintenance level; the margin
+ * call is our own warning above that close. Any blank refuses by name and nothing runs; nothing is defaulted.
  */
-function accountOf(asked: QuantBacktestInput['simulatedAccount'], rules: QuantAccountRules): PreparedBacktest['account'] {
-  if (!asked) return null;
+function accountOf(asked: NonNullable<QuantBacktestInput['simulatedAccount']>, rules: QuantAccountRules): PreparedBacktest['account'] {
   const leverageText = asked.leverage.trim();
   if (!leverageText) throw new QuantError(QUANT_ACCOUNT_RULE_UNSET, 'leverage — fill in the leverage; it is never assumed to be 1');
+  const market = rules.venueMarket;
+  if (market === null) {
+    throw new QuantError(QUANT_ACCOUNT_RULE_UNSET, 'maximum leverage — the venue lists no perpetual on this asset; nothing is assumed');
+  }
   if (rules.maxLeverage === null) {
-    throw new QuantError(QUANT_ACCOUNT_RULE_UNSET, 'maximum leverage — the owner has not published it; nothing is assumed');
+    throw new QuantError(QUANT_ACCOUNT_RULE_UNSET, `maximum leverage — the venue publishes none for ${market}; nothing is assumed`);
+  }
+  if (rules.maintenancePercent === null) {
+    throw new QuantError(
+      QUANT_ACCOUNT_RULE_UNSET,
+      `maintenance level — the venue publishes no single maintenance level for ${market}; nothing is assumed`,
+    );
   }
   if (rules.marginCallPercent === null) {
-    throw new QuantError(QUANT_ACCOUNT_RULE_UNSET, 'margin call level — the owner has not published it; nothing is assumed');
-  }
-  if (rules.stopOutPercent === null) {
-    throw new QuantError(QUANT_ACCOUNT_RULE_UNSET, 'stop-out level — the owner has not published it; nothing is assumed');
-  }
-  if (parseAmount(rules.stopOutPercent) <= 0n || parseAmount(rules.stopOutPercent) >= parseAmount(rules.marginCallPercent)) {
-    throw new QuantError(QUANT_ACCOUNT_RULE_UNSET, 'stop-out level — the published level must be above 0 and below the margin call level');
+    throw new QuantError(QUANT_ACCOUNT_RULE_UNSET, 'margin call level — our warning level is not set; nothing is assumed');
   }
   const leverage = LEVERAGE.test(leverageText) ? parseAmount(leverageText) : -1n;
   if (leverage < parseAmount('1') || leverage > parseAmount(rules.maxLeverage)) {
-    throw new QuantError(QUANT_ACCOUNT_RULE_UNSET, `leverage — must be from 1 up to the published maximum of ${rules.maxLeverage}`);
+    throw new QuantError(
+      QUANT_ACCOUNT_RULE_UNSET,
+      `leverage — must be from 1 up to the venue's published maximum of ${rules.maxLeverage} on ${market}`,
+    );
+  }
+  // The venue closes when equity falls to its maintenance share of the position's value: at the entry price that is a
+  // margin level of the maintenance percent times the leverage. Our warning must sit above it, or it would never warn first.
+  const maintenanceRate = div(parseAmount(rules.maintenancePercent), parseAmount('100'), 'floor');
+  const closeLevel = mul(parseAmount(rules.maintenancePercent), leverage, 'half-up');
+  const marginCallPercent = parseAmount(rules.marginCallPercent);
+  if (marginCallPercent <= closeLevel) {
+    throw new QuantError(
+      QUANT_ACCOUNT_RULE_UNSET,
+      `margin call level — our warning at ${rules.marginCallPercent} % is at or under the venue's close at ${formatAmount(closeLevel)} % for ${formatAmount(leverage)}x; it would never warn first`,
+    );
   }
   return {
     leverage,
-    marginCallPercent: parseAmount(rules.marginCallPercent),
-    stopOutPercent: parseAmount(rules.stopOutPercent),
+    marginCallPercent,
+    maintenanceRate,
     rules: { ...rules, leverage: formatAmount(leverage) },
   };
 }

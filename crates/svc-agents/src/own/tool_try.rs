@@ -35,9 +35,25 @@ const OWN_MAX_OUTPUT_TOKENS: i64 = 2048;
 /// `ownGuardrail`: the agent's saved tools that move no money and have a declared shape, each in its module; a write
 /// granted as a write that always needs approval at the runtime; the one run task; the agent's own cap per session.
 pub fn own_guardrail(agent: &store::OwnAgent) -> Result<Guardrail, OwnError> {
+    own_guardrail_of(
+        &agent.id,
+        agent.version,
+        &agent.tools,
+        agent.per_session_cap.as_deref(),
+    )
+    .map_err(OwnError::Thrown)
+}
+
+/// `ownGuardrail` over the parts of the agent it reads, for a caller that holds its own view of the agent (`team`).
+pub fn own_guardrail_of(
+    id: &str,
+    version: i64,
+    saved: &[String],
+    per_session_cap: Option<&str>,
+) -> Result<Guardrail, String> {
     let tools: Vec<_> = own_tools()
         .into_iter()
-        .filter(|t| !t.moves_money && t.shape.is_some() && agent.tools.contains(&t.name))
+        .filter(|t| !t.moves_money && t.shape.is_some() && saved.contains(&t.name))
         .collect();
     let mut modules: Vec<String> = Vec::new();
     for t in &tools {
@@ -46,8 +62,8 @@ pub fn own_guardrail(agent: &store::OwnAgent) -> Result<Guardrail, OwnError> {
         }
     }
     let raw = Json::obj([
-        ("agentId", Json::str(own_session_agent_id(&agent.id))),
-        ("version", Json::int(agent.version)),
+        ("agentId", Json::str(own_session_agent_id(id))),
+        ("version", Json::int(version)),
         ("capacityMode", Json::str("research_only")),
         ("scopes", Json::Array(Vec::new())),
         (
@@ -73,7 +89,7 @@ pub fn own_guardrail(agent: &store::OwnAgent) -> Result<Guardrail, OwnError> {
                 ("maxOutputTokensPerCall", Json::int(OWN_MAX_OUTPUT_TOKENS)),
                 (
                     "maxSpendPerSession",
-                    agent.per_session_cap.clone().map_or(Json::Null, Json::str),
+                    per_session_cap.map_or(Json::Null, Json::str),
                 ),
                 (
                     "allowedModules",
@@ -83,7 +99,7 @@ pub fn own_guardrail(agent: &store::OwnAgent) -> Result<Guardrail, OwnError> {
             ]),
         ),
     ]);
-    parse_guardrail(&raw).map_err(|e| OwnError::Thrown(e.0))
+    parse_guardrail(&raw).map_err(|e| e.0)
 }
 
 /// `runError`: a run's refusal or fault reaches the person as its code.

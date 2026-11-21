@@ -9,6 +9,8 @@
  *   GET  /api/v1/venue/builder-fees?owner=&since=<ISO>  our builder fee on each fill of the caller's own orders on the
  *                                                      account, with the ledger transaction it posted (J-derivatives-12 #4)
  *   GET  /api/v1/venue/best-prices?symbol=BTC-USDC         the venue's best bid and ask (a market order's worst price)
+ *   GET  /api/v1/venue/margin-rules?base=BTC              public: the venue's maximum leverage and one maintenance rate
+ *                                                        on our listed perpetual on that asset (null: not published)
  *   GET  /api/v1/venue/funding-history?base=BTC&since=<ISO>  public: the funding the venue published on our listed
  *                                                      perpetual on that asset (a chart's funding study, J-charts-desk-04 #6)
  *   GET  /api/v1/venue/price-history?symbol=BTC-PERP&kind=mark|index&since=<ISO>  public: the venue's mark or index
@@ -385,6 +387,20 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         spreadLimitBps: spread === null ? { known: false } : { known: true, value: String(spread) },
       };
     });
+  });
+
+  // J-algo-dev-02 #5: the venue's published margin rules for the perpetual on an asset, public market data as the
+  // funding history is; no account and no sign-in. A margin backtest reads them.
+  app.get<{ Querystring: Query & { base?: string } }>('/api/v1/venue/margin-rules', publicRead, async (req, reply) => {
+    return answer(
+      reply,
+      async (d) => {
+        const base = req.query.base ?? '';
+        if (!/^[A-Za-z0-9]{1,20}$/.test(base)) throw new VenueWireError('base is the asset, as BTC');
+        return d.marginRules(base);
+      },
+      req.query.venueId,
+    );
   });
 
   // J-charts-desk-04 #6: public market data, as the candle and trade routes are; no account and no sign-in.

@@ -40,6 +40,7 @@ use crate::gateway::readiness::{self, ReadyInput};
 use crate::metering::Metering;
 use crate::own::Own;
 use crate::runtime::Runtime;
+use crate::team::Team;
 
 /// A query answers GET, a mutation POST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -283,6 +284,7 @@ pub struct DoorConfig {
     pub advisors: Advisors,
     /// The own agents' templates and owner values (`own-builder`).
     pub own: Own,
+    pub team: Team,
 }
 
 pub struct AgentsDoor {
@@ -302,6 +304,7 @@ pub struct AgentsDoor {
     background: crate::background::Settings,
     advisors: Advisors,
     own: Own,
+    team: Team,
 }
 
 /// The system clock.
@@ -348,6 +351,7 @@ impl AgentsDoor {
             background: config.background,
             advisors: config.advisors,
             own: config.own,
+            team: config.team,
         })
     }
 
@@ -432,6 +436,16 @@ impl AgentsDoor {
                     m: &self.metering,
                     rt: &self.runtime,
                     own: &self.own,
+                },
+            ),
+            Slice::Team => crate::team::slice::handle(
+                ctx,
+                &crate::team::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    team: &self.team,
                 },
             ),
             other => Err(not_ported(other)),

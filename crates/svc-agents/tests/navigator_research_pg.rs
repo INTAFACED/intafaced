@@ -249,6 +249,7 @@ impl World {
             runtime,
             advisors: svc_agents::advisors::Advisors::unwired(),
             own: svc_agents::own::Own::unwired(),
+            team: svc_agents::team::Team::unwired(),
             background: svc_agents::background::Settings::default(),
         })
         .unwrap();

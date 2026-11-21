@@ -1,32 +1,13 @@
-//! The own agent's session (`openOwnSession`), and `act` for a tool whose own error is not a [`RunError`].
+//! `act` for a tool whose own error is not a [`RunError`].
 //!
 //! The guarded call itself is the runtime's one [`super::act`]; this only carries a tool's own error back to its caller
 //! after the runtime has written the failed row.
 
 use service_kit::json::Json;
 
-use super::guardrails::Guardrail;
 pub use super::{ActInput, ActResult};
-use super::{Rt, RunError, SessionRecord, denied, insert_session};
-use crate::audit;
+use super::{Rt, RunError};
 use crate::db::StoreError;
-
-/// `openOwnSession`: a person's own agent's guardrail bound to a new metered session; any other agent is not found.
-pub fn open_own_session(
-    x: &Rt<'_>,
-    user_id: &str,
-    guardrail: &Guardrail,
-) -> Result<SessionRecord, RunError> {
-    if !guardrail.agent_id.starts_with("own.") {
-        return Err(RunError::Agent(denied(
-            "agents.agent_not_found",
-            "agents.error.route_not_found",
-            format!("\"{}\" is not an own agent", guardrail.agent_id),
-            vec![audit::param("task", guardrail.agent_id.clone())],
-        )));
-    }
-    insert_session(x, user_id, guardrail, true)
-}
 
 /// What `act` fails with: the runtime's refusal or fault, or the tool's own error, after its failure row is written.
 #[derive(Debug, Clone, PartialEq)]
