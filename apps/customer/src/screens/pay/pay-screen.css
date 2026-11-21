@@ -205,8 +205,8 @@
   .pay-rooms {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--if-space-2);
-    margin-block-start: var(--if-space-4);
+    gap: var(--if-space-3);
+    margin-block-start: var(--if-space-6);
   }
   .pay-rooms__title {
     flex-basis: 100%;
