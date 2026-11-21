@@ -348,6 +348,7 @@ function build(opts, planned) {
   }
   for (const e of planned.existing) for (const s of e.sites) rewriteSite(changes, s, e.name, contractsSpec(e.file));
   tables(changes, planned, done);
+  pairs(changes, planned, done);
   return { changes, created, problems, done };
 }
 
@@ -442,11 +443,55 @@ export function answerChecks(p, node, seen = new Set()) {
   return [...new Set(found)];
 }
 
-/** One caller, rewritten to its record. */
-function rewriteSite(changes, s, name, spec, takesNone) {
+/** The record call that replaces one caller: `recv.call(RECORD, input, opts)` or `founderRecordCall/Read(...)`. */
+function callText(changes, s, name, takesNone) {
   const p = load(s.file);
   const n = s.node;
   const a = n.arguments;
+  const input = takesNone ? 'undefined' : text(p, inputArg(s));
+  if (s.shape === 'query' || s.shape === 'mutate') {
+    const recv = text(p, n.callee.object);
+    const rest = [input, ...(a[4] ? [text(p, a[4])] : [])];
+    return `${recv}.call(${name}, ${rest.join(', ')})`;
+  }
+  // A page's own reader stays, reading the record's parsed answer into its view (`founderRecordRead`).
+  const fn = s.reader ? 'founderRecordRead' : 'founderRecordCall';
+  const rest = [text(p, a[0]), name, input, ...(s.reader ? [text(p, a[5])] : []), ...(a[6] ? [text(p, a[6])] : [])];
+  changes.imp(s.file, s.founderCallFrom, fn);
+  return `${fn}(${rest.join(', ')})`;
+}
+
+/**
+ * `cond ? 'a.x' : 'a.y'` with both branches moved: `cond ? call(A_X, ...) : call(A_Y, ...)`, each branch typed by its own
+ * record. With one branch left, neither moves: both are named.
+ */
+function pairs(changes, planned, done) {
+  for (const [file, f] of changes.files) {
+    for (const [cond, { s, branches }] of f.pairs ?? []) {
+      const { consequent: c, alternate: a } = branches;
+      if (!c || !a) {
+        const back = new Set([c?.s, a?.s].filter(Boolean));
+        for (const r of [...done, ...planned.existing]) r.sites = r.sites.filter((x) => !back.has(x));
+        for (const x of back) planned.hand.push({ site: x, why: 'the other branch of its `? :` stays, and one call sends both' });
+        continue;
+      }
+      const p = load(file);
+      const test = text(p, cond.test);
+      changes.edit(
+        file,
+        s.node.start,
+        s.node.end,
+        `(${test} ? ${callText(changes, c.s, c.name, c.takesNone)} : ${callText(changes, a.s, a.name, a.takesNone)})`,
+      );
+      changes.imp(file, c.spec, c.name);
+      changes.imp(file, a.spec, a.name);
+    }
+  }
+}
+
+/** One caller, rewritten to its record. */
+function rewriteSite(changes, s, name, spec, takesNone) {
+  const n = s.node;
   // The hand schema the caller parsed with: its types now come from the record (`retype`).
   const schemaArg = schemaArgOf(s);
   if (schemaArg?.type === 'Identifier') {
@@ -466,6 +511,7 @@ function rewriteSite(changes, s, name, spec, takesNone) {
       else changes.edit(s.file, props[i - 1].end, d.end, '');
     }
     changes.edit(s.file, n.start, n.end, `...${s.helper}(${name})`);
+    if (s.helperFrom) changes.imp(s.file, s.helperFrom, s.helper);
     changes.imp(s.file, spec, name);
     return;
   }
@@ -480,18 +526,15 @@ function rewriteSite(changes, s, name, spec, takesNone) {
     f.tables.get(s.table).moved.push({ s, edit, takesNone });
     return;
   }
-  const input = takesNone ? 'undefined' : text(p, inputArg(s));
-  if (s.shape === 'query' || s.shape === 'mutate') {
-    const recv = text(p, n.callee.object);
-    const rest = [input, ...(a[4] ? [text(p, a[4])] : [])];
-    changes.edit(s.file, n.start, n.end, `${recv}.call(${name}, ${rest.join(', ')})`);
-  } else if (s.shape === 'founderCall') {
-    // A page's own reader stays, reading the record's parsed answer into its view (`founderRecordRead`).
-    const fn = s.reader ? 'founderRecordRead' : 'founderRecordCall';
-    const rest = [text(p, a[0]), name, input, ...(s.reader ? [text(p, a[5])] : []), ...(a[6] ? [text(p, a[6])] : [])];
-    changes.edit(s.file, n.start, n.end, `${fn}(${rest.join(', ')})`);
-    changes.imp(s.file, s.founderCallFrom, fn);
+  if (s.branch) {
+    // One branch of `cond ? 'a.x' : 'a.y'`: the call is written once both branches have their record (`pairs`).
+    const f = changes.of(s.file);
+    f.pairs ??= new Map();
+    if (!f.pairs.has(s.cond)) f.pairs.set(s.cond, { s, branches: {} });
+    f.pairs.get(s.cond).branches[s.branch] = { s, name, spec, takesNone };
+    return;
   }
+  changes.edit(s.file, n.start, n.end, callText(changes, s, name, takesNone));
   changes.imp(s.file, spec, name);
 }
 
@@ -789,10 +832,11 @@ function main() {
   const result = build(opts, planned);
   const summary = {
     service: opts.service,
-    sites: planned.sites.length,
+    // A `? :` call is two sites, one per branch, and one call.
+    sites: new Set(planned.sites.map((s) => s.node)).size,
     records: result.done.map((r) => r.name),
     existing: planned.existing.map((e) => e.name),
-    rewritten: result.done.reduce((n, r) => n + r.sites.length, 0) + planned.existing.reduce((n, e) => n + e.sites.length, 0),
+    rewritten: new Set([...result.done, ...planned.existing].flatMap((r) => r.sites.map((s) => s.node))).size,
     hand: planned.hand.map((h) => ({
       at: `${relative(REPO, h.site.file)}:${h.site.line}`,
       call: `${h.site.module ?? '?'} ${h.site.path ?? '?'}`,

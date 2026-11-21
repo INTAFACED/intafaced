@@ -1,6 +1,7 @@
 // The call-records codemod's own pieces, on small inputs (the codemod itself is proven by its runs: run.mjs).
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -180,6 +181,20 @@ test('an ops-desk read beside readOf is a site the codemod moves to ...readOf(RE
     found.map((s) => `${s.module} ${s.path} ${s.kind}`),
     ['bank health query'],
   );
+  // `module` and `procedure` with no `readOf` and no `ReadSpec` in reach: not a desk read.
+  const bare = join(dir, 'bare.ts');
+  writeFileSync(bare, "export const d = { module: 'bank', procedure: 'health' };\n");
+  assert.deepEqual(deskReadSite(load(bare)), []);
+  // `ReadSpec` imported, `readOf` not: a desk read that imports `readOf` from the same place.
+  const typed = join(dir, 'typed.ts');
+  writeFileSync(
+    typed,
+    "import type { ReadSpec } from '@/lib/ops-desk';\nexport const e: ReadSpec = { module: 'bank', procedure: 'health' };\n",
+  );
+  assert.deepEqual(
+    deskReadSite(load(typed)).map((s) => s.helperFrom),
+    ['@/lib/ops-desk'],
+  );
   // An operator tool beside `toolOf`: its kind is its own, and `edgeModule` and `kind` are what the record replaces.
   const tools = join(dir, 'tools.ts');
   writeFileSync(
@@ -227,4 +242,27 @@ test('a table its own founderCall sends by `spec.procedure` is a site, the whole
   );
   // No call in the file sends the table: not this shape (the rule's plain `procedure:` finding).
   assert.deepEqual(opsEntrySites(write('unsent.ts', head)), []);
+});
+
+test('a call naming one of two paths by `? :` is a site per branch, its input written out or none', async () => {
+  const { findSites } = await import('./sites.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-repo-'));
+  mkdirSync(join(repo, 'apps/customer/src'), { recursive: true });
+  writeFileSync(
+    join(repo, 'apps/customer/src/holds.ts'),
+    [
+      "export const a = (api: any, ok: boolean, id: string) => api.mutate('bank', ok ? 'holds.accept' : 'holds.deny', { id }, s);",
+      "export const b = (api: any, reg: boolean, body: object) => api.mutate('identity', reg ? 'auth.register' : 'auth.login', body, s);",
+      '',
+    ].join('\n'),
+  );
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const found = findSites(repo).map((s) => `${s.path} ${s.branch} ${s.problem ? 'stays' : 'moves'}`);
+  assert.deepEqual(found, [
+    'holds.accept consequent moves',
+    'holds.deny alternate moves',
+    'auth.register consequent stays',
+    'auth.login alternate stays',
+  ]);
 });
