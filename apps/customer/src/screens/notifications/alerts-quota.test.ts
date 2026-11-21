@@ -15,7 +15,7 @@ describe('alert quota', () => {
   it('reads how many are held and the cap, with no input', async () => {
     const fetch = vi.fn(async () => trpc({ ...SENT, kind: 'price', used: 3, max: 10 }));
     const result = await readAlertQuota(client(fetch));
-    expect(result).toEqual({ ok: true, data: { kind: 'price', used: 3, max: 10 } });
+    expect(result).toEqual({ ok: true, data: { kind: 'price', used: 3, max: 10, burst: null, maxConditions: null } });
     expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe('/api/notify/trpc/notify.alertQuota');
   });
   it('reads a cap that is not set as null, never as a number', async () => {

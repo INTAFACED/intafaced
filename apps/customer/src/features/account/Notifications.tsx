@@ -13,7 +13,7 @@ import {
 import { NOTIFY_CHANNELS, NOTIFY_DELIVERIES, NOTIFY_MARK_READ, NOTIFY_TARGETS } from '@intafaced/contracts/notify-procedures';
 import { customerRoomHref } from '../../app/navigation';
 import { useResource, type Resource } from '../../shared/resource';
-import type { ApiResult } from '../../shared/api';
+import { parsesAs, type ApiResult } from '../../shared/api';
 import { Button, EmptyState, Failure, Loading, Page } from '../../shared/ui';
 import { useSession } from '../session';
 import { notificationsCopy as copy } from './notifications-copy';
@@ -351,7 +351,18 @@ function NotificationSettings({ userId }: { userId: string }) {
     setConfirmed(null);
     setReadNote(false);
     setResult(null);
-    const outcome = await api.call(NOTIFY_SET_MUTE, { channel, muted });
+    const outcome = await api.call(
+      NOTIFY_SET_MUTE,
+      { channel, muted },
+      {
+        accept: parsesAs(
+          preferences.refine(
+            (rows) => rows.some((row) => row.channel === channel && row.muted === muted),
+            'Returned preference does not match the requested setting',
+          ),
+        ),
+      },
+    );
     running.current = false;
     if (!mounted.current) return;
     setBusy(null);

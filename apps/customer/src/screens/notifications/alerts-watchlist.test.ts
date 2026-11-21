@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createApiClient } from '../../shared/api';
 import { submitWatchlist } from './alerts-actions';
-import type { PriceAlert, WatchlistIntent } from './notify-api';
+import { createWatchRule, stopWatchRule, type FollowIntent, type PriceAlert, type WatchlistIntent } from './notify-api';
 
 const USER = 'user-1';
 const trpc = (data: unknown, status = 200) => new Response(JSON.stringify({ result: { data } }), { status });
@@ -102,5 +102,53 @@ describe('list alert', () => {
       throw new TypeError('network down');
     };
     expect((await submitWatchlist(client(down), intent, USER)).kind).toBe('unknown');
+  });
+});
+
+describe('follow a list', () => {
+  const RULE_ID = '33333333-3333-4333-8333-333333333333';
+  const follow: FollowIntent = { listId: 'list-1', condition: 'greater_than', targetPrice: '100' };
+  const rule = (patch: Record<string, unknown> = {}) => ({
+    id: RULE_ID,
+    listId: 'list-1',
+    listName: 'Majors',
+    condition: 'greater_than',
+    targetPrice: '100',
+    status: 'active',
+    markets: ['m1', 'm2'],
+    createdAt: '2026-10-20T12:00:00.000Z',
+    lastSyncAt: null,
+    lastSyncCode: null,
+    ...patch,
+  });
+  const reply = (data: unknown) => client(async () => trpc(data));
+
+  it('believes the rule and one alert per market it covers', async () => {
+    const result = await createWatchRule(reply({ rule: rule(), alerts: [row('m2'), row('m1')] }), follow, USER);
+    expect(result.ok).toBe(true);
+  });
+
+  it('does not believe a rule or alerts that are not what was asked for, or another person alert', async () => {
+    for (const [label, data] of [
+      ['another list', { rule: rule({ listId: 'list-2' }), alerts: [row('m1'), row('m2')] }],
+      ['another condition', { rule: rule({ condition: 'less_than' }), alerts: [row('m1'), row('m2')] }],
+      ['another price', { rule: rule({ targetPrice: '101' }), alerts: [row('m1'), row('m2')] }],
+      ['another person', { rule: rule(), alerts: [row('m1', { userId: 'someone-else' }), row('m2')] }],
+      ['a stopped alert', { rule: rule(), alerts: [row('m1', { status: 'stopped' }), row('m2')] }],
+      ['an alert at another price', { rule: rule(), alerts: [row('m1', { targetPrice: '99' }), row('m2')] }],
+      ['a market missing', { rule: rule(), alerts: [row('m1')] }],
+    ] as const) {
+      const result = await createWatchRule(reply(data), follow, USER);
+      expect(result.ok, label).toBe(false);
+    }
+  });
+
+  it('believes a stop only for this rule, stopped, or for none', async () => {
+    expect((await stopWatchRule(reply({ rule: rule({ status: 'stopped' }) }), RULE_ID)).ok).toBe(true);
+    expect((await stopWatchRule(reply({ rule: null }), RULE_ID)).ok).toBe(true);
+    expect((await stopWatchRule(reply({ rule: rule() }), RULE_ID)).ok).toBe(false);
+    expect(
+      (await stopWatchRule(reply({ rule: rule({ id: '44444444-4444-4444-8444-444444444444', status: 'stopped' }) }), RULE_ID)).ok,
+    ).toBe(false);
   });
 });

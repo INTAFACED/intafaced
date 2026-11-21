@@ -7,9 +7,9 @@ const USER = 'user-1';
 const ID = '11111111-1111-4111-8111-111111111111';
 const intent: AlertIntent = { marketId: 'market-btc', direction: 'above', targetPrice: '65000.50' };
 // The fields svc-notify sends on every alert (`priceAlertOutput`), at what a plain one-shot alert holds; a test's own
-// fields override them.
+// fields override them. A create without a condition is stored as the level its direction names (svc-notify's
+// `conditionOf`), so `row` sets `condition` from the direction.
 const SENT = {
-  condition: 'crossing',
   name: null,
   message: null,
   expiresAt: null,
@@ -34,6 +34,7 @@ const row = (patch: Record<string, unknown> = {}) => ({
   status: 'active',
   firedAt: null,
   createdAt: '2026-10-17T08:00:00.000Z',
+  condition: patch.direction === 'below' ? 'less_than' : 'greater_than',
   ...patch,
 });
 const dark = { markSource: 'dark', canFire: false, code: 'alert.price_unavailable' };

@@ -26,15 +26,23 @@ import {
   WEBHOOK_CAUSES,
   alertEvaluationSchema,
   alertTriggerSchema,
+  cancelAlertReplySchema,
   categoryRowSchema,
+  createAlertReplySchema,
+  createAlertsReplySchema,
+  createWatchRuleReplySchema,
   notificationSchema,
   notifyListSchema,
+  notifyPrefsSchema,
   priceAlertSchema,
+  setAlertActiveReplySchema,
+  stopWatchRuleReplySchema,
+  updateAlertReplySchema,
   watchRuleSchema,
   webhookAttemptSchema,
 } from '@intafaced/contracts/notify-room';
 import { z } from 'zod';
-import type { ApiClient, ApiResult } from '../../shared/api';
+import { parsesAs, type ApiClient, type ApiResult } from '../../shared/api';
 import {
   NOTIFY_MUTE_PREFS,
   NOTIFY_SET_MUTE,
@@ -143,7 +151,18 @@ export type PushKey = ProcedureOutput<typeof NOTIFY_PUSH_KEY>;
 export const pushKey = (api: ApiClient, signal?: AbortSignal) => api.call(NOTIFY_PUSH_KEY, undefined, { signal });
 export const targets = (api: ApiClient, signal?: AbortSignal) => api.call(NOTIFY_TARGETS, undefined, { signal });
 export function setMute(api: ApiClient, channel: OutOfAppChannel, muted: boolean): Promise<ApiResult<MutePref[]>> {
-  return api.call(NOTIFY_SET_MUTE, { channel, muted });
+  return api.call(
+    NOTIFY_SET_MUTE,
+    { channel, muted },
+    {
+      accept: parsesAs(
+        notifyPrefsSchema.refine(
+          (rows) => rows.some((row) => row.channel === channel && row.muted === muted),
+          'Returned preference does not match',
+        ),
+      ),
+    },
+  );
 }
 
 export type CategoryId = (typeof CATEGORY_IDS)[number];
@@ -304,21 +323,34 @@ export function createPriceAlert(
   intent: AlertIntent,
   userId: string,
 ): Promise<ApiResult<{ alert: PriceAlert; evaluation: AlertEvaluation }>> {
-  return api.call(NOTIFY_CREATE_ALERT, {
-    kind: 'price',
-    marketId: intent.marketId,
-    direction: intent.direction,
-    targetPrice: intent.targetPrice,
-    ...(intent.condition ? { condition: intent.condition } : {}),
-    ...(intent.name ? { name: intent.name } : {}),
-    ...(intent.message ? { message: intent.message } : {}),
-    ...(intent.expiresAt ? { expiresAt: intent.expiresAt } : {}),
-    ...(intent.extras && intent.extras.length > 0 ? { extras: intent.extras } : {}),
-    ...(intent.frequency && intent.frequency !== 'once' ? { frequency: intent.frequency } : {}),
-    ...(intent.source && intent.source !== 'mark' ? { source: intent.source } : {}),
-    ...(intent.channels ? { channels: intent.channels } : {}),
-    ...(intent.webhookUrl ? { webhookUrl: intent.webhookUrl } : {}),
-  });
+  return api.call(
+    NOTIFY_CREATE_ALERT,
+    {
+      kind: 'price',
+      marketId: intent.marketId,
+      direction: intent.direction,
+      targetPrice: intent.targetPrice,
+      ...(intent.condition ? { condition: intent.condition } : {}),
+      ...(intent.name ? { name: intent.name } : {}),
+      ...(intent.message ? { message: intent.message } : {}),
+      ...(intent.expiresAt ? { expiresAt: intent.expiresAt } : {}),
+      ...(intent.extras && intent.extras.length > 0 ? { extras: intent.extras } : {}),
+      ...(intent.frequency && intent.frequency !== 'once' ? { frequency: intent.frequency } : {}),
+      ...(intent.source && intent.source !== 'mark' ? { source: intent.source } : {}),
+      ...(intent.channels ? { channels: intent.channels } : {}),
+      ...(intent.webhookUrl ? { webhookUrl: intent.webhookUrl } : {}),
+    },
+    {
+      accept: parsesAs(
+        createAlertReplySchema.extend({
+          alert: createAlertReplySchema.shape.alert.refine(
+            (row) => row.userId === userId && row.status === 'active' && row.firedAt === null && isIntent(row, intent),
+            'Returned alert does not match',
+          ),
+        }),
+      ),
+    },
+  );
 }
 
 /** Cancel one watch. `cancelled: false` with a row means it was already fired or cancelled; `alert: null` means it was not found. */
@@ -327,7 +359,19 @@ export function cancelPriceAlert(
   id: string,
   userId: string,
 ): Promise<ApiResult<{ cancelled: boolean; alert: PriceAlert | null }>> {
-  return api.call(NOTIFY_CANCEL_ALERT, { id });
+  return api.call(
+    NOTIFY_CANCEL_ALERT,
+    { id },
+    {
+      accept: parsesAs(
+        cancelAlertReplySchema
+          .extend({
+            alert: priceAlertSchema.refine((row) => row.id === id && row.userId === userId, 'Returned alert does not match').nullable(),
+          })
+          .refine((data) => data.cancelled === (data.alert?.status === 'cancelled'), 'Inconsistent cancel answer'),
+      ),
+    },
+  );
 }
 
 // ── Managing an alert (C-alerts-scan-02) ────────────────────────────────────────────────────────────────────────
@@ -347,7 +391,27 @@ export interface AlertEdit {
 
 /** Change an alert that is active or stopped. The answer must be this person's alert showing the values just sent, or it is not believed. */
 export function updatePriceAlert(api: ApiClient, id: string, edit: AlertEdit, userId: string): Promise<ApiResult<{ alert: PriceAlert }>> {
-  return api.call(NOTIFY_UPDATE_ALERT, { id, ...edit });
+  return api.call(
+    NOTIFY_UPDATE_ALERT,
+    { id, ...edit },
+    {
+      accept: parsesAs(
+        updateAlertReplySchema.extend({
+          alert: updateAlertReplySchema.shape.alert.refine(
+            (row) =>
+              row.id === id &&
+              row.userId === userId &&
+              (edit.targetPrice === undefined || canonicalPrice(row.targetPrice) === canonicalPrice(edit.targetPrice)) &&
+              (edit.condition === undefined || row.condition === edit.condition) &&
+              (edit.name === undefined || (row.name ?? null) === edit.name) &&
+              (edit.message === undefined || (row.message ?? null) === edit.message) &&
+              (edit.source === undefined || (row.source ?? 'mark') === edit.source),
+            'Returned alert does not match',
+          ),
+        }),
+      ),
+    },
+  );
 }
 
 /** Pause (`active: false`) an active alert or resume a stopped one. The answer carries the status it ended in. */
@@ -357,7 +421,20 @@ export function setPriceAlertActive(
   active: boolean,
   userId: string,
 ): Promise<ApiResult<{ changed: boolean; alert: PriceAlert }>> {
-  return api.call(NOTIFY_SET_ALERT_ACTIVE, { id, active });
+  return api.call(
+    NOTIFY_SET_ALERT_ACTIVE,
+    { id, active },
+    {
+      accept: parsesAs(
+        setAlertActiveReplySchema.extend({
+          alert: setAlertActiveReplySchema.shape.alert.refine(
+            (row) => row.id === id && row.userId === userId,
+            'Returned alert does not match',
+          ),
+        }),
+      ),
+    },
+  );
 }
 
 /** Delete an alert whatever its state. `deleted: false` means it was already gone. */
@@ -416,12 +493,34 @@ export function createPriceAlerts(
   userId: string,
 ): Promise<ApiResult<{ alerts: PriceAlert[]; evaluation: AlertEvaluation }>> {
   const wanted = [...new Set(intent.marketIds)].sort();
-  return api.call(NOTIFY_CREATE_ALERTS, {
-    marketIds: intent.marketIds,
-    direction: intent.direction,
-    condition: intent.condition,
-    targetPrice: intent.targetPrice,
-  });
+  return api.call(
+    NOTIFY_CREATE_ALERTS,
+    {
+      marketIds: intent.marketIds,
+      direction: intent.direction,
+      condition: intent.condition,
+      targetPrice: intent.targetPrice,
+    },
+    {
+      accept: parsesAs(
+        createAlertsReplySchema.extend({
+          alerts: createAlertsReplySchema.shape.alerts.refine(
+            (rows) =>
+              rows.every(
+                (row) =>
+                  row.userId === userId &&
+                  row.kind === 'price' &&
+                  row.status === 'active' &&
+                  row.firedAt === null &&
+                  canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
+                  (row.condition ?? levelOfDirection(row.direction)) === intent.condition,
+              ) && JSON.stringify(rows.map((row) => row.marketId).sort()) === JSON.stringify(wanted),
+            'Returned alerts do not match',
+          ),
+        }),
+      ),
+    },
+  );
 }
 
 // ── Following a watchlist (J-charts-desk-09 #7, C-alerts-scan-03) ───────────────────────────────────────────────
@@ -457,9 +556,43 @@ export function createWatchRule(
   intent: FollowIntent,
   userId: string,
 ): Promise<ApiResult<{ rule: WatchRule; alerts: PriceAlert[] }>> {
-  return api.call(NOTIFY_CREATE_WATCHLIST_ALERT, { listId: intent.listId, condition: intent.condition, targetPrice: intent.targetPrice });
+  return api.call(
+    NOTIFY_CREATE_WATCHLIST_ALERT,
+    { listId: intent.listId, condition: intent.condition, targetPrice: intent.targetPrice },
+    {
+      accept: parsesAs(
+        createWatchRuleReplySchema.refine(
+          ({ rule, alerts }) =>
+            rule.listId === intent.listId &&
+            rule.condition === intent.condition &&
+            canonicalPrice(rule.targetPrice) === canonicalPrice(intent.targetPrice) &&
+            alerts.every(
+              (row) =>
+                row.userId === userId &&
+                row.kind === 'price' &&
+                row.status === 'active' &&
+                row.condition === intent.condition &&
+                canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice),
+            ) &&
+            JSON.stringify(alerts.map((row) => row.marketId).sort()) === JSON.stringify([...rule.markets].sort()),
+          'Returned alerts do not match',
+        ),
+      ),
+    },
+  );
 }
 
 /** Stop following a list. Its alerts stay. Stopping twice is harmless. */
 export const stopWatchRule = (api: ApiClient, id: string): Promise<ApiResult<{ rule: WatchRule | null }>> =>
-  api.call(NOTIFY_STOP_WATCHLIST_ALERT, { id });
+  api.call(
+    NOTIFY_STOP_WATCHLIST_ALERT,
+    { id },
+    {
+      accept: parsesAs(
+        stopWatchRuleReplySchema.refine(
+          ({ rule }) => rule === null || (rule.id === id && rule.status === 'stopped'),
+          'Returned rule does not match',
+        ),
+      ),
+    },
+  );
