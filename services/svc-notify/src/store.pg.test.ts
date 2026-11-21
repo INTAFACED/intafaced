@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
@@ -35,13 +35,12 @@ import { PostgresNotifyStore } from './store.js';
 const URL = process.env.TEST_DATABASE_URL_NOTIFY ?? 'postgres://svc_notify:svc_notify@localhost:5433/intafaced_test';
 const here = dirname(fileURLToPath(import.meta.url));
 
-const MIGRATIONS = [
-  '0000_notify_init.sql',
-  '0001_notify_channels.sql',
-  '0002_notify_delivery_accepted.sql',
-  '0003_notify_mute_prefs.sql',
-  '0004_notify_delivery_claim_lease.sql',
-].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
+// Every migration, in order: the store reads tables from later migrations (system_notices, 0016), and a file
+// run alone on a fresh database must not depend on another file having migrated it first.
+const MIGRATIONS = readdirSync(join(here, '..', 'drizzle'))
+  .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+  .sort()
+  .map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
