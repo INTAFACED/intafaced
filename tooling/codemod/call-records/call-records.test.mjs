@@ -295,7 +295,7 @@ test('portable: a refused z.unknown() is followed from the record to its source 
   assert.equal(parseWhy(why).findings.length, 3);
   const { edits, left } = plan({ views: why }, [record]);
   const f = edits.get(join(dir, 'views.ts'));
-  assert.deepEqual([...f.edits.values()].map((e) => e.text).sort(), ['jsonValueSchema', 'jsonValueSchema.optional()']);
+  assert.deepEqual([...f.edits.values()].map((e) => e.text).sort(), ['jsonValueSchema', 'jsonValueSchema']);
   // An answer's refinement with no words to quote stays, named.
   assert.deepEqual(
     left.map((l) => l.at),
@@ -320,6 +320,33 @@ test('portable: a leading lookahead that bars one character of the class after i
         all.push(s);
       }
   for (const s of new Set(all)) assert.equal(b.test(s), a.test(s), s);
+  // Followed from a record to the regex where it is written, through a named schema.
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'channels.ts'),
+    [
+      "import { z } from 'zod';",
+      `const domain = z.string().regex(/${before}/, 'a domain');`,
+      'export const channelsSchema = z.object({ domains: z.array(domain) });',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'channels-procedures.ts');
+  writeFileSync(
+    record,
+    [
+      "import { channelsSchema } from './channels.js';",
+      "export const R = defineProcedure({ name: 'x.ch', output: channelsSchema });",
+      '',
+    ].join('\n'),
+  );
+  const why = `x.ch.output cannot be exported without losing meaning: x.ch.output.domains[] (regex /${before}/ uses lookaround or backreferences (not in Rust regex))`;
+  const { edits } = plan({ ch: why }, [record]);
+  assert.deepEqual(
+    [...edits.get(join(dir, 'channels.ts')).edits.values()].map((e) => e.text),
+    [`/${after}/`],
+  );
   // A lookahead it has no plain form for stays.
   assert.equal(withoutLeadingLookahead('^(?=a)[a-z]+$'), undefined);
 });
