@@ -215,17 +215,17 @@ test(`${J} #6 adds a token to the blocklist: it is not routed and shows the badg
   expect(before.body).not.toContain('protocol.token_blocked');
 
   const blocklist = await trust(a, 'Blocklist');
-  await blocklist.getByLabel('Token address').fill(BLOCKED);
+  await blocklist.getByLabel('Token address', { exact: true }).fill(BLOCKED);
   await blocklist.getByLabel(/^Reason/).fill(BLOCK_REASON);
-  await blocklist.getByRole('button', { name: 'Add to the blocklist' }).click();
+  await blocklist.getByRole('button', { name: 'Add to the blocklist', exact: true }).click();
   const blocked = row(blocklist, 'Blocked tokens', BLOCKED);
   await expect(blocked).toContainText('Not routed');
   await expect(blocked).toContainText('Blocked badge shown');
   await expect(blocked).toContainText(BLOCK_REASON);
   // The same token again is refused, and it stays listed once.
-  await blocklist.getByLabel('Token address').fill(BLOCKED);
+  await blocklist.getByLabel('Token address', { exact: true }).fill(BLOCKED);
   await blocklist.getByLabel(/^Reason/).fill(`${BLOCK_REASON} again`);
-  await blocklist.getByRole('button', { name: 'Add to the blocklist' }).click();
+  await blocklist.getByRole('button', { name: 'Add to the blocklist', exact: true }).click();
   await expect(blocklist.getByRole('alert')).toContainText('already on the blocklist');
   await expect(blocked).toHaveCount(1);
 
@@ -251,12 +251,12 @@ test(`${J} #6 adds a token to the blocklist: it is not routed and shows the badg
     ['Routing registration', 'LOCAL TEST registry entry'],
   ])
     await onboarding.getByLabel(label, { exact: true }).fill(value);
-  await onboarding.getByRole('button', { name: 'Open the checklist' }).click();
+  await onboarding.getByRole('button', { name: 'Open the checklist', exact: true }).click();
   await expect(row(onboarding, 'Onboarding', POOL)).toBeVisible();
   await expect(row(await trust(a, 'Blocklist'), 'Permissioned tokens', POOL)).toHaveCount(0);
   const second = await trust(b, 'Permissioned pools');
-  await second.getByLabel('Approval reason').fill(`LOCAL TEST ${J} permissioned approval`);
-  await row(second, 'Onboarding', POOL).getByRole('button', { name: 'Approve' }).click();
+  await second.getByLabel('Approval reason', { exact: true }).fill(`LOCAL TEST ${J} permissioned approval`);
+  await row(second, 'Onboarding', POOL).getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(row(second, 'Onboarding', POOL)).toContainText('Approved by');
   await a.reload();
   const gated = row(await trust(a, 'Blocklist'), 'Permissioned tokens', POOL);

@@ -1,5 +1,6 @@
 import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
+import { z } from 'zod';
 import type {
   HumanTokenTier,
   ProtocolBlockedToken,
@@ -163,6 +164,16 @@ const NAME_TAG_SELECT = `
 
 const CHECKLIST_COLUMNS =
   'id, pool, legal_entity, token_contract, checker_address, wrapper_address, routing_registration, status, opened_by, approved_by, approval_reason, opened_at, approved_at';
+
+const stamp = z.union([z.date(), z.string()]);
+const BlockedRow = z.object({ token: z.string(), reason: z.string(), added_by: z.string(), added_at: stamp });
+const PermissionedRow = z.object({ token: z.string(), pool: z.string(), checker: z.string(), approved_at: stamp });
+const toBlocked = (r: z.infer<typeof BlockedRow>): ProtocolBlockedToken => ({
+  token: r.token,
+  reason: r.reason,
+  addedBy: r.added_by,
+  addedAt: iso(r.added_at),
+});
 
 export class PostgresTrustDeskStore implements TrustDeskStore {
   constructor(private readonly sql: Sql) {}
@@ -363,20 +374,19 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
   }
 
   async blocklist(chainId: number) {
-    const blocked = await this.sql<{ token: string; reason: string; added_by: string; added_at: Date | string }[]>`
-      SELECT token, reason, added_by, added_at FROM protocol.token_blocklist WHERE chain_id = ${chainId}
-      ORDER BY added_at DESC, token LIMIT 500`;
+    const blocked = BlockedRow.array().parse(
+      await this.sql`
+        SELECT token, reason, added_by, added_at FROM protocol.token_blocklist WHERE chain_id = ${chainId}
+        ORDER BY added_at DESC, token LIMIT 500`,
+    );
     // A permissioned token is the token contract of an approved checklist, gated by that checklist's checker.
-    const permissioned = await this.sql<{ token: string; pool: string; checker: string; approved_at: Date | string }[]>`
-      SELECT token_contract AS token, pool, checker_address AS checker, approved_at FROM protocol.pool_onboarding
-      WHERE chain_id = ${chainId} AND status = 'approved' ORDER BY approved_at DESC, id LIMIT 500`;
+    const permissioned = PermissionedRow.array().parse(
+      await this.sql`
+        SELECT token_contract AS token, pool, checker_address AS checker, approved_at FROM protocol.pool_onboarding
+        WHERE chain_id = ${chainId} AND status = 'approved' ORDER BY approved_at DESC, id LIMIT 500`,
+    );
     return {
-      blocked: blocked.map((r): ProtocolBlockedToken => ({
-        token: r.token,
-        reason: r.reason,
-        addedBy: r.added_by,
-        addedAt: iso(r.added_at),
-      })),
+      blocked: blocked.map(toBlocked),
       permissioned: permissioned.map((r): ProtocolPermissionedToken => ({
         token: r.token,
         pool: r.pool,
@@ -387,20 +397,26 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
   }
 
   async addToBlocklist(input: { chainId: number; token: string; reason: string; actorId: string }) {
-    const rows = await this.sql<{ token: string; reason: string; added_by: string; added_at: Date | string }[]>`
-      INSERT INTO protocol.token_blocklist (chain_id, token, reason, added_by)
-      VALUES (${input.chainId}, ${input.token}, ${input.reason}, ${input.actorId})
-      ON CONFLICT (chain_id, token) DO NOTHING RETURNING token, reason, added_by, added_at`;
-    const r = rows[0];
-    if (!r) return { kind: 'already_blocked' } as const;
-    return { kind: 'added', entry: { token: r.token, reason: r.reason, addedBy: r.added_by, addedAt: iso(r.added_at) } } as const;
+    const [row] = BlockedRow.array().parse(
+      await this.sql`
+        INSERT INTO protocol.token_blocklist (chain_id, token, reason, added_by)
+        VALUES (${input.chainId}, ${input.token}, ${input.reason}, ${input.actorId})
+        ON CONFLICT (chain_id, token) DO NOTHING RETURNING token, reason, added_by, added_at`,
+    );
+    if (!row) return { kind: 'already_blocked' } as const;
+    return { kind: 'added', entry: toBlocked(row) } as const;
   }
 
   async blockedAmong(chainId: number, tokens: readonly string[]): Promise<string[]> {
     if (tokens.length === 0) return [];
-    const rows = await this.sql<{ token: string }[]>`
-      SELECT token FROM protocol.token_blocklist WHERE chain_id = ${chainId} AND token = ANY(${this.sql.array([...tokens])}::text[])
-      ORDER BY token`;
+    const rows = z
+      .object({ token: z.string() })
+      .array()
+      .parse(
+        await this.sql`
+          SELECT token FROM protocol.token_blocklist WHERE chain_id = ${chainId} AND token = ANY(${this.sql.array([...tokens])}::text[])
+          ORDER BY token`,
+      );
     return rows.map((r) => r.token);
   }
 }
