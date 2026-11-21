@@ -41,6 +41,8 @@ use svc_agents::metering::ports::{
     AffiliatesHttp, JetStreamBus, LedgerHttp, LedgerOnly, UsagePayment, UsagePaymentHttp,
 };
 use svc_agents::migrate;
+use svc_agents::own::Own;
+use svc_agents::own::catalog::parse_own_templates;
 use svc_agents::runtime::Runtime;
 use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
@@ -354,6 +356,14 @@ fn advisors(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Advisors, String>
     Ok(a)
 }
 
+/// The own agents' templates and owner values, as `index.ts` hands them to `createAgentsRouter`.
+fn own(env: &AgentsEnv) -> Result<Own, String> {
+    Ok(Own {
+        templates: parse_own_templates(env.str("AGENTS_OWN_TEMPLATES"))?,
+        assistant_model: env.str("AGENTS_OWN_ASSISTANT_MODEL").map(str::to_owned),
+    })
+}
+
 fn door(
     env: &AgentsEnv,
     store: Store,
@@ -375,6 +385,7 @@ fn door(
         ready,
         runtime,
         advisors,
+        own: own(env)?,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,

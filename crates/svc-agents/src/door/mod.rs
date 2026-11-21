@@ -38,6 +38,7 @@ use crate::db::Store;
 use crate::gateway::desk::GatewaySlice;
 use crate::gateway::readiness::{self, ReadyInput};
 use crate::metering::Metering;
+use crate::own::Own;
 use crate::runtime::Runtime;
 
 /// A query answers GET, a mutation POST.
@@ -275,6 +276,8 @@ pub struct DoorConfig {
     pub runtime: Runtime,
     /// The advisors' curriculum, holdings, prices and switches (`advisors`).
     pub advisors: Advisors,
+    /// The own agents' templates and owner values (`own-builder`).
+    pub own: Own,
 }
 
 pub struct AgentsDoor {
@@ -292,6 +295,7 @@ pub struct AgentsDoor {
     metering: Metering,
     runtime: Runtime,
     advisors: Advisors,
+    own: Own,
 }
 
 /// The system clock.
@@ -336,6 +340,7 @@ impl AgentsDoor {
             metering: config.metering,
             runtime: config.runtime,
             advisors: config.advisors,
+            own: config.own,
         })
     }
 
@@ -385,6 +390,16 @@ impl AgentsDoor {
                     rt: &self.runtime,
                     advisors: &self.advisors,
                     jurisdiction: &self.jurisdiction,
+                },
+            ),
+            Slice::OwnBuilder => crate::own::slice::handle(
+                ctx,
+                &crate::own::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    own: &self.own,
                 },
             ),
             other => Err(not_ported(other)),
