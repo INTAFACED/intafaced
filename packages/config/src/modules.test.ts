@@ -1,6 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MODULES, protocolPlaneOnlyModules } from './modules.js';
 
@@ -44,21 +46,28 @@ describe('custody-scan derives its service list from the registry, faithfully', 
   const modulesPath = resolve(here, './modules.ts');
 
   /**
-   * Re-runs the scanner's own derivation regex against the real `modules.ts`.
-   *
-   * Deliberately a copy rather than an import: the scanner exports nothing, and
-   * the point is to prove THAT expression parses THIS file correctly. If the two
-   * ever diverge, the copy is what makes the divergence visible.
+   * Runs the real scanner over a scratch tree that holds the real `modules.ts`
+   * and, for EVERY registered module, a service file that calls `ledger.post(`.
+   * The services the scanner flags are exactly the ones its derivation walks,
+   * so this proves what the regex parses out of the registry by what the gate
+   * does, not by a copy of the regex.
    */
   function servicesDerivedFromSource(): string[] {
-    const source = readFileSync(modulesPath, 'utf8');
-    const entry = /service:\s*'([^']+)'[^}]*?planes:\s*\[([^\]]*)\][^}]*?custodial:\s*(true|false)/g;
-    const derived: string[] = [];
-    for (const match of source.matchAll(entry)) {
-      const planes = [...match[2]!.matchAll(/'([^']+)'/g)].map((m) => m[1]!);
-      if (planes.length === 1 && planes[0] === 'protocol' && match[3] === 'false') derived.push(match[1]!);
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'custody-scan-')));
+    try {
+      mkdirSync(join(root, 'packages/config/src'), { recursive: true });
+      copyFileSync(modulesPath, join(root, 'packages/config/src/modules.ts'));
+      for (const mod of Object.values(MODULES)) {
+        mkdirSync(join(root, 'services', mod.service, 'src'), { recursive: true });
+        writeFileSync(join(root, 'services', mod.service, 'src/planted.ts'), 'ledger.post(entry);\n');
+      }
+      const run = spawnSync(process.execPath, [scanPath], { cwd: root, encoding: 'utf8' });
+      expect(run.status, 'every planted ledger write must fail the scan').toBe(1);
+      const flagged = /\[ledger-write-on-protocol-plane\] services\/([^/]+)\/src\/planted\.ts/g;
+      return [...new Set([...run.stderr.matchAll(flagged)].map((m) => m[1]!))].sort();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
-    return derived.sort();
   }
 
   it('the hardcoded array has not come back', () => {
@@ -71,7 +80,7 @@ describe('custody-scan derives its service list from the registry, faithfully', 
     expect(source, 'custody-scan.mjs no longer derives its list from the registry').toContain('deriveProtocolPlaneServices');
   });
 
-  it('parses exactly the services modules.ts declares protocol-only', () => {
+  it('walks exactly the services modules.ts declares protocol-only', () => {
     const declared = protocolPlaneOnlyModules()
       .map((m) => m.service)
       .sort();
