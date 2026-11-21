@@ -843,9 +843,52 @@
             },
             "required": ["status", "code"],
             "additionalProperties": false
+          },
+          "blocked": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "since": {
+                    "type": "string"
+                  }
+                },
+                "required": ["reason", "since"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "permissioned": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "pool": {
+                    "type": "string"
+                  },
+                  "checkerAddress": {
+                    "type": "string"
+                  },
+                  "approvedAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["pool", "checkerAddress", "approvedAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
-        "required": ["chainId", "address", "reputation", "labels", "openReports", "screening"],
+        "required": ["chainId", "address", "reputation", "labels", "openReports", "screening", "blocked", "permissioned"],
         "additionalProperties": false
       },
       "samples": [
@@ -2061,6 +2104,7 @@
       "refusals": {
         "protocol.swap_slippage_unset": "PRECONDITION_FAILED",
         "protocol.swap_min_out_below_bound": "BAD_REQUEST",
+        "protocol.token_blocked": "FORBIDDEN",
         "amm.zero_input": "BAD_REQUEST",
         "amm.no_liquidity": "BAD_REQUEST",
         "amm.bad_fee": "BAD_REQUEST",
@@ -2185,6 +2229,7 @@
         "protocol.permit.allowance_low": "CONFLICT",
         "protocol.swap.simulation_reverted": "CONFLICT",
         "protocol.swap.price_moved": "CONFLICT",
+        "protocol.token_blocked": "FORBIDDEN",
         "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
         "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
         "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
@@ -3212,6 +3257,7 @@
         "dex.route.over_max_hops": "BAD_REQUEST",
         "protocol.route_same_token": "BAD_REQUEST",
         "dex.route.no_path": "NOT_FOUND",
+        "protocol.token_blocked": "FORBIDDEN",
         "protocol.chain_unreachable": "SERVICE_UNAVAILABLE",
         "protocol.contract_not_deployed": "SERVICE_UNAVAILABLE",
         "protocol.chain_not_configured": "SERVICE_UNAVAILABLE",
@@ -4948,6 +4994,7 @@
       "refusals": {
         "protocol.amm_factory_unset": "PRECONDITION_FAILED",
         "protocol.route_same_token": "BAD_REQUEST",
+        "protocol.token_blocked": "FORBIDDEN",
         "amm.zero_input": "BAD_REQUEST",
         "amm.no_liquidity": "BAD_REQUEST",
         "amm.bad_fee": "BAD_REQUEST",
@@ -7643,6 +7690,154 @@
           "input": {
             "sender": ""
           }
+        }
+      ]
+    },
+    "protocol.compliance.blocklist.add": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "compliance.blocklist.add",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "protocol.blocklist.already_blocked": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": ["token", "reason"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "addedBy": {
+            "type": "string"
+          },
+          "addedAt": {
+            "type": "string"
+          }
+        },
+        "required": ["token", "reason", "addedBy", "addedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "token": "0x00000000000000000000000000000000000a11ce",
+            "reason": "TEST"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "token": "0x00000000000000000000000000000000000a11ce",
+            "reason": ""
+          }
+        }
+      ]
+    },
+    "protocol.compliance.blocklist.list": {
+      "service": "svc-protocol",
+      "module": "protocol",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "compliance.blocklist.list",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "protocol",
+        "plane": "protocol"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "blocked": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "addedBy": {
+                  "type": "string"
+                },
+                "addedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["token", "reason", "addedBy", "addedAt"],
+              "additionalProperties": false
+            }
+          },
+          "permissioned": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "string"
+                },
+                "pool": {
+                  "type": "string"
+                },
+                "checkerAddress": {
+                  "type": "string"
+                },
+                "approvedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["token", "pool", "checkerAddress", "approvedAt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["asOf", "chainId", "blocked", "permissioned"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
         }
       ]
     },

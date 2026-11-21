@@ -57,6 +57,8 @@
     { "path": "claimLink.config", "type": "query", "caller": "jurisdiction" },
     { "path": "claimLink.get", "type": "query", "caller": "jurisdiction" },
     { "path": "claimLink.list", "type": "query", "caller": "jurisdiction" },
+    { "path": "compliance.blocklist.add", "type": "mutation", "caller": "scope" },
+    { "path": "compliance.blocklist.list", "type": "query", "caller": "scope" },
     { "path": "compliance.labels.approve", "type": "mutation", "caller": "scope" },
     { "path": "compliance.labels.ask", "type": "mutation", "caller": "scope" },
     { "path": "compliance.nameTags.approve", "type": "mutation", "caller": "scope" },

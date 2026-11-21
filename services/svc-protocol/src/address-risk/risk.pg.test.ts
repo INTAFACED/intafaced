@@ -12,7 +12,12 @@ import { readAddressRisk, submitReport } from './risk.js';
 // CI provides the database; this test runs unconditionally and fails where none answers.
 const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced:intafaced@127.0.0.1:5432/intafaced_test';
 const here = dirname(fileURLToPath(import.meta.url));
-const migration = join(here, '..', '..', 'drizzle', '20261107073648_protocol_address_risk.sql');
+// The address read also says whether the token is blocked or permissioned (trust desk and blocklist tables).
+const migrations = [
+  '20261107073648_protocol_address_risk.sql',
+  '20261113040000_protocol_trust_desk.sql',
+  '20261122090000_protocol_token_blocklist.sql',
+].map((f) => join(here, '..', '..', 'drizzle', f));
 if (!(await postgresAvailable(URL))) throw new Error('postgres unavailable');
 const db = createDb({ url: URL, schema: 'protocol', max: 2 }, {});
 const sql: Sql = db.sql;
@@ -28,7 +33,7 @@ describe('address risk store (Postgres)', () => {
   beforeAll(async () => {
     await assertTestDatabase(sql, 'svc-protocol risk.pg.test');
     await sql`CREATE SCHEMA IF NOT EXISTS protocol`;
-    await sql.unsafe(readFileSync(migration, 'utf8'));
+    for (const m of migrations) await sql.unsafe(readFileSync(m, 'utf8'));
     await cleanup();
   });
   afterAll(async () => {
