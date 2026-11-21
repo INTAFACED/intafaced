@@ -978,6 +978,7 @@ fn door_parts(db: &TestDb) -> DoorConfig {
         indexer_url: None,
         fetch: Arc::new(service_kit::http::UreqFetch::new()),
         posting: support::idle_posting(),
+        reconciliation_sources: std::sync::Arc::new(svc_ledger::controls::sources::Unset),
     }
 }
 

@@ -138,6 +138,7 @@ impl Book {
             custody,
             statement_timeout_ms: timeout_ms,
             now_ms: system_ms,
+            controls: None,
         }
     }
 
