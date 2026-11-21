@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 // J-algo-dev-16: Monte Carlo on a finished backtest (RC-algo-dev-04), the market data lake (RC-algo-dev-02) and the
 // account's live approval policy (RC-algo-dev-01). Every figure is simulated or is the exchange's own public market data;
@@ -42,7 +43,7 @@ export const quantLakeDatasetSchema = z.object({
   /** Times nothing was captured between two captures, or a capture failed: shown as gaps, never filled. */
   gaps: z.array(range),
   /** The newest rows as stored, normalised. */
-  latest: z.array(z.object({ observedAt: z.string(), payload: z.record(z.string(), z.unknown()) })),
+  latest: z.array(z.object({ observedAt: z.string(), payload: z.record(z.string(), jsonValueSchema) })),
 });
 
 export const quantLakeCatalogueSchema = z.object({

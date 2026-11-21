@@ -7,15 +7,23 @@ import {
   quantModerationQueueSchema,
 } from '@intafaced/contracts';
 import {
-  founderCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
   partFrom,
   type PartLabels,
   explainRefusal,
+  founderRecordRead,
 } from '@/lib/desk';
 import type { LibraryDeskOp, LibraryDeskReply, LibraryDeskView } from './model';
+import {
+  QUANT_OPS_LIBRARY_QUEUE,
+  QUANT_OPS_LIBRARY_HIDE,
+  QUANT_OPS_LIBRARY_UNHIDE,
+  QUANT_OPS_LIBRARY_REMOVE,
+  QUANT_OPS_LIBRARY_DISPUTE_OPEN,
+  QUANT_OPS_LIBRARY_DISPUTE_RESOLVE,
+} from '@intafaced/contracts/quant-ops-procedures';
 
 /**
  * The strategy library desk as the signed-in founder. svc-quant holds the queue and records every action (`ops.library.*`:
@@ -37,7 +45,7 @@ const readQueue = parseWith(quantModerationQueueSchema);
 const readEntry = parseWith(quantModerationEntrySchema);
 
 export async function loadLibraryDesk(ctx: FounderCallContext, cursor: string | null = null): Promise<LibraryDeskView> {
-  const queue = await founderCall(ctx, 'quant', 'ops.library.queue', 'GET', cursor ? { cursor } : undefined, readQueue);
+  const queue = await founderRecordRead(ctx, QUANT_OPS_LIBRARY_QUEUE, cursor ? { cursor } : undefined, readQueue);
   return { asOf: new Date().toISOString(), queue: partFrom(queue, (d) => d, QUANT) };
 }
 
@@ -69,11 +77,11 @@ function reply(result: FounderCallResult<unknown>, what: string): { status: numb
 }
 
 const OPS = {
-  hide: { procedure: 'ops.library.hide', schema: quantModerationInputSchema, what: 'the listing is hidden from the library' },
-  unhide: { procedure: 'ops.library.unhide', schema: quantModerationInputSchema, what: 'the listing is back in the library' },
-  remove: { procedure: 'ops.library.remove', schema: quantModerationInputSchema, what: 'the listing is removed from the library' },
-  'dispute-open': { procedure: 'ops.library.dispute.open', schema: quantDisputeOpenInputSchema, what: 'the dispute is opened' },
-  'dispute-resolve': { procedure: 'ops.library.dispute.resolve', schema: quantDisputeResolveInputSchema, what: 'the dispute is resolved' },
+  hide: { record: QUANT_OPS_LIBRARY_HIDE, schema: quantModerationInputSchema, what: 'the listing is hidden from the library' },
+  unhide: { record: QUANT_OPS_LIBRARY_UNHIDE, schema: quantModerationInputSchema, what: 'the listing is back in the library' },
+  remove: { record: QUANT_OPS_LIBRARY_REMOVE, schema: quantModerationInputSchema, what: 'the listing is removed from the library' },
+  'dispute-open': { record: QUANT_OPS_LIBRARY_DISPUTE_OPEN, schema: quantDisputeOpenInputSchema, what: 'the dispute is opened' },
+  'dispute-resolve': { record: QUANT_OPS_LIBRARY_DISPUTE_RESOLVE, schema: quantDisputeResolveInputSchema, what: 'the dispute is resolved' },
 } as const;
 
 /** One listed action. The input is checked against the contract here; svc-quant checks it again and decides. */
@@ -86,5 +94,5 @@ export async function actOnLibrary(
   const spec = OPS[op];
   const parsed = spec.schema.safeParse(input);
   if (!parsed.success) return { why: 'Which listing or dispute, with a reason of at most 500 characters?' };
-  return reply(await founderCall(ctx, 'quant', spec.procedure, 'POST', parsed.data, (raw) => raw), spec.what);
+  return reply(await founderRecordRead(ctx, spec.record, parsed.data, (raw) => raw), spec.what);
 }

@@ -7,7 +7,24 @@ vi.mock('../../../shared/preferences', async (original) => {
 });
 const session = {
   userId: null as string | null,
-  api: { query: () => new Promise(() => undefined), mutate: () => new Promise(() => undefined) },
+  api: {
+    query: () => new Promise(() => undefined),
+    mutate: () => new Promise(() => undefined),
+    call(
+      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+        record.module,
+        record.path,
+        input,
+        record.output,
+        opts,
+      ]);
+    },
+  },
 };
 vi.mock('../../session/session', () => ({ useSession: () => session, useApi: () => session.api }));
 import { addToWatchlist, DEFAULT_WINDOW, readWatchlist, readWindow, removeFromWatchlist, saveWindow } from './storage';

@@ -19,7 +19,24 @@ vi.mock('../session/session', () => {
     sent.push({ procedure, input });
     return answers[procedure];
   };
-  const api = { query: answer, mutate: answer };
+  const api = {
+    query: answer,
+    mutate: answer,
+    call(
+      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+        record.module,
+        record.path,
+        input,
+        record.output,
+        opts,
+      ]);
+    },
+  };
   return { useApi: () => api, useSession: () => ({ userId: 'u-test' }) };
 });
 

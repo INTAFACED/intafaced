@@ -1,3 +1,4 @@
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
@@ -20,7 +21,8 @@ export interface LakeRow {
   readonly kind: LakeKind;
   readonly symbol: string;
   readonly observedAt: string;
-  readonly payload: Record<string, unknown>;
+  /** A jsonb row as stored: JSON values only, as the catalogue answers it. */
+  readonly payload: Record<string, JsonValue>;
 }
 
 export interface LakePass {
@@ -287,7 +289,7 @@ export function createPostgresLakeStore(sql: Sql): LakeStore {
       return { count: Number(row?.count ?? 0), first: row?.first ? iso(row.first) : null, last: row?.last ? iso(row.last) : null };
     },
     async latest(symbol, kind, limit) {
-      const rows = await sql<{ source_key: string; observed_at: Date; payload: Record<string, unknown> }[]>`
+      const rows = await sql<{ source_key: string; observed_at: Date; payload: Record<string, JsonValue> }[]>`
         SELECT source_key, observed_at, payload FROM quant.lake_rows WHERE symbol = ${symbol} AND kind = ${kind}
         ORDER BY observed_at DESC, source_key DESC LIMIT ${limit}`;
       return rows.map((r) => ({ sourceKey: r.source_key, kind, symbol, observedAt: iso(r.observed_at), payload: r.payload }));
