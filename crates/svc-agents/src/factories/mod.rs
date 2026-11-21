@@ -188,10 +188,15 @@ pub fn metered_run(
 ) -> Result<Json, RunError> {
     let session = runtime::open_session(x, user_id, agent_id)?;
     match run(&session.id) {
-        Ok(answer) => {
-            let metering = settle_and_close(x, &session.id, asset_id)?;
-            Ok(with_field(answer, "metering", metering))
-        }
+        Ok(answer) => match settle_and_close(x, &session.id, asset_id) {
+            Ok(metering) => Ok(with_field(answer, "metering", metering)),
+            // The TypeScript's \`finally\` settles once more when the first settle threw, its own failure ignored;
+            // the first failure is the answer.
+            Err(e) => {
+                let _ = settle_and_close(x, &session.id, asset_id);
+                Err(e)
+            }
+        },
         Err(e) => {
             let _ = settle_and_close(x, &session.id, asset_id);
             Err(e)

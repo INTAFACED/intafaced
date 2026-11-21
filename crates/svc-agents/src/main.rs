@@ -26,6 +26,8 @@ use svc_agents::boot;
 use svc_agents::db::{self, Store};
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
 use svc_agents::env::{self, AgentsEnv, DEFAULT_PORT};
+use svc_agents::factories::Factories;
+use svc_agents::factories::scanner::{SpotTickers, SpotTickersHttp};
 use svc_agents::gateway::Gateway;
 use svc_agents::gateway::desk::GatewaySlice;
 use svc_agents::gateway::providers::{
@@ -301,6 +303,16 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
     })
 }
 
+/// The factories' live ports as \`index.ts\` builds them: svc-trade's tickers while \`TRADE_URL\` is set.
+fn factories(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Factories {
+    let url = |k: &str| env.str(k).filter(|u| !u.is_empty());
+    Factories {
+        spot_tickers: url("TRADE_URL")
+            .map(|u| Box::new(SpotTickersHttp::new(u, fetch.clone())) as Box<dyn SpotTickers>),
+        ..Factories::unwired()
+    }
+}
+
 /// The door, built once from the environment, with the store, the meter, the gateway and what `/ready` reports.
 fn door(
     env: &AgentsEnv,
@@ -396,7 +408,8 @@ fn serve(
     let tasks = gateway.gateway.base().routes.len();
     let metering = metering(env, bus.clone(), &fetch)?;
     let runtime = runtime(env, &fetch)?;
-    let door = door(env, store, metering, gateway, ready, runtime)?;
+    let door =
+        door(env, store, metering, gateway, ready, runtime)?.with_factories(factories(env, &fetch));
 
     let app = App {
         wire: door,
