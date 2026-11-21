@@ -104,14 +104,22 @@ describe('business bank team and approval rules (J-bank-19)', () => {
     partner = testPartner();
     inviteMinutes = '2';
     postingFreeze = { postingEnabled: async () => true };
+    built = undefined;
   });
 
-  // A test that sends hundreds of calls passes one router it built once: building one costs tens of milliseconds,
-  // which ran the race test below past its timeout on a loaded runner. Each call keeps its own context.
-  function as(userId: string, bank: ReturnType<typeof createBankRouter> = createBankRouter(services())) {
+  // The bank's router is built once a test, as the server builds it once at start-up, and again only when the test
+  // changes the freeze it stands on. Built for every caller it cost 70 to 300 ms, and the tests that make many callers
+  // ran out the 30 s budget on a loaded runner.
+  let built: { freeze: typeof postingFreeze; router: ReturnType<typeof createBankRouter> } | undefined;
+  function bankRouter() {
+    if (!built || built.freeze !== postingFreeze) built = { freeze: postingFreeze, router: createBankRouter(services()) };
+    return built.router;
+  }
+
+  function as(userId: string) {
     const raw = encodePrincipal(principal(userId));
     const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
-    return bank.createCaller(
+    return bankRouter().createCaller(
       edge({
         headers: {
           'x-intafaced-principal': raw,
@@ -432,11 +440,10 @@ describe('business bank team and approval rules (J-bank-19)', () => {
     const { accountId, owner } = await business();
     await join(accountId, owner, A1, { role: 'checker' });
     await owner.businessTeam.addRule({ accountId, ruleId: randomUUID(), overAmount: '1000', payee: null, paymentType: null, approvals: 1 });
-    const bank = createBankRouter(services());
     for (let round = 0; round < 30; round += 1) {
       const paymentId = randomUUID();
       const input = { accountId, paymentId, payee: 'TEST Supplier', paymentType: 'domestic' as const, amount: '1500' };
-      const settled = await Promise.allSettled(Array.from({ length: 8 }, () => as(OWNER, bank).businessTeam.propose(input)));
+      const settled = await Promise.allSettled(Array.from({ length: 8 }, () => as(OWNER).businessTeam.propose(input)));
       const failed = settled.filter((s): s is PromiseRejectedResult => s.status === 'rejected');
       expect(failed.map((f) => `${(f.reason as Error)?.message} ${JSON.stringify((f.reason as { cause?: unknown }).cause)}`)).toEqual([]);
       for (const s of settled) {
