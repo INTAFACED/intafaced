@@ -8,7 +8,8 @@ import type { StrategyHaltDesk } from './quant/live-run/halts.js';
 import type { AgentDesk } from './venue/agent-desk.js';
 import { z } from 'zod';
 import { gridRouter } from './grid/router.js';
-import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { tradeRefusal } from './record-refusal.js';
 import { COPY_MY_COPY_FEES } from '@intafaced/contracts/trade-copy-procedures';
 import type { GridService } from './grid/grid-service.js';
 import {
@@ -551,14 +552,6 @@ const copyFollowInput = z.object({
     })
     .optional(),
 });
-
-/** svc-trade's refusals in their wire form, read once for every copy record (procedure-mount.ts). */
-const copyRefusalOf: RefusalOf = (err) => {
-  if (!(err instanceof TRPCError)) return undefined;
-  const cause: unknown = err.cause;
-  const code = typeof cause === 'object' && cause !== null && 'code' in cause ? cause.code : undefined;
-  return typeof code === 'string' ? { code, error: err } : undefined;
-};
 
 export function toTrpcError(err: unknown): TRPCError {
   const historyError = convertHistoryTrpcError(err);
@@ -2031,7 +2024,7 @@ export function createTradeRouter(
             if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
             return copy.myCopyFees(ctx.principal, input);
           }),
-        copyRefusalOf,
+        tradeRefusal,
       ),
 
       /** The caller's own lead level: not set while the owner's thresholds are blank; the maximum ratio is never set (J-copy-bots-otc-06 #5). */
