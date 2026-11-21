@@ -9,6 +9,11 @@
 //   - `/^(?!-)[a-z0-9-]+.../` (a lookahead that only bars the first character of the class after it) becomes the same
 //     language without the lookahead: `/^[a-z0-9][a-z0-9-]*.../`.
 //
+//   - `z.date()` or `z.coerce.date()` in the answer of a call a Rust door serves (`--door`) becomes
+//     `z.iso.datetime({ offset: true })`: the answer reaches the caller as JSON, where a Date is its ISO string, and that
+//     string is what every caller already reads (`z.string().datetime({ offset: true })`, as the hand records write it).
+//     A service that mounts its records checks its handler's Date against the answer, so there it stays, named.
+//
 // Any other construct, or a path the walk can't follow, is left as it is and printed by name.
 //
 //   node tooling/codemod/call-records/portable.mjs --unportable <samples.mjs --unportable output> [--write] <record file.ts> ...
@@ -21,6 +26,8 @@ const CONTRACTS = join(REPO, 'packages/contracts/src');
 const UNKNOWN = 'z.unknown (no shape: accepts anything)';
 const REFINEMENT = '.refine/.superRefine (a TypeScript predicate the export drops)';
 const LOOKAROUND = /^regex \/(.*)\/ uses lookaround/;
+const DATE = 'Date object (not JSON)';
+const ISO = 'z.iso.datetime({ offset: true })';
 
 /** `label cannot be exported without losing meaning: at (construct); ...` as `{ label, findings }`. */
 export function parseWhy(why) {
@@ -194,6 +201,22 @@ export function withoutLeadingLookahead(source) {
 }
 
 /** The edit that makes one finding portable, or the reason it stays. */
+/** The call that starts a schema's chain (`z.unknown()` under `.optional()`), with the methods chained on it. */
+function chainStart(node) {
+  let start = node;
+  const methods = [];
+  while (
+    start?.type === 'CallExpression' &&
+    start.callee.type === 'MemberExpression' &&
+    unwrap(start.callee.object)?.type === 'CallExpression'
+  ) {
+    methods.push(start.callee.property.name);
+    start = unwrap(start.callee.object);
+  }
+  return { start, methods };
+}
+const WRAPPERS = ['optional', 'nullable', 'nullish', 'describe', 'meta'];
+
 function fix(target, construct) {
   // A name for the schema (`domain` for `z.string().regex(...)`): the edit lands where it is written.
   const found = follow(target.q, target.n);
@@ -201,23 +224,19 @@ function fix(target, construct) {
   const { q } = found;
   const node = unwrap(found.n);
   if (construct === UNKNOWN) {
-    // The call that starts the chain: `z.unknown()` itself, under any `.optional()`, `.nullable()` or `.describe()`.
-    let start = node;
-    const methods = [];
-    while (
-      start?.type === 'CallExpression' &&
-      start.callee.type === 'MemberExpression' &&
-      unwrap(start.callee.object)?.type !== 'Identifier'
-    ) {
-      methods.push(start.callee.property.name);
-      start = unwrap(start.callee.object);
-    }
+    const { start, methods } = chainStart(node);
     if (!(start?.type === 'CallExpression' && text(q, start.callee) === 'z.unknown' && start.arguments.length === 0))
       return { why: 'its z.unknown() is not written here as z.unknown()' };
-    if (methods.some((m) => !['optional', 'nullable', 'nullish', 'describe', 'meta'].includes(m)))
-      return { why: `its z.unknown() carries ${methods.join(', ')}` };
+    if (methods.some((m) => !WRAPPERS.includes(m))) return { why: `its z.unknown() carries ${methods.join(', ')}` };
     // zod 4: a key `z.unknown()` is required (absent is refused), so `jsonValueSchema` with the same chain is exact.
     return { q, edit: { start: start.start, end: start.end, text: 'jsonValueSchema' }, needs: 'jsonValueSchema' };
+  }
+  if (construct === DATE) {
+    const { start, methods } = chainStart(node);
+    if (!(start?.type === 'CallExpression' && /^z(\.coerce)?\.date$/.test(text(q, start.callee)) && start.arguments.length === 0))
+      return { why: 'its Date is not written here as z.date() or z.coerce.date()' };
+    if (methods.some((m) => !WRAPPERS.includes(m))) return { why: `its Date carries ${methods.join(', ')}` };
+    return { q, edit: { start: start.start, end: start.end, text: ISO } };
   }
   const look = LOOKAROUND.exec(construct);
   if (look) {
@@ -277,7 +296,7 @@ function checksText(named) {
 const jsonValueFrom = (file) =>
   file.startsWith(CONTRACTS) ? './procedure-strict-schema.js' : '@intafaced/contracts/procedure-strict-schema';
 
-export function plan(skipped, recordFiles) {
+export function plan(skipped, recordFiles, { door = false } = {}) {
   const edits = new Map();
   const left = [];
   const replays = new Set();
@@ -308,6 +327,17 @@ export function plan(skipped, recordFiles) {
           if (!named.has(r.key)) named.set(r.key, { name: r.name, says: r.says, at: [] });
           named.get(r.key).at.push(at);
         }
+        continue;
+      }
+      if (f.construct === DATE && !(door && side === 'output')) {
+        left.push({
+          record: name,
+          at: f.at,
+          why:
+            side === 'output'
+              ? "a Date answer of a service that mounts its records: its handler's Date is checked against it"
+              : 'a Date in the input',
+        });
         continue;
       }
       const r = target ? fix(target, f.construct) : { why: 'the codemod cannot follow the schema to it' };
@@ -402,8 +432,9 @@ function main() {
   const argv = process.argv.slice(2);
   const i = argv.indexOf('--unportable');
   const skipped = JSON.parse(readFileSync(argv[i + 1], 'utf8'));
-  const files = argv.filter((a, j) => j !== i && j !== i + 1 && !a.startsWith('--')).map((f) => resolve(f));
-  const { edits, left, replays } = plan(skipped, files);
+  const d = argv.indexOf('--door');
+  const files = argv.filter((a, j) => j !== i && j !== i + 1 && (d < 0 || j !== d + 1) && !a.startsWith('--')).map((f) => resolve(f));
+  const { edits, left, replays } = plan(skipped, files, { door: argv.includes('--door') });
   const replayFiles = argv.includes('--write') ? (write(edits), writeReplays(replays)) : [];
   console.log(
     JSON.stringify(

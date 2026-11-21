@@ -80,7 +80,7 @@ export function run(argv) {
       sh('node', [here('samples.mjs'), '--unportable', unportable, ...door, ...recordFiles()]);
       skipped = JSON.parse(readFileSync(unportable, 'utf8'));
       if (!Object.keys(skipped).length) break;
-      const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...recordFiles()]));
+      const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...door, ...recordFiles()]));
       if (!fixed.fixed) break;
       for (const f of fixed.files) if (tracked.has(f)) kept.add(f);
       build();
