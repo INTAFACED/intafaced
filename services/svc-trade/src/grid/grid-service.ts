@@ -967,6 +967,26 @@ export class GridService {
   }
 
   /**
+   * Turn on earning on a grid's idle funds (CB-bots-06; J-copy-bots-otc-15 #5). Idle-fund yield goes only through the
+   * bank's earn door, and no such door is wired to svc-trade: a request for the person's own live grid is refused
+   * `trade.bots_grid_idle_yield_unwired`, naming that door, and nothing is moved or saved. Turning it off asks nothing.
+   */
+  async setIdleYield(principal: Principal, input: { botId: string; on: boolean }): Promise<{ on: false }> {
+    assertBotVerification(this.ports.verification(), principal.tier);
+    const bot = await this.ports.store.findBot(input.botId);
+    if (!bot || bot.userId !== principal.userId) throw new GridError('Grid bot not found', 'trade.grid_not_found');
+    if (!isLive(bot.status)) throw new GridError('This grid bot is not running', 'trade.grid_not_running');
+    if (!input.on) return { on: false };
+    throw new GridError(
+      'Idle-fund yield goes through the bank earn door, which is not connected; nothing was moved',
+      'trade.bots_grid_idle_yield_unwired',
+      {
+        door: 'bank.earn',
+      },
+    );
+  }
+
+  /**
    * Stop: nothing new is placed, every open level order is cancelled, then the reserve is released. Base already bought
    * stays in the owner's balance. A second stop, or a stop of a failed start, runs the wind-down again.
    */

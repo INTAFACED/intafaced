@@ -600,6 +600,10 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'Check the exit prices',
     body: 'Each exit is a price above zero, and the falls-to price must be below the rises-to price. Nothing was saved.',
   },
+  'trade.bots_grid_idle_yield_unwired': {
+    title: 'Earning on idle funds isn’t connected',
+    body: 'A grid earns on its idle funds only through the bank’s earn service, which isn’t connected here. Nothing was moved.',
+  },
   'trade.grid_unavailable': {
     title: 'Grid bots aren’t available right now',
     body: 'The grid service isn’t switched on here. Nothing was created.',

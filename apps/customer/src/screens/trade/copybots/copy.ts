@@ -183,6 +183,7 @@ const messages = {
   'Each webhook prepares orders on one venue market, for your venue account.':
     'Each webhook prepares orders on one venue market, for your venue account.',
   Earlier: 'Earlier',
+  'Earn on idle funds': 'Earn on idle funds',
   Earnings: 'Earnings',
   'Earnings by asset': 'Earnings by asset',
   'Edit limits': 'Edit limits',
@@ -264,6 +265,7 @@ const messages = {
   'How each copy is sized': 'How each copy is sized',
   'How earnings are paid': 'How earnings are paid',
   'How long one payment gives access.': 'How long one payment gives access.',
+  'Idle funds': 'Idle funds',
   'If you stop, new copies stop at once. Positions already open stay yours until you close them.':
     'If you stop, new copies stop at once. Positions already open stay yours until you close them.',
   Institutional: 'Institutional',

@@ -28,7 +28,7 @@ import { displayAmount } from '../../../shared/money';
 import { createRoomApi, type GridBot, type GridRequest } from './api';
 import { roomCopy } from './copy';
 import { useWriteGuard } from './guard';
-import { GridExits, GridSettings, GridTopUp } from './GridManage';
+import { GridExits, GridIdleYield, GridSettings, GridTopUp } from './GridManage';
 import { GridWithdraw } from './GridWithdraw';
 import { GridWallet, VenueGridFacts, VenueGridWithdraw, WALLET_CODES, useVenueGrid, venueFeeItems } from './GridVenue';
 import { parseGridCount, previewGridPrices } from './grid-plan';
@@ -435,6 +435,7 @@ function GridDetail({
               <GridTopUp bot={data} api={api} onDone={bot.reload} />
               <GridSettings bot={data} api={api} />
               <GridExits bot={data} api={api} onDone={bot.reload} />
+              <GridIdleYield bot={data} api={api} />
             </>
           ) : null}
         </div>

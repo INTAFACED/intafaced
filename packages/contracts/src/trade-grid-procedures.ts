@@ -174,3 +174,30 @@ export const GRID_SET_EXITS = defineProcedure({
     { verdict: 'refuse', input: {} },
   ],
 });
+
+/**
+ * Earn on a grid's idle funds (J-copy-bots-otc-15 #5). It goes only through the bank's earn door; while that door is not
+ * wired, turning it on is refused `trade.bots_grid_idle_yield_unwired` and nothing is moved or saved.
+ */
+export const GRID_SET_IDLE_YIELD = defineProcedure({
+  ...base,
+  name: 'trade.bots.grid.setIdleYield',
+  kind: 'mutation',
+  path: 'bots.grid.setIdleYield',
+  access: WRITE,
+  refusals: refuse({
+    'trade.grid_not_found': 'NOT_FOUND',
+    'trade.grid_not_running': 'CONFLICT',
+    'trade.grid_unavailable': 'SERVICE_UNAVAILABLE',
+    'trade.bots_grid_idle_yield_unwired': 'BAD_REQUEST',
+    'trade.bots_verification_insufficient': 'FORBIDDEN',
+    'trade.bots_verification_level_not_set': 'FORBIDDEN',
+  }),
+  input: z.object({ botId: z.string().min(1).max(64), on: z.boolean() }),
+  output: z.object({ on: z.literal(false) }),
+  samples: [
+    { verdict: 'accept', input: { botId: '0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b', on: true } },
+    { verdict: 'refuse', input: { botId: '0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b' } },
+    { verdict: 'refuse', input: {} },
+  ],
+});

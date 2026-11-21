@@ -1120,3 +1120,17 @@ describe('grid exits (CB-bots-03; J-copy-bots-otc-15 #3)', () => {
     expect((await refusal(service.setExits(verified(), { botId: bot.botId, stopBelow: '64000' }))).code).toBe('trade.grid_not_running');
   });
 });
+
+describe('grid idle-fund yield (CB-bots-06; J-copy-bots-otc-15 #5)', () => {
+  it('turning it on is refused naming the bank earn door, and nothing changes; off answers off', async () => {
+    const { service } = setup();
+    const bot = await service.create(verified(), BODY);
+    const on = await refusal(service.setIdleYield(verified(), { botId: bot.botId, on: true }));
+    expect(on).toMatchObject({ code: 'trade.bots_grid_idle_yield_unwired', data: { door: 'bank.earn' } });
+    expect(await service.setIdleYield(verified(), { botId: bot.botId, on: false })).toEqual({ on: false });
+    const after = await service.get(verified(), bot.botId);
+    expect(after).toMatchObject({ status: 'running', investment: bot.investment });
+    const other: Principal = { ...principalFor('22222222-2222-4222-8222-222222222222'), tier: 'full' };
+    expect((await refusal(service.setIdleYield(other, { botId: bot.botId, on: true }))).code).toBe('trade.grid_not_found');
+  });
+});

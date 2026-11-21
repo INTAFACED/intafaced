@@ -260,3 +260,37 @@ export function GridExits({ bot, api, onDone }: { bot: GridBot; api: ReturnType<
     </section>
   );
 }
+
+/**
+ * Earn on a grid's idle funds (CB-bots-06; J-copy-bots-otc-15 #5). It goes only through the bank's earn service; while
+ * that isn't connected, turning it on is refused with its reason and the switch stays off. Nothing is moved.
+ */
+export function GridIdleYield({ bot, api }: { bot: GridBot; api: ReturnType<typeof createRoomApi> }) {
+  const { t } = roomCopy.useCopy();
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<Failure | null>(null);
+
+  async function turnOn() {
+    if (busy) return;
+    setBusy(true);
+    setFailure(null);
+    const result = await api.gridSetIdleYield({ botId: bot.botId, on: true });
+    setBusy(false);
+    if (!result.ok) setFailure(result);
+  }
+
+  return (
+    <section aria-label={t('Idle funds')} className="cb-form">
+      <label className="cb-selectfield">
+        <span className="cb-label">{t('Earn on idle funds')}</span>
+        <Switch
+          checked={false}
+          onCheckedChange={(next) => (next ? void turnOn() : undefined)}
+          aria-label={t('Earn on idle funds')}
+          disabled={busy}
+        />
+      </label>
+      {failure ? <RefusalNote failure={failure} /> : null}
+    </section>
+  );
+}

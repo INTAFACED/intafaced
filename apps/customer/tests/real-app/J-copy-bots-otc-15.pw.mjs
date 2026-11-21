@@ -10,7 +10,7 @@ import { listLeader } from './copy.mjs';
 // the person's own grid door (svc-trade's grid, services/svc-trade/src/grid). Every bot, level and order is read back
 // from that service, and what the account holds from the ledger.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #4: no settling stop (a stop keeps what the bot bought); #5: no idle-fund yield switch;
+// - #4: no settling stop (a stop keeps what the bot bought);
 //   #6: no bonus-margin voucher; #7: no copying of a lead's grid; #8: no lead futures liquidation feeding a follow.
 const J = 'J-copy-bots-otc-15';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -251,10 +251,26 @@ test(`${J} #4 stops with settlement of base and quote: one sell job per level; a
 });
 
 test(`${J} #5 turns on idle-fund yield: through the bank earn door; while it isn't wired, refused with the reason`, async ({ page }) => {
-  await signIn(page, state('trader'));
-  const detail = await openBot(page, state('botId'));
-  await detail.getByRole('switch', { name: 'Earn on idle funds' }).check();
-  await expect(detail.getByText(/Earn on idle funds|isn’t connected/)).toBeVisible();
+  test.setTimeout(120_000);
+  const trader = state('trader');
+  // #3 stopped the journey's first grid, so this step runs on a grid of its own.
+  const bot = await makeGrid(trader, `${J}-5-${state('tag')}`, '300');
+  run.write({ botIds: [...state('botIds'), bot.botId] });
+  await signIn(page, trader);
+  const detail = await openBot(page, bot.botId);
+  const idle = detail.getByRole('region', { name: 'Idle funds', exact: true });
+  const answer = page.waitForResponse(
+    (res) => new URL(res.url()).pathname.endsWith('/bots.grid.setIdleYield') && res.request().method() === 'POST',
+  );
+  await idle.getByRole('switch', { name: 'Earn on idle funds', exact: true }).click();
+  const res = await answer;
+  // The bank earn door isn't wired: refused with that reason, and the switch stays off.
+  expect(res.status()).toBe(400);
+  expect(codeOf(await res.json())).toBe('trade.bots_grid_idle_yield_unwired');
+  await expect(idle.getByRole('alert')).toContainText('Earning on idle funds isn’t connected');
+  await expect(idle.getByRole('switch', { name: 'Earn on idle funds', exact: true })).not.toBeChecked();
+  // Nothing moved: the bot is as it was made.
+  expect(await getBot(trader, bot.botId)).toMatchObject({ status: 'running', investment: '300', reinitCount: 0 });
 });
 
 test(`${J} #6 uses a bonus-margin voucher in a different coin: refused naming the mismatch`, async ({ page }) => {

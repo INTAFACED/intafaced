@@ -74075,6 +74075,72 @@
         }
       ]
     },
+    "trade.bots.grid.setIdleYield": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "bots.grid.setIdleYield",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.grid_not_found": "NOT_FOUND",
+        "trade.grid_not_running": "CONFLICT",
+        "trade.grid_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.bots_grid_idle_yield_unwired": "BAD_REQUEST",
+        "trade.bots_verification_insufficient": "FORBIDDEN",
+        "trade.bots_verification_level_not_set": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "botId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "on": {
+            "type": "boolean"
+          }
+        },
+        "required": ["botId", "on"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": ["on"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "botId": "0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b",
+            "on": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "botId": "0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
     "trade.bots.grid.submitPermission": {
       "service": "svc-trade",
       "module": "trade",
