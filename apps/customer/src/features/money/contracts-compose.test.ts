@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import * as accounts from './contracts-accounts';
 import * as analytics from './contracts-analytics';
@@ -9,34 +8,39 @@ import * as loans from './contracts-loans';
 import * as payments from './contracts-payments';
 import * as ramps from './contracts-ramps';
 import * as spaces from './contracts-spaces';
+import { countPlanted, countRule } from '../../../../../tooling/lint/count-rule.mjs';
 import { bankReads, bankWrites } from './contracts';
 
 // contracts.ts was changed by 15 merged PRs in 7 days (project-state#2618): every bank journey appended its shapes and
-// its procedures there. It now only composes the areas, and this test keeps it that way.
-const FIX =
-  "put the shape in its area file (contracts-<area>.ts) and the procedure in that area's `<area>Reads` or `<area>Writes`; " +
-  'contracts.ts only composes the areas';
-const ALLOWED = new Set(['bankReads', 'bankWrites', 'BankRead', 'BankWrite', 'bankWriteForReview']);
-const source = readFileSync(new URL('./contracts.ts', import.meta.url), 'utf8');
+// its procedures there. It now only composes the areas. The lint rule garden/compose-only holds that, switched on for this
+// file in .oxlintrc.json with the names it may declare; this test runs the rule strict, so a disable comment for it counts
+// as a finding and the rule cannot be silenced from inside the file.
+const RULE = 'garden/compose-only';
+const OFF = ['oxlint', 'disable'].join('-');
+const FILE = 'apps/customer/src/features/money/contracts.ts';
 const areas = { accounts, analytics, business, cards, earn, loans, payments, ramps, spaces } as Record<string, Record<string, unknown>>;
 
 describe('contracts.ts only composes the bank areas', () => {
-  it('declares nothing of its own beyond the composed reads and writes and the write review', () => {
-    const declared = [...source.matchAll(/^(?:export\s+)?(?:const|let|type|interface|function|enum)\s+(\w+)/gm)].map((m) => m[1]!);
-    expect(
-      declared.filter((name) => !ALLOWED.has(name)),
-      FIX,
-    ).toEqual([]);
-  });
+  it('declares nothing of its own and lists no procedure inline, by the rule run strict', () => {
+    const { files, checked } = countRule(RULE, [FILE], { strict: true });
+    expect(checked).toEqual([FILE]);
+    expect(files).toEqual({});
+  }, 60_000);
 
-  it('lists no procedure inline: bankReads and bankWrites hold only spreads of the areas', () => {
-    for (const name of ['bankReads', 'bankWrites']) {
-      const body = source.match(new RegExp(`export const ${name} = \\{\\n([\\s\\S]*?)\\n\\} as const;`))?.[1];
-      expect(body, `${name} not found in contracts.ts`).toBeDefined();
-      const inline = body!.split('\n').filter((line) => !/^ {2}\.\.\.\w+(?:Reads|Writes),$/.test(line));
-      expect(inline, FIX).toEqual([]);
-    }
-  });
+  it('the rule fails a shape, an inline procedure or a silenced declaration added to contracts.ts', () => {
+    const planted = [
+      "import { accountsReads } from './contracts-accounts';",
+      'export type BankRead = string;',
+      'export const bankReads = { ...accountsReads, inline: 1 } as const;',
+      'export const bankWrites = { ...accountsReads } as const;',
+      'export interface NewShape { id: string }',
+      `// ${OFF}-next-line ${RULE} -- planted: a silenced copy still counts`,
+      'export const silenced = 1;',
+      '',
+    ].join('\n');
+    // The inline procedure, NewShape, and the disable comment, which counts in place of the finding it silences.
+    expect(countPlanted(RULE, { [FILE]: planted }, { strict: true }).files).toEqual({ [FILE]: 3 });
+  }, 60_000);
 
   it('gives each procedure to one area, so no spread overwrites another', () => {
     for (const [kind, composed] of [

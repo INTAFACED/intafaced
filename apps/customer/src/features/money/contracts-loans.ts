@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { decimalSchema as money, signedDecimalSchema } from '../../shared/money';
 
-export const productSchema = z.object({
+const productSchema = z.object({
   id: z.string(),
   name: z.string(),
   debtAssetId: z.string(),
@@ -28,7 +28,7 @@ export const loanSchema = z.object({
   marginCalledAt: z.string().nullable(),
 });
 /** `bank.loans.quote` (J-bank-09 #2): the smallest pledge `open` accepts for a principal, from the marks `open` uses. */
-export const loanQuoteSchema = z.object({
+const loanQuoteSchema = z.object({
   productId: z.string(),
   debtAssetId: z.string(),
   collateralAssetId: z.string(),
@@ -46,7 +46,7 @@ export const loanQuoteSchema = z.object({
 export type LoanQuote = z.infer<typeof loanQuoteSchema>;
 export const LOAN_ELIGIBILITY_KEYS = ['lending_policy', 'product_open', 'assets_open', 'origination_fee', 'jurisdiction_rules'] as const;
 /** `bank.loans.eligibility` (J-bank-09 #3): each condition met, unmet with the code `open` would refuse, or not set. */
-export const loanEligibilitySchema = z.object({
+const loanEligibilitySchema = z.object({
   productId: z.string(),
   eligible: z.boolean(),
   reasons: z.array(
@@ -55,7 +55,7 @@ export const loanEligibilitySchema = z.object({
 });
 export type LoanEligibility = z.infer<typeof loanEligibilitySchema>;
 /** `bank.loans.fees` (J-bank-09 #3): the origination fee, not set (no fee line) or published. */
-export const loanFeesSchema = z.object({
+const loanFeesSchema = z.object({
   productId: z.string(),
   assetId: z.string(),
   origination: z.discriminatedUnion('status', [
@@ -65,7 +65,7 @@ export const loanFeesSchema = z.object({
 });
 export type LoanFees = z.infer<typeof loanFeesSchema>;
 /** `bank.loans.terms` (J-bank-09 #5): what was written on the loan at open, never the product's current terms. */
-export const loanTermsSchema = z.object({
+const loanTermsSchema = z.object({
   loanId: z.string(),
   productId: z.string(),
   debtAssetId: z.string(),
@@ -79,7 +79,7 @@ export const loanTermsSchema = z.object({
 });
 export type LoanTerms = z.infer<typeof loanTermsSchema>;
 /** `bank.loans.projection` (BK-loan-06): the accrual rule run forward by the bank. A projection, never a schedule. */
-export const loanProjectionSchema = z.object({
+const loanProjectionSchema = z.object({
   loanId: z.string(),
   kind: z.literal('projection'),
   obligation: z.literal(false),
@@ -92,7 +92,7 @@ export const loanProjectionSchema = z.object({
 });
 export type LoanProjection = z.infer<typeof loanProjectionSchema>;
 /** `bank.loans.payoffQuote` (BK-loan-06): what clears the loan now, re-priced on every read and never stored. */
-export const payoffQuoteSchema = z.object({
+const payoffQuoteSchema = z.object({
   loanId: z.string(),
   principal: money,
   interest: money,
@@ -121,7 +121,7 @@ export const loanStatementSchema = z.object({
 });
 export type LoanStatement = z.infer<typeof loanStatementSchema>;
 /** `bank.loans.interestRows` (LOAN-05): each accrual day as written, each approved correction with its reason, and their totals. */
-export const loanInterestRowsSchema = z.object({
+const loanInterestRowsSchema = z.object({
   loanId: z.string(),
   assetId: z.string(),
   days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), basis: money, interest: money })),
@@ -134,7 +134,7 @@ export const loanInterestRowsSchema = z.object({
 });
 export type LoanInterestRows = z.infer<typeof loanInterestRowsSchema>;
 /** `bank.loans.ledgerCheck` (LOAN-05): this loan's settled rows against the ledger's own transactions, leg by leg. */
-export const loanLedgerCheckSchema = z.object({
+const loanLedgerCheckSchema = z.object({
   loanId: z.string(),
   status: z.enum(['agrees', 'differs', 'pending']),
   checked: z.number().int().nonnegative(),
