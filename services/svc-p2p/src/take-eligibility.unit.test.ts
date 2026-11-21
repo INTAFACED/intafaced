@@ -12,7 +12,10 @@ describe('identity contact reader', () => {
       identityUrl: 'http://identity.test/',
       fetcher: (async (url: string, init: RequestInit) => {
         calls.push({ url, init });
-        return new Response(JSON.stringify({ result: { data: { userId: 'u', handle: 'h', emailVerified: false } } }), { status: 200 });
+        return new Response(
+          JSON.stringify({ result: { data: { userId: '11111111-1111-4111-8111-111111111111', handle: 'h', emailVerified: false } } }),
+          { status: 200 },
+        );
       }) as typeof fetch,
     });
     expect(await reader.emailConfirmed(ctx)).toBe(false);
