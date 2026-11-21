@@ -3411,7 +3411,7 @@
       "path": "ops.fraudPreview",
       "access": {
         "caller": "scope",
-        "scope": "admin:read"
+        "scope": "admin:treasury"
       },
       "refusals": {},
       "input": null,

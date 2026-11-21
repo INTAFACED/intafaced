@@ -13,8 +13,8 @@ const words = (s: string) => s.replaceAll('_', ' ');
 
 export default async function CardFraudPreviewPage() {
   requireModulePage('bank-ops');
-  const founder = await requireFounderPage();
-  const read = await readFraudPreview(founder);
+  await requireFounderPage();
+  const read = await readFraudPreview();
   return (
     <main className="dk-stack" data-testid="fraud-preview">
       <h1>Card fraud risk</h1>

@@ -26,9 +26,9 @@ function signedIn(): Record<string, string> {
     sub: USER,
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
-    scopes: ['bank:read', 'bank:write', 'admin:read'],
+    scopes: ['bank:read', 'bank:write', 'admin:treasury'],
     tier: 'full',
-    mfa: false,
+    mfa: true,
     expiresAt: new Date('2099-01-01T00:00:00Z'),
   } as Principal;
   const raw = encodePrincipal(principal);

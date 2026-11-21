@@ -4,7 +4,7 @@
   },
   "bodies": [
     "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"ops.fraudPreview\",\"requestId\":\"replay-request\"}}}",
-    "{\"error\":{\"message\":\"Scope \\\"admin:read\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.fraudPreview\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
+    "{\"error\":{\"message\":\"Scope \\\"admin:treasury\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"ops.fraudPreview\",\"requestId\":\"replay-request\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}",
     "{\"result\":{\"data\":{\"label\":\"Preview · sample data\",\"engine\":\"ML fraud risk score\",\"preview\":true,\"blurred\":true,\"stances\":[\"maximise_approval_rate\",\"balanced\",\"maximise_risk_prevention\"],\"automaticBlocking\":\"unavailable\",\"rows\":[{\"testAuthorisationRef\":\"TEST-AUTH-1\",\"test\":true,\"band\":\"very_likely\",\"signals\":[\"card_testing\",\"compromised_card\"]},{\"testAuthorisationRef\":\"TEST-AUTH-2\",\"test\":true,\"band\":\"neutral\",\"signals\":[\"merchant_dispute_risk\"]},{\"testAuthorisationRef\":\"TEST-AUTH-3\",\"test\":true,\"band\":\"very_unlikely\",\"signals\":[]}]}}}"
   ],
   "answers": {

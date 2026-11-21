@@ -93,7 +93,7 @@ export function refuseFraudPreviewAction(action: FraudPreviewAction): PreviewRef
   return { kind: 'preview', engine: FRAUD_PREVIEW_ENGINE, action, changed: false };
 }
 
-/** `ops.fraudPreview`, mounted from its record (/bank-ops/cards/fraud): TEST rows only, for any operator session. */
+/** `ops.fraudPreview`, mounted from its record (/bank-ops/cards/fraud): TEST rows only, on `admin:treasury`. */
 export function fraudPreviewDoor() {
   return mountRecord(
     BANK_OPS_FRAUD_PREVIEW,

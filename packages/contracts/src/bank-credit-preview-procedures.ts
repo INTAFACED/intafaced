@@ -302,13 +302,13 @@ export const BANK_CREDIT_CARD_APPLICATION = defineProcedure({
   ],
 });
 
-/** The console's card fraud risk preview: TEST rows only, for any operator session (`admin:read`). */
+/** The console's card fraud risk preview: TEST rows only, on the treasury scope (`admin:treasury`), which the console reaches on its treasury transport. */
 export const BANK_OPS_FRAUD_PREVIEW = defineProcedure({
   ...base,
   name: 'bank.ops.fraudPreview',
   kind: 'query',
   path: 'ops.fraudPreview',
-  access: { caller: 'scope', scope: 'admin:read' },
+  access: { caller: 'scope', scope: 'admin:treasury' },
   refusals: {},
   input: NO_INPUT,
   output: fraudPreviewSchema,
