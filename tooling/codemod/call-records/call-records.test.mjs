@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { answerChecks, pruneImports, recordName } from './index.mjs';
-import { freeNames, load } from './ast.mjs';
+import { answerChecks, Changes, pruneImports, recordName, rewriteSite } from './index.mjs';
+import { applyEdits, freeNames, load, text } from './ast.mjs';
+import { findSites } from './sites.mjs';
 import { CALL_METHOD, doublesIn } from './doubles.mjs';
 
 test('a record is named by its module and path, a leading segment that repeats the module dropped', () => {
@@ -111,9 +112,78 @@ test("a schema the caller's own function builds is an answer check, so its call 
   assert.deepEqual(answerChecks(p, init('b')), []);
 });
 
+test('a useBankRead, payCall and founderEdgeCall call each moves to its record form, its other arguments kept', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  const money = 'apps/customer/src/features/money';
+  put(`${money}/contracts-cards.ts`, ["import { z } from 'zod';", "export const cardsReads = { 'cards.list': z.array(z.string()) };"]);
+  put(`${money}/contracts.ts`, ["import { cardsReads } from './contracts-cards';", 'export const bankReads = { ...cardsReads } as const;']);
+  put(`${money}/components.tsx`, [
+    "import { bankReads } from './contracts';",
+    'export function useBankRead(p, i, e = true) { return bankReads[p]; }',
+  ]);
+  put(`${money}/Cards.tsx`, [
+    "import { useBankRead } from './components';",
+    "export const Cards = () => useBankRead('cards.list', { limit: 5 }, open);",
+  ]);
+  put('apps/admin/src/lib/pay.ts', [
+    "import { payCall, parseWith } from '@/lib/merchants/pay-call';",
+    "import { founderEdgeCall } from '@/lib/founder-session';",
+    "export const a = payCall(ctx, 'payHalts.history', 'GET', { limit: 5 }, parseWith(historySchema));",
+    "export const b = payCall(ctx, 'recipients.list', 'GET', {}, readRows, 'identity');",
+    "export const c = founderEdgeCall(config, 'identity', 'recipients.add', 'POST', input, undefined, signIn);",
+  ]);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+
+  const sites = findSites(repo).filter((s) => s.shape !== 'keyed-schema');
+  const of = (shape, path) => sites.find((s) => s.shape === shape && s.path === path);
+  for (const s of sites) assert.equal(s.problem, undefined, `${s.shape} ${s.path}: ${s.problem}`);
+  assert.deepEqual(
+    sites.map((s) => [s.shape, s.module, s.path, s.kind]).sort(),
+    [
+      ['founderEdgeCall', 'identity', 'recipients.add', 'mutation'],
+      ['payCall', 'identity', 'recipients.list', 'query'],
+      ['payCall', 'pay', 'payHalts.history', 'query'],
+      ['useBankRead', 'bank', 'cards.list', 'query'],
+    ].sort(),
+  );
+  assert.match(text(of('useBankRead', 'cards.list').schema.p, of('useBankRead', 'cards.list').schema.node), /^z\.array/);
+
+  const moved = (s, name, takesNone) => {
+    const changes = new Changes();
+    rewriteSite(changes, s, name, '@intafaced/contracts/x', takesNone);
+    const f = changes.of(s.file);
+    return { code: applyEdits(load(s.file).src, f.edits), imports: [...f.imports] };
+  };
+  const card = moved(of('useBankRead', 'cards.list'), 'BANK_CARDS_LIST');
+  assert.match(card.code, /= \(\) => useBankRecord\(BANK_CARDS_LIST, \{ limit: 5 \}, open\);$/m);
+  assert.deepEqual(
+    card.imports.map(([spec, names]) => [spec, [...names]]),
+    [
+      ['./components', ['useBankRecord']],
+      ['@intafaced/contracts/x', ['BANK_CARDS_LIST']],
+    ],
+  );
+  assert.match(
+    moved(of('payCall', 'payHalts.history'), 'PAY_HALTS_HISTORY').code,
+    /= payRecordCall\(ctx, PAY_HALTS_HISTORY, \{ limit: 5 \}\);$/m,
+  );
+  assert.match(
+    moved(of('payCall', 'recipients.list'), 'IDENTITY_RECIPIENTS_LIST', true).code,
+    /= payRecordRead\(ctx, IDENTITY_RECIPIENTS_LIST, undefined, readRows\);$/m,
+  );
+  assert.match(
+    moved(of('founderEdgeCall', 'recipients.add'), 'IDENTITY_RECIPIENTS_ADD').code,
+    /= founderEdgeRecordCall\(config, IDENTITY_RECIPIENTS_ADD, input, undefined, signIn\);$/m,
+  );
+});
+
 test('the report sorts each hand reason into the kind one script change or one decision closes', async () => {
   const { reasonOf } = await import('./report.mjs');
-  assert.equal(reasonOf('founderEdgeCall has no record form yet'), 'no record form: founderEdgeCall');
   assert.equal(
     reasonOf('its own schema checks the answer, mine() builds the schema (a.ts:3): move it'),
     "schema built by the caller's own function",

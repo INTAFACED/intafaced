@@ -21,10 +21,6 @@ export function reasonOf(why) {
   const rules = [
     [/no refusal reader this file can import/, 'service has no exported refusal reader (one file per service)'],
     [/comes from @intafaced\/[a-z-]+, wh|is not declared/, 'answer or input schema from another package or generic'],
-    [/useBankRead has no record form/, 'no record form: useBankRead'],
-    [/founderEdgeCall has no record form/, 'no record form: founderEdgeCall'],
-    [/payCall has no record form/, 'no record form: payCall'],
-    [/has no record form/, 'no record form: other'],
     [/named by a template/, 'service or call named by a template'],
     [/builds the schema/, "schema built by the caller's own function"],
     [/own schema checks the answer/, 'caller schema checks the answer (.refine and the like)'],
