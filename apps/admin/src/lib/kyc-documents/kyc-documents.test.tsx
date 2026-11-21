@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
+import { createIdentityRouter } from '../../../../../services/svc-identity/src/router';
 import { DOCUMENT_CLOSED_REPLY, StepReplyView } from '@/components/approval-workbench';
 import { confirmPhrase, payloadHashFor, proposeInputFor, readDeskRequest, readStepReply, stepGate } from '@/lib/desk';
 import { readOpenedDocument, savedName, viewableImage, type OpenedDocument } from './document';
@@ -38,8 +39,6 @@ afterEach(() => vi.unstubAllGlobals());
 describe('the open-document request', () => {
   const request = { kind: 'identity.kyc_document.open' as const, documentId: DOC };
 
-  // identity consumes the approval only when its own hash of { documentId } under kyc.doc.get equals this one; the real
-  // consume is run end to end by journey J-ops-console-02 #5 (the viewer opens only after a second founder approves).
   it('is bound to the document exactly as identity consumes it', () => {
     expect(payloadHashFor(request)).toBe(identityActionPayloadHash('kyc.doc.get', { documentId: DOC }));
     expect(proposeInputFor(request)).toMatchObject({
@@ -49,6 +48,44 @@ describe('the open-document request', () => {
       expectedVersion: '1',
     });
     expect(confirmPhrase(request)).toBe('OPEN DOCUMENT 3c1d2e3f');
+  });
+
+  it('is the approval identity’s own kyc.getDocument asks to consume for that document', async () => {
+    // identity's real router, with an approvals service that records what the door asks to consume and then refuses,
+    // so nothing behind the door runs (no vault read).
+    const asked: Record<string, unknown>[] = [];
+    const actionApprovals = {
+      consume: async (_service: string, input: Record<string, unknown>) => {
+        asked.push(input);
+        throw new Error('TEST: recorded, not consumed');
+      },
+    };
+    const identity = createIdentityRouter({} as never, {} as never, { actionApprovals, kycDocs: {} } as never).createCaller({
+      principal: {
+        userId: ctx.session.userId,
+        sessionId: ctx.session.userId,
+        scopes: ['admin:compliance'],
+        tier: 'none',
+        mfa: true,
+        expiresAt: new Date('2030-01-01T00:00:00Z'),
+      } as never,
+      service: null,
+      region: 'DE',
+      requestId: 'req-1',
+    });
+    await expect(identity.kyc.getDocument({ documentId: DOC, ...IDS })).rejects.toThrow();
+    expect(asked).toHaveLength(1);
+    const propose = proposeInputFor(request);
+    expect(asked[0]).toMatchObject({
+      ...IDS,
+      targetService: propose.targetService,
+      targetId: propose.targetId,
+      expectedVersion: propose.expectedVersion,
+      payloadHash: payloadHashFor(request),
+    });
+    // Another document's approval is not this one.
+    const other = { ...request, documentId: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b' };
+    expect(payloadHashFor(other)).not.toBe(asked[0]!.payloadHash);
   });
 
   it('reads only the exact shape', () => {

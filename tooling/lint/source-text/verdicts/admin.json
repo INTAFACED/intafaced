@@ -39,9 +39,9 @@
     "asserts": "The approval the console asks for to open a KYC document is bound to the hash identity consumes for kyc.doc.get over { documentId }.",
     "guard": {
       "kind": "test",
-      "ref": "apps/admin/src/lib/kyc-documents/kyc-documents.test.tsx#is bound to the document exactly as identity consumes it"
+      "ref": "apps/admin/src/lib/kyc-documents/kyc-documents.test.tsx#is the approval identity’s own kyc.getDocument asks to consume for that document"
     },
-    "why": "The test still asserts the console's payload hash equals identity's own identityActionPayloadHash('kyc.doc.get', { documentId }) and the propose input; identity's side (consuming with that payload) is run for real by journey J-ops-console-02 #5 (apps/customer/tests/real-app/J-ops-console-02-documents.pw.mjs), where the viewer opens only once identity accepts the approval."
+    "why": "Calls identity's real router (createIdentityRouter(...).createCaller, kyc.getDocument) with an approvals service that records each consume and then refuses: the one consume asked carries the console's approval ids, the target service, target id and expected version of the console's propose input, and the console's payloadHashFor(request), which still equals identityActionPayloadHash('kyc.doc.get', { documentId })."
   },
   {
     "file": "apps/admin/src/lib/kyc-selfies/kyc-selfies.test.tsx",
