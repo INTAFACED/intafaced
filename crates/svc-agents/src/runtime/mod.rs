@@ -92,6 +92,9 @@ pub struct Runtime {
     pub tier_laws: TierLaws,
     /// The navigator slice's outside reads and settings.
     pub navigator: crate::navigator::Navigator,
+    /// `selfFreeze`: identity's read of the owner's own freeze (J-wallet-13), wired while `IDENTITY_URL` is set. None
+    /// refuses every gate that asks it, as an unread freeze counts as frozen.
+    pub self_freeze: Option<Box<dyn crate::self_freeze::SelfFreezeRead>>,
 }
 
 impl Runtime {
@@ -104,6 +107,7 @@ impl Runtime {
             overage_grace: None,
             tier_laws: TierLaws::default(),
             navigator: crate::navigator::Navigator::unwired(),
+            self_freeze: None,
         }
     }
 }

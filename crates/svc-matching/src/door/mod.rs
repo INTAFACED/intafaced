@@ -11,9 +11,11 @@
 //!    lifecycle proof's binding to the route and the order, the post-only rule, a list's published window, the
 //!    position read's account, and the founder doors' idempotency key and market.
 //!
-//! Past those the call is its slice's: [`Outcome::Owed`] names which. Nothing here reads or moves a book.
+//! Past those the call is its slice's: [`Outcome::Owed`] names which, or the slice's own doors answer it (`book`,
+//! `rulebook`). Nothing here reads or moves a book.
 
 pub mod book;
+pub mod rulebook;
 
 use std::sync::{LazyLock, Mutex, PoisonError};
 
@@ -26,6 +28,7 @@ use service_kit::schema::{Outcome as Parsed, Schema, Value};
 use service_kit::server::{Door, Request, RequestIds, Response};
 use service_kit::time::Instant;
 
+use crate::approval::Approvals;
 use crate::engine::MatchingEngine;
 use crate::errors;
 use crate::refines::MatchingRefines;
@@ -57,6 +60,11 @@ impl Slice {
         Slice::Rulebook,
         Slice::Operator,
     ];
+
+    /// Its doors are served past the input checks (`book::serve`); every other slice's are owed.
+    pub fn is_ported(self) -> bool {
+        matches!(self, Slice::Journal | Slice::Book | Slice::Triggers)
+    }
 
     /// The slice's name in `PORT.md`.
     pub fn name(self) -> &'static str {
@@ -383,6 +391,10 @@ pub struct DoorConfig {
     pub edge_key: Option<EdgeKey>,
     /// Milliseconds since the epoch.
     pub clock: fn() -> i64,
+    /// svc-identity's two-person approvals (`IDENTITY_URL`; unwired without it).
+    pub approvals: Box<dyn Approvals>,
+    /// `MATCHING_OPERATOR_IDS`: who may ask for and approve a venue action.
+    pub operator_ids: Vec<String>,
 }
 
 /// The door.
@@ -717,21 +729,31 @@ impl MatchingDoor {
             Err(refused) => return answer(refused),
         };
         let checked = match route.guard {
-            Guard::Open => Ok(()),
-            Guard::Service(allowed) => self.service(req, allowed, &raw),
+            Guard::Open => Ok(String::new()),
+            Guard::Service(allowed) => self.service(req, allowed, &raw).map(|()| String::new()),
             Guard::Founder(scope) => self.founder(req, scope),
         };
-        if let Err(refused) = checked {
-            return answer(refused);
-        }
+        let user_id = match checked {
+            Ok(user_id) => user_id,
+            Err(refused) => return answer(refused),
+        };
         let parsed = match input(req, route, &body, params) {
             Ok(parsed) => parsed,
             Err(refused) => return answer(refused),
         };
+        if route.slice == Slice::Rulebook {
+            let publisher = rulebook::Publisher {
+                user_id: &user_id,
+                approvals: self.cfg.approvals.as_ref(),
+                operator_ids: &self.cfg.operator_ids,
+            };
+            let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
+            return rulebook::serve(route, &parsed, &publisher, &mut engine);
+        }
         if route.slice == Slice::Serve {
             return answer(self.serve(route.path));
         }
-        if route.slice != Slice::Book {
+        if !route.slice.is_ported() {
             return Outcome::Owed(route.slice);
         }
         let param = |name: &str| {
@@ -800,8 +822,8 @@ impl MatchingDoor {
         }
     }
 
-    /// `founderPrincipal(req, scope)`: the edge principal, believed, with the door's scope.
-    fn founder(&self, req: &Request<'_>, scope: Scope) -> Result<(), Response> {
+    /// `founderPrincipal(req, scope)`: the edge principal, believed, with the door's scope; its user id.
+    fn founder(&self, req: &Request<'_>, scope: Scope) -> Result<String, Response> {
         if self.cfg.edge_secret.is_none() && self.cfg.edge_key.is_none() {
             return Err(errors::operator_auth_unconfigured());
         }
@@ -819,13 +841,14 @@ impl MatchingDoor {
         let refused = |r: service_kit::access::Refused| errors::auth_error(&r.code, &r.message);
         match scope {
             Scope::Read => {
-                service_kit::access::require_scope(&principal, "admin:read").map_err(refused)
+                service_kit::access::require_scope(&principal, "admin:read").map_err(refused)?;
             }
             Scope::Write => {
                 service_kit::access::require_scope(&principal, "admin:write").map_err(refused)?;
-                service_kit::access::require_mfa(&principal).map_err(refused)
+                service_kit::access::require_mfa(&principal).map_err(refused)?;
             }
         }
+        Ok(principal.user_id)
     }
 }
 

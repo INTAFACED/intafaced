@@ -339,6 +339,7 @@ impl World {
             metering: Metering::unwired("IFC", 60),
             runtime: rt,
             advisors: svc_agents::advisors::Advisors::unwired(),
+            background: svc_agents::background::Settings::default(),
         })
         .unwrap()
     }
