@@ -12,6 +12,7 @@ import {
   rooms,
   safeReturnTo,
   searchRooms,
+  searchRowsPerGroup,
 } from './navigation';
 import { screens } from './screens';
 import { isHiddenPath } from './feature-registry';
@@ -77,6 +78,18 @@ it('finds the Merchant home and the parked Protocol rooms in Personal search, bu
   for (const path of ['/dex', '/protocol']) expect(searchRooms(path.slice(1), 'Personal').map((room) => room.path)).toContain(path);
   expect(searchRooms('operator', 'Personal')).toHaveLength(0);
   expect(searchRooms('payouts', 'Business').map((room) => room.path)).toContain('/pay/payouts');
+});
+
+it('shows every searchable room among the rows the search shows when its own title is typed, in its own mode', () => {
+  for (const mode of ['Personal', 'Business'] as const)
+    for (const room of searchRooms('', mode)) {
+      const shown = searchRooms(room.title, mode)
+        .slice(0, searchRowsPerGroup)
+        .map((found) => found.path);
+      expect(shown, `${mode}: ${room.title}`).toContain(room.path);
+    }
+  // The case that broke J-home-ia-02 #7: twelve Business rooms hold "payments", and Payments itself was the tenth.
+  expect(searchRooms('Payments', 'Business')[0]?.path).toBe('/pay/payments');
 });
 
 it('keeps parked and team rooms out of sign-in return targets even though parked rooms are searchable', () => {

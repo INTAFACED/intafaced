@@ -4,7 +4,7 @@ import { CoinIcon } from '@intafaced/ui';
 import { fmtPrice, useMarkets, useTickers, type Loadable, type MarketRow, type TickerRow } from '../data';
 import { assetName, homeCopy } from '../screens/home/copy';
 import { navigate } from './location';
-import { coinHref, roomTitle, roomDescription, roomPath, searchRooms } from './navigation';
+import { coinHref, roomTitle, roomDescription, roomPath, searchRooms, searchRowsPerGroup } from './navigation';
 import { useHelpResultCap, useHelpSearch, type HelpState } from './search-help';
 import { paymentHref, usePaymentSearch, type PaymentState } from './search-payment';
 import { ShellIcon } from './icons';
@@ -27,7 +27,7 @@ interface Row {
   /** Language of a Help article's title, when it differs from the page's. */
   lang?: string;
 }
-const perGroup = 8;
+const perGroup = searchRowsPerGroup;
 /** How long "No results" stands before the miss is counted, so the words passed while typing are not counted. */
 const MISS_SETTLE_MS = 1_200;
 
