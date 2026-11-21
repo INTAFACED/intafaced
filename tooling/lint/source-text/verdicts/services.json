@@ -1,0 +1,68 @@
+[
+  {
+    "file": "apps/customer/src/screens/trade/copybots/refusals.test.ts",
+    "target": "../../../../../../services/svc-market/src/signals/signal-publisher.ts",
+    "verdict": "rewrite",
+    "asserts": "Every refusal code a signal call can answer a person with has plain words in the trading rooms.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/screens/trade/copybots/refusals.test.ts#maps every code the signal calls refuse with"
+    },
+    "why": "Reads the refusals of the six market.signals records svc-market mounts (mountRecord), keeps the same code prefixes and the publisher's three internal codes out, and checks each against KNOWN_ROOM_CODES."
+  },
+  {
+    "file": "apps/customer/src/screens/trade/copybots/refusals.test.ts",
+    "target": "../../../../../../services/svc-trade/src/copy/errors.ts",
+    "verdict": "rewrite",
+    "asserts": "Every code svc-trade's copy service can refuse with has plain words in the trading rooms.",
+    "guard": {
+      "kind": "type",
+      "ref": "services/svc-trade/src/copy/errors.ts#CopyErrorCode"
+    },
+    "why": "COPY_CODES satisfies Record<CopyErrorCode, true>, so the customer typecheck refuses a missing or stale code; the test checks every key against KNOWN_ROOM_CODES (all 101, the old read saw the 100 trade.copy_ ones)."
+  },
+  {
+    "file": "apps/customer/src/screens/trade/copybots/refusals.test.ts",
+    "target": "../../../../../../services/svc-trade/src/grid/errors.ts",
+    "verdict": "rewrite",
+    "asserts": "Every code svc-trade's grid bots can refuse with, and the bot verification codes, have plain words in the trading rooms.",
+    "guard": {
+      "kind": "type",
+      "ref": "services/svc-trade/src/grid/errors.ts#GridErrorCode"
+    },
+    "why": "GRID_CODES satisfies Record<GridErrorCode, true>, so the customer typecheck refuses a missing or stale code; the test checks all 51 plus the four verification codes against KNOWN_ROOM_CODES (the old read saw only trade.grid_ and trade.bots_withdraw_)."
+  },
+  {
+    "file": "apps/customer/src/screens/trade/copybots/guard.test.ts",
+    "target": "../../../../../../services/svc-trade/src/algo/twap-engine.ts",
+    "verdict": "rewrite",
+    "asserts": "The id the screen looks a newly created bot up by is the id svc-trade's engine stores it under.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/screens/trade/copybots/guard.test.ts#prefixes a create with the first 8 of the user id, as svc-trade stores it"
+    },
+    "why": "Runs TwapEngine.prepare (validates and builds the parent, stores nothing) for two users and asserts algoServiceId gives the minted id, keeps it on an operation, and never gives another user's id."
+  },
+  {
+    "file": "apps/admin/src/lib/trade-ops/order-read.test.ts",
+    "target": "../../../../../services/svc-trade/src/private-rest.ts",
+    "verdict": "rewrite",
+    "asserts": "The console shows, for every order status, the word the customer's own API gives for it.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/lib/trade-ops/order-read.test.ts#gives the customer’s own status word for every service status, as svc-trade’s customer API does"
+    },
+    "why": "Calls svc-trade's toCcxtOrderStatus for every value of its order_status enum and asserts customerStatusOf answers the same; admin's test task now builds the three packages that module needs."
+  },
+  {
+    "file": "apps/admin/src/lib/flag-state-edge.test.ts",
+    "target": "../../../../services/svc-edge/src/routes.ts",
+    "verdict": "rewrite",
+    "asserts": "The console offers a kill for exactly the modules svc-edge routes to (permissions and kill switch).",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/lib/flag-state-edge.test.ts#names exactly the modules the edge routes to"
+    },
+    "why": "Imports svc-edge's UPSTREAMS at run time and compares its module set with EDGE_PERIMETER_MODULES."
+  }
+]
