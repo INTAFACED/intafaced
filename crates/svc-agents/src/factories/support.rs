@@ -546,16 +546,7 @@ fn answer_or_escalate(kb: &ToolResult, money_request: bool) -> Result<Vec<String
 
 /// `forwardedPrincipalHeaders(ctx)`: the edge-signed principal of this request, byte for byte, with its region.
 fn desk_headers(cx: &Cx<'_>) -> Vec<(String, String)> {
-    cx.ctx
-        .forwarded
-        .as_ref()
-        .map_or_else(Vec::new, |(raw, sig, region)| {
-            vec![
-                ("x-intafaced-principal".to_owned(), raw.clone()),
-                ("x-intafaced-principal-sig".to_owned(), sig.clone()),
-                ("x-intafaced-region".to_owned(), region.clone()),
-            ]
-        })
+    cx.ctx.forwarded.clone()
 }
 
 /// Answers one `support.*` call.

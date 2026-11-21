@@ -118,6 +118,7 @@ fn serve() -> AgentsDoor {
         runtime: svc_agents::runtime::Runtime::unwired(),
         background: svc_agents::background::Settings::default(),
         advisors: replay_advisors(),
+        own: svc_agents::own::Own::unwired(),
         team: svc_agents::team::Team::unwired(),
     })
     .unwrap()

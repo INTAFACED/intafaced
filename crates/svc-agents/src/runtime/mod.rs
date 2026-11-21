@@ -15,6 +15,7 @@
 //! - [\`reads\`]: the session, run and log reads.
 //! - [\`slice\`]: the eighteen calls.
 
+pub mod act;
 pub mod copy_intel;
 pub mod eligibility;
 pub mod funds;

@@ -19,31 +19,14 @@ use crate::db;
 use crate::gateway::providers::{ChatMessage, Role};
 use crate::metering::pricing::{ModelPrice, UsageGroup, window_cost};
 use crate::runtime::funds::is_uuid;
-use crate::runtime::guardrails::{Guardrail, SessionState, evaluate_tool_call, parse_guardrail};
+use crate::runtime::guardrails::{Guardrail, SessionState, evaluate_tool_call};
 use crate::runtime::holds::read_own_caps;
 use crate::runtime::{self, Rt, ThinkInput};
 
 /// `TEAM_RUN_KEY_PREFIX` (`team/hold.ts`): a team session's holds carry it; only the team run route makes them.
 pub const TEAM_RUN_KEY_PREFIX: &str = "team:";
 
-/// `OWN_RUN_TASK`: the task every run of a person's own agent is routed and priced as.
-pub const OWN_RUN_TASK: &str = "own.run";
-/// `OWN_MAX_ACTIONS`, `OWN_MAX_OUTPUT_TOKENS` (`own/routes.ts`).
-const OWN_MAX_ACTIONS: i64 = 60;
-const OWN_MAX_OUTPUT_TOKENS: i64 = 2048;
-
-/// The tools of `OWN_TOOLS` (`own/catalog.ts`) an own agent's guardrail may grant: those that move no money and have a
-/// declared shape, each with its module and whether it writes (`live_write` or `draft_write`).
-pub const OWN_GRANTABLE_TOOLS: [(&str, &str, bool); 8] = [
-    ("support.kb.search", "support", false),
-    ("support.ticket.read", "support", false),
-    ("identity.account.read", "identity", false),
-    ("trade.quote", "trade", false),
-    ("trade.markets.list", "trade", false),
-    ("trade.ticker", "trade", false),
-    ("trade.book.top", "trade", false),
-    ("support.ticket.comment", "support", true),
-];
+pub use crate::own::OWN_RUN_TASK;
 
 /// `OwnAgentView`, as far as a team run reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,61 +39,15 @@ pub struct OwnAgent {
     pub version: i64,
 }
 
-/// `ownGuardrail` (`own/routes.ts`): the agent's saved tools in their modules, the one run task, and its own cap per
-/// session as the ceiling. A write tool never runs unapproved.
+/// `ownGuardrail` (`own/routes.ts`), the own agents' one (`own::tool_try::own_guardrail_of`).
 pub fn own_guardrail(agent: &OwnAgent) -> Result<Guardrail, TeamFail> {
-    let tools: Vec<&(&str, &str, bool)> = OWN_GRANTABLE_TOOLS
-        .iter()
-        .filter(|(name, _, _)| agent.tools.iter().any(|t| t == name))
-        .collect();
-    let mut modules: Vec<&str> = Vec::new();
-    for (_, module, _) in &tools {
-        if !modules.contains(module) {
-            modules.push(module);
-        }
-    }
-    let raw = Json::obj([
-        ("agentId", Json::str(format!("own.{}", agent.id))),
-        ("version", Json::int(agent.version)),
-        ("capacityMode", Json::str("research_only")),
-        ("scopes", Json::Array(Vec::new())),
-        (
-            "tools",
-            Json::Array(
-                tools
-                    .iter()
-                    .map(|(name, module, writes)| {
-                        Json::obj([
-                            ("name", Json::str(*name)),
-                            ("module", Json::str(*module)),
-                            ("mode", Json::str(if *writes { "write" } else { "read" })),
-                            ("requiresApproval", Json::Bool(*writes)),
-                        ])
-                    })
-                    .collect(),
-            ),
-        ),
-        (
-            "limits",
-            Json::obj([
-                ("maxActionsPerSession", Json::int(OWN_MAX_ACTIONS)),
-                ("maxOutputTokensPerCall", Json::int(OWN_MAX_OUTPUT_TOKENS)),
-                (
-                    "maxSpendPerSession",
-                    agent
-                        .per_session_cap
-                        .as_ref()
-                        .map_or(Json::Null, |c| Json::str(c.clone())),
-                ),
-                (
-                    "allowedModules",
-                    Json::Array(modules.iter().map(|m| Json::str(*m)).collect()),
-                ),
-                ("allowedTasks", Json::Array(vec![Json::str(OWN_RUN_TASK)])),
-            ]),
-        ),
-    ]);
-    parse_guardrail(&raw).map_err(|e| TeamFail::Thrown(e.0))
+    crate::own::tool_try::own_guardrail_of(
+        &agent.id,
+        agent.version,
+        &agent.tools,
+        agent.per_session_cap.as_deref(),
+    )
+    .map_err(TeamFail::Thrown)
 }
 
 /// `OwnAgentStore.get`: the person's own agent, or none (any other person's agent reads as none).
@@ -697,22 +634,31 @@ mod tests {
 
     #[test]
     fn the_grantable_tools_are_the_catalogs_non_money_tools_with_a_shape() {
-        // Each listed tool is in the catalogue with a shape and its module and data class; `pay.metrics.read` (no
-        // shape) and the money tools are not grantable.
-        for (name, module, writes) in OWN_GRANTABLE_TOOLS {
-            let at = CATALOG.find(&format!("name: '{name}'")).unwrap();
+        // Each tool an own guardrail may grant is in the catalogue with a shape and its module and data class;
+        // `pay.metrics.read` (no shape) and the money tools are not grantable.
+        let grantable: Vec<_> = crate::own::catalog::own_tools()
+            .into_iter()
+            .filter(|t| !t.moves_money && t.shape.is_some())
+            .collect();
+        for t in &grantable {
+            let at = CATALOG.find(&format!("name: '{}'", t.name)).unwrap();
             let entry = &CATALOG[at..at + CATALOG[at..].find("refusals").unwrap()];
-            assert!(entry.contains(&format!("module: '{module}'")), "{name}");
-            assert!(entry.contains("movesMoney: false"), "{name}");
-            assert!(entry.contains("shape: {"), "{name}");
-            assert_eq!(entry.contains("dataClass: 'live_write'"), writes, "{name}");
+            assert!(
+                entry.contains(&format!("module: '{}'", t.module)),
+                "{}",
+                t.name
+            );
+            assert!(entry.contains("movesMoney: false"), "{}", t.name);
+            assert!(entry.contains("shape: {"), "{}", t.name);
+            assert_eq!(
+                entry.contains("dataClass: 'live_write'"),
+                t.writes(),
+                "{}",
+                t.name
+            );
         }
         let names = CATALOG.matches("    name: '").count();
-        assert_eq!(
-            names,
-            OWN_GRANTABLE_TOOLS.len() + 1,
-            "one more: pay.metrics.read"
-        );
+        assert_eq!(names, grantable.len() + 1, "one more: pay.metrics.read");
         let pay = CATALOG.find("name: 'pay.metrics.read'").unwrap();
         assert!(CATALOG[pay..pay + 200].contains("shape: null"));
     }
