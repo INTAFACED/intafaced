@@ -9,8 +9,8 @@
 //! 4. the door's first input check, where the handler parses its body, path or query with one schema before it
 //!    reaches the ledger (`schemas.json`).
 //!
-//! Past those the call is its slice's: [`Outcome::Owed`] names which. The door itself reads the book only for
-//! `/health` and `/ready` (the `store` slice, `crate::status`).
+//! Past those the call is its slice's: [`Outcome::Owed`] names which, until that slice is ported. Ported so far:
+//! `/health` and `/ready` (the `store` slice, `crate::status`) and `post` (the `posting` slice, `crate::posting`).
 
 mod callers;
 
@@ -389,6 +389,8 @@ pub struct DoorConfig {
     pub store: crate::db::Store,
     /// `SERVICE_NAME`, as `/health` names it.
     pub service_name: String,
+    /// The `posting` slice: its bus, custody switch and engine settings.
+    pub posting: crate::posting::Posting,
 }
 
 /// The door.
@@ -587,6 +589,11 @@ impl LedgerDoor {
         &self.cfg.store
     }
 
+    /// The `posting` slice's parts, for the outbox relay the binary drives.
+    pub fn posting(&self) -> &crate::posting::Posting {
+        &self.cfg.posting
+    }
+
     /// `sql.end()`.
     pub fn end(&self) {
         self.cfg.store.end();
@@ -679,6 +686,28 @@ impl LedgerDoor {
             Body::Parsed(j) => Value::from_json(j),
         };
         match parse(name, value) {
+            Ok(Parsed::Ok(input)) if route.slice == Slice::Posting => {
+                let caller = if auth.scheme == Some("keypair") {
+                    crate::posting::gate::Caller::Bound(service)
+                } else {
+                    crate::posting::gate::Caller::Legacy(Some(service))
+                };
+                let mode = match keys.map(|k| k.mode) {
+                    Some(Mode::Keypair) => "keypair",
+                    _ => "dual",
+                };
+                let parsed = input.to_json().unwrap_or(Json::Null);
+                match crate::posting::post(
+                    &self.cfg.store,
+                    &self.cfg.posting,
+                    Some(&caller),
+                    mode,
+                    &parsed,
+                ) {
+                    Ok(ack) => answer((200, ack)),
+                    Err(failure) => answer(errors::http_error(&failure)),
+                }
+            }
             Ok(Parsed::Ok(_)) => Outcome::Owed(route.slice),
             Ok(Parsed::Issues(issues)) => {
                 answer(errors::http_error(&Failure::Zod(schema::message(&issues))))

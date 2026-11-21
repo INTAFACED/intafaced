@@ -615,6 +615,18 @@ fn served(db: &TestDb) -> App<LedgerDoor> {
             clock: system_seconds,
             store: db.store(),
             service_name: "svc-ledger".to_owned(),
+            posting: svc_ledger::posting::Posting::new(
+                std::sync::Arc::new(svc_ledger::posting::NoBus),
+                "svc-ledger".to_owned(),
+                false,
+                svc_ledger::posting::engine::EngineOptions {
+                    conflict: svc_ledger::posting::engine::Conflict::Refuse,
+                    clock_skew_bound_ms: None,
+                    clock_ms: || 0,
+                },
+                false,
+                None,
+            ),
         })
         .unwrap(),
         service_name: "svc-ledger".to_owned(),

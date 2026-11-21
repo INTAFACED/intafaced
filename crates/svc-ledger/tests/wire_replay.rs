@@ -32,8 +32,11 @@ use service_kit::s2s_verify::{BodyBind, ServiceVerifier};
 use service_kit::server::Request;
 use service_kit::tokens::TokenConfig;
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 use svc_ledger::db::Store;
 use svc_ledger::door::{DoorConfig, Keys, LedgerDoor, Outcome, ROUTES, Slice};
+use svc_ledger::posting::engine::{Conflict, EngineOptions};
+use svc_ledger::posting::{NoBus, Posting};
 
 const SHARED: &str = "placeholder-ledger-wire-replay-internal-secret";
 const ID: &str = "22222222-2222-4222-8222-222222222222";
@@ -184,6 +187,18 @@ fn door(mode: Option<Mode>, keyring: &[KeyringEntry]) -> LedgerDoor {
         // The TypeScript replay's `sql` stub throws this on every query.
         store: Store::Down("replay stub: sql".to_owned()),
         service_name: "svc-ledger".to_owned(),
+        posting: Posting::new(
+            Arc::new(NoBus),
+            "svc-ledger".to_owned(),
+            false,
+            EngineOptions {
+                conflict: Conflict::Refuse,
+                clock_skew_bound_ms: None,
+                clock_ms: || 0,
+            },
+            mode.is_some(),
+            None,
+        ),
     })
     .unwrap()
 }

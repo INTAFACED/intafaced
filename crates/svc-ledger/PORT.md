@@ -17,9 +17,17 @@ The `store` slice is ported. It added:
 - `src/boot.rs` and `src/main.rs`: the chain-tip check, the custody boot check, the startup freeze, and the outbox recovery at boot and every five seconds.
 - `tests/store_pg.rs`: `scripts/migrate.test.ts` case for case, and the boot and status doors, on a real Postgres.
 
+The `posting` slice is ported, not served yet (the switch is its own item). It added:
+
+- `src/posting/`: the `post` door after its first input check, in the TypeScript's order. `gate.rs` is the caller binding and the recipe gate (`caller-binding.ts`, `recipe-gate.ts`); `bindings.rs` the four binding checks (`*-binding.ts`); `rules.rs` `assertValidPost`, the fingerprint, the chain hash and the balance rule; `engine.rs` `PostgresLedger.post` (idempotency, the freeze, clock skew, balances, the chain tip, `ledger_tx_outbox`); `mod.rs` `LedgerService.post` (the custody switch, then this post's intent published) and the `ledgerTxPosted` relay, which the outbox recovery now drains.
+- `src/posting/recorded.rs` and `tests/fixtures/posting-parity.golden.json`, written from the TypeScript by `scripts/record-posting.mjs` (`--check` fails when stale): the recipe catalog, the caller allowlist, and 1,172 recorded posts with what the TypeScript answered for each.
+- `tests/posting_parity.rs`: every recorded post judged, refused, fingerprinted and hashed as the TypeScript does.
+- `tests/posting_pg.rs`: the intent and its relay, a failed publish and its retry, the freeze and the custody switch, on a real Postgres.
+- `tests/conformance/`: the TypeScript's own database tests against the binary (`run.mjs`). The ledger conformance suite through the TypeScript door and the Rust one; the four binding files (`*-binding.pg.test.ts`) unmodified on the Rust door; the engine's Postgres tests (`ledger/`) with every post sent through each door. It needs Postgres, NATS and `cargo build -p svc-ledger`; CI does not run it yet.
+
 Left to later slices:
 
-- The recovery's relays are empty. `posting` adds the `ledgerTxPosted` relay and `freeze` the `ledgerFreezeUpdated` one. Until then a committed intent, the startup freeze's included, waits unsent.
+- `freeze` adds the `ledgerFreezeUpdated` relay. Until then a committed freeze intent, the startup freeze's included, waits unsent.
 - The reconcile timer is `reconcile`'s.
 - `/metrics` is in no slice yet. The switch needs it, since Prometheus scrapes it.
 
