@@ -34,7 +34,7 @@
   color: var(--lit-page);
 }
 
-/* The buy itself is the spark: the citron pill (in light, ink with a citron word). */
+/* The buy itself is the spark: the chartreuse pill (in light, ink with a chartreuse word). */
 [data-direction='volt'] .buy-card [data-slot='button']:is([data-variant='buy'], [data-variant='sell']):not(:disabled, [data-disabled]) {
   background: var(--lit-primary-bg);
   color: var(--lit-primary-fg);

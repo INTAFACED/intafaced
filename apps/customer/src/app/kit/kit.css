@@ -1,0 +1,444 @@
+/*
+ * The Volt kit page's own layout (VoltKit.tsx): sections, swatches and the measure table. The blocks themselves are
+ * the shipped components, drawn by their own sheets and Volt's (app/volt.css, the rooms' volt.css). Only under
+ * data-direction="volt", which is the only time the page opens. Role tokens only.
+ */
+[data-direction='volt'] .vk {
+  display: flex;
+  flex-direction: column;
+  gap: 3.5rem;
+  max-inline-size: 72rem;
+  margin-inline: auto;
+  padding: 2.5rem 1.25rem 4rem;
+  color: var(--lit-text-1);
+  font-family: var(--lit-font-ui);
+}
+[data-direction='volt'] .vk code {
+  font-family: var(--lit-font-mono);
+  font-size: 0.8125rem;
+  color: var(--lit-text-2);
+}
+[data-direction='volt'] .vk-head h1 {
+  margin: 0.5rem 0 0.75rem;
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-weight: 600;
+  font-size: clamp(2rem, 7vw, 3.5rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+[data-direction='volt'] .vk-head p {
+  max-inline-size: 40rem;
+  margin: 0;
+  color: var(--lit-text-2);
+}
+[data-direction='volt'] .vk-eyebrow,
+[data-direction='volt'] .vk-type__micro {
+  margin: 0;
+  font-size: var(--lit-type-micro-size);
+  letter-spacing: var(--lit-type-micro-tracking);
+  text-transform: uppercase;
+  color: var(--lit-text-2);
+}
+[data-direction='volt'] .vk-block {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+[data-direction='volt'] .vk-block__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+  padding-block-start: 1rem;
+  border-block-start: 1px solid var(--lit-line-strong);
+}
+[data-direction='volt'] .vk-block__head h2 {
+  margin: 0;
+  font-size: var(--lit-type-heading-size);
+  line-height: var(--lit-type-heading-line);
+  font-weight: 600;
+  letter-spacing: var(--lit-type-heading-tracking);
+}
+[data-direction='volt'] .vk-block__head p {
+  margin: 0;
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-2);
+}
+[data-direction='volt'] .vk-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+[data-direction='volt'] .vk-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+[data-direction='volt'] .vk-panel {
+  padding: 1.25rem;
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+}
+
+/* Colour roles */
+[data-direction='volt'] .vk-swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+[data-direction='volt'] .vk-swatch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: var(--lit-type-label-size);
+}
+[data-direction='volt'] .vk-swatch__chip {
+  display: block;
+  block-size: 4rem;
+  margin-block-end: 0.375rem;
+  border-radius: var(--lit-radius-tile);
+  box-shadow: inset 0 0 0 1px var(--lit-line-strong);
+}
+[data-direction='volt'] .vk-swatch__name {
+  font-weight: 600;
+}
+[data-direction='volt'] .vk-contrast {
+  display: grid;
+  gap: 1.5rem;
+}
+@media (min-width: 1024px) {
+  [data-direction='volt'] .vk-contrast {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    align-items: start;
+  }
+}
+[data-direction='volt'] .vk-caption {
+  padding-block-end: 0.5rem;
+  caption-side: top;
+  text-align: start;
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-2);
+}
+[data-direction='volt'] .vk-measures {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--lit-type-label-size);
+}
+[data-direction='volt'] .vk-measures :is(th, td) {
+  padding: 0.625rem 0.5rem;
+  border-block-end: 1px solid var(--lit-line);
+  text-align: start;
+  font-weight: 400;
+}
+[data-direction='volt'] .vk-measures thead th {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-micro-size);
+  letter-spacing: var(--lit-type-micro-tracking);
+  text-transform: uppercase;
+}
+[data-direction='volt'] .vk-measures tbody th {
+  color: var(--lit-text-1);
+}
+[data-direction='volt'] .vk-num {
+  font-family: var(--lit-font-figure);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+[data-direction='volt'] .vk-num[data-pass] {
+  font-weight: 600;
+}
+[data-direction='volt'] .vk-sample {
+  display: inline-grid;
+  place-items: center;
+  min-inline-size: 5.5rem;
+  block-size: 2rem;
+  padding-inline: 0.625rem;
+  border-radius: var(--lit-radius-key);
+  background: var(--bg);
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--lit-line);
+}
+[data-direction='volt'] .vk-sample[data-sample='ring'] {
+  min-inline-size: 3.5rem;
+  outline: 2px solid var(--fg);
+  outline-offset: 0.1875rem;
+}
+[data-direction='volt'] .vk-apart {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1.25rem;
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip);
+}
+[data-direction='volt'] .vk-apart__chip {
+  display: grid;
+  place-items: center;
+  inline-size: 5.5rem;
+  block-size: 5.5rem;
+  border-radius: 50%;
+  color: var(--lit-on-accent);
+  font-size: var(--lit-type-label-size);
+  font-weight: 600;
+}
+[data-direction='volt'] .vk-apart__chip:is([data-warn], [data-up]) {
+  color: var(--lit-page);
+}
+[data-direction='volt'] .vk-apart p {
+  flex-basis: 100%;
+  margin: 0.5rem 0 0;
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-2);
+}
+
+/* Type */
+[data-direction='volt'] .vk-type {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+}
+[data-direction='volt'] .vk-type__row {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  align-items: center;
+  gap: 1.5rem;
+  padding-block: 1rem;
+  border-block-end: 1px solid var(--lit-line);
+}
+[data-direction='volt'] .vk-type__row dt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  font-size: var(--lit-type-label-size);
+}
+[data-direction='volt'] .vk-type__row dt small {
+  color: var(--lit-text-2);
+}
+[data-direction='volt'] .vk-type__row dd {
+  margin: 0;
+  min-inline-size: 0;
+}
+@media (max-width: 767px) {
+  [data-direction='volt'] .vk-type__row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+}
+[data-direction='volt'] .vk-type p {
+  margin: 0;
+}
+[data-direction='volt'] .vk-type__figure {
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-weight: 600;
+  font-size: clamp(2.75rem, 10vw, 5rem);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+[data-direction='volt'] .vk-type__title {
+  font-size: var(--lit-type-title-size);
+  line-height: var(--lit-type-title-line);
+  font-weight: 600;
+  letter-spacing: var(--lit-type-title-tracking);
+}
+[data-direction='volt'] .vk-type__heading {
+  font-size: var(--lit-type-heading-size);
+  font-weight: 600;
+}
+[data-direction='volt'] .vk-type__body {
+  max-inline-size: 36rem;
+  font-size: var(--lit-type-body-size);
+  color: var(--lit-text-2);
+}
+
+/* The big balance: Home's own rule for its total (screens/home/volt.css) draws it. */
+[data-direction='volt'] .vk-balance {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+/* The money object, ready and loading */
+[data-direction='volt'] .vk-object {
+  display: grid;
+  gap: 1.5rem;
+}
+@media (min-width: 1024px) {
+  [data-direction='volt'] .vk-object {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+[data-direction='volt'] .vk-object .volt-stack {
+  margin-block-start: 0;
+}
+
+/* Action keys: Home's own row, without Home's wrapper spacing */
+[data-direction='volt'] .vk-keys {
+  display: block;
+}
+[data-direction='volt'] .vk-keys .home-actions {
+  margin-block-start: 0;
+}
+
+/* Inputs: on the buy card's own slab */
+[data-direction='volt'] .vk-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-inline-size: 30rem;
+  padding: 1.5rem;
+}
+[data-direction='volt'] .vk-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: var(--lit-type-label-size);
+  color: var(--lit-text-2);
+}
+
+/* Rows */
+[data-direction='volt'] .vk-list {
+  margin: 0;
+  padding: 0.5rem 1.25rem;
+  list-style: none;
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+  max-inline-size: 36rem;
+}
+[data-direction='volt'] .vk-list__row {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  min-block-size: 4.5rem;
+}
+[data-direction='volt'] .vk-list__row + .vk-list__row {
+  border-block-start: 1px solid var(--lit-line);
+}
+[data-direction='volt'] .vk-list__name {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+[data-direction='volt'] .vk-list__name small {
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+[data-direction='volt'] .vk-list__value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.125rem;
+  font-family: var(--lit-font-figure);
+  font-weight: 600;
+}
+[data-direction='volt'] .vk-list__value [data-slot] {
+  font-size: var(--lit-type-label-size);
+  font-weight: 500;
+}
+[data-direction='volt'] .vk-table {
+  overflow-x: auto;
+  padding: 0.5rem 1rem;
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+}
+
+/* The tab bar, drawn on its own here: on a phone the live one floats at the foot of the screen */
+[data-direction='volt'] .vk-tabbar {
+  max-inline-size: 26rem;
+}
+[data-direction='volt'] .vk-tabbar .mobile-doors {
+  display: flex;
+  position: relative;
+  inset: auto;
+}
+[data-direction='volt'] .vk-tabbar .mobile-doors a {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.125rem;
+  text-decoration: none;
+}
+@media (max-width: 767px) {
+  [data-direction='volt'] .vk-tabbar {
+    display: none;
+  }
+}
+
+/* The chart */
+[data-direction='volt'] .vk-chart {
+  max-inline-size: 44rem;
+  padding: 1.25rem 1.25rem 1rem;
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-solid-bg);
+  box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
+}
+[data-direction='volt'] .vk-chart__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-block-end: 1rem;
+}
+[data-direction='volt'] .vk-chart__figure {
+  margin: 0.375rem 0 0;
+  font-family: var(--lit-font-figure);
+  font-stretch: 125%;
+  font-weight: 600;
+  font-size: 1.75rem;
+  letter-spacing: -0.03em;
+}
+[data-direction='volt'] .vk-chart__axis {
+  display: flex;
+  justify-content: space-between;
+  margin: 0.5rem 0 0;
+  font-size: var(--lit-type-micro-size);
+  color: var(--lit-text-3);
+}
+
+/* States */
+[data-direction='volt'] .vk-states {
+  display: grid;
+  gap: 1rem;
+}
+@media (min-width: 1024px) {
+  [data-direction='volt'] .vk-states {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* The sheet's figures */
+[data-direction='volt'] .vk-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1.25rem 0;
+}
+[data-direction='volt'] .vk-kv div {
+  display: flex;
+  justify-content: space-between;
+}
+[data-direction='volt'] .vk-kv dt {
+  color: var(--lit-text-2);
+}
+[data-direction='volt'] .vk-kv dd {
+  margin: 0;
+  font-family: var(--lit-font-figure);
+  font-weight: 600;
+}

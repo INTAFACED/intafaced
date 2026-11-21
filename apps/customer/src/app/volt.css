@@ -27,7 +27,8 @@
   font-stretch: 112%;
 }
 
-/* Phone: the doors float as one pill above the page, the open door a solid ink pill inside it. */
+/* Phone: the doors float as one pill above the page, the open door a solid ink pill inside it. The pill's look is not
+   inside the phone query, so the kit page can draw it at any width (app/kit); shell.css shows the bar on a phone only. */
 @media (max-width: 767px) {
   [data-direction='volt'] .if-app {
     padding-block-end: 7rem;
@@ -35,31 +36,33 @@
   [data-direction='volt'] .mobile-doors {
     inset-inline: 0.875rem;
     inset-block-end: max(0.875rem, env(safe-area-inset-bottom));
-    gap: 0.125rem;
-    padding: 0.375rem;
-    border: 1px solid var(--lit-glass-rim-dim);
-    border-radius: var(--lit-radius-key);
-    background: var(--lit-glass-bg);
-    -webkit-backdrop-filter: var(--lit-glass-blur);
-    backdrop-filter: var(--lit-glass-blur);
-    box-shadow: var(--lit-glass-shadow);
   }
-  [data-direction='volt'] .mobile-doors a {
-    min-block-size: 3.25rem;
-    border-radius: var(--lit-radius-key);
-    color: var(--lit-text-2);
-    font-weight: 500;
-    font-size: 0.6875rem;
-    letter-spacing: 0.01em;
-    transition:
-      background-color var(--lit-t-quick) var(--lit-ease),
-      color var(--lit-t-quick) var(--lit-ease);
-  }
-  [data-direction='volt'] .mobile-doors a[aria-current='page'] {
-    background: var(--lit-text-1);
-    color: var(--lit-page);
-    font-weight: 600;
-  }
+}
+[data-direction='volt'] .mobile-doors {
+  gap: 0.125rem;
+  padding: 0.375rem;
+  border: 1px solid var(--lit-glass-rim-dim);
+  border-radius: var(--lit-radius-key);
+  background: var(--lit-glass-bg);
+  -webkit-backdrop-filter: var(--lit-glass-blur);
+  backdrop-filter: var(--lit-glass-blur);
+  box-shadow: var(--lit-glass-shadow);
+}
+[data-direction='volt'] .mobile-doors a {
+  min-block-size: 3.25rem;
+  border-radius: var(--lit-radius-key);
+  color: var(--lit-text-2);
+  font-weight: 500;
+  font-size: 0.6875rem;
+  letter-spacing: 0.01em;
+  transition:
+    background-color var(--lit-t-quick) var(--lit-ease),
+    color var(--lit-t-quick) var(--lit-ease);
+}
+[data-direction='volt'] .mobile-doors a[aria-current='page'] {
+  background: var(--lit-text-1);
+  color: var(--lit-page);
+  font-weight: 600;
 }
 
 /* The one primary action of a view is where the spark lands (the kit keeps one primary per view). A room whose spark is
@@ -70,4 +73,63 @@
   box-shadow: var(--lit-primary-shadow);
   border-radius: var(--lit-radius-key);
   font-weight: 600;
+}
+
+/* The balance over time (AreaChart soft): the line is the spark; in light its deep cut, which holds 3:1 on the stone. */
+[data-direction='volt'] .lt-chart-line {
+  stroke-width: 2.5;
+}
+[data-direction='volt'] .lt-chart-live {
+  stroke: var(--lit-solid-bg);
+  stroke-width: 3;
+}
+:root[data-theme='light'][data-direction='volt'] .lt-chart {
+  --lt-chart-soft: var(--lit-accent-text);
+}
+:root[data-theme='light'][data-direction='volt'] :is(.lt-chart-line, .lt-chart-live) {
+  stroke: var(--lit-accent-text);
+}
+:root[data-theme='light'][data-direction='volt'] .lt-chart-live {
+  fill: var(--lit-accent-text);
+  stroke: var(--lit-solid-bg);
+}
+
+/* A sheet or dialog: a heavy stone panel; on a phone it rises from the foot of the screen, full width. */
+[data-direction='volt'] [data-slot='dialog-content'] {
+  border: 0;
+  border-radius: var(--lit-radius-panel);
+  background: var(--lit-sheen), var(--lit-solid-bg);
+  box-shadow:
+    var(--lit-solid-lip),
+    0 1.875rem 5rem -1.25rem var(--lit-scrim);
+  color: var(--lit-text-1);
+}
+@media (max-width: 767px) {
+  [data-direction='volt'] [data-slot='dialog-content'] {
+    inset-block: auto 0;
+    inset-inline: 0;
+    inline-size: 100%;
+    max-inline-size: none;
+    translate: none;
+    padding-block-end: max(1.5rem, env(safe-area-inset-bottom));
+    border-end-start-radius: 0;
+    border-end-end-radius: 0;
+  }
+}
+
+/* A toast: an ink pill of a panel, the page's own colours turned over. */
+[data-direction='volt'] [data-slot='toast'] {
+  border: 0;
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-text-1);
+  color: var(--lit-page);
+  box-shadow: var(--lit-glass-shadow);
+}
+[data-direction='volt'] [data-slot='toast'] :is(p, span, div) {
+  color: inherit;
+}
+
+/* Loading: the skeleton is a stone a step lighter than what it sits on, so the shape of what is coming reads. */
+[data-direction='volt'] [data-slot='skeleton'] {
+  background: color-mix(in srgb, var(--lit-text-1) 9%, transparent);
 }

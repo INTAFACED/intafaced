@@ -25,7 +25,13 @@ export const DIRECTIONS = [
   // the real directions (intafaced #9227): each its own Home, money object, tab bar and material, and the Buy flow
   { id: 'lit-glass', query: 'look=lit&accent=off&direction=lit-glass', solid: false, screens: ['home', 'money', 'buy'] },
   { id: 'ember', query: 'look=lit&accent=off&direction=ember', solid: false, screens: ['home', 'money', 'buy'] },
-  { id: 'volt', query: 'look=lit&accent=off&direction=volt', solid: false, screens: ['home', 'money', 'buy'] },
+  // Volt, the chosen look (intafaced #9302): its three screens and its kit page, whole, then with its sheet and a toast open
+  {
+    id: 'volt',
+    query: 'look=lit&accent=off&direction=volt',
+    solid: false,
+    screens: ['home', 'money', 'buy', 'kit', 'kit-sheet', 'kit-toast'],
+  },
 ];
 export const SCREENS = [
   { id: 'home', path: '/home' },
@@ -33,6 +39,10 @@ export const SCREENS = [
   { id: 'money', path: '/money' },
   // The simple buy, as Home's Buy opens it, with an amount typed so its quote and its action are live.
   { id: 'buy', path: '/trade/buy', amount: '100' },
+  // The Volt kit page (intafaced #9302), opened only under Volt's switch: the whole page, then its sheet and its toast.
+  { id: 'kit', path: '/kit', fullPage: true },
+  { id: 'kit-sheet', path: '/kit', click: '[data-kit="open-sheet"]', opens: '[data-slot="dialog-content"]' },
+  { id: 'kit-toast', path: '/kit', click: '[data-kit="show-toast"]', opens: '[data-slot="toast"]' },
 ];
 const DEFAULT_SCREENS = ['home', 'desk', 'money'];
 export const SIZES = [
@@ -79,13 +89,38 @@ test('look options', async ({ page }) => {
             await amount.blur();
             await page.waitForLoadState('networkidle').catch(() => {});
           }
+          if (s.click) {
+            await page.locator(s.click).click();
+            // the sheet or toast is up, and its entrance has finished
+            await page.locator(s.opens).first().waitFor({ state: 'visible' });
+            await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))));
+          }
           await page.evaluate(() => document.fonts.ready);
+          // Volt's phone Home keeps its label row on one line (intafaced #9302: it wrapped "Est. total value" and
+          // "Customise Home"): every part of the row shares one top, and the label is one line high.
+          if (d.id === 'volt' && s.id === 'home' && size.id === 'phone') {
+            const row = await page.getByTestId('home-label').evaluate((el) => {
+              const tops = [...el.children].map((c) => Math.round(c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2));
+              const label = el.firstElementChild?.getBoundingClientRect().height ?? 0;
+              const line = parseFloat(getComputedStyle(el).fontSize) * 1.8;
+              return { spread: Math.max(...tops) - Math.min(...tops), label, line };
+            });
+            expect(row.spread, 'the label row is one row').toBeLessThanOrEqual(4);
+            expect(row.label, '"Est. total value" is one line').toBeLessThanOrEqual(row.line);
+          }
           const root = await page.evaluate(() => ({ ...document.documentElement.dataset }));
           if (!d.solid) expect(root.surfaces, `${s.path} draws glass`).toBe('glass');
           // one direction asked for: its own folder, so the names drop the direction (`<screen>--<size>--<scheme>.png`)
           const one = only('LOOK_OPTIONS_DIRECTIONS', DIRECTIONS).length === 1;
           const file = `${one ? '' : `${d.id}--`}${s.id}--${size.id}--${scheme}.png`;
+          if (s.fullPage) {
+            // a whole page as one tall screen, so what floats at the foot (the phone's tab bar) is drawn at the foot
+            const tall = await page.evaluate(() => document.documentElement.scrollHeight);
+            await page.setViewportSize({ width: size.width, height: tall });
+            await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+          }
           await page.screenshot({ path: path.join(out, file), animations: 'disabled' });
+          if (s.fullPage) await page.setViewportSize({ width: size.width, height: size.height });
           shots.push({ file, direction: d.id, screen: s.id, size: size.id, scheme, url: page.url(), root });
         }
       }

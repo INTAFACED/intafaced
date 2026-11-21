@@ -469,11 +469,15 @@ export const accentTextLight: Record<Accent, string> = {
 };
 
 /**
- * Volt: matte black and stone, heavy and tactile, with one electric citron spark used once per screen as light on the
- * one thing that matters. The citron (#FAF33E) is moved off today's lime (#C8F64A, CIEDE2000 10.8) and Robinhood's
- * Robin Neon (#CCFF00, 10.2) toward yellow, which also keeps it far from gain green (#3DDC97, 33+) so gains read as
- * gains next to it; it stays 17+ from warning amber. Today's lime everywhere (pills, ticks, progress) is drawn in ink
- * instead, so the spark is the only colour on a screen. Figures are Archivo at its widest (a wide grotesk).
+ * Volt: matte black and stone, heavy and tactile, with one electric chartreuse spark used once per screen as light on
+ * the one thing that matters. The chartreuse (#E0F83A) is the yellow-green the owner's references share (sampled from
+ * them, intafaced issue 9302), replacing the earlier lemon (#FAF33E), which sat 17.5 (CIEDE2000) from warning amber
+ * (#FFC452); the chartreuse sits 22.9 from it and 26.5 from gain green (#3DDC97), so a warning and a gain never read
+ * as the spark. As text it is 16.6:1 on the dark page; on the light page text takes its deep cut (#4A5800, 6.2:1);
+ * on a fill its text is ink (14.3:1 at the fill's darkest point). As a ring it passes 3:1 on both pages (the kit page
+ * shows the numbers), but the focus ring stays white (ink in light): never the spark, which it must stand out against
+ * (contracts.ts). lit.test.ts holds every one of these floors. Today's lime everywhere (pills, ticks, progress) is drawn in ink instead, so the spark is the only
+ * colour on a screen. Figures are Archivo at its widest (a wide grotesk).
  */
 const voltDark: Partial<RoleMap> = {
   page: '#0A0A09',
@@ -486,13 +490,13 @@ const voltDark: Partial<RoleMap> = {
   'text-disabled': '#4E4D49',
   line: 'rgba(243, 242, 236, 0.07)',
   'line-strong': 'rgba(243, 242, 236, 0.13)',
-  accent: '#FAF33E',
-  'accent-hot': '#FFFBB8',
-  'accent-deep': '#3A3706',
+  accent: '#E0F83A',
+  'accent-hot': '#F2FFB0',
+  'accent-deep': '#2F3A05',
   'accent-pair': '#F3F2EC',
-  'accent-text': '#FAF33E',
-  'accent-fill': '#FAF33E',
-  'accent-fill-2': '#E2DA1E',
+  'accent-text': '#E0F83A',
+  'accent-fill': '#E0F83A',
+  'accent-fill-2': '#CDE82A',
   'on-accent': '#0A0A09',
   up: '#3DDC97',
   down: '#FF5E57',
@@ -516,10 +520,10 @@ const voltDark: Partial<RoleMap> = {
   'glass-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 18px 40px -12px rgba(0, 0, 0, 0.9)',
   scrim: 'rgba(0, 0, 0, 0.72)',
   veil: 'rgba(10, 10, 9, 0.6)',
-  'primary-bg': 'linear-gradient(180deg, #FCF76E, #FAF33E 45%, #EEE62A)',
+  'primary-bg': 'linear-gradient(180deg, #EAFF6A, #E0F83A 45%, #CDE82A)',
   'primary-fg': '#0A0A09',
   'primary-shadow':
-    'inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -2px 0 rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(250, 243, 62, 0.35), 0 10px 32px -10px rgba(250, 243, 62, 0.45)',
+    'inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -2px 0 rgba(0, 0, 0, 0.18), 0 0 0 1px rgba(224, 248, 58, 0.35), 0 10px 32px -10px rgba(224, 248, 58, 0.45)',
   'secondary-bg': 'linear-gradient(180deg, #1F1F1D, #161615)',
   'secondary-fg': '#F3F2EC',
   'secondary-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 0 0 1px rgba(255, 255, 255, 0.05)',
@@ -532,7 +536,7 @@ const voltDark: Partial<RoleMap> = {
   'object-fg': '#F3F2EC',
   'object-shadow':
     'inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 2px 0 0 #000000, 0 30px 50px -24px rgba(0, 0, 0, 1)',
-  'object-spark-bg': 'linear-gradient(180deg, #FCF76E, #FAF33E 45%, #EEE62A)',
+  'object-spark-bg': 'linear-gradient(180deg, #EAFF6A, #E0F83A 45%, #CDE82A)',
   'object-spark-fg': '#0A0A09',
   'control-bg': '#0E0E0D',
   'control-rim': 'rgba(243, 242, 236, 0.36)',
@@ -569,7 +573,7 @@ const volt: DirectionSet = {
     'text-disabled': '#9C9B94',
     line: 'rgba(13, 13, 12, 0.08)',
     'line-strong': 'rgba(13, 13, 12, 0.15)',
-    'accent-text': '#575200',
+    'accent-text': '#4A5800',
     'on-accent': '#0A0A09',
     'up-text': '#086340',
     'down-text': '#A82226',
@@ -588,7 +592,7 @@ const volt: DirectionSet = {
     scrim: 'rgba(13, 13, 12, 0.4)',
     veil: 'rgba(231, 229, 223, 0.7)',
     'primary-bg': 'linear-gradient(180deg, #2A2A27, #0D0D0C)',
-    'primary-fg': '#FAF33E',
+    'primary-fg': '#E0F83A',
     'primary-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 8px 22px -10px rgba(13, 13, 12, 0.6)',
     'secondary-bg': 'linear-gradient(180deg, #FBFAF7, #EFEEE9)',
     'secondary-fg': '#0D0D0C',
