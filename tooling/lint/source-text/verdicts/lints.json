@@ -26,19 +26,11 @@
     "target": "./",
     "verdict": "delete",
     "asserts": "VenueSpotDesk.tsx stays at most 600 lines and defines one component, so parallel builds put their panels in their own files.",
-    "guard": { "kind": "lint", "ref": "react/no-multi-comp" },
-    "why": "An .oxlintrc.json override switches on oxlint's react/no-multi-comp and max-lines (max 600) for VenueSpotDesk.tsx, judged by the lint ratchet; tooling/lint/oxlint-plugin-garden/desk-shape-override.test.mjs shows both fire on planted copies."
-  },
-  {
-    "file": "apps/customer/src/features/money/contracts-compose.test.ts",
-    "target": "./contracts.ts",
-    "verdict": "rewrite",
-    "asserts": "contracts.ts declares nothing of its own beyond the composed reads and writes and the write review, and bankReads and bankWrites hold only spreads of the areas.",
     "guard": {
-      "kind": "test",
-      "ref": "apps/customer/src/features/money/contracts-compose.test.ts#declares nothing of its own beyond the composed reads and writes and the write review"
+      "kind": "lint",
+      "ref": "react/no-multi-comp"
     },
-    "why": "The new rule garden/compose-only, switched on for contracts.ts with its allowed names and spread-only objects; both blocks run it over the real file (no finding) and over planted copies (a shape, an inline procedure and a spread of something not imported each fire)."
+    "why": "An .oxlintrc.json override switches on oxlint's react/no-multi-comp and max-lines (max 600) for VenueSpotDesk.tsx, judged by the lint ratchet; tooling/lint/oxlint-plugin-garden/desk-shape-override.test.mjs shows both fire on planted copies."
   },
   {
     "file": "apps/customer/src/screens/trade/copybots/refusals.test.ts",
