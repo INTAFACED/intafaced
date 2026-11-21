@@ -14,6 +14,7 @@
 //! Past those the call is its slice's: [`Outcome::Owed`] names which. Nothing here reads or moves a book.
 
 pub mod book;
+pub mod liquidity;
 
 use std::sync::{LazyLock, Mutex, PoisonError};
 
@@ -672,7 +673,7 @@ impl MatchingDoor {
             Ok(parsed) => parsed,
             Err(refused) => return answer(refused),
         };
-        if route.slice != Slice::Book {
+        if !matches!(route.slice, Slice::Book | Slice::Liquidity) {
             return Outcome::Owed(route.slice);
         }
         let param = |name: &str| {
@@ -682,7 +683,10 @@ impl MatchingDoor {
                 .map_or_else(String::new, |(_, _, v)| v.clone())
         };
         let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
-        book::serve(route, req, &param, &parsed, &mut engine)
+        match route.slice {
+            Slice::Liquidity => liquidity::serve(route, &param, &parsed, &mut engine),
+            _ => book::serve(route, req, &param, &parsed, &mut engine),
+        }
     }
 
     /// The engine, for what runs beside the doors (the cold start, the tests).
