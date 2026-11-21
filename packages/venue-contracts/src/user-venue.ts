@@ -394,6 +394,24 @@ export interface PlaceUserOrdersIntent {
   readonly actionKey: string;
 }
 
+/**
+ * Put USDC into a venue vault, or take it out, signed by the owner's wallet on the main account (J-derivatives-31 #2 #5;
+ * Hyperliquid: `vaultTransfer`). The vault and the money in it are the venue's: the venue keeps the position, its lock-up
+ * and the leader's profit share, and refuses a withdrawal before the position's lock-up ends, naming the time it ends. A
+ * deposit moves only free balance. Nothing leaves the venue and the ledger posts nothing.
+ */
+export interface VaultTransferIntent {
+  readonly kind: 'vault_transfer';
+  /** The vault's address, as `vaults()` lists it. */
+  readonly vault: string;
+  readonly direction: 'deposit' | 'withdraw';
+  readonly asset: string;
+  /** Always positive. */
+  readonly amount: Amount;
+  /** The business key of this move (`vault-move:<owner>:<vault>:<direction>:<draft>`): a retry re-sends the same bytes. */
+  readonly moveKey: string;
+}
+
 export type VenueIntent =
   | PlaceUserOrderIntent
   | PlaceUserOrdersIntent
@@ -412,7 +430,8 @@ export type VenueIntent =
   | MarketMarginTransferIntent
   | UpdateIsolatedMarginIntent
   | SpotPerpsTransferIntent
-  | SetAccountModeIntent;
+  | SetAccountModeIntent
+  | VaultTransferIntent;
 
 export type VenueIntentKind = VenueIntent['kind'];
 
@@ -427,6 +446,7 @@ export const OWNER_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<VenueInt
   'market_margin_transfer',
   'spot_perps_transfer',
   'set_account_mode',
+  'vault_transfer',
 ]);
 
 /** Actions signed on the owner's MAIN account only, never on a sub-account. */
@@ -434,6 +454,7 @@ export const MAIN_ACCOUNT_ONLY_INTENTS: ReadonlySet<VenueIntentKind> = new Set<V
   'create_sub_account',
   'sub_account_transfer',
   'market_margin_transfer',
+  'vault_transfer',
 ]);
 
 export type VenueMarginMode = 'cross' | 'isolated';
@@ -923,6 +944,68 @@ export interface UserVenueLiquidationStatus {
   readonly liquidationId: string | null;
   readonly priceRule: string;
   readonly feeRule: string | null;
+}
+
+// ── Venue vaults, as the venue publishes them (J-derivatives-31) ──────────────────────────────────────────────────
+// A vault is the venue's: the venue runs it, holds its money, sets its lock-up and the leader's profit share, and counts a
+// depositor's position in their account value. Every figure below is the venue's own; `null` is a figure the venue does
+// not publish, never a zero or a guess of ours.
+
+/** One vault the venue lists: a protocol vault the venue runs itself, or a user vault one leader trades. */
+export interface UserVenueVault {
+  /** The vault's address on the venue, what a `vault_transfer` names. */
+  readonly address: string;
+  readonly name: string;
+  readonly kind: 'protocol' | 'user';
+  /** The leader's address for a user vault; `null` for a protocol vault. */
+  readonly leader: string | null;
+  /** The one asset it takes and pays back. */
+  readonly asset: string;
+  /** How long each deposit is locked before it can be withdrawn, in seconds; `null`: not published. */
+  readonly lockUpSeconds: number | null;
+  /** The share of a depositor's profit the leader takes on withdrawal, in basis points; `null`: not published. */
+  readonly profitShareBps: number | null;
+  /** What the vault holds, in `asset`; `null`: not published. */
+  readonly vaultValue: Amount | null;
+  /** The vault's return over its last `days` days, in basis points (negative is a loss); `null`: not published. */
+  readonly pastReturn: { readonly bps: number; readonly days: number } | null;
+}
+
+/** The account's position in one vault, as the venue reports it. */
+export interface UserVenueVaultPosition {
+  readonly vault: string;
+  readonly name: string;
+  readonly asset: string;
+  /** What the position is worth now, as the venue values it. */
+  readonly equity: Amount;
+  /** When the position's lock-up ends, as the venue sets it; before then a withdrawal is refused. */
+  readonly lockUpEndsAt: Date;
+}
+
+/** One deposit into or withdrawal from a vault, as the venue records it. */
+export interface UserVenueVaultTransfer {
+  readonly vault: string;
+  readonly direction: 'deposit' | 'withdraw';
+  /** The amount asked for, in the vault's asset. */
+  readonly amount: Amount;
+  /** What reached the account's free balance (a withdrawal), or left it (a deposit). */
+  readonly creditedAmount: Amount;
+  /** The leader's profit share the venue took on a withdrawal; `null` on a deposit. */
+  readonly leaderShare: Amount | null;
+  readonly transferredAt: Date;
+  /** The signed action's nonce, the one id the venue knows it by. */
+  readonly nonce: string;
+}
+
+/**
+ * The account's vault positions and its account value as the venue counts it (Hyperliquid `portfolio-graphs.md`: "Account
+ * value includes ... vault balances"): `accountValue` is the venue's own figure, in `asset`, or `null` where it publishes
+ * none. Its transfers into and out of vaults, newest first.
+ */
+export interface UserVenueVaultHoldings {
+  readonly positions: readonly UserVenueVaultPosition[];
+  readonly accountValue: { readonly asset: string; readonly amount: Amount } | null;
+  readonly transfers: readonly UserVenueVaultTransfer[];
 }
 
 /** The venue's own insurance fund or vault: its name, what it holds, where to read it and its rule, as it publishes them. */
@@ -1938,6 +2021,10 @@ export interface UserVenue {
   accountSummary?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>>;
   /** The account's mode, its spot and perps balances in standard mode, and its daily action count (J-derivatives-29). */
   accountMode?(account: UserVenueAccount): Promise<AsOf<UserVenueAccountMode>>;
+  /** The vaults the venue lists, each with its lock-up, profit share, value and past return (J-derivatives-31 #1). */
+  vaults?(): Promise<AsOf<readonly UserVenueVault[]>>;
+  /** The account's vault positions, its account value as the venue counts it, and its vault transfers (J-derivatives-31). */
+  vaultHoldings?(account: UserVenueAccount): Promise<AsOf<UserVenueVaultHoldings>>;
 
   /**
    * The account's position's liquidation state on `symbol` and the venue's price and fee rules (J-derivatives-07 #1 #3).
@@ -2083,6 +2170,22 @@ export function assertSignerMaySign(account: UserVenueAccount, signer: VenueSign
     }
     if (typeof intent.amount !== 'bigint' || compare(intent.amount, ZERO) <= 0) {
       throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a transfer must be positive' });
+    }
+    assertBusinessKey(venueId, intent.moveKey, 'move key');
+  }
+  if (intent.kind === 'vault_transfer') {
+    if (intent.direction !== 'deposit' && intent.direction !== 'withdraw') {
+      throw new VenueRefusalError({
+        venueId,
+        code: 'venue_rejected',
+        detail: `vault transfer direction "${String(intent.direction)}" is not one the venue knows`,
+      });
+    }
+    if (typeof intent.vault !== 'string' || intent.vault.trim() === '') {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a vault transfer names its vault' });
+    }
+    if (typeof intent.amount !== 'bigint' || compare(intent.amount, ZERO) <= 0) {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a vault transfer must be positive' });
     }
     assertBusinessKey(venueId, intent.moveKey, 'move key');
   }

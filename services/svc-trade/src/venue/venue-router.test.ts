@@ -275,6 +275,49 @@ describe('UserVenueRouter', () => {
     expect(again).toMatchObject({ actionKey: rv.actionKey, reused: true, signed: true, lastOutcome: { definite: true, accepted: true } });
   });
 
+  it("J-derivatives-31 #2 #4 #5: a vault move is the owner wallet's, sent once under its key; an early withdrawal is refused before signing", async () => {
+    const { router: r } = router();
+    const d = await r.door(A);
+    const signer = { role: 'owner' as const, address: owner };
+    const account = { venueId: A, owner, subAccount: null };
+    fund(A, owner, 'USDC', '300', 'chain:svc-trade:j31');
+    const vault = (await sim(A).vaults()).value[0]!.address;
+    const deposit = {
+      kind: 'vault_transfer' as const,
+      vault,
+      direction: 'deposit' as const,
+      asset: 'USDC',
+      amount: parseAmount('100'),
+      moveKey: `vault-move:${owner}:${vault}:deposit:j31`,
+    };
+    // An agent key moves nothing into a vault: refused before anything is prepared.
+    const agent = { role: 'agent' as const, address: '0x00000000000000000000000000000000000a6e71' };
+    await expect(
+      d.prepare(USER, { owner, signer: agent, intent: { ...deposit, moveKey: `${deposit.moveKey}-agent` } }),
+    ).rejects.toMatchObject({
+      refusal: { code: 'agent_not_permitted' },
+    });
+    const dp = await d.prepare(USER, { owner, signer, intent: deposit });
+    expect(dp.actionKey).toBe(deposit.moveKey);
+    expect((await r.submit(USER, dp.actionKey, await sign(dp.prepared))).outcome).toMatchObject({ definite: true, accepted: true });
+    // Sent once: the same key again is the stored answer, and the venue holds one deposit.
+    const again = await d.prepare(USER, { owner, signer, intent: deposit });
+    expect(again).toMatchObject({ actionKey: dp.actionKey, reused: true, signed: true, lastOutcome: { definite: true, accepted: true } });
+    const held = (await sim(A).vaultHoldings(account)).value;
+    expect(held.positions.map((p) => formatAmount(p.equity))).toEqual(['100']);
+    expect(held.transfers).toHaveLength(1);
+    // Before the lock-up ends the withdrawal is refused at prepare, naming the time it ends: nothing to sign.
+    const withdraw = { ...deposit, direction: 'withdraw' as const, moveKey: `vault-move:${owner}:${vault}:withdraw:j31` };
+    await expect(d.prepare(USER, { owner, signer, intent: withdraw })).rejects.toMatchObject({
+      refusal: { code: 'venue_rejected', detail: expect.stringContaining(held.positions[0]!.lockUpEndsAt.toISOString()) },
+    });
+    // After it, one signed withdrawal brings the amount back to free USDC.
+    sim(A).testVaultLockUpPassed(account, vault);
+    const wd = await d.prepare(USER, { owner, signer, intent: { ...withdraw, moveKey: `${withdraw.moveKey}-after` } });
+    expect((await r.submit(USER, wd.actionKey, await sign(wd.prepared))).outcome).toMatchObject({ definite: true, accepted: true });
+    expect((await sim(A).vaultHoldings(account)).value.positions).toEqual([]);
+  });
+
   it('#8 and #6: the approval names B and our published fee, the order then fills there; the report shows it by venue', async () => {
     const { router: r, store, doors } = router();
     const from = new Date(Date.now() - 1000);

@@ -188,6 +188,7 @@ test(`${J} #2 turns on trailing with the shift limit blank: refused naming it; a
 
 test(`${J} #3 sets a price exit and an RSI exit with no RSI source: the price exit stops once; RSI reads "Not set" and can't be saved`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(120_000);
   const trader = state('trader');
@@ -219,6 +220,15 @@ test(`${J} #3 sets a price exit and an RSI exit with no RSI source: the price ex
   await expect.poll(async () => (await getBot(trader, botId)).statusReason, { timeout: 60_000 }).toBe('price_exit');
   await expect(detail.getByTestId('grid-status')).toHaveText('Stopped', { timeout: 20_000 });
   await expect(detail).toContainText(/Stopped by\s*Price exit/);
+  // The stopped bot still states its exits: the falls-to price it stopped on, and the RSI exit Not set.
+  await expect(detail).toContainText(/RSI exit\s*Not set/);
+  await expect(detail).toContainText(/Stop when the price falls to\s*[\d,.]+ USDT/);
+  // The step's picture: the bot's whole detail from the top, nothing focused, so no bar sits over it.
+  await page.evaluate(() => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    window.scrollTo(0, 0);
+  });
+  await stepPicture();
   await expect
     .poll(async () => (await getBot(trader, botId)).orders.filter((o) => o.status === 'open').length, { timeout: 30_000 })
     .toBe(0);

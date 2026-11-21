@@ -28,7 +28,7 @@ export async function registrySource(packageDir, exportName, procedureModule) {
     ...imports,
     `import type { ProcedureRecord } from '${procedureModule}';`,
     '',
-    '/** Every call recorded in this package. `procedures.schema.json` is written from this list. */',
+    '/** Every call recorded in this package. `procedures/<service>.schema.json` is written from this list. */',
     `export const ${exportName}: readonly ProcedureRecord[] = [${names.join(', ')}];`,
     '',
   ].join('\n');
