@@ -160,7 +160,33 @@ export const kycPending = () =>
 export const passkeyList = (count = 1) =>
   Array.from({ length: count }, (_, index) => ({ credentialId: `cred${index}`, createdAt: '2026-10-13T11:00:00Z' }));
 /** notify notify.alerts */
-export const alertList = (items = [{ id: '00000000-0000-4000-8000-0000000000b1', kind: 'price', status: 'active' }]) => ({ items });
+/** notify alerts: one active price alert, every field svc-notify's record sends, and the evaluation that comes with the list. */
+export const priceAlertRow = (over = {}) => ({
+  id: '00000000-0000-4000-8000-0000000000b1',
+  userId: '00000000-0000-4000-8000-000000000001',
+  marketId: 'BTC-USDT',
+  kind: 'price',
+  direction: 'above',
+  targetPrice: '70000',
+  status: 'active',
+  firedAt: null,
+  createdAt: '2026-10-13T11:00:00.000Z',
+  condition: 'crossing',
+  name: null,
+  message: null,
+  expiresAt: null,
+  updatedAt: '2026-10-13T11:00:00.000Z',
+  extras: [],
+  frequency: 'once',
+  source: 'mark',
+  fireCount: 0,
+  stopReason: null,
+  lastFiredAt: null,
+  channels: null,
+  webhookUrl: null,
+  ...over,
+});
+export const alertList = (items = [priceAlertRow()]) => ({ items, evaluation: { markSource: 'live', canFire: true, code: null } });
 /** bank activity.list: newest first */
 export const activityRow = (kind, direction, amount, asset = 'USDT', at = '2026-10-13T11:29:44Z') => ({
   id: `${kind}-${direction}-${amount}-${at}`,
