@@ -794,6 +794,8 @@ function mergeImports(old, imports) {
 /** Writes every change, adds the imports, drops the imports nothing reads any more, and formats what it touched. */
 function write(result) {
   const touched = [];
+  // What each changed file imports before its calls move: a namespace member it read (`s.schema`) goes with the call.
+  const imported = new Map([...result.changes.files.keys()].filter((f) => !f.startsWith(CONTRACTS)).map((f) => [f, importedFrom(f)]));
   for (const [file, body] of result.created) {
     writeFileSync(file, body);
     touched.push(file);
@@ -813,7 +815,7 @@ function write(result) {
   const sources = new Set();
   for (const file of touched) {
     if (file.startsWith(CONTRACTS)) continue;
-    const before = importedFrom(file);
+    const before = imported.get(file) ?? importedFrom(file);
     pruneImports(file);
     const after = importedFrom(file);
     // A touched file too: it was pruned before this caller stopped reading it.
