@@ -738,8 +738,9 @@ jobs:
       # A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP in journey-seal.mjs), whatever its
       # title, also needs the newest finished full journeys run on its exact head clean by the journeys verdict, judged with
       # the default branch's baseline (the pilot lead's rule of 7 Nov 2026, moved from a message into CI).
-      # A pull request that changes a journey test (apps/customer/tests/real-app/J-*.pw.mjs) names, for each changed file,
-      # a step it holds, in the title or on a Left-or-replaced line; otherwise it fails and prints them (#1249 seal gap).
+      # A pull request that changes a journey test (apps/customer/tests/real-app/J-*.pw.mjs) is judged, for each changed
+      # file none of whose steps the title names or a Left-or-replaced line leaves, on every step it holds (#1249 seal gap;
+      # owner decision 2026-11-21: derived, not a body line).
       # On a pull request this step and the CI review below are merge-seal.yml's alone (the default branch's copy, on
       # every pull request into main), so this job's verdict there is CI's own jobs and the switch, which change only when
       # CI runs again: a finished journeys run, an edit or a review never re-runs this job, and so never starts a new CI
