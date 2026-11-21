@@ -1,4 +1,4 @@
-# Access for the Volt look
+# Access for the Lit glass look
 
 WCAG 2.2 AA at the worst pixel, for every screen on the look. Owner: the access lane. Import the
 logic from `@intafaced/ui/a11y` and the rules from `@intafaced/ui/a11y/a11y.css` (after `lit.css`).

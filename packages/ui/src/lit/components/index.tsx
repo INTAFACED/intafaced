@@ -1,5 +1,5 @@
 /**
- * Volt kit component sheet (B1). Every component reads only `--lit-*` roles through `components.css`; names and
+ * Lit glass component sheet (B1). Every component reads only `--lit-*` roles through `components.css`; names and
  * meanings are in `../contracts.ts`. Components marked (B2) in the contracts are built by the templates lane in
  * their own files beside this one.
  */

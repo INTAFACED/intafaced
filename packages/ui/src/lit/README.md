@@ -1,17 +1,17 @@
-# Volt kit (`@intafaced/ui/lit`)
+# Lit glass kit (`@intafaced/ui/lit`)
 
-The customer app's only look, Volt (the owner's pick, 2026-11-21), built as a system: role tokens, components, eight templates and the 3D objects. The app's root carries `data-look="lit"` from its first byte (`apps/customer/index.html`); the beta is dark only.
+The customer app's new look, built as a system: role tokens, components, eight templates and the 3D objects. It ships behind a switch: nothing changes until the root element carries `data-look="lit"`.
 
 ## Layout and owners
 
-| Path                                  | What                                                                                  | Owner lane |
-| ------------------------------------- | ------------------------------------------------------------------------------------- | ---------- |
-| `contracts.ts`                        | Frozen names: roles, type roles, templates, states, slots, components, doors          | B1 (lead)  |
-| `tokens.ts`, `lit.css`, `generate.ts` | Role token values for flat (no data-look), Volt dark, Volt light, Solid surfaces, Pro | B1         |
-| `components/`                         | The component sheet                                                                   | B1         |
-| `templates/`                          | The eight templates and the room scaffold                                             | B2         |
-
-| `../a11y/` | Solid surfaces switch, worst-pixel contrast, forced colours, focus | B4 |
+| Path                                  | What                                                                                   | Owner lane |
+| ------------------------------------- | -------------------------------------------------------------------------------------- | ---------- |
+| `contracts.ts`                        | Frozen names: roles, type roles, templates, states, slots, components, doors           | B1 (lead)  |
+| `tokens.ts`, `lit.css`, `generate.ts` | Role token values for flat (switch off), lit dark, light, accents, Solid surfaces, Pro | B1         |
+| `components/`                         | The component sheet                                                                    | B1         |
+| `templates/`                          | The eight templates and the room scaffold                                              | B2         |
+| `fx/`                                 | three.js objects on one shared canvas, poster and flat tier                            | B3         |
+| `../a11y/`                            | Solid surfaces switch, worst-pixel contrast, forced colours, focus                     | B4         |
 
 A new role, type role, slot or component name goes through `contracts.ts` (ask B1); lanes never add a token themselves.
 
@@ -32,10 +32,10 @@ A new role, type role, slot or component name goes through `contracts.ts` (ask B
 
 ## Switches on the root element
 
-`data-look="lit"` (always, from index.html), `data-theme="light"` (behind the scheme switch, `?scheme=light`; the beta is dark only), `data-surfaces="solid"` (also automatic with `prefers-contrast: more`, `forced-colors: active` or `prefers-reduced-transparency: reduce`), `data-mode="pro"`.
+`data-look="lit"`, `data-accent="blue|ember|violet|emerald"` (blue default), `data-theme="light"` (not shipped), `data-surfaces="solid"` (also automatic with `prefers-contrast: more`, `forced-colors: active` or `prefers-reduced-transparency: reduce`), `data-mode="pro"`.
 
 ## Changing a value
 
 Edit `tokens.ts`, run `pnpm exec tsx src/lit/generate.ts` in `packages/ui`, commit both. `lit.test.ts` checks drift, contrast of every text role on every solid surface in both schemes, the risk band, and that `apps/admin` never imports this kit.
 
-Names are frozen.
+Values are provisional until stage A1 (the look re-lit in blue inside the budgets) is judged; names are frozen.

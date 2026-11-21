@@ -1,6 +1,6 @@
 /**
- * Access rules for the Volt look (WCAG 2.2 AA). Loaded after lit.css; every rule is scoped to
- * data-look="lit", which the customer app's root always carries. Owner: the access lane (B4).
+ * Access rules for the Lit glass look (WCAG 2.2 AA). Loaded after lit.css; every rule is scoped to
+ * data-look="lit", so the app with the look off is unchanged. Owner: the access lane (B4).
  * Logical properties only, so a right-to-left page is a dir flip, not a second stylesheet.
  */
 
