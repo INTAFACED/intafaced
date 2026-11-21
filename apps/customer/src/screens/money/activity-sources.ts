@@ -19,7 +19,26 @@ type Zone = Preferences['timeZone'];
  */
 
 export type SourceKind = 'wallet' | 'venue' | 'partner';
-export type LineKind = 'trade' | 'deposit' | 'withdrawal' | 'transfer_in' | 'transfer_out' | 'space_move' | 'fee' | 'earn' | 'other';
+export type LineKind =
+  'trade' | 'convert' | 'deposit' | 'withdrawal' | 'transfer_in' | 'transfer_out' | 'space_move' | 'fee' | 'earn' | 'other';
+
+/** The type a line is filed under (J-portfolio-03 #1: trade, deposit, withdrawal, convert, transfer, other). */
+export type LineType = 'trade' | 'deposit' | 'withdrawal' | 'convert' | 'transfer' | 'other';
+
+const TYPE_OF: Record<LineKind, LineType> = {
+  trade: 'trade',
+  convert: 'convert',
+  deposit: 'deposit',
+  withdrawal: 'withdrawal',
+  transfer_in: 'transfer',
+  transfer_out: 'transfer',
+  space_move: 'transfer',
+  fee: 'other',
+  earn: 'other',
+  other: 'other',
+};
+
+export const typeOf = (kind: LineKind): LineType => TYPE_OF[kind];
 export type LineState = 'completed' | 'confirming' | 'not_credited' | 'failed';
 
 export interface SourceLine {
@@ -43,6 +62,10 @@ export interface SourceLine {
     | {
         kind: 'trade';
         side: 'buy' | 'sell';
+        /** The venue's client id of the order the fill belongs to, as the venue reports it (null when it names none). */
+        order: string | null;
+        /** A fill of a conversion (J-cex-spot-11): what it converted from and to, as the venue's conversion record names. */
+        convert: { from: string; to: string } | null;
         quote: { asset: string; amount: string };
         fee: { asset: string; amount: string; rebate: boolean } | null;
       }
@@ -102,6 +125,7 @@ export function walletLines(rows: readonly IndexedTx[], network: string): Source
 
 export interface VenueFillRead {
   fillId: string;
+  venueClientOrderId?: string | null;
   symbol: string;
   side: 'buy' | 'sell';
   price: string;
@@ -142,20 +166,36 @@ function sides(symbol: string, feeAsset: string): { base: string; quote: string 
   return { base, quote: !quote || quote === 'PERP' ? feeAsset : quote };
 }
 
+/** A conversion as the venue's convert history records it: the order it placed, and what it converted from and to. */
+export interface VenueConversionRead {
+  venueClientOrderId: string | null;
+  from: string;
+  to: string;
+}
+
 /**
  * The venue's lines: one per fill (what was bought or sold, with what was paid or got and the fee, as the venue records
- * them), and one per deposit the venue has seen (credited, still confirming, or not credited and why).
+ * them), and one per deposit the venue has seen (credited, still confirming, or not credited and why). A fill of an
+ * order a conversion placed (its client id is the conversion's) is a convert, not a trade.
  */
-export function venueLines(fills: readonly VenueFillRead[], deposits: readonly VenueDepositRead[], venue: string): SourceLine[] {
+export function venueLines(
+  fills: readonly VenueFillRead[],
+  deposits: readonly VenueDepositRead[],
+  venue: string,
+  conversions: readonly VenueConversionRead[] = [],
+): SourceLine[] {
+  const converts = new Map(conversions.flatMap((c) => (c.venueClientOrderId ? [[c.venueClientOrderId, c] as const] : [])));
   const out: SourceLine[] = [];
   for (const fill of fills) {
     const { base, quote } = sides(fill.symbol, fill.feeAsset);
     const fee = parseAmount(fill.venueFee) + parseAmount(fill.builderFee);
+    const order = fill.venueClientOrderId ?? null;
+    const conversion = order ? converts.get(order) : undefined;
     out.push({
       id: `venue:fill:${fill.fillId}`,
       source: 'venue',
       sourceName: venue,
-      kind: 'trade',
+      kind: conversion ? 'convert' : 'trade',
       direction: fill.side === 'buy' ? 'in' : 'out',
       asset: base,
       amount: fill.amount,
@@ -165,6 +205,8 @@ export function venueLines(fills: readonly VenueFillRead[], deposits: readonly V
       detail: {
         kind: 'trade',
         side: fill.side,
+        order,
+        convert: conversion ? { from: conversion.from, to: conversion.to } : null,
         quote: { asset: quote, amount: product(fill.price, fill.amount) },
         fee: fee === 0n ? null : { asset: fill.feeAsset, amount: formatAmount(fee < 0n ? -fee : fee), rebate: fee < 0n },
       },
@@ -256,4 +298,74 @@ export function unanswerable(f: ActivityFilters): Array<'note' | 'account' | 'ye
     ...(f.year ? (['year'] as const) : []),
     ...(f.address.trim() ? (['address'] as const) : []),
   ];
+}
+
+/** The venue's own record of one order, as its by-client-id read answers it. */
+export interface VenueOrderRead {
+  side: 'buy' | 'sell';
+  price: string;
+  amount: string;
+  remaining: string;
+  status: string;
+  locked: string;
+  lockedAsset: string;
+}
+
+export type FillPartKind = 'received' | 'sold' | 'paid' | 'got' | 'fee' | 'rebate' | 'held' | 'released';
+export interface FillPart {
+  part: FillPartKind;
+  up: boolean;
+  asset: string;
+  amount: string;
+  /** The venue's fill reference of a fill's leg; null on the order's hold and release. */
+  fill: string | null;
+}
+
+/** An order the venue kept on its book: it held funds for it until it filled or was cancelled. */
+const RESTED = new Set(['open', 'partially_filled', 'canceled', 'cancelled']);
+const CANCELLED = new Set(['canceled', 'cancelled']);
+
+/**
+ * The parts of one venue order, as one group (J-portfolio-03 #4 on the launch model): each of its fills' legs and fees,
+ * and, for an order the venue kept on its book, what it held for the order and what it released when the order was
+ * cancelled, every figure from the venue's own fill and order records. A buy holds its quote at the limit price for the
+ * whole amount and a sell its base, as the venue locks them; the fills spend that hold, so a rested order's leg in the
+ * held asset is the hold and its release, never counted twice as a payment too. An order the venue never kept (filled at
+ * once, or not read) lists its fills' two legs. `fills` are the order's own venue trade lines.
+ */
+export function fillParts(fills: readonly SourceLine[], order: VenueOrderRead | null): FillPart[] {
+  const rested = order !== null && RESTED.has(order.status);
+  const out: FillPart[] = [];
+  for (const line of fills) {
+    if (line.detail?.kind !== 'trade') continue;
+    const buy = line.detail.side === 'buy';
+    const base: FillPart = { part: buy ? 'received' : 'sold', up: buy, asset: line.asset, amount: line.amount, fill: line.ref };
+    const quote: FillPart = {
+      part: buy ? 'paid' : 'got',
+      up: !buy,
+      asset: line.detail.quote.asset,
+      amount: line.detail.quote.amount,
+      fill: line.ref,
+    };
+    // A rested order's leg in the held asset (a buy's quote, a sell's base) is spent from the hold listed below.
+    if (!rested) out.push(base, quote);
+    else out.push(buy ? base : quote);
+    const fee = line.detail.fee;
+    if (fee) out.push({ part: fee.rebate ? 'rebate' : 'fee', up: fee.rebate, asset: fee.asset, amount: fee.amount, fill: line.ref });
+  }
+  if (rested && order) {
+    const buy = order.side === 'buy';
+    const asset = order.lockedAsset || (fills[0]?.detail?.kind === 'trade' ? (buy ? fills[0].detail.quote.asset : fills[0].asset) : '');
+    out.push({ part: 'held', up: false, asset, amount: buy ? product(order.price, order.amount) : order.amount, fill: null });
+    if (CANCELLED.has(order.status) && parseAmount(order.remaining) > 0n)
+      out.push({ part: 'released', up: true, asset, amount: buy ? product(order.price, order.remaining) : order.remaining, fill: null });
+  }
+  return out;
+}
+
+/** The venue trade lines of `line`'s order (the venue's client order id), `line` included; a line of no order is alone. */
+export function orderLines(lines: readonly SourceLine[], line: SourceLine): SourceLine[] {
+  const order = line.detail?.kind === 'trade' ? line.detail.order : null;
+  if (line.source !== 'venue' || !order) return [line];
+  return lines.filter((l) => l.source === 'venue' && l.detail?.kind === 'trade' && l.detail.order === order);
 }

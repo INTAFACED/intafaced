@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import type { ActivityItem } from '../../data/activity';
 import { NO_FILTERS } from './activity-filter';
-import { keepLine, oneList, partnerLines, product, unanswerable, venueLines, walletLines } from './activity-sources';
+import {
+  fillParts,
+  keepLine,
+  oneList,
+  orderLines,
+  partnerLines,
+  product,
+  typeOf,
+  unanswerable,
+  venueLines,
+  walletLines,
+  type SourceLine,
+  type VenueOrderRead,
+} from './activity-sources';
 
 const ME = '0x00000000000000000000000000000000000000aa';
 const OTHER = '0x00000000000000000000000000000000000000bb';
@@ -96,9 +109,47 @@ describe('venueLines', () => {
     expect(line!.detail).toEqual({
       kind: 'trade',
       side: 'buy',
+      order: null,
+      convert: null,
       quote: { asset: 'USDC', amount: '60' },
       fee: { asset: 'USDC', amount: '0.042', rebate: false },
     });
+  });
+
+  it('a fill of an order a conversion placed is a convert, filed under convert, with what it converted from and to', () => {
+    const fill = {
+      symbol: 'BTC-USDC',
+      side: 'buy' as const,
+      price: '60000',
+      amount: '0.0001',
+      venueFee: '0',
+      builderFee: '0',
+      feeAsset: 'USDC',
+      filledAt: '2026-11-14T00:00:00.000Z',
+    };
+    const lines = venueLines(
+      [
+        { ...fill, fillId: 'c1', venueClientOrderId: '0xconvert' },
+        { ...fill, fillId: 't1', venueClientOrderId: '0xtrade' },
+      ],
+      [],
+      'TEST venue',
+      [{ venueClientOrderId: '0xconvert', from: 'USDC', to: 'BTC' }],
+    );
+    expect(lines.map((l) => [l.ref, l.kind, typeOf(l.kind)])).toEqual([
+      ['c1', 'convert', 'convert'],
+      ['t1', 'trade', 'trade'],
+    ]);
+    expect(lines[0]!.detail).toMatchObject({ kind: 'trade', order: '0xconvert', convert: { from: 'USDC', to: 'BTC' } });
+    expect(lines[1]!.detail).toMatchObject({ order: '0xtrade', convert: null });
+  });
+
+  it('every kind is filed under one of the six types the list names', () => {
+    expect(
+      (['trade', 'convert', 'deposit', 'withdrawal', 'transfer_in', 'transfer_out', 'space_move', 'fee', 'earn', 'other'] as const).map(
+        typeOf,
+      ),
+    ).toEqual(['trade', 'convert', 'deposit', 'withdrawal', 'transfer', 'transfer', 'transfer', 'other', 'other', 'other']);
   });
 
   it('a maker rebate larger than the builder fee reads as a rebate', () => {
@@ -213,5 +264,81 @@ describe('oneList and filters', () => {
   });
   it('multiplies decimals exactly', () => {
     expect(product('60000.5', '0.001')).toBe('60.0005');
+  });
+});
+
+describe('fillParts', () => {
+  const fill = (fillId: string, side: 'buy' | 'sell', amount: string, venueFee = '0') => ({
+    fillId,
+    venueClientOrderId: '0xorder',
+    symbol: 'BTC-USDC',
+    side,
+    price: '60000',
+    amount,
+    venueFee,
+    builderFee: '0',
+    feeAsset: 'USDC',
+    filledAt: '2026-11-14T00:00:00.000Z',
+  });
+  const order = (patch: Partial<VenueOrderRead>): VenueOrderRead => ({
+    side: 'buy',
+    price: '60000',
+    amount: '0.002',
+    remaining: '0.001',
+    status: 'partially_filled',
+    locked: '60',
+    lockedAsset: 'USDC',
+    ...patch,
+  });
+  const parts = (lines: SourceLine[], o: VenueOrderRead | null) =>
+    fillParts(lines, o).map((p) => [p.part, p.up, p.amount, p.asset, p.fill]);
+
+  it('an order the venue never kept lists each fill’s two legs and its fee', () => {
+    const lines = venueLines([fill('f1', 'buy', '0.001', '0.03')], [], 'TEST venue');
+    expect(parts(lines, order({ status: 'filled', remaining: '0', locked: '0' }))).toEqual([
+      ['received', true, '0.001', 'BTC', 'f1'],
+      ['paid', false, '60', 'USDC', 'f1'],
+      ['fee', false, '0.03', 'USDC', 'f1'],
+    ]);
+    expect(parts(lines, null)).toEqual([
+      ['received', true, '0.001', 'BTC', 'f1'],
+      ['paid', false, '60', 'USDC', 'f1'],
+      ['fee', false, '0.03', 'USDC', 'f1'],
+    ]);
+  });
+
+  it('a resting buy: its fills’ coin, and the quote held for the whole order, no payment counted twice', () => {
+    const lines = venueLines([fill('f1', 'buy', '0.001')], [], 'TEST venue');
+    expect(parts(lines, order({}))).toEqual([
+      ['received', true, '0.001', 'BTC', 'f1'],
+      ['held', false, '120', 'USDC', null],
+    ]);
+  });
+
+  it('a cancelled buy: the hold and what came back for the unfilled rest', () => {
+    const lines = venueLines([fill('f1', 'buy', '0.001')], [], 'TEST venue');
+    expect(parts(lines, order({ status: 'canceled', locked: '0' }))).toEqual([
+      ['received', true, '0.001', 'BTC', 'f1'],
+      ['held', false, '120', 'USDC', null],
+      ['released', true, '60', 'USDC', null],
+    ]);
+  });
+
+  it('a cancelled sell holds its base: the quote it got, the base held and the base released', () => {
+    const lines = venueLines([fill('f1', 'sell', '0.001')], [], 'TEST venue');
+    expect(parts(lines, order({ side: 'sell', status: 'canceled', locked: '0', lockedAsset: 'BTC' }))).toEqual([
+      ['got', true, '60', 'USDC', 'f1'],
+      ['held', false, '0.002', 'BTC', null],
+      ['released', true, '0.001', 'BTC', null],
+    ]);
+  });
+
+  it('orderLines groups the venue trade lines of one order', () => {
+    const lines = venueLines(
+      [fill('f1', 'buy', '0.001'), fill('f2', 'buy', '0.001'), { ...fill('f3', 'buy', '1'), venueClientOrderId: '0xother' }],
+      [],
+      'v',
+    );
+    expect(orderLines(lines, lines[0]!).map((l) => l.ref)).toEqual(['f1', 'f2']);
   });
 });
