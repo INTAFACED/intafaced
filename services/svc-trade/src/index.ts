@@ -494,7 +494,7 @@ const stepUp = createStepUpCheck({
 });
 // The user-venue door, its router, our listings of its markets and the deposits read (src/venue/wire.ts).
 const userVenueWiring = wireUserVenue({ app, sql, bus, stepUp, perks, outS2s, doorS2s });
-const { userVenueDoors, userVenue, userVenueRouter, userVenueStore, venueListings, venueDelistingNotices, venueSellQuotes } =
+const { userVenueDoors, userVenue, userVenueRouter, userVenueStore, venueListings, venueDelistingNotices, venueSellQuotes, venueConverts } =
   userVenueWiring;
 // The agents beside the door, each off with it (src/venue/agents-wire.ts).
 const { agentAccountStore, agentAccountValues, agentAccounts, agentOrders, agentActivity, agentDesk, ownAgentTrading, ownAgentRebalance } =
@@ -1942,6 +1942,7 @@ registerPrivateRest(app, {
   venueSpotConditionals,
   liveRuns,
   venueSellQuotes,
+  venueConverts,
   // J-cex-spot-07 #5: the statement export on the venue's own records, when the user-venue door is on.
   venueStatements: userVenueRouter ? new VenueStatements(sql) : null,
   venueAdlAcks: userVenueRouter ? sqlVenueAdlAcks(sql) : null,
