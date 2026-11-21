@@ -25,13 +25,13 @@ import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'no
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const RULE = 'garden/no-source-text-test';
+const RULE = 'garden/no-source-text-test';
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = join(HERE, '..', '..', '..');
-export const SCOPE = ['apps', 'packages', 'tooling'];
+const SCOPE = ['apps', 'packages', 'tooling'];
 
 // A test of money, custody, sign-in, permissions or a journey, by its path, its titles or what it asserts.
-export const PROTECTED = [
+const PROTECTED = [
   ['journey', /\.pw\.[cm]?[jt]s$|\/tests\/real-app\//],
   ['money', /\b(ledger|money|balance|posting|recipe|amount|settle|payout|withdraw|deposit|chargeback|fee)s?\b/i],
   ['custody', /\bcustod(y|ial)\b|LEDGER_CUSTODY/i],
@@ -40,7 +40,7 @@ export const PROTECTED = [
 ];
 
 /** The oxlint findings of RULE, as { file, line, target } (target: the path the finding names). */
-export function sites(paths = SCOPE, root = ROOT) {
+function sites(paths = SCOPE, root = ROOT) {
   const run = spawnSync(join(root, 'node_modules', '.bin', 'oxlint'), ['-c', '.oxlintrc.json', '--format', 'json', ...paths], {
     cwd: root,
     encoding: 'utf8',
@@ -208,14 +208,14 @@ export function facts(site, text) {
 }
 
 /** The verdicts on record: one entry per site, keyed by file and target. */
-export function verdicts(dir = join(HERE, 'verdicts')) {
+function verdicts(dir = join(HERE, 'verdicts')) {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
     .sort()
     .flatMap((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')).map((v) => ({ ...v, from: f })));
 }
-export const keyOf = (v) => `${v.file}\u0000${v.target}`;
+const keyOf = (v) => `${v.file}\u0000${v.target}`;
 
 /** Why a guard does not hold, or null when it exists. read(path) returns a file's text or null. */
 export function guardError(g, read) {
@@ -278,7 +278,7 @@ export function applyDeletes(text, rows) {
 }
 
 /** Drop the named imports a file no longer uses (and an import left with none). */
-export function pruneImports(text) {
+function pruneImports(text) {
   return text.replace(/^import\s+(type\s+)?\{([^}]*)\}\s+from\s+(['"][^'"]+['"]);?[ \t]*\n/gm, (all, type, names, from) => {
     const body = text.replace(all, '');
     const keep = names
