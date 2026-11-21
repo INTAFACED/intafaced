@@ -23,6 +23,8 @@ pub const CONNECT_TIMEOUT_S: u32 = 10;
 pub struct StoreError {
     pub message: String,
     pub code: Option<String>,
+    /// The constraint the server named, for a violation (`constraint_name`).
+    pub constraint: Option<String>,
 }
 
 impl StoreError {
@@ -30,6 +32,7 @@ impl StoreError {
         StoreError {
             message: message.into(),
             code: code.map(str::to_owned),
+            constraint: None,
         }
     }
 }
@@ -39,6 +42,10 @@ impl From<&postgres::Error> for StoreError {
         StoreError {
             message: db_message(e),
             code: e.code().map(|c| c.code().to_owned()),
+            constraint: e
+                .as_db_error()
+                .and_then(|d| d.constraint())
+                .map(str::to_owned),
         }
     }
 }
@@ -54,6 +61,7 @@ impl From<DbError> for StoreError {
         StoreError {
             message: e.0,
             code: None,
+            constraint: None,
         }
     }
 }
@@ -72,6 +80,15 @@ impl Store {
         match self {
             Store::Pool(p) => Ok(p),
             Store::Down(message) => Err(StoreError::new(message.clone(), None)),
+        }
+    }
+
+    /// The pool for a query the TypeScript sends with `sql.unsafe(...)`. A store that cannot serve refuses it naming
+    /// that call, as the replay's stubbed `sql` does (`replay stub: sql.unsafe`).
+    pub fn pool_unsafe(&self) -> Result<&Pool, StoreError> {
+        match self {
+            Store::Pool(p) => Ok(p),
+            Store::Down(message) => Err(StoreError::new(format!("{message}.unsafe"), None)),
         }
     }
 

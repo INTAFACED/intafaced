@@ -10,9 +10,10 @@
 //!    reaches the ledger (`schemas.json`).
 //!
 //! Past those the call is its slice's: [`Outcome::Owed`] names which, until the slice is ported. Ported so far:
-//! `/health` and `/ready` (the `store` slice, `crate::status`) and the freeze doors (the `freeze` slice,
-//! `freeze.rs`).
+//! `/health` and `/ready` (the `store` slice, `crate::status`), the freeze doors (the `freeze` slice, `freeze.rs`) and
+//! the asset registry's doors (the `assets` slice, `assets.rs`).
 
+mod assets;
 mod callers;
 mod freeze;
 
@@ -474,6 +475,14 @@ enum Body {
     Parsed(Json),
 }
 
+/// The body as the handler reads it: `undefined` when absent.
+fn body_value(body: &Body) -> Value {
+    match body {
+        Body::Absent => Value::Undefined,
+        Body::Parsed(j) => Value::from_json(j),
+    }
+}
+
 /// `assertNoPrototypePoison`: an own `__proto__` key anywhere, or a `constructor` object with its own `prototype`.
 fn poisoned(v: &Json) -> bool {
     match v {
@@ -694,14 +703,13 @@ impl LedgerDoor {
                 format!("Caller {service} may not call {door}."),
             )));
         }
+        if route.slice == Slice::Assets {
+            return Outcome::Answer(self.assets_service(door, body_value(body)));
+        }
         let Input::Body(name) = route.input else {
             return Outcome::Owed(route.slice);
         };
-        let value = match body {
-            Body::Absent => Value::Undefined,
-            Body::Parsed(j) => Value::from_json(j),
-        };
-        match parse(name, value) {
+        match parse(name, body_value(body)) {
             Ok(Parsed::Ok(_)) => Outcome::Owed(route.slice),
             Ok(Parsed::Issues(issues)) => {
                 answer(errors::http_error(&Failure::Zod(schema::message(&issues))))
@@ -738,6 +746,10 @@ impl LedgerDoor {
         let past = |input: Value| match route.slice {
             Slice::Freeze => {
                 Outcome::Answer(self.freeze_door(route.method, route.path, &principal, &input))
+            }
+            // The registry's handlers parse the body themselves, as sent.
+            Slice::Assets => {
+                Outcome::Answer(self.assets_operator(route.path, &principal, &body_value(body)))
             }
             slice => Outcome::Owed(slice),
         };

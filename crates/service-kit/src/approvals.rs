@@ -21,7 +21,8 @@ pub const ACTION_APPROVAL_CONSUME_FAILED: &str = "action_approval.consume_failed
 /// `REFUSAL_DETAIL_MAX`.
 const REFUSAL_DETAIL_MAX: usize = 300;
 
-/// `ActionApprovalConsumeInput` without a replay key: the six fields, in schema order.
+/// `ActionApprovalConsumeInput`: the six fields, in schema order, and the caller's replay key (`requestId`) when it
+/// sends one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsumeInput<'a> {
     pub approval_id: &'a str,
@@ -30,6 +31,9 @@ pub struct ConsumeInput<'a> {
     pub target_service: &'a str,
     pub target_id: &'a str,
     pub expected_version: &'a str,
+    /// `requestId`: the same key after a lost reply answers the consumed row again
+    /// (`consumption: already_consumed_by_this_request`). None is a one-shot consume.
+    pub request_id: Option<&'a str>,
 }
 
 /// The fields of the consumed `ActionApproval` a service reads after the echo check.
@@ -89,13 +93,19 @@ fn consume_payload(input: &ConsumeInput<'_>) -> Result<String, ConsumeError> {
             )));
         }
     }
-    Ok(Json::Object(
-        fields
-            .iter()
-            .map(|(k, v, _)| ((*k).to_owned(), Json::str(*v)))
-            .collect(),
-    )
-    .compact())
+    let mut out: Vec<(String, Json)> = fields
+        .iter()
+        .map(|(k, v, _)| ((*k).to_owned(), Json::str(*v)))
+        .collect();
+    if let Some(key) = input.request_id {
+        if !bounded(key, 128) {
+            return Err(ConsumeError::Thrown(
+                "the approval consume input's requestId is out of bounds".to_owned(),
+            ));
+        }
+        out.push(("requestId".to_owned(), Json::str(key)));
+    }
+    Ok(Json::Object(out).compact())
 }
 
 /// `refusalDetail(text)`: tRPC's `error.message` (or the text itself when it is not JSON), first line, trimmed, cut at
@@ -369,6 +379,7 @@ mod tests {
             target_service: "svc-academy",
             target_id: "academy.season.create",
             expected_version: "1",
+            request_id: None,
         }
     }
 
@@ -448,6 +459,29 @@ mod tests {
         let mut want = vec![("content-type".to_owned(), "application/json".to_owned())];
         want.extend(s2s::legacy_headers("svc-academy", SECRET, &body, 1_700_000_000).unwrap());
         assert_eq!(req.headers, want);
+    }
+
+    #[test]
+    fn a_replay_key_travels_after_the_six_fields_and_is_bounded() {
+        let (c, fake) = client(200, trpc(approval("CONSUMED", Json::str("appr"))));
+        let keyed = ConsumeInput {
+            request_id: Some("asset-edit:USDT:1"),
+            ..input()
+        };
+        c.consume(&keyed).unwrap();
+        assert_eq!(
+            fake.seen.lock().unwrap()[0].body.as_deref(),
+            Some(
+                r#"{"approvalId":"ap-1","operationId":"op-1","payloadHash":"sha256:abc","targetService":"svc-academy","targetId":"academy.season.create","expectedVersion":"1","requestId":"asset-edit:USDT:1"}"#
+            )
+        );
+        let long = "k".repeat(129);
+        let too_long = ConsumeInput {
+            request_id: Some(&long),
+            ..input()
+        };
+        assert!(matches!(c.consume(&too_long), Err(ConsumeError::Thrown(_))));
+        assert_eq!(fake.seen.lock().unwrap().len(), 1);
     }
 
     #[test]

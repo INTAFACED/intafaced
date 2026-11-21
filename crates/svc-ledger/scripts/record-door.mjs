@@ -45,6 +45,7 @@ const { operatorTxGetInputSchema } = await import(`${SVC}ledger/operator-tx-get.
 const { operatorTraceInputSchema } = await import(`${SVC}ledger/operator-trace.ts`);
 const { operatorTxListInputSchema, operatorAccountSearchInputSchema } = await import(`${SVC}ledger/operator-desk.ts`);
 const { accountMetadataReadInputSchema } = await import(`${SVC}ledger/operator-account-metadata.ts`);
+const assetRegistry = await import(`${ROOT}packages/contracts/src/asset-registry.ts`);
 const { verifyAccessToken } = await import(`${ROOT}packages/auth/src/tokens.ts`);
 
 // ── The inputs the door checks ─────────────────────────────────────────────────────────────────────────────────────
@@ -69,6 +70,14 @@ const INPUTS = {
   accountSearch: operatorAccountSearchInputSchema,
   stats: z.object({}).strict(),
   metadataRead: accountMetadataReadInputSchema,
+  // The asset registry (`ledger/supported-assets.ts`): each read's filter, the edit a founder applies, the precision
+  // `parseAssetEdit` checks first, and the row every read answers (`registryAssetSchema.parse`).
+  assetsList: assetRegistry.assetsListInputSchema,
+  assetsGet: assetRegistry.assetsGetInputSchema,
+  assetApplyEdit: assetRegistry.assetApplyEditInputSchema,
+  assetEdit: assetRegistry.assetEditInputSchema,
+  assetPrecision: assetRegistry.assetPrecisionSchema,
+  registryAsset: assetRegistry.registryAssetSchema,
 };
 
 /** Refines, by their source as tsx loads it: the Rust door runs each by this name (`src/refines.rs`). */
@@ -77,7 +86,11 @@ const REFINES = {
   'v=>BigInt(v)<=INT8_MAX': 'seq_within_int8',
 };
 /** `superRefine`s, by the schema that carries them (their check's source is zod's own wrapper). */
-const SUPER_REFINES = new Map([[ledgerClient.accountRefSchema, 'owner_id_space']]);
+const SUPER_REFINES = new Map([
+  [ledgerClient.accountRefSchema, 'owner_id_space'],
+  [assetRegistry.registryAssetSchema, 'asset_body'],
+  [assetRegistry.assetEditInputSchema, 'asset_body'],
+]);
 
 const ids = new Map();
 const nodes = [];
@@ -252,8 +265,104 @@ const VALID = {
   accountSearch: { prefix: ' user:2222 ', after: ID },
   stats: {},
   metadataRead: { accountId: ID },
+  assetsList: { state: 'active', action: 'withdraw' },
+  assetsGet: { assetId: 'USDT' },
+  assetEdit: {
+    id: 'USDT',
+    kind: 'crypto',
+    precision: 6,
+    networks: [
+      { networkId: 'tron', label: 'Tron (TRC-20)' },
+      {
+        networkId: 'ethereum',
+        label: 'Ethereum (ERC-20)',
+        contract: ' 0xdac17f958d2ee523a2206206994597c13d831ec7 ',
+        links: [{ label: 'Explorer', url: 'https://etherscan.io/token/0xdac1' }],
+      },
+    ],
+    defaultNetworkId: 'ethereum',
+    allowedActions: ['deposit', 'withdraw', 'trade', 'transfer'],
+    state: 'active',
+    reason: '  TEST: publish USDT  ',
+  },
+  assetPrecision: 6,
 };
+VALID.assetApplyEdit = { approvalId: 'ap-1', operationId: 'asset-edit:USDT:1', edit: VALID.assetEdit };
+VALID.registryAsset = (() => {
+  const { reason: _reason, ...body } = VALID.assetEdit;
+  return { ...body, revision: 1, updatedAt: '2026-11-21T01:02:03.456Z' };
+})();
+const edit = VALID.assetEdit;
+const [tron, eth] = edit.networks;
+const ASSET_BODY_EXTRA = [
+  { ...edit, networks: [tron, tron] },
+  { ...edit, defaultNetworkId: 'solana' },
+  { ...edit, networks: [], defaultNetworkId: null },
+  { ...edit, networks: [], defaultNetworkId: 'solana', allowedActions: ['trade', 'trade'] },
+  { ...edit, allowedActions: ['trade', 'trade'] },
+  { ...edit, allowedActions: ['deposit', 'withdraw', 'trade', 'transfer', 'trade'] },
+  { ...edit, allowedActions: ['mint'] },
+  { ...edit, precision: 19 },
+  { ...edit, precision: -1 },
+  { ...edit, precision: 1.5 },
+  { ...edit, precision: '6' },
+  { ...edit, precision: 18 },
+  { ...edit, precision: 0 },
+  { ...edit, id: 'usdt' },
+  { ...edit, id: 'A'.repeat(17) },
+  { ...edit, kind: 'stock' },
+  { ...edit, state: 'frozen' },
+  { ...edit, state: 'retired' },
+  { ...edit, networks: [{ ...tron, networkId: 'Tron' }], defaultNetworkId: null },
+  { ...edit, networks: [{ ...tron, networkId: '-tron' }], defaultNetworkId: null },
+  { ...edit, networks: [{ ...tron, networkId: 'a'.repeat(33) }], defaultNetworkId: null },
+  { ...edit, networks: [{ ...tron, label: '' }, eth] },
+  { ...edit, networks: [{ ...tron, extra: 1 }, eth] },
+  { ...edit, networks: [tron, { ...eth, contract: '   ' }] },
+  { ...edit, networks: [tron, { ...eth, contract: 'c'.repeat(129) }] },
+  { ...edit, networks: [tron, { ...eth, links: [] }] },
+  { ...edit, networks: [tron, { ...eth, links: [{ label: 'x', url: 'http://etherscan.io' }] }] },
+  { ...edit, networks: [tron, { ...eth, links: [{ label: 'x', url: 'https://localhost' }] }] },
+  { ...edit, networks: [tron, { ...eth, links: [{ label: 'x', url: 'https://a.b c' }] }] },
+  { ...edit, networks: [tron, { ...eth, links: [{ label: 'x', url: 'https://a.b/c?d#e' }] }] },
+  { ...edit, networks: [tron, { ...eth, links: Array(9).fill({ label: 'x', url: 'https://a.b' }) }] },
+  { ...edit, networks: [tron, { ...eth, links: [{ label: 'x', url: 'https://a.b', extra: 1 }] }] },
+  { ...edit, networks: Array.from({ length: 65 }, (_, i) => ({ networkId: `n${i}`, label: 'n' })), defaultNetworkId: null },
+  { ...edit, networks: [tron, 7] },
+  { ...edit, networks: [tron, null], defaultNetworkId: 'tron' },
+];
 const EXTRA = {
+  assetsList: [
+    { state: 'halted' },
+    { action: 'trade' },
+    { state: 'frozen' },
+    { action: 'mint' },
+    { state: 'active', action: 'withdraw', extra: 1 },
+  ],
+  assetsGet: [{ assetId: 'usdt' }, { assetId: 'A'.repeat(17) }, { assetId: '' }, { assetId: 'US DT' }],
+  assetEdit: [
+    ...ASSET_BODY_EXTRA,
+    { ...edit, reason: '   ' },
+    { ...edit, reason: 'r'.repeat(501) },
+    { ...edit, reason: `  ${'r'.repeat(500)}  ` },
+  ],
+  assetApplyEdit: [
+    ...ASSET_BODY_EXTRA.map((e) => ({ ...VALID.assetApplyEdit, edit: e })),
+    { ...VALID.assetApplyEdit, approvalId: 'a'.repeat(129) },
+    { ...VALID.assetApplyEdit, operationId: '' },
+    { approvalId: 'ap-1', operationId: 'op-1', edit: { ...edit, precision: undefined } },
+  ],
+  assetPrecision: [0, 18, 19, -1, 1.5, '6', 1e21, Number.MAX_SAFE_INTEGER + 2],
+  registryAsset: [
+    ...ASSET_BODY_EXTRA.map(({ reason: _r, ...b }) => ({ ...b, revision: 1, updatedAt: VALID.registryAsset.updatedAt })),
+    { ...VALID.registryAsset, revision: -1 },
+    { ...VALID.registryAsset, revision: 1.5 },
+    { ...VALID.registryAsset, revision: Number.MAX_SAFE_INTEGER + 2 },
+    { ...VALID.registryAsset, updatedAt: '2026-11-21T01:02:03.456+00:00' },
+    { ...VALID.registryAsset, updatedAt: '2026-11-21' },
+    { ...VALID.registryAsset, precision: null },
+    { ...VALID.registryAsset, reason: 'x' },
+  ],
   post: [
     { ...VALID.post, meta: { a: 1 }, correlationId: 'c' },
     { ...VALID.post, entries: [VALID.post.entries[0]] },

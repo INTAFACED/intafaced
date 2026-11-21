@@ -66,10 +66,20 @@ fn every_door_input_answers_as_zod() {
             ));
         }
     }
+    let doors: std::collections::BTreeSet<String> = cases
+        .iter()
+        .filter_map(|c| match c {
+            Json::Array(c) => match c.first() {
+                Some(Json::String(name)) => Some(name.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
     println!(
-        "{} inputs over {} doors; {} differ",
+        "{} inputs over {} door inputs; {} differ",
         cases.len(),
-        14,
+        doors.len(),
         differ.len()
     );
     assert!(

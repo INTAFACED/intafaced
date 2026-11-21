@@ -265,6 +265,138 @@
           "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
         }
       ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["state", 73],
+        ["action", 75]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "optional", "in": 74 },
+    { "t": "enum", "values": ["active", "halted", "retired"] },
+    { "t": "optional", "in": 76 },
+    { "t": "enum", "values": ["deposit", "withdraw", "trade", "transfer"] },
+    { "t": "object", "shape": [["assetId", 78]], "catchall": "strict" },
+    { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Z0-9]{1,16}$/", "msg": "asset ids are 1-16 upper-case letters or digits" }] },
+    {
+      "t": "object",
+      "shape": [
+        ["approvalId", 80],
+        ["operationId", 81],
+        ["edit", 82]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 78],
+        ["kind", 83],
+        ["precision", 84],
+        ["networks", 85],
+        ["defaultNetworkId", 96],
+        ["allowedActions", 97],
+        ["state", 74],
+        ["reason", 98]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "super", "id": "asset_body" }]
+    },
+    { "t": "enum", "values": ["crypto", "fiat", "native", "commodity"] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 18, "incl": true }] },
+    { "t": "array", "el": 86, "checks": [{ "k": "max_length", "n": 64 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["networkId", 87],
+        ["label", 88],
+        ["contract", 89],
+        ["links", 91]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [{ "k": "regex", "src": "/^[a-z0-9][a-z0-9_-]{0,31}$/", "msg": "network ids are 1-32 lower-case letters, digits, - or _" }]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    { "t": "optional", "in": 90 },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 128 }] },
+    { "t": "optional", "in": 92 },
+    { "t": "array", "el": 93, "checks": [{ "k": "max_length", "n": 8 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["label", 94],
+        ["url", 95]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 64 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "max_length", "n": 512 },
+        { "k": "regex", "src": "/^https:\\/\\/[^\\s/?#]+\\.[^\\s/?#]+(?:[/?#]\\S*)?$/", "msg": "links are https addresses" }
+      ]
+    },
+    { "t": "nullable", "in": 87 },
+    { "t": "array", "el": 76, "checks": [{ "k": "max_length", "n": 4 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 500 }] },
+    {
+      "t": "object",
+      "shape": [
+        ["id", 78],
+        ["kind", 83],
+        ["precision", 84],
+        ["networks", 85],
+        ["defaultNetworkId", 96],
+        ["allowedActions", 97],
+        ["state", 74],
+        ["revision", 100],
+        ["updatedAt", 101]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "super", "id": "asset_body" }]
+    },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "int" }] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$/"
+        }
+      ]
     }
   ],
   "inputs": {
@@ -282,6 +414,12 @@
     "txList": 56,
     "accountSearch": 65,
     "stats": 69,
-    "metadataRead": 70
+    "metadataRead": 70,
+    "assetsList": 72,
+    "assetsGet": 77,
+    "assetApplyEdit": 79,
+    "assetEdit": 82,
+    "assetPrecision": 84,
+    "registryAsset": 99
   }
 }

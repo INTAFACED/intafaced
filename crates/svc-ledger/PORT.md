@@ -25,6 +25,13 @@ The `freeze` slice is ported. It added:
 - `src/door/freeze.rs`: `GET` and `POST /operator/freeze`, `POST /operator/unfreeze` and `GET /operator/integrity/clock`. `freezeSchema` is recorded as zod runs it: its trim, then its pipe (`service_kit::schema` runs pipes).
 - `tests/freeze_pg.rs`: the freeze cases of `service.freeze.test.ts`, the clock-skew Postgres case and the freeze doors of `operator-http.test.ts`, on a real Postgres.
 
+The `assets` slice is ported. It added:
+
+- `src/assets.rs`: the registry's reads (`listAssets`, `getAsset`, `listOperatorAssets`) and `applyAssetEdit`: the edit's payload hash (`assetEditPayloadHash`), the founder pair it spends, applied once per operation id, stale against the revision it was approved at. Every input and every row read out runs through the schemas recorded from `packages/contracts/src/asset-registry.ts`, the body's own check as the `asset_body` refine in `src/refines.rs`.
+- `src/door/assets.rs`: `assetsList`, `assetsGet`, `GET /operator/assets` and `POST /operator/assets/apply-edit`, past the door's caller and scope checks.
+- The kit's identity client sends a consume's replay key (`requestId`), which the asset edit sends and the freeze doors do not.
+- `tests/assets_pg.rs`: `supported-assets.pg.test.ts` case for case, and the doors of `asset-registry-doors.test.ts`, on a real Postgres.
+
 Left to later slices:
 
 - The recovery has one relay. `posting` adds the `ledgerTxPosted` one; until then a committed post's intent waits unsent.
