@@ -28,7 +28,7 @@ import { displayAmount } from '../../../shared/money';
 import { createRoomApi, type GridBot, type GridRequest } from './api';
 import { roomCopy } from './copy';
 import { useWriteGuard } from './guard';
-import { GridSettings, GridTopUp } from './GridManage';
+import { GridExits, GridIdleYield, GridSettings, GridTopUp } from './GridManage';
 import { GridWithdraw } from './GridWithdraw';
 import { GridWallet, VenueGridFacts, VenueGridWithdraw, WALLET_CODES, useVenueGrid, venueFeeItems } from './GridVenue';
 import { parseGridCount, previewGridPrices } from './grid-plan';
@@ -52,6 +52,9 @@ export const GRID_TONE: Record<GridBot['status'], BadgeTone> = {
   initialization_failed: 'warn',
   stopped: 'neutral',
 };
+
+/** Why a grid stopped, in words: its own exit, or the person. */
+const STOP_WORD: Readonly<Record<string, string>> = { price_exit: 'Price exit', owner_stop: 'You stopped it' };
 
 // One key per intent: kept while a reply is lost (so a resend is the same request), renewed after any definite answer.
 const newRequestKey = () => `grid-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -414,6 +417,9 @@ function GridDetail({
                 : `${displayAmount(data.reserve.amount)} ${data.reserve.asset}`
               : t('None'),
           },
+          ...(data.status === 'stopped' && data.statusReason && STOP_WORD[data.statusReason]
+            ? [{ label: t('Stopped by'), value: t(STOP_WORD[data.statusReason] as 'Price exit') }]
+            : []),
           { label: t('Bot ID'), value: data.botId },
         ]}
       />
@@ -428,6 +434,8 @@ function GridDetail({
             <>
               <GridTopUp bot={data} api={api} onDone={bot.reload} />
               <GridSettings bot={data} api={api} />
+              <GridExits bot={data} api={api} onDone={bot.reload} />
+              <GridIdleYield bot={data} api={api} />
             </>
           ) : null}
         </div>

@@ -25,6 +25,12 @@ The `freeze` slice is ported. It added:
 - `src/door/freeze.rs`: `GET` and `POST /operator/freeze`, `POST /operator/unfreeze` and `GET /operator/integrity/clock`. `freezeSchema` is recorded as zod runs it: its trim, then its pipe (`service_kit::schema` runs pipes).
 - `tests/freeze_pg.rs`: the freeze cases of `service.freeze.test.ts`, the clock-skew Postgres case and the freeze doors of `operator-http.test.ts`, on a real Postgres.
 
+The `history` slice is ported. It added:
+
+- `src/history.rs`: `history` (one account's entries in `[from, to)`, refused past 10,000 rather than answered short), `historyPage` (keyset pages newest first on the entry id, the cursor `base64url("v2.<id>")`, and each line's allow-listed rail and product, the owner's own order, its fill fee and its withdrawal id) and `holdingsHistory` (the owner's holdings and what crossed its edge since `from`, per asset, reason and bucket, in one repeatable-read snapshot). Moments cross as milliseconds, the database's microseconds cut as `new Date` cuts them.
+- `src/door/history.rs`: the three doors. `history` refuses `after` and `cursor` before its schema would strip them; `holdingsHistory` refuses a start ahead of the clock or off its bucket. Their inputs are recorded in `schemas.json` (the recorder now records `literal` and `default` parts).
+- `tests/history_pg.rs`: `history-postgres.test.ts`, `history-page-postgres.test.ts`, `history-page-order-id-postgres.test.ts`, `holdings-history-postgres.test.ts` and `holdings-history-door.test.ts`, case for case, on a real Postgres. Each books the same recipes the TypeScript test posts, recorded in `tests/fixtures/history-book.golden.json`.
+
 The `balances` slice is ported. It added:
 
 - `src/balances.rs`: `balance`, `balances`, `portfolio`, `txByKey` and `txById`, answered by the door once their input parses. Each read runs `PostgresLedger`'s query: an untouched account reads as zero without a row being made, purpose is matched after its trim, and a booked transaction whose claim (`ledger_posted_keys`) no longer matches is refused with `ledger.posted_claim_mismatch`.

@@ -3,7 +3,7 @@
 // the calls both rooms share. Only fields the screen shows are kept, and no service sentence is ever kept
 // (`residual` and `statusLine` are deliberately left out of the schema).
 import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
-import { GRID_SUBMIT_PERMISSION } from '@intafaced/contracts/trade-grid-procedures';
+import { GRID_SET_EXITS, GRID_SET_IDLE_YIELD, GRID_SUBMIT_PERMISSION } from '@intafaced/contracts/trade-grid-procedures';
 import {
   MARKET_SIGNALS_ARCHIVE,
   MARKET_SIGNALS_CRITERIA,
@@ -125,6 +125,8 @@ export type GridBot = z.infer<typeof gridBotSchema>;
 export type GridWithdrawal = z.infer<typeof gridWithdrawalSchema>;
 export type GridTopUpRequest = { botId: string; requestId: string; asset: string; amount: string };
 export type GridModifyRequest = { botId: string; trailing: boolean; shiftLimitPercent: string; minGridCount: number | null };
+/** A grid's exits: blank prices clear an exit, and an RSI value is sent as typed so the service names its refusal. */
+export type GridExitsRequest = { botId: string; stopBelow: string; stopAbove: string; rsiBelow?: string };
 export type GridWithdrawRequest = {
   botId: string;
   requestId: string;
@@ -303,6 +305,8 @@ export function createRoomApi(api: ApiClient) {
       api.query('trade', 'bots.grid.topUpFree', { botId }, gridTopUpFreeSchema, { signal }),
     gridTopUp: (input: GridTopUpRequest) => api.mutate('trade', 'bots.grid.topUp', input, gridTopUpSchema),
     gridModify: (input: GridModifyRequest) => api.mutate('trade', 'bots.grid.modify', input, gridBotSchema),
+    gridSetExits: (input: GridExitsRequest) => api.call(GRID_SET_EXITS, input),
+    gridSetIdleYield: (input: { botId: string; on: boolean }) => api.call(GRID_SET_IDLE_YIELD, input),
     gridWithdraw: (input: GridWithdrawRequest) => api.mutate('trade', 'bots.grid.withdrawProfit', input, gridWithdrawalSchema),
     // The room shows only strategies whose amounts read as unsigned amounts; a page with any other reads as unverified.
     studio: (signal?: AbortSignal) => api.call(QUANT_STUDIO_LIST, { limit: 50 }, { signal, accept: parsesAs(studioListSchema) }),
