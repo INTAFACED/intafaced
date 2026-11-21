@@ -19,7 +19,7 @@ import { useSession } from '../session';
 import { notificationsCopy as copy } from './notifications-copy';
 import { NotificationTargets } from './NotificationTargets';
 import './notifications.css';
-import { NOTIFY_MUTE_PREFS, NOTIFY_SET_MUTE } from '@intafaced/contracts/notify-notify-procedures';
+import { NOTIFY_LIST, NOTIFY_MUTE_PREFS, NOTIFY_SET_MUTE } from '@intafaced/contracts/notify-notify-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 const notification = accountNotificationSchema;
@@ -65,18 +65,21 @@ function NotificationRoom({ userId }: { userId: string }) {
   }, []);
   const inbox = useResource(
     (signal) =>
-      api.query(
-        'notify',
-        'notify.list',
+      api.call(
+        NOTIFY_LIST,
         { limit: 50, ...(cursor ? { cursor } : {}), unreadOnly: unread },
-        accountInboxSchema(50).refine(
-          (data) =>
-            data.items.every((row) => row.userId === userId) &&
-            new Set(data.items.map((row) => row.id)).size === data.items.length &&
-            (!cursor || data.nextCursor !== cursor),
-          'Inbox ownership, IDs or continuation are invalid',
-        ),
-        { signal },
+        {
+          signal,
+          accept: parsesAs(
+            accountInboxSchema(50).refine(
+              (data) =>
+                data.items.every((row) => row.userId === userId) &&
+                new Set(data.items.map((row) => row.id)).size === data.items.length &&
+                (!cursor || data.nextCursor !== cursor),
+              'Inbox ownership, IDs or continuation are invalid',
+            ),
+          ),
+        },
       ),
     `notifications:${userId}:${cursor}:${unread}:${readCycle}`,
   );

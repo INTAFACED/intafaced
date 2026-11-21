@@ -32,7 +32,6 @@ import {
   createAlertsReplySchema,
   createWatchRuleReplySchema,
   notificationSchema,
-  notifyListSchema,
   notifyPrefsSchema,
   priceAlertSchema,
   setAlertActiveReplySchema,
@@ -61,6 +60,7 @@ import {
   NOTIFY_WATCHLIST_ALERTS,
   NOTIFY_CREATE_WATCHLIST_ALERT,
   NOTIFY_STOP_WATCHLIST_ALERT,
+  NOTIFY_LIST,
 } from '@intafaced/contracts/notify-notify-procedures';
 
 export {
@@ -79,7 +79,7 @@ export {
 
 export type Notification = z.infer<typeof notificationSchema>;
 
-export type InboxPage = z.infer<typeof notifyListSchema>;
+export type InboxPage = ProcedureOutput<typeof NOTIFY_LIST>;
 
 export interface ListArgs {
   limit: number;
@@ -88,11 +88,9 @@ export interface ListArgs {
 }
 
 export function listNotifications(api: ApiClient, args: ListArgs, signal?: AbortSignal): Promise<ApiResult<InboxPage>> {
-  return api.query(
-    'notify',
-    'notify.list',
+  return api.call(
+    NOTIFY_LIST,
     { limit: args.limit, ...(args.cursor ? { cursor: args.cursor } : {}), ...(args.unreadOnly ? { unreadOnly: true } : {}) },
-    notifyListSchema,
     { signal },
   );
 }

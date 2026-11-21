@@ -71,7 +71,6 @@ import {
   NOTIFY_VERIFY_TARGET,
 } from '@intafaced/contracts/notify-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
-import { jsonValueSchema } from '@intafaced/contracts/procedure-strict-schema';
 import { notifyRefusal } from './record-refusal.js';
 import { BLANK_INBOX_SETTINGS, describeInboxPolicy, type InboxSettings } from './inbox-policy.js';
 import { describeAlertsPolicy } from './alerts-policy.js';
@@ -131,48 +130,9 @@ import {
   NOTIFY_STATUS_FEED,
   NOTIFY_CHANGELOG,
   NOTIFY_UPCOMING_CHANGES,
+  NOTIFY_LIST,
 } from '@intafaced/contracts/notify-notify-procedures';
 import { NOTIFY_HEALTH } from '@intafaced/contracts/notify-health-procedures';
-
-/**
- * svc-notify API — inbox, channels, and the delivery record.
- *
- * Every procedure operates on `ctx.principal.userId` and never on a userId from
- * input. Mark-read of another account's ids is a silent no-op at the store
- * (self-only), and the router never accepts a target userId.
- *
- * `notify` is non-custodial and `minTier: 'none'` — the guard's job is scope and
- * region, not verification.
- *
- * WHY `notify.deliveries` IS A USER-FACING PROCEDURE
- *
- * Because the answer belongs to the user. If a margin call was raised and the
- * email never went out, the person whose collateral is at risk is the one who
- * most needs to see `email: refused, channel.not_configured`. Putting that only
- * behind an admin console would leave the honest record where the affected party
- * cannot reach it.
- */
-
-const severitySchema = z.enum(['info', 'action', 'critical']);
-
-const notificationOutput = z.object({
-  id: z.string().guid(),
-  userId: z.string(),
-  kind: z.string(),
-  titleKey: z.string(),
-  bodyKey: z.string(),
-  /** Catalog-resolved title. Unknown keys are the key string, never invented English. */
-  title: z.string(),
-  /** Catalog-resolved body. Unknown keys are the key string, never invented English. */
-  body: z.string(),
-  params: z.record(z.string(), jsonValueSchema),
-  href: z.string().nullable(),
-  severity: severitySchema,
-  readAt: z.string().nullable(),
-  sourceSubject: z.string(),
-  sourceIdempotencyKey: z.string(),
-  createdAt: z.string(),
-});
 
 function toWire(n: Notification) {
   const copy = renderInboxCopy(n, 'en');
@@ -420,28 +380,9 @@ export function createNotifyRouter(
     ),
 
     notify: router({
-      list: scopedProcedure('notify:read', { module: 'notify' })
-        .input(
-          z
-            .object({
-              cursor: z.string().guid().optional(),
-              /**
-               * Page size. Optional here so omit reaches the named refuse
-               * (`notify.list_limit_unset`) instead of a Zod "Required".
-               * Blank is not 20; pass 20 explicitly when that is the page you want.
-               */
-              limit: z.number().int().min(1).max(100).optional(),
-              unreadOnly: z.boolean().optional(),
-            })
-            .optional(),
-        )
-        .output(
-          z.object({
-            items: z.array(notificationOutput),
-            nextCursor: z.string().guid().nullable(),
-          }),
-        )
-        .query(async ({ ctx, input }) => {
+      list: mountRecord(
+        NOTIFY_LIST,
+        async ({ ctx, input }) => {
           try {
             const result = await notify.list({
               userId: ctx.principal.userId,
@@ -463,7 +404,9 @@ export function createNotifyRouter(
             }
             throw err;
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       unreadCount: mountRecord(
         NOTIFY_UNREAD_COUNT,

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { noticeCategorySchema } from './status-page.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** The schemas svc-notify's records share, moved from the service so the records and every caller read one copy. */
@@ -451,4 +452,43 @@ export const venueIncidentOutput = z.object({
   code: z.enum(VENUE_INCIDENT_CODES).nullable(),
   incidentSilence: z.boolean(),
   allClear: z.boolean(),
+});
+
+/**
+ * svc-notify API — inbox, channels, and the delivery record.
+ *
+ * Every procedure operates on `ctx.principal.userId` and never on a userId from
+ * input. Mark-read of another account's ids is a silent no-op at the store
+ * (self-only), and the router never accepts a target userId.
+ *
+ * `notify` is non-custodial and `minTier: 'none'` — the guard's job is scope and
+ * region, not verification.
+ *
+ * WHY `notify.deliveries` IS A USER-FACING PROCEDURE
+ *
+ * Because the answer belongs to the user. If a margin call was raised and the
+ * email never went out, the person whose collateral is at risk is the one who
+ * most needs to see `email: refused, channel.not_configured`. Putting that only
+ * behind an admin console would leave the honest record where the affected party
+ * cannot reach it.
+ */
+export const severitySchema = z.enum(['info', 'action', 'critical']);
+
+export const notificationOutput = z.object({
+  id: z.string().guid(),
+  userId: z.string(),
+  kind: z.string(),
+  titleKey: z.string(),
+  bodyKey: z.string(),
+  /** Catalog-resolved title. Unknown keys are the key string, never invented English. */
+  title: z.string(),
+  /** Catalog-resolved body. Unknown keys are the key string, never invented English. */
+  body: z.string(),
+  params: z.record(z.string(), jsonValueSchema),
+  href: z.string().nullable(),
+  severity: severitySchema,
+  readAt: z.string().nullable(),
+  sourceSubject: z.string(),
+  sourceIdempotencyKey: z.string(),
+  createdAt: z.string(),
 });

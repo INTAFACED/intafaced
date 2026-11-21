@@ -36,6 +36,7 @@ import {
   UNPUBLISHED_ALERT_KINDS,
   watchRuleOutput,
   webhookAttemptOutput,
+  notificationOutput,
 } from './notify-call-schemas.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
@@ -869,6 +870,35 @@ export const NOTIFY_UPCOMING_CHANGES = defineProcedure({
   output: z.object({
     upcoming: z.array(localizedNoticeOutput),
     retired: z.array(z.object({ endpoint: z.string(), entryId: z.string().guid(), title: z.string(), releaseOn: changelogDay.nullable() })),
+  }),
+  samples: [
+    { verdict: 'accept', input: {} },
+    { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const NOTIFY_LIST = defineProcedure({
+  ...base,
+  name: 'notify.notify.list',
+  kind: 'query',
+  path: 'notify.list',
+  access: { caller: 'scope', scope: 'notify:read', module: 'notify' },
+  refusals: {},
+  input: z
+    .object({
+      cursor: z.string().guid().optional(),
+      /**
+       * Page size. Optional here so omit reaches the named refuse
+       * (`notify.list_limit_unset`) instead of a Zod "Required".
+       * Blank is not 20; pass 20 explicitly when that is the page you want.
+       */
+      limit: z.number().int().min(1).max(100).optional(),
+      unreadOnly: z.boolean().optional(),
+    })
+    .optional(),
+  output: z.object({
+    items: z.array(notificationOutput),
+    nextCursor: z.string().guid().nullable(),
   }),
   samples: [
     { verdict: 'accept', input: {} },
