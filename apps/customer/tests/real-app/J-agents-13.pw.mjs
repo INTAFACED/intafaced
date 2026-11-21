@@ -1,5 +1,4 @@
 // World: none
-import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { agentsRun, createOwnAgent, openAgents, openNavigatorSession, openOwnAgent, tableIn } from './agents.mjs';
 import { signIn } from './desk.mjs';
@@ -52,13 +51,32 @@ async function storedLog(outcome) {
   return rows;
 }
 
-/** The English words the room shows for a refusal code, read from the room's own copy (agents-catalogue-copy.ts). */
-const CATALOGUE_COPY = readFileSync(new URL('../../src/features/more/agents-catalogue-copy.ts', import.meta.url), 'utf8');
+/** The English words the room shows for each refusal code (agents-catalogue-copy.ts, `refusal_<code>`), as J-agents-01
+ * records them. A code with no words here fails the step: the room must word every refusal it shows. */
+const REFUSAL_WORDS = {
+  session_closed: 'The session is closed',
+  action_limit: 'The session’s action budget is spent',
+  tool_not_declared: 'This agent may never use it',
+  module_not_allowed: 'Its module is not granted to this agent',
+  mode_unknown: 'No known permission mode allows it',
+  mode_forbids_write: 'The permission mode does not allow changes',
+  withdraw_scope_required: 'Withdrawals need a separate grant',
+  tool_call_limit: 'Its calls for this session are used up',
+  approval_required: 'It waits for your approval',
+  place_idempotency_required: 'An order needs its own request key',
+  place_key_conflict: 'That request key already belongs to another order',
+  task_not_allowed: 'This agent may not run that task',
+  'copy_intel.returns_board_refused': 'Copy intelligence never ranks leaders by returns; nothing was run or charged',
+  output_limit: 'It asked for more output than allowed',
+  spend_limit: 'Its worst case would pass the spend cap',
+  price_unset: 'No rate is published for this task',
+  funds_insufficient: 'Your available balance is below its worst case',
+  funds_unread: 'Your balance could not be read, so it did not start',
+};
 function refusalWordsOf(code) {
-  const key = `refusal_${code.replace(/^agents\./, '')}`;
-  const line = new RegExp(`^\\s*'?${key.replace(/[.]/g, '\\.')}'?:\\s*'([^']+)'`, 'm').exec(CATALOGUE_COPY);
-  if (!line) throw new Error(`${J}: the room has no words for ${code}`);
-  return line[1];
+  const words = REFUSAL_WORDS[code.replace(/^agents\./, '')];
+  if (!words) throw new Error(`${J}: the room has no words for ${code}`);
+  return words;
 }
 
 /** The session the start ran, from the run file; a later step after a failed start says so. */
