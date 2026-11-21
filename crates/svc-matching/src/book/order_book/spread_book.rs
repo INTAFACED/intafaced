@@ -42,7 +42,7 @@ pub fn spread_amend_refuse() -> Reject {
 fn unsupported_field(o: &EngineOrder) -> Option<&'static str> {
     let set_amount = |v: &Opt<_>| matches!(v, Opt::Some(_));
     let set_flag = |v: &Opt<bool>| *v == Opt::Some(true);
-    let parts: [(&'static str, bool); 30] = [
+    let parts: [(&'static str, bool); 37] = [
         ("triggerRole", o.trigger_role.is_some()),
         ("triggerBy", o.trigger_by.is_some()),
         ("instrument", o.instrument.is_some()),
@@ -51,6 +51,10 @@ fn unsupported_field(o: &EngineOrder) -> Option<&'static str> {
             "ocoSiblingId",
             o.oco_sibling_id.as_ref().is_some_and(|s| !s.is_empty()),
         ),
+        ("oco", o.exits.oco),
+        ("takeProfit", set_amount(&o.exits.take_profit)),
+        ("stopLoss", set_amount(&o.exits.stop_loss)),
+        ("stopLossLimit", set_amount(&o.exits.stop_loss_limit)),
         (
             "expireAt",
             o.expire_at.as_ref().is_some_and(|s| !s.is_empty()),
@@ -58,13 +62,13 @@ fn unsupported_field(o: &EngineOrder) -> Option<&'static str> {
         ("reduceOnly", o.reduce_only),
         ("iceberg", o.iceberg),
         ("displayQty", set_amount(&o.display_qty)),
-        ("trail", o.trail.is_some()),
-        ("mark", o.mark.is_some()),
+        ("trail", set_amount(&o.trail)),
+        ("mark", set_amount(&o.mark)),
         ("strike", set_amount(&o.strike)),
         ("expiry", matches!(o.expiry, Opt::Some(_))),
         ("exercise", o.exercise),
         ("cover", o.cover),
-        ("cancel", o.cancel),
+        ("cancel", o.exits.cancel),
         ("minQty", set_amount(&o.min_qty)),
         ("aon", set_flag(&o.aon)),
         ("peg", set_flag(&o.peg)),
@@ -81,6 +85,15 @@ fn unsupported_field(o: &EngineOrder) -> Option<&'static str> {
         (
             "combo",
             set_flag(&o.combo) || matches!(o.legs, Opt::Some(_)),
+        ),
+        ("bracket", set_flag(&o.exits.bracket)),
+        (
+            "takeProfitOrderId",
+            matches!(o.exits.take_profit_order_id, Opt::Some(_)),
+        ),
+        (
+            "stopLossOrderId",
+            matches!(o.exits.stop_loss_order_id, Opt::Some(_)),
         ),
     ];
     parts.iter().find(|(_, set)| *set).map(|(k, _)| *k)
@@ -196,7 +209,7 @@ impl OrderBook {
     }
 
     /// The spread layer's submit, outermost.
-    pub(super) fn spread_submit(&mut self, order: &EngineOrder, now: Option<i64>) -> SubmitResult {
+    pub(crate) fn spread_submit(&mut self, order: &EngineOrder, now: Option<i64>) -> SubmitResult {
         let Some(terms) = &order.spread else {
             if self.spread_mark.is_some() {
                 return SubmitResult::refused(outright_on_spread_refuse(&self.market_id));
@@ -235,10 +248,10 @@ impl OrderBook {
     }
 
     /// The spread layer's amend: a spread book amends nothing in place.
-    pub(super) fn spread_amend(&mut self, cmd: &EngineAmend, now: Option<i64>) -> AmendResult {
+    pub(crate) fn spread_amend(&mut self, cmd: &EngineAmend, now: Option<i64>) -> AmendResult {
         if self.spread_mark.is_some() {
             return AmendResult::refused(&cmd.order_id, spread_amend_refuse());
         }
-        self.option_amend(cmd, now)
+        self.bracket_amend(cmd, now)
     }
 }

@@ -127,6 +127,16 @@ struct ScreeningList {
     source: String,
 }
 
+/// The screening list as `ScreeningList` reads: `declaration`, `configured`, `source` and the listed regions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScreeningView<'a> {
+    pub declaration: &'static str,
+    pub configured: bool,
+    pub source: &'a str,
+    /// Each listed region and its reason.
+    pub regions: Vec<(&'a str, &'a str)>,
+}
+
 /// What the jurisdiction check reads from the environment, read once.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Jurisdiction {
@@ -391,6 +401,31 @@ impl Jurisdiction {
             region_fail_closed,
             screening_fail_closed,
         })
+    }
+
+    /// `envScreeningList()` as its readers see it: the declaration, whether an answer was supplied, the provenance, and
+    /// each listed region with its reason (every row carries the list's own source).
+    pub fn screening(&self) -> ScreeningView<'_> {
+        ScreeningView {
+            declaration: match self.screening.declaration {
+                Declaration::Unset => "unset",
+                Declaration::Listed => "listed",
+                Declaration::ReviewedEmpty => "reviewed-empty",
+            },
+            configured: self.screening.declaration != Declaration::Unset,
+            source: &self.screening.source,
+            regions: self
+                .screening
+                .regions
+                .iter()
+                .map(|b| (b.region.as_str(), b.reason.as_deref().unwrap_or_default()))
+                .collect(),
+        }
+    }
+
+    /// `SHIPPED_BUSINESS_BLOCKS`: the matrix's own blocks, without the TEST blocks a dev or test process adds.
+    pub fn shipped_business_regions() -> impl Iterator<Item = &'static str> {
+        SHIPPED_BUSINESS_BLOCKS.iter().map(|(r, _)| *r)
     }
 
     fn money_grade(&self) -> &'static str {

@@ -262,7 +262,7 @@ fn open_qty(net: Amount, side: Side) -> Amount {
 
 impl OrderBook {
     /// The option layer's submit (`installOption`'s `submit`), over the core book.
-    pub(super) fn option_submit(&mut self, order: &EngineOrder, now: Option<i64>) -> SubmitResult {
+    pub(crate) fn option_submit(&mut self, order: &EngineOrder, now: Option<i64>) -> SubmitResult {
         if let Some(r) = super::combo::combo_intent_refuse(order) {
             return SubmitResult::refused(r);
         }
@@ -272,7 +272,7 @@ impl OrderBook {
         if order.exercise {
             return self.option_exercise(order, now);
         }
-        if order.cancel {
+        if order.exits.cancel {
             return self.option_cancel_order(order);
         }
         if !wants_option(order) {
@@ -525,7 +525,7 @@ impl OrderBook {
     }
 
     /// The option layer's amend.
-    pub(super) fn option_amend(&mut self, cmd: &EngineAmend, now: Option<i64>) -> AmendResult {
+    pub(crate) fn option_amend(&mut self, cmd: &EngineAmend, now: Option<i64>) -> AmendResult {
         if let Some(rec) = self.option.rest_of(&cmd.order_id).cloned() {
             let patch = match option_amend_patch(cmd, &rec) {
                 Ok(p) => p,

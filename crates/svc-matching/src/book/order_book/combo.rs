@@ -254,7 +254,7 @@ impl OrderBook {
         let wants = wants_combo(order);
         // An incomplete combo goes on to the option layer, which refuses it with its own code.
         if wants && combo_intent_refuse(order).is_some() {
-            return self.option_submit(order, now);
+            return self.triggers_submit(order, now);
         }
         let identity = if wants {
             match combo_identity(order.legs.value().map_or(&[][..], Vec::as_slice)) {
@@ -267,7 +267,7 @@ impl OrderBook {
         if let Some(d) = self.take_combo_disagrees(order.side, order.price, identity.as_deref()) {
             return SubmitResult::refused(d);
         }
-        let result = self.option_submit(order, now);
+        let result = self.triggers_submit(order, now);
         if !result.accepted {
             return result;
         }

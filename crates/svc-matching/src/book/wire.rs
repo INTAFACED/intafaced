@@ -2,8 +2,7 @@
 //! optional part written only when the order carries it, in `toWire`'s key order, so a record reads back as the order it
 //! was.
 //!
-//! A journalled order that names a part only a later slice's module reads (brackets and OCO pairs, trailing stops)
-//! does not read here: [`from_wire`] names the slice that owes it, and
+//! A journalled order this crate cannot read is malformed: [`from_wire`] refuses it, and
 //! replay stops rather than rebuild a book without it.
 
 use service_kit::json::Json;
@@ -40,18 +39,6 @@ impl std::fmt::Display for WireError {
 
 impl std::error::Error for WireError {}
 
-/// The parts of a wire order a later slice reads, and the slice.
-const OWED: [(&str, Slice); 8] = [
-    ("bracket", Slice::Triggers),
-    ("oco", Slice::Triggers),
-    ("takeProfit", Slice::Triggers),
-    ("stopLoss", Slice::Triggers),
-    ("stopLossLimit", Slice::Triggers),
-    ("takeProfitOrderId", Slice::Triggers),
-    ("stopLossOrderId", Slice::Triggers),
-    ("trail", Slice::Triggers),
-];
-
 fn amount_json(a: Amount) -> Json {
     Json::str(format_amount(a))
 }
@@ -87,6 +74,33 @@ pub fn to_wire(order: &EngineOrder, lifecycle_proof: Option<&Json>) -> Json {
     if let Some(s) = order.oco_sibling_id.as_ref().filter(|s| !s.is_empty()) {
         f.push(("ocoSiblingId".into(), Json::str(s.clone())));
     }
+    let x = &order.exits;
+    if let Some(b) = opt_present(&x.bracket) {
+        f.push(("bracket".into(), b.map_or(Json::Null, Json::Bool)));
+    }
+    if x.oco {
+        f.push(("oco".into(), Json::Bool(true)));
+    }
+    for (key, v) in [
+        ("takeProfit", &x.take_profit),
+        ("stopLoss", &x.stop_loss),
+        ("stopLossLimit", &x.stop_loss_limit),
+    ] {
+        if v.present() {
+            f.push((key.into(), opt_amount_json(v.get())));
+        }
+    }
+    for (key, v) in [
+        ("takeProfitOrderId", &x.take_profit_order_id),
+        ("stopLossOrderId", &x.stop_loss_order_id),
+    ] {
+        if v.present() {
+            f.push((
+                key.into(),
+                v.value().map_or(Json::Null, |s| Json::str(s.clone())),
+            ));
+        }
+    }
     if let Some(s) = order.expire_at.as_ref().filter(|s| !s.is_empty()) {
         f.push(("expireAt".into(), Json::str(s.clone())));
     }
@@ -114,6 +128,11 @@ pub fn to_wire(order: &EngineOrder, lifecycle_proof: Option<&Json>) -> Json {
             f.push((key.into(), opt_amount_json(v.get())));
         }
     };
+    // `persistTrail`: the mark rides only with a trail.
+    if order.trail.present() {
+        amount(&mut f, "trail", &order.trail);
+        amount(&mut f, "mark", &order.mark);
+    }
     let flag = |f: &mut Vec<(String, Json)>, key: &str, v: &Opt<bool>| {
         if v.present() {
             f.push((key.into(), Json::Bool(v.get() == Some(true))));
@@ -248,6 +267,11 @@ fn nullish_text(o: &Json, key: &str) -> Result<Option<String>, WireError> {
     }
 }
 
+/// `Some(value)` for a present field (`None` inside for `null`), `None` when absent.
+fn opt_present<T: Copy>(v: &Opt<T>) -> Option<Option<T>> {
+    v.present().then(|| v.get())
+}
+
 fn malformed(why: impl Into<String>) -> WireError {
     WireError::Malformed(why.into())
 }
@@ -291,6 +315,15 @@ fn opt_amount(o: &Json, key: &str) -> Result<Opt<Amount>, WireError> {
     }
 }
 
+/// An id as sent: text, else `null` (an id that is not text names nothing, as `namedId` reads it).
+fn opt_text(o: &Json, key: &str) -> Opt<String> {
+    match o.get(key) {
+        None => Opt::Absent,
+        Some(Json::String(s)) => Opt::Some(s.clone()),
+        Some(_) => Opt::Null,
+    }
+}
+
 /// `value !== undefined ? value === true : absent`.
 fn opt_flag(o: &Json, key: &str) -> Opt<bool> {
     match o.get(key) {
@@ -303,12 +336,6 @@ fn opt_flag(o: &Json, key: &str) -> Opt<bool> {
 pub fn from_wire(order: &Json) -> Result<EngineOrder, WireError> {
     if !matches!(order, Json::Object(_)) {
         return Err(malformed("not an object"));
-    }
-    if let Some((field, slice)) = OWED.iter().find(|(key, _)| order.get(key).is_some()) {
-        return Err(WireError::Owed {
-            field: (*field).to_owned(),
-            slice: *slice,
-        });
     }
     let order_type = OrderType::parse(&text(order, "type")?)
         .ok_or_else(|| malformed("type is not an order type this slice reads"))?;
@@ -344,6 +371,13 @@ pub fn from_wire(order: &Json) -> Result<EngineOrder, WireError> {
         Some(_) => Some(amount(order, "positionQty")?),
     };
     out.oco_sibling_id = truthy_text(order, "ocoSiblingId");
+    out.exits.bracket = opt_flag(order, "bracket");
+    out.exits.oco = matches!(order.get("oco"), Some(Json::Bool(true)));
+    out.exits.take_profit = opt_amount(order, "takeProfit")?;
+    out.exits.stop_loss = opt_amount(order, "stopLoss")?;
+    out.exits.stop_loss_limit = opt_amount(order, "stopLossLimit")?;
+    out.exits.take_profit_order_id = opt_text(order, "takeProfitOrderId");
+    out.exits.stop_loss_order_id = opt_text(order, "stopLossOrderId");
     out.expire_at = truthy_text(order, "expireAt");
     out.session_id = truthy_text(order, "sessionId");
     out.client_order_id = truthy_text(order, "clientOrderId");
@@ -355,6 +389,10 @@ pub fn from_wire(order: &Json) -> Result<EngineOrder, WireError> {
             Opt::Absent => Opt::Null,
             v => v,
         };
+    }
+    if order.get("trail").is_some() {
+        out.trail = opt_amount(order, "trail")?;
+        out.mark = opt_amount(order, "mark")?;
     }
     out.min_qty = opt_amount(order, "minQty")?;
     out.aon = opt_flag(order, "aon");

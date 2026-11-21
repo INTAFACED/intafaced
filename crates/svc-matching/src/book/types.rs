@@ -301,9 +301,33 @@ impl SpreadLegFill {
     }
 }
 
+/// An order's OCO and bracket parts, each as JavaScript tells it apart (absent, `null`, or a value).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Exits {
+    /// `bracket`: `true` rests the exits once the entry trades.
+    pub bracket: Opt<bool>,
+    /// `oco: true`.
+    pub oco: bool,
+    pub take_profit: Opt<Amount>,
+    pub stop_loss: Opt<Amount>,
+    /// The stop-loss leg's limit price; absent makes it a market stop.
+    pub stop_loss_limit: Opt<Amount>,
+    pub take_profit_order_id: Opt<String>,
+    pub stop_loss_order_id: Opt<String>,
+    /// `cancel: true`: a linked OCO cancel, never journalled (`toWire` leaves it out).
+    pub cancel: bool,
+}
+
+impl Exits {
+    /// None of the parts is set.
+    pub fn is_empty(&self) -> bool {
+        *self == Exits::default()
+    }
+}
+
 /// An order as the engine sees it (`EngineOrder`), already checked by svc-trade and in scaled integers. It holds every
-/// field the book and its instrument modules (`option.ts`, `combo-book.ts`, `spread-book.ts`) read. The parts only a
-/// later slice's module reads (brackets) are not here: an order naming one is that slice's, and the door owes it.
+/// field the core book (`book.ts`) reads, the trigger wrappers' [`Exits`], and the parts its instrument modules
+/// (`option.ts`, `combo-book.ts`, `spread-book.ts`) read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineOrder {
     pub order_id: String,
@@ -329,8 +353,14 @@ pub struct EngineOrder {
     pub position_qty: Option<Amount>,
     pub display_qty: Opt<Amount>,
     pub iceberg: bool,
-    pub trail: Option<Amount>,
-    pub mark: Option<Amount>,
+    /// Trail distance (`trail`): present makes the order a trailing stop, which refuses while it is null or not
+    /// positive.
+    pub trail: Opt<Amount>,
+    /// The mark the trail starts from (`mark`).
+    pub mark: Opt<Amount>,
+    /// The trigger parts the `triggers` wrappers read before the core book (`oco-link.ts`, `oco-cancel.ts`,
+    /// `bracket.ts`); the core book never reads them.
+    pub exits: Exits,
     pub min_qty: Opt<Amount>,
     pub aon: Opt<bool>,
     pub peg: Opt<bool>,
@@ -351,7 +381,6 @@ pub struct EngineOrder {
     pub exercise: bool,
     /// Cover a short option after assignment, and pull a resting option: engine calls, never journalled.
     pub cover: bool,
-    pub cancel: bool,
     /// `combo` as sent, and the named legs (`Opt::Null` is `legs: null`).
     pub combo: Opt<bool>,
     pub legs: Opt<Vec<ComboLeg>>,
@@ -392,8 +421,9 @@ impl EngineOrder {
             position_qty: None,
             display_qty: Opt::Absent,
             iceberg: false,
-            trail: None,
-            mark: None,
+            trail: Opt::Absent,
+            mark: Opt::Absent,
+            exits: Exits::default(),
             min_qty: Opt::Absent,
             aon: Opt::Absent,
             peg: Opt::Absent,
@@ -411,7 +441,6 @@ impl EngineOrder {
             expiry: Opt::Absent,
             exercise: false,
             cover: false,
-            cancel: false,
             combo: Opt::Absent,
             legs: Opt::Absent,
             spread: None,

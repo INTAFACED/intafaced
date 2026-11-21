@@ -119,12 +119,12 @@ fn exercise(mut o: EngineOrder) -> EngineOrder {
 }
 
 fn cancel(mut o: EngineOrder) -> EngineOrder {
-    o.cancel = true;
+    o.exits.cancel = true;
     o
 }
 
 fn mark(mut o: EngineOrder, m: &str) -> EngineOrder {
-    o.mark = Some(a(m));
+    o.mark = Opt::Some(a(m));
     o
 }
 
