@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 service-kit = { path = "../service-kit" }
 postgres = "0.19"
+sha2 = "0.10"
 signal-hook = "0.3"
 tiny_http = "0.12"
 url = "2"
@@ -20,4 +21,3 @@ url = "2"
 base64 = "0.22"
 ed25519-dalek = { version = "2", features = ["pkcs8"] }
 hmac = "0.12"
-sha2 = "0.10"
