@@ -91,6 +91,9 @@ fn account_access() -> Article {
     )
 }
 
+/// One call's headers.
+type Headers = Vec<(String, String)>;
+
 /// `createFixtureSupportDesk(rows)`, with the overrides the TypeScript cases put on it.
 struct FixtureDesk {
     articles: Vec<Article>,
@@ -103,7 +106,7 @@ struct FixtureDesk {
     search_fails: bool,
     searched: Mutex<Vec<(String, Option<f64>)>>,
     /// The headers each ticket read was sent with.
-    ticket_headers: Arc<Mutex<Vec<Vec<(String, String)>>>>,
+    ticket_headers: Arc<Mutex<Vec<Headers>>>,
 }
 
 /// `testDesk(overrides)`: the article, the person's own ticket and their account.
