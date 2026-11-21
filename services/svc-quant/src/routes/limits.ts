@@ -1,6 +1,7 @@
-import { QUANT_SANDBOX_LIMITS, publicJurisdictionProcedure, quantLimitsSchema, router } from '@intafaced/contracts';
-import { z } from 'zod';
-import { toTrpc, accountField, type QuantCore } from './core.js';
+import { QUANT_SANDBOX_LIMITS, router } from '@intafaced/contracts';
+import { toTrpc, type QuantCore, quantRefusal } from './core.js';
+import { QUANT_LIMITS_GET } from '@intafaced/contracts/quant-limits-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 
 export function limitsRoutes(core: QuantCore) {
   const { deps, quota, accountOf } = core;
@@ -9,10 +10,9 @@ export function limitsRoutes(core: QuantCore) {
      * Every limit the caller's runs meet (J-algo-dev-12 #4), as the sandbox will apply it: the applied plan's sandbox
      * limits (null: not set, and then no run starts) and the two ceilings every plan shares.
      */
-    get: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ ...accountField }).optional())
-      .output(quantLimitsSchema)
-      .query(async ({ input, ctx }) => {
+    get: mountRecord(
+      QUANT_LIMITS_GET,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input?.accountId);
           const applied = await quota.applied(accountId);
@@ -31,6 +31,8 @@ export function limitsRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }

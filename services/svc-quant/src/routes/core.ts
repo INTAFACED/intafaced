@@ -394,18 +394,6 @@ export interface QuantRouterDeps extends SandboxDeps {
   };
 }
 
-export const strategyMetadata = z.object({
-  id: z.string(),
-  accountId: z.string().guid().nullable(),
-  name: z.string(),
-  language: z.literal('javascript'),
-  environment: z.enum(['paper', 'backtest', 'shadow']),
-  kind: z.enum(['paper', 'simulated']),
-  claimLabel: z.enum(['Paper — not live performance', 'Historical simulation — not a forecast', 'Shadow — not live performance']),
-  live: z.literal(false),
-  simulated: z.literal(true),
-});
-
 /** A stored alert as the screen reads it. */
 export function alertView(row: StoredAlert) {
   return {

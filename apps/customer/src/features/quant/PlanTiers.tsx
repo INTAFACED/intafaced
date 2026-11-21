@@ -1,10 +1,4 @@
-import {
-  quantQuotaSchema,
-  quantTierListSchema,
-  QUANT_QUOTA_RESOURCES,
-  type QuantQuotaResource,
-  type QuantTier,
-} from '@intafaced/contracts/quant-algo';
+import { QUANT_QUOTA_RESOURCES, type QuantQuotaResource, type QuantTier } from '@intafaced/contracts/quant-algo';
 import { useState } from 'react';
 import { Button, DataTable, Panel } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
@@ -12,6 +6,8 @@ import { Read } from '../more';
 import { useApi } from '../session';
 import { tierCopy } from './tier-copy';
 import { usageCopy } from './usage-copy';
+import { QUANT_TIER_LIST } from '@intafaced/contracts/quant-tier-procedures';
+import { QUANT_QUOTA_GET } from '@intafaced/contracts/quant-quota-procedures';
 
 /** What a plan holds, tier or not: its freshness, priority class and one limit per resource; null is "not set". */
 interface PlanValues {
@@ -41,8 +37,8 @@ export function PlanTiers({ revision }: { revision: number }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const tiers = useResource(async (signal) => {
     const [list, usage] = await Promise.all([
-      api.query('quant', 'tier.list', undefined, quantTierListSchema, { signal }),
-      api.query('quant', 'quota.get', undefined, quantQuotaSchema, { signal }),
+      api.call(QUANT_TIER_LIST, undefined, { signal }),
+      api.call(QUANT_QUOTA_GET, undefined, { signal }),
     ]);
     if (!list.ok) return list;
     if (!usage.ok) return usage;
