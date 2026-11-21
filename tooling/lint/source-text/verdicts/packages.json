@@ -48,7 +48,10 @@
     "target": "./modules.ts",
     "verdict": "rewrite",
     "asserts": "custody-scan walks exactly the services modules.ts declares protocol-plane-only and non-custodial, never a custodial one.",
-    "guard": { "kind": "test", "ref": "packages/config/src/modules.test.ts#walks exactly the services modules.ts declares protocol-only" },
+    "guard": {
+      "kind": "test",
+      "ref": "packages/config/src/modules.test.ts#walks exactly the services modules.ts declares protocol-only"
+    },
     "why": "Runs the real custody-scan.mjs over a scratch tree holding the real modules.ts and a ledger.post() in every registered service, and compares the services it flags with protocolPlaneOnlyModules() and MODULES."
   },
   {
@@ -89,23 +92,32 @@
     "target": "connection.ts",
     "verdict": "rewrite",
     "asserts": "createDb takes the pool size as a required number and never invents 10.",
-    "guard": { "kind": "type", "ref": "packages/db/src/connection.ts#DbOptions" },
+    "guard": {
+      "kind": "type",
+      "ref": "packages/db/src/connection.ts#DbOptions"
+    },
     "why": "expectTypeOf pins DbOptions['max'] to a required number and a ts-expect-error refuses options without it (checked by test-typecheck); the file's behaviour tests hold unset, null and 0 refusing."
   },
   {
     "file": "packages/i18n/src/i18n.test.ts",
     "target": "./format.ts",
-    "verdict": "rewrite",
-    "asserts": "No formatter converts an amount through a float (Number(), parseFloat, parseInt).",
-    "guard": { "kind": "test", "ref": "packages/i18n/src/i18n.test.ts#converts no amount through a float on any formatting path" },
-    "why": "Swaps Number, parseFloat and parseInt for counting wrappers while every money, number, compact and percent formatter runs, and asserts none was called and 18 decimals survive."
+    "verdict": "left",
+    "asserts": "No code in format.ts (comments aside) calls Number(), parseFloat() or parseInt(): money is never converted through a float.",
+    "guard": {
+      "kind": "lint",
+      "ref": "garden/no-number-money"
+    },
+    "why": "Left as it is: a static property of every line of format.ts, whose faithful guard is a lint; it moves with money-safety to garden/no-number-money's strict float check. The behaviour test 'converts no amount through a float on any formatting path' is added beside it."
   },
   {
     "file": "packages/i18n/src/locale-files.test.ts",
     "target": "locales",
     "verdict": "rule",
     "asserts": "The generated locale index holds exactly the JSON language files on disk, each well formed.",
-    "guard": { "kind": "test", "ref": "packages/i18n/src/locale-files.test.ts#has a generated index that holds exactly the files on disk" },
+    "guard": {
+      "kind": "test",
+      "ref": "packages/i18n/src/locale-files.test.ts#has a generated index that holds exactly the files on disk"
+    },
     "why": "Both reads parse locales/*.json, translation data, not source text."
   },
   {
@@ -135,7 +147,10 @@
     "target": "operations.ts",
     "verdict": "rewrite",
     "asserts": "The generated merchant SDK surface has no founder or operator operation or path.",
-    "guard": { "kind": "test", "ref": "packages/sdk-ts/src/client.test.ts#has no founder or operator paths" },
+    "guard": {
+      "kind": "test",
+      "ref": "packages/sdk-ts/src/client.test.ts#has no founder or operator paths"
+    },
     "why": "Binds the generated operations to a recording client, calls every one, and checks each name and path; the OpenAPI JSON read stays."
   },
   {
@@ -143,7 +158,10 @@
     "target": "/coin-art.generated.ts",
     "verdict": "rule",
     "asserts": "The generated coin art file is what its generator renders from the SVG files.",
-    "guard": { "kind": "test", "ref": "packages/ui/src/components/coins/coin-art.test.ts#generated art is in sync with the SVG files" },
+    "guard": {
+      "kind": "test",
+      "ref": "packages/ui/src/components/coins/coin-art.test.ts#generated art is in sync with the SVG files"
+    },
     "why": "A generated file compared to its generator's output (renderCoinArt), not an assertion on source words."
   },
   {
@@ -151,7 +169,10 @@
     "target": "./",
     "verdict": "rewrite",
     "asserts": "The light objects' eager files never load three.js before first paint.",
-    "guard": { "kind": "test", "ref": "packages/ui/src/lit/fx/fx-entry.test.ts#never imports three.js before first paint" },
+    "guard": {
+      "kind": "test",
+      "ref": "packages/ui/src/lit/fx/fx-entry.test.ts#never imports three.js before first paint"
+    },
     "why": "Imports each eager file in a fresh module graph with three, the engine, bloom and every object recorded, and checks three.js core never stamped window.__THREE__."
   },
   {
@@ -159,7 +180,10 @@
     "target": ".",
     "verdict": "rule",
     "asserts": "tokens.css and customer-legacy.css are exactly what tokens.ts generates, and theme.css and base.css hold no hex colour.",
-    "guard": { "kind": "test", "ref": "packages/ui/src/theme/tokens.test.ts#tokens.css is exactly what tokens.ts generates" },
+    "guard": {
+      "kind": "test",
+      "ref": "packages/ui/src/theme/tokens.test.ts#tokens.css is exactly what tokens.ts generates"
+    },
     "why": "The read helper reads stylesheets in theme/: generated CSS compared to its generator, and hand CSS scanned for hex; no TypeScript source."
   }
 ]

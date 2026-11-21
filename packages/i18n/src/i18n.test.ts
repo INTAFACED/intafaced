@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MESSAGE_KEYS, coverage, defineCatalog, en, isMessageKey, type Catalog, type PartialCatalog } from './catalog.js';
 import { CATALOGS, TRANSLATED_LOCALES, UNTRANSLATED_LOCALES, catalogFor, hasCatalog, localeCoverage } from './catalogs.js';
@@ -360,6 +362,16 @@ describe('formatMoney — decimal strings, never floats', () => {
     expect(String(Number(LEDGER_PRECISION))).toBe('1234.1234567890124');
     expect(String(Number(LEDGER_PRECISION))).not.toContain('123456789012345678');
     expect(formatMoney(LEDGER_PRECISION, 'USD', 'en', { maxFractionDigits: 18 })).toContain('123456789012345678');
+  });
+
+  it('contains no float conversion anywhere in its source', () => {
+    const source = readFileSync(fileURLToPath(new URL('./format.ts', import.meta.url)), 'utf8');
+    // Comments may name the hazard — they do, at length. The code may not call
+    // it: `Number` survives only as its static guards (`Number.isNaN`).
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    for (const pattern of [/parseFloat\s*\(/, /parseInt\s*\(/, /(?<![.\w])Number\s*\(/]) {
+      expect(code, String(pattern)).not.toMatch(pattern);
+    }
   });
 
   it('converts no amount through a float on any formatting path', () => {
