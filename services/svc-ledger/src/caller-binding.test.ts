@@ -1,7 +1,7 @@
 import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
 import { LEDGER_POST_RECIPE } from '@intafaced/ledger-client/post-recipe';
 import { generateKeyPairSync } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +15,7 @@ import {
   type ServiceName,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount as amt, recipes, type PostRequest } from '@intafaced/ledger-client';
-import { LEDGER_POST_ALLOWLIST, LEDGER_DOOR_CALLERS } from '@intafaced/ledger-client/gate';
+import { LEDGER_DOOR_CALLERS } from '@intafaced/ledger-client/gate';
 import { callerBindingCounts, callerBindingViolationCount, resetCallerBindingViolations } from './caller-binding.js';
 import { createLedgerRouter } from './router.js';
 import { registerS2sHttp } from './s2s-http.js';
