@@ -30,7 +30,44 @@ import {
 import { venueCopy } from '../../../features/trade/venue/venue-copy';
 import { zoneName } from './time';
 import { spotVenueCopy } from './venue-copy';
-import { depositTransfer, shortAddress, withdrawStep, type DepositRoute } from './venue-desk';
+import { useSupportedAssets } from '../../../features/money';
+import {
+  depositPlaces,
+  depositTransfer,
+  listedPlaces,
+  shortAddress,
+  withdrawStep,
+  type DepositRoute,
+  type ListedPlaces,
+} from './venue-desk';
+
+/**
+ * The supported asset list's row for `asset` and `action` (J-wallet-01 #5): the venue desk's Deposit and Withdraw use the
+ * same rows and precision Assets lists, read from svc-bank `assets.list`.
+ */
+function useListed(asset: string, action: 'deposit' | 'withdraw'): ListedPlaces | 'loading' {
+  const { resource } = useSupportedAssets();
+  if (resource.status === 'loading') return 'loading';
+  return listedPlaces(resource.status === 'ready' ? resource.data.assets : null, asset, action);
+}
+
+/** Why the list keeps `asset` from `action`, in plain words, or null when it allows it. */
+function ListedRefusal({ listed, asset, action }: { listed: ListedPlaces | 'loading'; asset: string; action: 'deposit' | 'withdraw' }) {
+  const { t } = spotVenueCopy.useCopy();
+  if (listed === 'loading') return <p className="muted">{t('Listed loading')}</p>;
+  if (listed.ok) return null;
+  const text =
+    listed.why === 'unread'
+      ? t('Listed unread')
+      : listed.why === 'unlisted'
+        ? t('Listed unlisted', { asset })
+        : t(action === 'deposit' ? 'Listed closed deposit' : 'Listed closed withdraw', { asset });
+  return (
+    <p role="alert" className="failure" data-testid="venue-listed-refusal">
+      {text}
+    </p>
+  );
+}
 
 /** The venue's time, as the person's own clock shows it ("9 Nov 2026, 14:03:22"). */
 export function useClock(): (iso: string) => string {
@@ -191,15 +228,18 @@ export function DepositDialog({ route, test, onClose }: { route: DepositRoute | 
   const [note, setNote] = useState<{ good: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const asset = route?.asset ?? '';
+  const listed = useListed(asset, 'deposit');
+  const places = route && listed !== 'loading' && listed.ok ? depositPlaces(route, listed.places) : null;
 
   async function send() {
     if (busy) return;
     setNote(null);
     if (!route) return setNote({ good: false, text: t('Deposit no route') });
+    if (places === null) return;
     if (wallet.chainId !== null && wallet.chainId !== route.chainId)
       return setNote({ good: false, text: t('Deposit wrong network', { chainId: String(route.chainId) }) });
-    const transfer = depositTransfer(route, amount);
-    if (!transfer) return setNote({ good: false, text: t('Deposit amount bad', { asset, places: String(route.tokenDecimals) }) });
+    const transfer = depositTransfer(route, amount, places);
+    if (!transfer) return setNote({ good: false, text: t('Deposit amount bad', { asset, places: String(places) }) });
     setBusy(true);
     const sent = await wallet.sign({ kind: 'transaction', to: transfer.to, data: transfer.data });
     setBusy(false);
@@ -237,8 +277,15 @@ export function DepositDialog({ route, test, onClose }: { route: DepositRoute | 
                 <dt>{t('Deposit network')}</dt>
                 <dd className="numeric">{route.chainId}</dd>
               </div>
+              {places !== null ? (
+                <div>
+                  <dt>{t('Decimal places')}</dt>
+                  <dd className="numeric">{places}</dd>
+                </div>
+              ) : null}
             </dl>
-            <KitButton disabled={busy || amount.trim() === ''} onClick={() => void send()}>
+            <ListedRefusal listed={listed} asset={asset} action="deposit" />
+            <KitButton disabled={busy || amount.trim() === '' || places === null} onClick={() => void send()}>
               {t('Deposit send')}
             </KitButton>
           </>
@@ -280,6 +327,8 @@ export function WithdrawDialog({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const listed = useListed(asset, 'withdraw');
+  const places = listed !== 'loading' && listed.ok ? listed.places : null;
   const withdrawalKey = keys.withdraw(owner, draft.current);
   let canonical: string | null = null;
   try {
@@ -290,13 +339,16 @@ export function WithdrawDialog({
 
   function press() {
     setProblem(null);
-    const next = withdrawStep(amount, null);
-    if (next.step === 'refuse' || !canonical) return setProblem(t('Withdraw amount bad'));
+    if (places === null) return;
+    const next = withdrawStep(amount, null, places);
+    if (next.step === 'refuse' || !canonical)
+      return setProblem(amount.trim() === '' ? t('Withdraw amount bad') : t('Withdraw places bad', { asset, places: String(places) }));
     setStepUp(true);
   }
 
   async function signed(stepUpApprovalId: string | null) {
-    const next = withdrawStep(amount, { id: stepUpApprovalId });
+    if (places === null) return;
+    const next = withdrawStep(amount, { id: stepUpApprovalId }, places);
     if (next.step !== 'sign' || !canonical) return;
     setStepUp(false);
     setBusy(true);
@@ -337,6 +389,15 @@ export function WithdrawDialog({
               {shortAddress(owner)}
             </span>
           </p>
+          {places !== null ? (
+            <dl className="protocol-facts">
+              <div>
+                <dt>{t('Decimal places')}</dt>
+                <dd className="numeric">{places}</dd>
+              </div>
+            </dl>
+          ) : null}
+          <ListedRefusal listed={listed} asset={asset} action="withdraw" />
           {problem ? (
             <p className="failure" role="alert">
               {problem}
@@ -344,7 +405,7 @@ export function WithdrawDialog({
           ) : null}
           {busy ? <p className="muted">{v('Waiting wallet')}</p> : null}
           <OutcomeLine result={result} owner={owner} />
-          <KitButton disabled={busy} onClick={press}>
+          <KitButton disabled={busy || places === null} onClick={press}>
             {t('Withdraw send')}
           </KitButton>
         </div>

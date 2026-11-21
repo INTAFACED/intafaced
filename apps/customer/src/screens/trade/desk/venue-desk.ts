@@ -253,8 +253,37 @@ export interface DepositRoute {
   asset: string;
 }
 
-/** The person's ERC-20 `transfer` to the venue's deposit address; null unless the amount is positive within the token's decimals. */
-export function depositTransfer(route: DepositRoute, amount: string): { to: string; data: string; units: bigint } | null {
+/** One row of the supported asset list (svc-bank `assets.list`), as far as the venue desk reads it. */
+export interface ListedAsset {
+  assetId: string;
+  precision: number;
+  state: string;
+  allowedActions: readonly string[];
+}
+
+/**
+ * The places the venue desk's Deposit or Withdraw allows for `asset` (J-wallet-01 #5): the supported asset list's own row
+ * and precision, the same rows Assets lists. Refused while the list is unread, for an asset it does not list, and for one
+ * not active or not open to the action.
+ */
+export type ListedPlaces = { ok: true; places: number } | { ok: false; why: 'unread' | 'unlisted' | 'closed' };
+export function listedPlaces(rows: readonly ListedAsset[] | null, asset: string, action: 'deposit' | 'withdraw'): ListedPlaces {
+  if (rows === null) return { ok: false, why: 'unread' };
+  const row = rows.find((r) => r.assetId === asset);
+  if (!row) return { ok: false, why: 'unlisted' };
+  if (row.state !== 'active' || !row.allowedActions.includes(action)) return { ok: false, why: 'closed' };
+  return { ok: true, places: row.precision };
+}
+
+/** The places a deposit of `route` may carry: the list's precision, and never more than the token itself carries. */
+export const depositPlaces = (route: DepositRoute, places: number): number => Math.min(places, route.tokenDecimals);
+
+/**
+ * The person's ERC-20 `transfer` to the venue's deposit address; null unless the amount is positive within `places` (the
+ * asset list's precision) and the token's decimals.
+ */
+export function depositTransfer(route: DepositRoute, amount: string, places: number): { to: string; data: string; units: bigint } | null {
+  if (toTokenUnits(amount, depositPlaces(route, places)) === null) return null;
   const units = toTokenUnits(amount, route.tokenDecimals);
   if (units === null) return null;
   return { to: route.token, data: transferCalldata(route.address, units), units };
@@ -263,8 +292,9 @@ export function depositTransfer(route: DepositRoute, amount: string): { to: stri
 /** What the withdraw dialog does when its button is pressed: ask for the step-up first, and the wallet only after it. */
 export type WithdrawStep = { step: 'refuse'; why: 'amount' } | { step: 'step_up' } | { step: 'sign'; stepUpApprovalId: string | null };
 
-export function withdrawStep(amount: string, approval: { id: string | null } | null): WithdrawStep {
-  if (toTokenUnits(amount, 18) === null) return { step: 'refuse', why: 'amount' };
+/** `places`: the asset list's precision for the asset (listedPlaces); an amount finer than it is refused before the step-up. */
+export function withdrawStep(amount: string, approval: { id: string | null } | null, places: number): WithdrawStep {
+  if (toTokenUnits(amount, places) === null) return { step: 'refuse', why: 'amount' };
   if (approval === null) return { step: 'step_up' };
   return { step: 'sign', stepUpApprovalId: approval.id };
 }

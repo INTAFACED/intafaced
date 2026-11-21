@@ -11,7 +11,9 @@ import {
   venueTifOf,
   HeldDraft,
   amountForValue,
+  depositPlaces,
   depositTransfer,
+  listedPlaces,
   offeredTif,
   tagProblem,
   valueOf,
@@ -325,23 +327,62 @@ describe('the deposit is the person’s own transfer', () => {
     asset: 'USDC',
   };
   it('an ERC-20 transfer of the amount in token units, to the venue’s deposit address, on the route’s token', () => {
-    const sent = depositTransfer(route, '1000');
+    const sent = depositTransfer(route, '1000', 6);
     expect(sent?.to).toBe(route.token);
     expect(sent?.units).toBe(1_000_000_000n);
     expect(sent?.data).toBe(`0xa9059cbb${'0'.repeat(24)}${route.address.slice(2)}${(1_000_000_000).toString(16).padStart(64, '0')}`);
   });
   it('refuses an amount past the token’s decimals, or none', () => {
-    expect(depositTransfer(route, '1.0000001')).toBeNull();
-    expect(depositTransfer(route, '0')).toBeNull();
-    expect(depositTransfer(route, 'ten')).toBeNull();
+    expect(depositTransfer(route, '1.0000001', 6)).toBeNull();
+    expect(depositTransfer(route, '0', 6)).toBeNull();
+    expect(depositTransfer(route, 'ten', 6)).toBeNull();
+  });
+  it('refuses an amount past the asset list’s precision, even within the token’s decimals (J-wallet-01 #5)', () => {
+    expect(depositTransfer(route, '1.001', 2)).toBeNull();
+    expect(depositTransfer(route, '1.01', 2)?.units).toBe(1_010_000n);
+    // A list precision finer than the token's: the token's decimals still bound it.
+    expect(depositTransfer(route, '1.0000001', 8)).toBeNull();
+  });
+});
+
+describe('the venue desk’s Deposit and Withdraw use the supported asset list’s rows (J-wallet-01 #5)', () => {
+  const rows = [
+    { assetId: 'USDC', precision: 6, state: 'active', allowedActions: ['deposit', 'withdraw', 'trade', 'transfer'] },
+    { assetId: 'USDT', precision: 2, state: 'active', allowedActions: ['withdraw'] },
+    { assetId: 'OLD', precision: 6, state: 'retired', allowedActions: [] },
+    { assetId: 'HALT', precision: 6, state: 'halted', allowedActions: ['deposit', 'withdraw'] },
+  ];
+  it('takes the listed precision for an asset open to the action', () => {
+    expect(listedPlaces(rows, 'USDC', 'deposit')).toEqual({ ok: true, places: 6 });
+    expect(listedPlaces(rows, 'USDT', 'withdraw')).toEqual({ ok: true, places: 2 });
+  });
+  it('refuses an unread list, an unlisted asset, and one not active or not open to the action', () => {
+    expect(listedPlaces(null, 'USDC', 'deposit')).toEqual({ ok: false, why: 'unread' });
+    expect(listedPlaces(rows, 'BTC', 'deposit')).toEqual({ ok: false, why: 'unlisted' });
+    expect(listedPlaces(rows, 'USDT', 'deposit')).toEqual({ ok: false, why: 'closed' });
+    expect(listedPlaces(rows, 'OLD', 'withdraw')).toEqual({ ok: false, why: 'closed' });
+    expect(listedPlaces(rows, 'HALT', 'withdraw')).toEqual({ ok: false, why: 'closed' });
+  });
+  it('a deposit takes the finer of the list’s precision and the token’s decimals', () => {
+    const route = {
+      chainId: 84532,
+      token: '0x00000000000000000000000000000000000000c0',
+      tokenDecimals: 6,
+      address: '0x00000000000000000000000000000000000000d0',
+      asset: 'USDC',
+    };
+    expect(depositPlaces(route, 2)).toBe(2);
+    expect(depositPlaces(route, 8)).toBe(6);
   });
 });
 
 describe('a withdrawal confirms it’s you before the wallet is asked', () => {
   it('the press asks for the step-up first; only an approval reaches the signing step', () => {
-    expect(withdrawStep('10', null)).toEqual({ step: 'step_up' });
-    expect(withdrawStep('10', { id: 'approval-1' })).toEqual({ step: 'sign', stepUpApprovalId: 'approval-1' });
-    expect(withdrawStep('', null)).toEqual({ step: 'refuse', why: 'amount' });
+    expect(withdrawStep('10', null, 6)).toEqual({ step: 'step_up' });
+    expect(withdrawStep('10', { id: 'approval-1' }, 6)).toEqual({ step: 'sign', stepUpApprovalId: 'approval-1' });
+    expect(withdrawStep('', null, 6)).toEqual({ step: 'refuse', why: 'amount' });
+    // Finer than the list's precision for the asset: refused before the step-up (J-wallet-01 #5).
+    expect(withdrawStep('10.0000001', null, 6)).toEqual({ step: 'refuse', why: 'amount' });
   });
   it('names the destination by its short address, and tracks the venue’s withdrawal by its nonce with its fee or not known', () => {
     expect(shortAddress(OWNER)).toBe('0x1234…abcd');
