@@ -13,6 +13,14 @@ vi.mock('@intafaced/ui', async (original) => {
   };
 });
 
+// The candle chart's engine reads resolved colours from the page, which happy-dom cannot give (it throws "Failed to parse
+// color" after the test); here the chart is its labelled frame with its candles counted. The drawn chart is in the pictures.
+vi.mock('../../screens/trade/chart/PriceChart', () => ({
+  PriceChart: ({ candles, labels }: { candles: readonly unknown[]; labels: { chart: string } }) => (
+    <div className="pc-root" role="img" aria-label={labels.chart} data-candles={candles.length} />
+  ),
+}));
+
 // Signed out, the boot refresh answered: the kit page needs no session, and nothing on it reads.
 vi.mock('../../features/session/session', async (original) => {
   const real = await original<typeof import('../../features/session/session')>();
@@ -137,7 +145,9 @@ describe('the Volt kit page (intafaced issue 9302), with Volt the only look (iss
     expect(block('steps').querySelectorAll('svg[aria-label]').length, 'two sparklines').toBe(2);
     expect(block('rail').querySelector('.lit-rail'), 'the computer rail').not.toBeNull();
     expect(block('icons').querySelectorAll('li svg').length, 'every shell icon').toBe(24);
-    expect(block('candles').firstElementChild, 'the candle chart').not.toBeNull();
+    expect(block('candles').querySelector('.pc-root')?.getAttribute('data-candles'), 'the candle chart, with its 40 TEST candles').toBe(
+      '40',
+    );
     expect(block('book').querySelector('[data-widget], [role="table"], table, [data-testid]'), 'the order book').not.toBeNull();
   });
 });
