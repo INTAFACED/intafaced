@@ -491,6 +491,54 @@ describe('the reserve row on Postgres', () => {
     }
   });
 
+  it('a second new follow of the same leader waits for the first to commit before it writes, so the two inserts never deadlock', async () => {
+    const follower = '00000000-0000-4000-8000-0000000000f6';
+    const p = principal({ sub: follower, userId: follower });
+    let releaseFirst!: () => void;
+    const firstHolds = new Promise<void>((resolve) => (releaseFirst = resolve));
+    let firstBound!: () => void;
+    const firstInside = new Promise<void>((resolve) => (firstBound = resolve));
+    let binds = 0;
+    const port: VenueFollowsPort = {
+      // Runs inside the follow's transaction, just before its insert. The first press holds there.
+      bind: async () => {
+        binds += 1;
+        if (binds === 1) {
+          firstBound();
+          await firstHolds;
+        }
+      },
+      copiedOrders: async () => null,
+    };
+    const ctx = await setup({ store: new SqlCopyFollowStore(db!.sql), sqlDirectory: db!.sql, venueFollows: port });
+    const press = {
+      ...input({ permittedMarkets: ['BTC-USDC'], clientRequestId: 'venue-wait-0001' }),
+      agentAccountId: '00000000-0000-4000-8000-0000000000a6',
+    };
+    const first = ctx.copy.startVenueFollow(p, press);
+    await firstInside;
+    const second = ctx.copy.startVenueFollow(p, press);
+    // Either the second press reaches its own bind (both inside at once: the deadlock's precondition) or it waits on
+    // the follower-and-leader lock. Wait for whichever happens; no timer decides.
+    for (;;) {
+      if (binds > 1) break;
+      const waiting = await db!.sql<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+      `;
+      if (waiting[0]!.n > 0) break;
+    }
+    expect(binds).toBe(1);
+    releaseFirst();
+    const [a, b] = await Promise.all([first, second]);
+    const followId = copyFollowIdFor(follower, LEADER, press.clientRequestId);
+    expect([a.followId, b.followId]).toEqual([followId, followId]);
+    const rows = await db!.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM copy_follows WHERE follower_id = ${follower} AND relationship_state IN ('ACTIVE', 'PAUSED')
+    `;
+    expect(rows).toEqual([{ n: 1 }]);
+    await ctx.copy.unfollow(p, { followId });
+  });
+
   it('refuses a fixed size above the per-order cap in the table itself', async () => {
     await expect(db!.sql`
       INSERT INTO copy_follows (follow_id, follower_id, leader_id, region, permitted_markets, max_notional_per_order,

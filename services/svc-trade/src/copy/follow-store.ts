@@ -254,6 +254,12 @@ export interface CopyFollowStore {
   sumUnusedReserves(followerId: string, asset: string): Promise<Amount>;
   /** Serialises reserve checks for one follower and asset until the surrounding transaction ends. */
   lockReserves(followerId: string, asset: string): Promise<void>;
+  /**
+   * Serialises new follows of one follower and leader until the surrounding transaction ends. Two inserts racing on
+   * the follow id and the one-live-follow index each wait on the other's speculative row and deadlock (40P01);
+   * taken first, the second waits for the first to commit and then meets its row.
+   */
+  lockFollowerLeader(followerId: string, leaderId: string): Promise<void>;
   getExposure(followId: string): Promise<Amount>;
   setExposure(followId: string, amount: Amount): Promise<void>;
   /**
@@ -539,6 +545,10 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
 
   async lockReserves(): Promise<void> {
     // One process, no concurrent writers in tests.
+  }
+
+  async lockFollowerLeader(): Promise<void> {
+    // One process: saveFollow does not interleave.
   }
 
   async countActiveFollowsByLeader(leaderId: string): Promise<number> {
@@ -1188,6 +1198,10 @@ export class SqlCopyFollowStore implements CopyFollowStore {
 
   async lockReserves(followerId: string, asset: string): Promise<void> {
     await this.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`copy.reserve:${followerId}:${asset}`}, 0))`;
+  }
+
+  async lockFollowerLeader(followerId: string, leaderId: string): Promise<void> {
+    await this.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`copy.follow-live:${followerId}:${leaderId}`}, 0))`;
   }
 
   async getFollow(followId: string): Promise<CopyFollow | null> {
