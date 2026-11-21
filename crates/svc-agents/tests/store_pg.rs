@@ -354,6 +354,7 @@ fn health_answers_as_index_ts_and_ready_reports_the_gateway() {
         runtime: svc_agents::runtime::Runtime::unwired(),
         background: svc_agents::background::Settings::default(),
         advisors: svc_agents::advisors::Advisors::unwired(),
+        own: svc_agents::own::Own::unwired(),
         team: svc_agents::team::Team::unwired(),
     })
     .unwrap();
