@@ -4720,6 +4720,8 @@ async function runCli() {
       appEnv: process.env.APP_ENV,
       origins: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN],
       stateFile: path.join(STATE, 'test-wallet-provider.json'),
+      // The TEST chain, for the page's reads and the person's own signed transactions (J-wallet-24); down: none.
+      rpcUrl: `http://${HOST}:${CHAIN_PORTS.anvil}`,
     });
   else if (cmd === '__serve-test-venue')
     await serveTestVenue({

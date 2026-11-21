@@ -15,10 +15,13 @@
 //! `/operator/reconcile` (the `reconcile` slice, `reconcile.rs`), the account and transaction reads (the `balances`
 //! slice, `crate::balances`), the five report doors (the `reports` slice, `crate::reports`), the ledger desk's reads
 //! and account metadata writes (the `desk` slice, `desk.rs` over `crate::desk`), svc-ops' five reads (the
-//! `ops-reads` slice, `crate::ops_reads`) and `post` (the `posting` slice, `crate::posting`).
+//! `ops-reads` slice, `crate::ops_reads`), `post` (the `posting` slice, `crate::posting`), `postRecipe` (the
+//! `post-recipe` slice, `crate::posting::recipe_door`) and the reconciliation control doors (the `controls` slice,
+//! `controls.rs` over `crate::controls`).
 
 mod assets;
 mod callers;
+mod controls;
 mod desk;
 mod freeze;
 mod history;
@@ -114,6 +117,9 @@ pub enum Input {
     Body(&'static str),
     /// An operator write: `schema.parse(body ?? {})`; a refusal is `guarded`'s 400 with the error's message.
     BodyOrEmpty(&'static str),
+    /// A reconciliation control door: `schema.safeParse(body ?? {})`; a refusal is `invalidControl`'s 400, each issue's
+    /// message joined by `; `.
+    ControlBody(&'static str),
     /// An operator write: `schema.parse(body)`, an absent body included; a refusal as [`Input::BodyOrEmpty`]'s.
     OperatorBody(&'static str),
     /// An operator lookup: `schema.safeParse(<from the path or query>)`; a refusal is 400 with the door's sentence.
@@ -374,7 +380,7 @@ pub const ROUTES: [Route; 44] = [
         Input::None,
         Assets,
     ),
-    // The control doors check their source, then their input: both the reconcile slice's.
+    // The control doors (`operator-http.ts`): each parses its body, or `{}` when it is absent.
     op(
         "GET",
         "/operator/reconciliation/controls",
@@ -386,28 +392,28 @@ pub const ROUTES: [Route; 44] = [
         "POST",
         "/operator/reconciliation/controls/runs",
         ControlList,
-        Input::None,
+        Input::ControlBody("controlRuns"),
         Controls,
     ),
     op(
         "POST",
         "/operator/reconciliation/controls",
         Treasury,
-        Input::None,
+        Input::ControlBody("controlDefine"),
         Controls,
     ),
     op(
         "POST",
         "/operator/reconciliation/controls/update",
         Treasury,
-        Input::None,
+        Input::ControlBody("controlUpdate"),
         Controls,
     ),
     op(
         "POST",
         "/operator/reconciliation/controls/run",
         Treasury,
-        Input::None,
+        Input::ControlBody("controlRunInput"),
         Controls,
     ),
 ];
@@ -460,6 +466,8 @@ pub struct DoorConfig {
     pub fetch: Arc<dyn service_kit::http::Fetch>,
     /// The `posting` slice: its bus, custody switch and engine settings.
     pub posting: crate::posting::Posting,
+    /// The `controls` slice: the outside side of a control (`reconciliationSourcesFrom` over the rail URLs).
+    pub reconciliation_sources: Arc<dyn crate::controls::sources::Sources>,
 }
 
 /// The door.
@@ -798,6 +806,32 @@ impl LedgerDoor {
         if route.slice == Slice::Assets {
             return Outcome::Answer(self.assets_service(door, body_value(body)));
         }
+        // Posting judges the caller the door proved, so both posting doors are answered here rather than past the door.
+        let caller = if auth.scheme == Some("keypair") {
+            crate::posting::gate::Caller::Bound(service)
+        } else {
+            crate::posting::gate::Caller::Legacy(Some(service))
+        };
+        let mode = match keys.map(|k| k.mode) {
+            Some(Mode::Keypair) => "keypair",
+            _ => "dual",
+        };
+        if route.slice == Slice::PostRecipe {
+            let sent = match body {
+                Body::Absent => None,
+                Body::Parsed(j) => Some(j),
+            };
+            return match crate::posting::recipe_door::answer(
+                &self.cfg.store,
+                &self.cfg.posting,
+                Some(&caller),
+                mode,
+                sent,
+            ) {
+                Ok(receipt) => answer((200, receipt)),
+                Err(failure) => answer(errors::http_error(&failure)),
+            };
+        }
         let Input::Body(name) = route.input else {
             return self.past_the_door(route, door, &Value::Undefined, body);
         };
@@ -810,17 +844,7 @@ impl LedgerDoor {
             return answer(errors::http_error(&crate::history::page_socket(f).into()));
         }
         match parse(name, body_value(body)) {
-            // Posting judges the caller the door proved, so it is answered here rather than past the door.
             Ok(Parsed::Ok(input)) if route.slice == Slice::Posting => {
-                let caller = if auth.scheme == Some("keypair") {
-                    crate::posting::gate::Caller::Bound(service)
-                } else {
-                    crate::posting::gate::Caller::Legacy(Some(service))
-                };
-                let mode = match keys.map(|k| k.mode) {
-                    Some(Mode::Keypair) => "keypair",
-                    _ => "dual",
-                };
                 let parsed = input.to_json().unwrap_or(Json::Null);
                 match crate::posting::post(
                     &self.cfg.store,
@@ -891,14 +915,17 @@ impl LedgerDoor {
                 Outcome::Answer(self.desk_door(route, &principal, &input, body, params, request_id))
             }
             Slice::Reconcile => Outcome::Answer(self.reconcile_door(&principal, &input)),
+            Slice::Controls => {
+                Outcome::Answer(self.controls_door(route, &principal, &input, request_id))
+            }
             slice => Outcome::Owed(slice),
         };
         match route.input {
             Input::None | Input::Body(_) => past(Value::Undefined),
-            Input::BodyOrEmpty(name) | Input::OperatorBody(name) => {
+            Input::BodyOrEmpty(name) | Input::OperatorBody(name) | Input::ControlBody(name) => {
                 let value = match body {
                     Body::Absent | Body::Parsed(Json::Null)
-                        if matches!(route.input, Input::BodyOrEmpty(_)) =>
+                        if !matches!(route.input, Input::OperatorBody(_)) =>
                     {
                         Value::from_json(&Json::Object(Vec::new()))
                     }
@@ -907,6 +934,10 @@ impl LedgerDoor {
                 };
                 match parse(name, value) {
                     Ok(Parsed::Ok(input)) => past(input),
+                    Ok(Parsed::Issues(issues)) if matches!(route.input, Input::ControlBody(_)) => {
+                        let joined: Vec<&str> = issues.iter().map(schema::Issue::message).collect();
+                        answer(errors::operator_failed(&joined.join("; ")))
+                    }
                     Ok(Parsed::Issues(issues)) => {
                         answer(errors::operator_failed(&schema::message(&issues)))
                     }

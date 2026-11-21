@@ -17,6 +17,7 @@ pub mod balances;
 pub mod boot;
 pub mod chain;
 pub mod clock;
+pub mod controls;
 pub mod db;
 pub mod desk;
 pub mod door;

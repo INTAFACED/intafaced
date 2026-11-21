@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use service_kit::http::{Fetch, UreqFetch};
 use service_kit::json::Json;
 use service_kit::nats::{JetStream, stream_config};
-use service_kit::s2s::{parse_keyring, s2s_from_env, system_seconds};
+use service_kit::s2s::{CallSigner, parse_keyring, s2s_from_env, system_seconds};
 use service_kit::s2s_verify::{BodyBind, ServiceVerifier};
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
@@ -24,6 +24,7 @@ use service_kit::tokens::TokenConfig;
 use svc_ledger::approval::{self, Approvals};
 use svc_ledger::boot::{self, OUTBOX_RECOVER_MS, Relay};
 use svc_ledger::clock::system_ms;
+use svc_ledger::controls::sources::{self, OpenItemsSource, Signer, Sources};
 use svc_ledger::db::{self, Store};
 use svc_ledger::door::{DoorConfig, Keys, LedgerDoor};
 use svc_ledger::env::{self, DEFAULT_PORT, LedgerEnv};
@@ -131,9 +132,49 @@ fn door(
             .unwrap_or(reconcile::DEFAULT_STATEMENT_TIMEOUT_MS),
         // `handleS2sPortfolio` reads `process.env.INDEXER_URL`; nothing in `env.ts` holds it.
         indexer_url: std::env::var("INDEXER_URL").ok(),
+        reconciliation_sources: reconciliation_sources(env, s2s, fetch.clone()),
         // The same wire the approvals client uses.
         fetch,
         posting,
+    })
+}
+
+/// `reconciliationSourcesFrom(LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL, railStatementUrls, fetch, undefined, { urls:
+/// openItemsUrls, sign })`: a blank snapshot URL leaves an outside-balance control's outside side unset; a rail with an
+/// open-items URL reads svc-pay's open items too, each call signed as svc-ledger for svc-pay.
+fn reconciliation_sources(
+    env: &LedgerEnv,
+    s2s: service_kit::s2s::S2s,
+    fetch: Arc<dyn Fetch>,
+) -> Arc<dyn Sources> {
+    let signer = CallSigner::new(
+        "svc-ledger",
+        "svc-pay",
+        env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default(),
+        s2s.signer.zip(s2s.mode),
+    );
+    let sign: Signer = Arc::new(move |payload: &str, url: &str| {
+        let parsed = url::Url::parse(url).map_err(|e| e.to_string())?;
+        let target = match parsed.query() {
+            Some(q) => format!("{}?{q}", parsed.path()),
+            None => parsed.path().to_owned(),
+        };
+        signer.sign(payload, "POST", &target, "application/json")
+    });
+    let pairs =
+        |m: &BTreeMap<String, String>| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    Arc::new(sources::Http {
+        outside_snapshot_url: env
+            .str("LEDGER_RECONCILE_OUTSIDE_SNAPSHOT_URL")
+            .filter(|u| !u.is_empty())
+            .map(str::to_owned),
+        rail_statement_urls: pairs(&env.rail_statement_urls),
+        fetch,
+        timeout_ms: sources::OUTSIDE_SNAPSHOT_TIMEOUT_MS,
+        open_items: Some(OpenItemsSource {
+            urls: pairs(&env.open_items_urls),
+            sign,
+        }),
     })
 }
 

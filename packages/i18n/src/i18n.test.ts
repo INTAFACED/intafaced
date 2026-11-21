@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MESSAGE_KEYS, coverage, defineCatalog, en, isMessageKey, type Catalog, type PartialCatalog } from './catalog.js';
 import { CATALOGS, TRANSLATED_LOCALES, UNTRANSLATED_LOCALES, catalogFor, hasCatalog, localeCoverage } from './catalogs.js';
@@ -16,6 +14,7 @@ import {
 } from './locales.js';
 import { AmountFormatError, formatDate, formatMoney, formatNumber, formatPercent, formatRelativeTime } from './format.js';
 import * as formatModule from './format.js';
+import { countPlanted, countRule } from '../../../tooling/lint/count-rule.mjs';
 import {
   MissingMessageError,
   MissingParamError,
@@ -365,15 +364,34 @@ describe('formatMoney — decimal strings, never floats', () => {
     expect(formatMoney(LEDGER_PRECISION, 'USD', 'en', { maxFractionDigits: 18 })).toContain('123456789012345678');
   });
 
-  it('contains no float conversion anywhere in its source', () => {
-    const source = readFileSync(fileURLToPath(new URL('./format.ts', import.meta.url)), 'utf8');
-    // Comments may name the hazard — they do, at length. The code may not call
-    // it: `Number` survives only as its static guards (`Number.isNaN`).
-    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    for (const pattern of [/parseFloat\s*\(/, /parseInt\s*\(/, /(?<![.\w])Number\s*\(/]) {
-      expect(code, String(pattern)).not.toMatch(pattern);
-    }
-  });
+  // garden/no-number-money judges format.ts for every Number(), parseFloat(), parseInt() and new Number(), whatever the
+  // value is called (tooling/lint/oxlint-plugin-garden/money-rules.js). Run strict: a disable comment for the rule counts
+  // as a finding, so a float on money cannot be silenced from inside the formatter. Comments may name the hazard.
+  const FORMAT = 'packages/i18n/src/format.ts';
+  const NUMBER_MONEY = 'garden/no-number-money';
+
+  it('contains no float conversion anywhere in its code, by the lint rule run strict', () => {
+    const { files, checked } = countRule(NUMBER_MONEY, [FORMAT], { strict: true });
+    expect(checked).toEqual([FORMAT]);
+    expect(files).toEqual({});
+  }, 60_000);
+
+  it('the rule fails each float door in format.ts, a silenced one too, and not a comment naming it', () => {
+    const off = ['oxlint', 'disable'].join('-');
+    const planted = [
+      '// parseFloat(x), Number(x) and parseInt(x) are the hazard this file never calls.',
+      'export const a = (s: string) => parseFloat(s);',
+      'export const b = (s: string) => parseInt(s, 10);',
+      'export const c = (s: string) => Number(s);',
+      'export const d = (s: string) => new Number(s);',
+      'export const e = (s: string) => Number.parseFloat(s);',
+      `// ${off}-next-line ${NUMBER_MONEY} -- planted: a silenced copy still counts`,
+      'export const f = (s: string) => Number(s);',
+      'export const ok = (s: string) => Number.isNaN(s);',
+      '',
+    ].join('\n');
+    expect(countPlanted(NUMBER_MONEY, { [FORMAT]: planted }, { strict: true }).files).toEqual({ [FORMAT]: 6 });
+  }, 60_000);
 
   it('converts no amount through a float on any formatting path', () => {
     // Comments may name the hazard. The code may not call it: `Number` survives only as its static guards

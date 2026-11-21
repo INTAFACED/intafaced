@@ -208,6 +208,7 @@ fn door(mode: Option<Mode>, keyring: &[KeyringEntry]) -> LedgerDoor {
             mode.is_some(),
             None,
         ),
+        reconciliation_sources: Arc::new(svc_ledger::controls::sources::Unset),
     })
     .unwrap()
 }

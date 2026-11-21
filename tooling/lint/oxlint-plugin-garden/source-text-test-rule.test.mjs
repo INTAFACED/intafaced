@@ -115,3 +115,15 @@ test("a path under a folder the test made is a generator's output; each name is 
     "the real tree's reads, named by the outer repo; the temp folders' never",
   );
 });
+
+test("a generated file held equal to its generator is the generator's output, not source", skip, () => {
+  const diagnostics = lint({
+    'packages/ui/src/components/coins/art.test.ts': [
+      HEAD,
+      "const a = readFileSync(join(HERE, 'coin-art.generated.ts'), 'utf8');",
+      "const b = readFileSync(join(HERE, 'coin-art.ts'), 'utf8');",
+    ].join('\n'),
+  });
+  const found = diagnostics.filter((d) => d.code === 'garden(no-source-text-test)').map((d) => /\(`([^`]*)`\)/.exec(d.message)?.[1]);
+  assert.deepEqual(found, ['coin-art.ts'], 'the hand-written file still counts; the generated one does not');
+});

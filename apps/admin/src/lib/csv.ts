@@ -1,5 +1,5 @@
 /**
- * CSV export of the visible merchant list. Amounts stay decimal strings.
+ * CSV export of a visible console list (merchants, founder ops, ledger reconciliation). Amounts stay decimal strings.
  * A cell that starts with = + - @ tab or CR is prefixed with an apostrophe, so
  * a spreadsheet never runs a merchant-supplied value as a formula.
  */
@@ -9,7 +9,7 @@ export function csvCell(value: string): string {
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-export function csvRow(cells: readonly string[]): string {
+function csvRow(cells: readonly string[]): string {
   return cells.map(csvCell).join(',');
 }
 

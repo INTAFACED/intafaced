@@ -15,8 +15,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 // The room reads the signed-in session; give it a service that records every call.
-vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
+vi.mock('../session', async (original) => {
+  const real = await original<typeof import('../session')>();
   const api = { query, mutate, call, canWrite: () => true };
   const session = { api, userId: 'a0000000-0000-4000-8000-000000000001', session: null };
   return { ...real, useSession: () => session as unknown as ReturnType<typeof real.useSession>, useApi: () => api as never };

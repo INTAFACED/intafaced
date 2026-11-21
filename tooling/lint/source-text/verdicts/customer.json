@@ -143,9 +143,23 @@
   {
     "file": "apps/customer/tests/real-app/J-agents-13.pw.mjs",
     "target": "../../src/features/more/agents-catalogue-copy.ts",
-    "verdict": "left",
+    "verdict": "rewrite",
     "asserts": "The refused rows in Activity show the room's own English words for each refusal code.",
-    "guard": null,
-    "why": "A journey test; its words need a record the journey can read, taken up separately."
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/tests/real-app/J-agents-13.pw.mjs#J-agents-13 #"
+    },
+    "why": "Rewritten: the step compares each reason cell, as the person sees it, to a record of the room's English words per refusal code (as J-agents-01 records them), and fails on a code with no words; it no longer reads the app's source."
+  },
+  {
+    "file": "apps/customer/src/features/money/contracts-compose.test.ts",
+    "target": "./contracts.ts",
+    "verdict": "rewrite",
+    "asserts": "contracts.ts declares nothing of its own beyond the composed reads and writes and the write review, and bankReads and bankWrites hold only spreads of the areas.",
+    "guard": {
+      "kind": "lint",
+      "ref": "garden/compose-only"
+    },
+    "why": "Rewritten: the test runs garden/compose-only strict over contracts.ts (switched on for it in .oxlintrc.json) and shows the rule fails a planted shape, inline procedure and silenced declaration; the behaviour test that each procedure has one area stays."
   }
 ]

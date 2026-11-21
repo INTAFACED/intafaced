@@ -219,6 +219,8 @@ pub struct Issue {
     path: Vec<Json>,
     message: String,
     cont: Cont,
+    /// `ctx.addIssue({ code, message, path })`: the message ahead of the path, in the order the call wrote them.
+    message_first: bool,
 }
 
 impl Issue {
@@ -228,6 +230,7 @@ impl Issue {
             path: Vec::new(),
             message,
             cont,
+            message_first: false,
         }
     }
 
@@ -243,8 +246,13 @@ impl Issue {
             .iter()
             .map(|(k, v)| ((*k).to_owned(), v.clone()))
             .collect();
-        out.push(("path".to_owned(), Json::Array(self.path.clone())));
-        out.push(("message".to_owned(), Json::str(self.message.clone())));
+        let path = ("path".to_owned(), Json::Array(self.path.clone()));
+        let message = ("message".to_owned(), Json::str(self.message.clone()));
+        if self.message_first {
+            out.extend([message, path]);
+        } else {
+            out.extend([path, message]);
+        }
         Json::Object(out)
     }
 
@@ -283,11 +291,41 @@ pub fn issues_json(issues: &[Issue]) -> Json {
 /// `Err(message)` is a refine that threw.
 pub trait Refiner {
     fn refine(&self, id: &str, value: &Value) -> Result<bool, String>;
-    /// A `superRefine` named `id`: the issues its `ctx.addIssue` calls add, each a path and a message (code `custom`,
-    /// and the parse goes on, as zod 3's form of `addIssue` sets it). A service without one refuses the name.
-    fn super_refine(&self, id: &str, value: &Value) -> Result<Vec<(Vec<Json>, String)>, String> {
+    /// A `superRefine` named `id`: the issues its `ctx.addIssue` calls add (code `custom`, and the parse goes on, as zod
+    /// 3's form of `addIssue` sets it). A service without one refuses the name.
+    fn super_refine(&self, id: &str, value: &Value) -> Result<Vec<Added>, String> {
         let _ = value;
         Err(format!("no superRefine named {id}"))
+    }
+}
+
+/// One `ctx.addIssue({ code: 'custom', ... })`: its path and message, and which of the two the call wrote first (an
+/// absent path is written after the message).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Added {
+    pub path: Vec<Json>,
+    pub message: String,
+    pub message_first: bool,
+}
+
+impl Added {
+    /// `ctx.addIssue({ code, path, message })`, or `{ code, message }` when the path is empty: zod then writes the path
+    /// after the message.
+    pub fn at(path: Vec<Json>, message: impl Into<String>) -> Added {
+        Added {
+            message_first: path.is_empty(),
+            path,
+            message: message.into(),
+        }
+    }
+
+    /// `ctx.addIssue({ code, message, path })`, or `{ code, message }` with no path.
+    pub fn saying(message: impl Into<String>, path: Vec<Json>) -> Added {
+        Added {
+            path,
+            message: message.into(),
+            message_first: true,
+        }
     }
 }
 
@@ -1065,11 +1103,15 @@ impl Schema {
                 );
             }
             Check::Super(id) => {
-                for (path, message) in refiner.super_refine(id, &p.value).map_err(Thrown)? {
-                    p.issues.push(
-                        Issue::new(vec![("code", Json::str("custom"))], message, Cont::Yes)
-                            .at(path),
-                    );
+                for added in refiner.super_refine(id, &p.value).map_err(Thrown)? {
+                    let mut issue = Issue::new(
+                        vec![("code", Json::str("custom"))],
+                        added.message,
+                        Cont::Yes,
+                    )
+                    .at(added.path);
+                    issue.message_first = added.message_first;
+                    p.issues.push(issue);
                 }
             }
         }

@@ -1,11 +1,12 @@
 //! The ledger's own checks inside its input schemas, by the names `scripts/record-door.mjs` gives them in
 //! `door/schemas.json`: the account owner's identifier space (`accountRefSchema`'s `superRefine`, from
 //! `@intafaced/ledger-client`'s `isValidOwnerId`), the operator desk's list query (`operator-desk.ts`), an account
-//! metadata delete's revision (`operator-account-metadata.ts`), and the asset registry's body (`checkBody` in
-//! `packages/contracts/src/asset-registry.ts`).
+//! metadata delete's revision (`operator-account-metadata.ts`), the asset registry's body (`checkBody` in
+//! `packages/contracts/src/asset-registry.ts`), and a reconciliation control's threshold, account set and lifecycle
+//! move (`packages/contracts/src/ledger-reconciliation.ts`) with svc-pay's signed decimals it reads.
 
 use service_kit::json::Json;
-use service_kit::schema::{Refiner, Value};
+use service_kit::schema::{Added, Refiner, Value};
 
 /// `UUID_OWNER_ID_PATTERN`: a lowercase canonical UUID.
 pub fn is_uuid_owner_id(s: &str) -> bool {
@@ -90,7 +91,7 @@ pub const DEFAULT_NETWORK_NOT_LISTED: &str = "ledger.asset_default_network_not_l
 
 /// `checkBody(body, ctx)`: the network ids unique, the default network one of them, the actions unique. It runs only on
 /// a body whose parts parsed (zod skips it after any other issue), so every part here is the type its schema says.
-fn asset_body(v: &Value) -> Vec<(Vec<Json>, String)> {
+fn asset_body(v: &Value) -> Vec<Added> {
     let texts = |key: &str, field: Option<&str>| -> Vec<String> {
         v.get(key)
             .as_array()
@@ -107,24 +108,117 @@ fn asset_body(v: &Value) -> Vec<(Vec<Json>, String)> {
     let ids = texts("networks", Some("networkId"));
     let mut issues = Vec::new();
     if !unique(&ids) {
-        issues.push((
+        issues.push(Added::at(
             vec![Json::str("networks")],
-            "network ids must be unique".to_owned(),
+            "network ids must be unique",
         ));
     }
     if let Some(default) = v.get("defaultNetworkId").as_str()
         && !ids.iter().any(|id| id == default)
     {
-        issues.push((
+        issues.push(Added::at(
             vec![Json::str("defaultNetworkId")],
-            DEFAULT_NETWORK_NOT_LISTED.to_owned(),
+            DEFAULT_NETWORK_NOT_LISTED,
         ));
     }
     if !unique(&texts("allowedActions", None)) {
-        issues.push((
+        issues.push(Added::at(
             vec![Json::str("allowedActions")],
-            "actions must be unique".to_owned(),
+            "actions must be unique",
         ));
+    }
+    issues
+}
+
+/// `/^-0(\.0+)?$/`.
+fn is_negative_zero(s: &str) -> bool {
+    match s.strip_prefix("-0") {
+        Some("") => true,
+        Some(rest) => rest
+            .strip_prefix('.')
+            .is_some_and(|zeros| !zeros.is_empty() && zeros.bytes().all(|b| b == b'0')),
+        None => false,
+    }
+}
+
+/// `OPS_CONTROL_POLICY_UNSET` and `OPS_CONTROL_STATE_ILLEGAL`, the messages a control's input refuses with.
+const POLICY_UNSET: &str = "ops.control_policy_unset";
+const STATE_ILLEGAL: &str = "ops.control_state_illegal";
+
+/// `queryAccountSetSchema`'s `superRefine`: a rail names its boundary itself (no owner type, no owner id prefix, no kind
+/// but `available` beside it), and a query names at least one predicate.
+fn rail_boundary(v: &Value) -> Vec<Added> {
+    let set = |k: &str| !matches!(v.get(k), Value::Undefined);
+    let mut issues = Vec::new();
+    if set("rail")
+        && (set("ownerType")
+            || set("ownerIdPrefix")
+            || (set("kind") && v.get("kind").as_str() != Some("available")))
+    {
+        issues.push(Added::saying(POLICY_UNSET, vec![Json::str("rail")]));
+    }
+    let predicated = [
+        "rail",
+        "ownerType",
+        "ownerIdPrefix",
+        "kind",
+        "purpose",
+        "assetId",
+    ]
+    .iter()
+    .any(|k| set(k));
+    if !predicated {
+        issues.push(Added::saying(POLICY_UNSET, Vec::new()));
+    }
+    issues
+}
+
+/// `updateReconciliationControlInputSchema`'s `superRefine`: a lifecycle move travels alone with its two approval ids,
+/// and the approval ids ride with nothing else. A path lists every key it names, as the TypeScript passes them.
+fn lifecycle_alone(v: &Value) -> Vec<Added> {
+    let present: Vec<&str> = match v {
+        Value::Object(o) => o
+            .iter()
+            .filter(|(_, value)| !matches!(value, Value::Undefined))
+            .map(|(k, _)| k.as_str())
+            .collect(),
+        _ => Vec::new(),
+    };
+    let keys = |list: Vec<&str>| list.into_iter().map(Json::str).collect::<Vec<_>>();
+    let mut issues = Vec::new();
+    if matches!(v.get("lifecycle"), Value::Undefined) {
+        let stray: Vec<&str> = present
+            .iter()
+            .copied()
+            .filter(|k| *k == "approvalId" || *k == "operationId")
+            .collect();
+        if !stray.is_empty() {
+            issues.push(Added::saying(STATE_ILLEGAL, keys(stray)));
+        }
+        return issues;
+    }
+    let allowed = [
+        "controlId",
+        "reason",
+        "lifecycle",
+        "approvalId",
+        "operationId",
+    ];
+    let extra: Vec<&str> = present
+        .iter()
+        .copied()
+        .filter(|k| !allowed.contains(k))
+        .collect();
+    if !extra.is_empty() {
+        issues.push(Added::saying(STATE_ILLEGAL, keys(extra)));
+    }
+    for key in ["approvalId", "operationId"] {
+        if matches!(v.get(key), Value::Undefined) {
+            issues.push(Added::saying(
+                "action_approval.missing",
+                vec![Json::str(key)],
+            ));
+        }
     }
     issues
 }
@@ -155,11 +249,17 @@ impl Refiner for LedgerRefines {
             }
             // `r >= 1` on an account metadata delete's revision: a key never set has nothing to delete.
             "revision_set" => Ok(v.as_number().is_some_and(|r| r >= 1.0)),
+            // `Object.keys(value.byAsset).length > 0` on a control's threshold: a bound with no asset bounds nothing.
+            "threshold_has_assets" => {
+                Ok(matches!(v.get("byAsset"), Value::Object(o) if !o.is_empty()))
+            }
+            // `!/^-0(\.0+)?$/.test(v)` on svc-pay's signed decimals: a zero is never negative.
+            "not_negative_zero" => Ok(!is_negative_zero(&v.js_string())),
             other => Err(format!("no refine named {other}")),
         }
     }
 
-    fn super_refine(&self, id: &str, v: &Value) -> Result<Vec<(Vec<Json>, String)>, String> {
+    fn super_refine(&self, id: &str, v: &Value) -> Result<Vec<Added>, String> {
         match id {
             "owner_id_space" => {
                 let owner_type = v.get("ownerType").js_string();
@@ -167,7 +267,7 @@ impl Refiner for LedgerRefines {
                 if is_valid_owner_id(&owner_type, &owner_id) {
                     return Ok(Vec::new());
                 }
-                Ok(vec![(
+                Ok(vec![Added::at(
                     vec![Json::str("ownerId")],
                     format!(
                         "owner_type \"{owner_type}\" requires {} — got \"{owner_id}\"",
@@ -176,6 +276,8 @@ impl Refiner for LedgerRefines {
                 )])
             }
             "asset_body" => Ok(asset_body(v)),
+            "rail_boundary" => Ok(rail_boundary(v)),
+            "lifecycle_alone" => Ok(lifecycle_alone(v)),
             other => Err(format!("no superRefine named {other}")),
         }
     }
