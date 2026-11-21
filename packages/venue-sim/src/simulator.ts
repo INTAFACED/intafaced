@@ -41,6 +41,9 @@ import {
   type UserVenueIsolatedMargin,
   type UserVenueAccountSummary,
   type UserVenueAccountMode,
+  type UserVenueVault,
+  type UserVenueVaultHoldings,
+  type UserVenueVaultTransfer,
   type VenueAccountMode,
   type UserVenueCrossMargin,
   type UserVenueAdlRules,
@@ -178,6 +181,42 @@ const QUOTE_ROUND = 'ceil' as const;
 const SPOT_POCKET = '\u0000spot';
 /** The daily action limit of unified and portfolio margin accounts (Hyperliquid account-abstraction-modes, read 20 Nov 2026). */
 const DAILY_ACTION_LIMIT = 50_000;
+
+/**
+ * The TEST vaults the venue lists (J-derivatives-31), in the shape of the venue it stands for (Hyperliquid, read 20 Nov
+ * 2026: `hypercore/vaults/protocol-vaults.md`, the protocol vault's "deposit lock-up period is 4 days";
+ * `for-vault-depositors-legacy.md`, a user vault's 1 day and a 10% leader profit share in its example). The protocol
+ * vault publishes a TEST past return; the leader vault publishes none, so a person sees "not published". A vault's value
+ * is what its depositors hold in it, nothing more.
+ */
+export const TEST_VENUE_VAULTS: readonly {
+  readonly address: string;
+  readonly name: string;
+  readonly kind: 'protocol' | 'user';
+  readonly leader: string | null;
+  readonly lockUpSeconds: number;
+  readonly profitShareBps: number;
+  readonly pastReturn: { readonly bps: number; readonly days: number } | null;
+}[] = [
+  {
+    address: '0x7e57000000000000000000000000000000000a01',
+    name: 'TEST protocol vault',
+    kind: 'protocol',
+    leader: null,
+    lockUpSeconds: 4 * 86_400,
+    profitShareBps: 0,
+    pastReturn: { bps: 120, days: 30 },
+  },
+  {
+    address: '0x7e57000000000000000000000000000000000a02',
+    name: 'TEST leader vault',
+    kind: 'user',
+    leader: '0x7e570000000000000000000000000000000000ee',
+    lockUpSeconds: 86_400,
+    profitShareBps: 1_000,
+    pastReturn: null,
+  },
+];
 
 export interface SimMarketConfig {
   readonly symbol: string;
@@ -458,6 +497,14 @@ interface AccountState {
   actionsToday: number;
   /** TEST switches (J-derivatives-29 #7 #11): the mode not reported, and a mode switch the venue refuses, in its words. */
   modeTest: { unreported: boolean; refuseSwitch: string | null };
+  /**
+   * Main account only (J-derivatives-31): its position in each vault, by the vault's address: what it is worth, what was
+   * put in (the leader's profit share is taken on what it gained above that), and when its lock-up ends. The newest
+   * deposit sets the lock-up of the whole position (TEST rule).
+   */
+  readonly vaults: Map<string, { equity: Amount; costBasis: Amount; lockUpEndsAt: Date }>;
+  /** Its deposits into and withdrawals from vaults, oldest first. */
+  readonly vaultTransfers: UserVenueVaultTransfer[];
   /** Its liquidations, oldest first, each with the parts the venue closed (J-derivatives-07 #2). */
   readonly liquidations: {
     liquidationId: string;
@@ -1733,6 +1780,36 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
           refuse(this.venue.id, 'venue_rejected', 'TEST rule: cancel every open order before the account mode changes');
         return;
       }
+      case 'vault_transfer': {
+        const vault = this.vaultOf(intent.vault);
+        if (intent.asset !== vault.asset) refuse(this.venue.id, 'venue_rejected', `${vault.name} takes ${vault.asset} only`);
+        if (intent.direction === 'deposit') {
+          const free = state.balances.get(intent.asset)?.free ?? ZERO;
+          if (compare(intent.amount, free) > 0)
+            refuse(
+              this.venue.id,
+              'insufficient_balance',
+              `the account holds ${formatAmount(free)} ${intent.asset} free; ${formatAmount(intent.amount)} is more than that`,
+            );
+          return;
+        }
+        const position = state.vaults.get(vault.address);
+        if (!position) refuse(this.venue.id, 'venue_rejected', `the account holds nothing in ${vault.name}`);
+        // Before the lock-up ends nothing comes out: refused before the wallet is asked to sign, and again at submit.
+        if (position.lockUpEndsAt.getTime() > this.clock().getTime())
+          refuse(
+            this.venue.id,
+            'venue_rejected',
+            `the lock-up on this position in ${vault.name} ends at ${position.lockUpEndsAt.toISOString()}; nothing can be withdrawn before then`,
+          );
+        if (compare(intent.amount, position.equity) > 0)
+          refuse(
+            this.venue.id,
+            'insufficient_balance',
+            `the position in ${vault.name} is worth ${formatAmount(position.equity)} ${vault.asset}; ${formatAmount(intent.amount)} is more than that`,
+          );
+        return;
+      }
       case 'market_margin_transfer': {
         const rule = this.marginAccountOf(intent.symbol);
         if (intent.asset !== rule.collateralAsset)
@@ -2294,6 +2371,73 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     if (set.refuseSwitch !== undefined) state.modeTest.refuseSwitch = set.refuseSwitch;
   }
 
+  /** A listed vault by its address, with the asset it takes, or `venue_rejected` for one the venue does not list. */
+  private vaultOf(address: string): (typeof TEST_VENUE_VAULTS)[number] & { asset: string } {
+    const vault = TEST_VENUE_VAULTS.find((v) => v.address === String(address).toLowerCase());
+    if (!vault) refuse(this.venue.id, 'venue_rejected', `${String(address)} is not a vault ${this.venue.displayName} lists`);
+    return { ...vault, asset: 'USDC' };
+  }
+
+  /** The vaults the venue lists, each with its lock-up, profit share, value and past return (J-derivatives-31 #1). */
+  async vaults(): Promise<AsOf<readonly UserVenueVault[]>> {
+    this.up();
+    return this.asOf(
+      TEST_VENUE_VAULTS.map((v) => {
+        let value = ZERO;
+        for (const state of this.accounts.values()) value = add(value, state.vaults.get(v.address)?.equity ?? ZERO);
+        return {
+          address: v.address,
+          name: v.name,
+          kind: v.kind,
+          leader: v.leader,
+          asset: 'USDC',
+          lockUpSeconds: v.lockUpSeconds,
+          profitShareBps: v.profitShareBps,
+          vaultValue: value,
+          pastReturn: v.pastReturn,
+        };
+      }),
+    );
+  }
+
+  /**
+   * The account's vault positions, its account value as the venue counts it and its vault transfers (J-derivatives-31 #2
+   * #3 #5). TEST rule for account value: the account's USDC (free and locked, spot included in standard mode), its open
+   * positions' result at the mark, and its vault positions; other coins are not counted in it.
+   */
+  async vaultHoldings(account: UserVenueAccount): Promise<AsOf<UserVenueVaultHoldings>> {
+    this.up();
+    if (account.subAccount !== null) refuse(this.venue.id, 'not_offered', 'vault positions are held on the main account');
+    const state = this.account(account);
+    const summary = (await this.accountSummary(account)).value;
+    const positions = [...state.vaults.entries()].map(([address, p]) => {
+      const v = this.vaultOf(address);
+      return { vault: address, name: v.name, asset: v.asset, equity: p.equity, lockUpEndsAt: p.lockUpEndsAt };
+    });
+    const spot = state.mode === 'standard' ? state.spot.get('USDC') : undefined;
+    let accountValue = summary.asset === 'USDC' ? summary.equity : ZERO;
+    if (spot) accountValue = add(accountValue, add(spot.free, spot.locked));
+    for (const p of positions) accountValue = add(accountValue, p.equity);
+    return this.asOf({
+      positions,
+      accountValue: summary.asset === 'USDC' ? { asset: 'USDC', amount: accountValue } : null,
+      transfers: [...state.vaultTransfers].reverse(),
+    });
+  }
+
+  /**
+   * TEST control (J-derivatives-31 #5): the venue's clock passes the lock-up of the account's position in `vault`, as if
+   * its lock-up period had gone by. Only that one position changes; every other account and vault keeps its own.
+   */
+  testVaultLockUpPassed(account: UserVenueAccount, vault: string): Date {
+    const state = this.account(account);
+    const v = this.vaultOf(vault);
+    const held = state.vaults.get(v.address);
+    if (!held) throw new VenueWireError(`TEST: the account holds nothing in ${v.name}`);
+    held.lockUpEndsAt = new Date(this.clock().getTime() - 1);
+    return held.lockUpEndsAt;
+  }
+
   async accountSummary(account: UserVenueAccount): Promise<AsOf<UserVenueAccountSummary>> {
     this.up();
     const state = this.account(account);
@@ -2834,6 +2978,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         spot: new Map(),
         actionsToday: 0,
         modeTest: { unreported: false, refuseSwitch: null },
+        vaults: new Map(),
+        vaultTransfers: [],
         liquidations: [],
         deleverages: [],
         fundingPayments: [],
@@ -3341,6 +3487,51 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         const to = toSpot ? this.spotOf(state, intent.asset) : this.balance(state, intent.asset);
         from.free = sub(from.free, intent.amount);
         to.free = add(to.free, intent.amount);
+        return accepted(prepared.nonce, null);
+      }
+      case 'vault_transfer': {
+        // validate() above refused a deposit past the free balance, and a withdrawal before the lock-up or past the position.
+        const vault = this.vaultOf(intent.vault);
+        const free = this.balance(state, intent.asset);
+        if (intent.direction === 'deposit') {
+          free.free = sub(free.free, intent.amount);
+          const held = state.vaults.get(vault.address);
+          state.vaults.set(vault.address, {
+            equity: add(held?.equity ?? ZERO, intent.amount),
+            costBasis: add(held?.costBasis ?? ZERO, intent.amount),
+            lockUpEndsAt: new Date(now.getTime() + vault.lockUpSeconds * 1000),
+          });
+          state.vaultTransfers.push({
+            vault: vault.address,
+            direction: 'deposit',
+            amount: intent.amount,
+            creditedAmount: intent.amount,
+            leaderShare: null,
+            transferredAt: now,
+            nonce: prepared.nonce,
+          });
+          return accepted(prepared.nonce, null);
+        }
+        const held = state.vaults.get(vault.address);
+        if (!held) return refused('venue_rejected', `the account holds nothing in ${vault.name}`);
+        // The leader's share is taken on the part of what comes out that is gain above what was put in, pro rata.
+        const basisOut = div(mul(held.costBasis, intent.amount), held.equity, 'floor');
+        const gain = sub(intent.amount, basisOut);
+        const leaderShare = compare(gain, ZERO) > 0 ? div(mul(gain, parseAmount(String(vault.profitShareBps))), BPS, 'floor') : ZERO;
+        const credited = sub(intent.amount, leaderShare);
+        free.free = add(free.free, credited);
+        const equity = sub(held.equity, intent.amount);
+        if (compare(equity, ZERO) === 0) state.vaults.delete(vault.address);
+        else state.vaults.set(vault.address, { ...held, equity, costBasis: sub(held.costBasis, basisOut) });
+        state.vaultTransfers.push({
+          vault: vault.address,
+          direction: 'withdraw',
+          amount: intent.amount,
+          creditedAmount: credited,
+          leaderShare,
+          transferredAt: now,
+          nonce: prepared.nonce,
+        });
         return accepted(prepared.nonce, null);
       }
       case 'set_account_mode':
