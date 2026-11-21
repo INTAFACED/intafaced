@@ -1,5 +1,5 @@
 /**
- * Volt kit component sheet. Reads only --lit-* roles from lit.css. Spacing that scales with density reads the
+ * Lit glass component sheet. Reads only --lit-* roles from lit.css. Spacing that scales with density reads the
  * density roles; structural sizes (hairlines, icon boxes, hit targets, a control's inner padding) stay raw px
  * here because the kit is the system. Logical sides only, so right-to-left needs nothing. Rooms never restyle
  * these classes.

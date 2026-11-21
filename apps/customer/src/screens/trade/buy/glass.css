@@ -1,0 +1,56 @@
+/*
+ * The Lit glass direction on the simple buy (intafaced issue 9227): the buy card is a frosted sheet over the one blue
+ * light. Only under `data-direction='lit-glass'` (look.ts); the direction's mixes (`--lg-*`) come from
+ * @intafaced/ui/lit/directions/lit-glass.css. Static.
+ */
+[data-look='lit'][data-direction='lit-glass'] .buy-card {
+  position: relative;
+  isolation: isolate;
+  border: 0;
+  border-radius: 1.75rem;
+  background: var(--lg-sheen), var(--lg-glass-strong);
+  -webkit-backdrop-filter: var(--lg-frost);
+  backdrop-filter: var(--lg-frost);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--lg-edge) 80%, transparent),
+    inset 0 0 0 1px var(--lg-edge-dim),
+    var(--lg-lift);
+}
+/* the light the sheet floats over: behind the card, so the frost has something to bend */
+[data-look='lit'][data-direction='lit-glass'] .buy-grid,
+[data-look='lit'][data-direction='lit-glass'] .if-buy {
+  position: relative;
+  isolation: isolate;
+}
+[data-look='lit'][data-direction='lit-glass'] .if-buy::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset-block-start: 8rem;
+  inset-inline-end: 0;
+  inline-size: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(closest-side, var(--lit-accent), color-mix(in srgb, var(--lit-accent) 45%, transparent) 45%, transparent);
+  opacity: 0.8;
+}
+@media (min-width: 768px) {
+  [data-look='lit'][data-direction='lit-glass'] .if-buy::before {
+    inset-block-start: 2rem;
+    inset-inline-end: 6rem;
+    inline-size: 30rem;
+  }
+}
+[data-theme='light'][data-look='lit'][data-direction='lit-glass'] .if-buy::before {
+  opacity: 0.5;
+}
+
+/* Buy is pearl (ink in light), as every main action in this direction: green stays the colour of gains, blue the spark */
+[data-look='lit'][data-direction='lit-glass'] .buy-card :is(.bg-up, .bg-down) {
+  background: var(--if-lime);
+  color: var(--if-on-lime);
+}
+[data-look='lit'][data-direction='lit-glass'] .buy-card :is(.data-pressed\:text-on-up, .data-pressed\:text-on-down)[data-pressed] {
+  color: var(--if-on-lime);
+}

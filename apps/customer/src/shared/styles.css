@@ -6,9 +6,8 @@
   font-display: swap;
 }
 :root {
-  /* gain and loss in Volt's own colours (lit.css); the chart's red-for-up swap is account.css's */
-  --color-positive: var(--lit-up);
-  --color-negative: var(--lit-down);
+  --color-positive: #c8f64a;
+  --color-negative: #f05a68;
   --chart-up: var(--color-positive);
   --chart-down: var(--color-negative);
   --color-warning: #e4bf72;
@@ -434,8 +433,7 @@ html[data-theme='light'] .button--danger {
   overflow: auto;
   padding: var(--if-space-6);
   border: 1px solid var(--color-border);
-  /* a dialog is a panel: Volt's medium radius is the control's pill, which clips a tall dialog into an ellipse */
-  border-radius: var(--if-r-lg);
+  border-radius: var(--if-r-md);
   background: var(--color-shell);
   color: var(--color-text);
 }

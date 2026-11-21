@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Plugin } from 'vite';
+import { LOOK_KEY } from './look';
 
 /** Where the layout preference lives (shared/preferences.ts, held equal by boot.test.ts); Simple unless it says Pro. */
 export const VIEW_KEY = 'intafaced.customer.view.v1';
@@ -10,11 +11,12 @@ const FRAME_CAP_MS = 8000;
 
 /**
  * The boot script: a classic, same-origin file (the CSP allows no inline script) that runs before the app's module.
- * The look needs nothing from it: index.html's root carries data-look="lit" (Volt, the only look). On Simple Home's paths it marks the page (`data-boot="home"`), so
+ * It sets the remembered look on the root first, as look.ts will (`?look=` wins; it stores nothing itself), so the
+ * first paint already has the look's shapes. On Simple Home's paths it marks the page (`data-boot="home"`), so
  * index.html's static frame shows and #root waits hidden, and it takes the mark off once Home's root is in #root, or
  * once #root shows something other than Home with no loading state left (a signed-out landing page, a refusal). Pro
  * Home has another layout, so it gets no frame (a Pro choice kept only on the account, not yet on this device, shows
- * the Simple frame until the app runs). It reads nothing but the path and the layout preference and
+ * the Simple frame until the app runs). It reads nothing but the path, the query, the look and layout preferences and
  * #root. On any error of its own, a resource that fails to load, an uncaught error or after FRAME_CAP_MS, it takes the
  * mark off, so a failed start shows the app's own state rather than a skeleton that never ends.
  *
@@ -23,6 +25,13 @@ const FRAME_CAP_MS = 8000;
  */
 export const BOOT_SCRIPT = `(function () {
   var html = document.documentElement;
+  try {
+    var look = new URLSearchParams(location.search).get('look');
+    if (look !== 'lit' && look !== 'off') {
+      try { look = localStorage.getItem(${JSON.stringify(LOOK_KEY)}); } catch (e) {}
+    }
+    if (look === 'lit') html.setAttribute('data-look', 'lit');
+  } catch (e) {}
   try {
     if (${JSON.stringify(HOME_PATHS)}.indexOf(location.pathname) < 0) return;
     var view = {};

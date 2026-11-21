@@ -209,7 +209,7 @@ export function resolvePreviewScheme(search: string = typeof location === 'undef
 /**
  * The theme the app draws. Light is out of scope, so every stored value (`light`, `system`, or an old `light` from an
  * earlier build) still renders dark; the stored value is kept untouched, ready for the day light ships. The one way to
- * see light is the scheme switch (`?scheme=light`), asked for on this device; the beta is dark only.
+ * see light is the look's preview switch (`?scheme=light`, look.ts), asked for on this device.
  */
 export function useResolvedTheme(_theme: Preferences['theme']): 'light' | 'dark' {
   return resolvePreviewScheme();

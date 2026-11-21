@@ -1,18 +1,31 @@
 /**
- * Volt: the frozen contracts every lane builds against.
+ * Lit glass: the frozen contracts every lane builds against.
  *
  * This file names things; it holds no values and no styling. Values live in `./tokens.ts`, components in
- * `./components/`, templates in `./templates/`. A name added here goes through the
+ * `./components/`, templates in `./templates/`, the 3D objects in `./fx/`. A name added here goes through the
  * kit's owner (the lit lead); removing or renaming one is a breaking change for every room built on it.
  *
- * Volt is the customer app's only look (the owner's pick, 2026-11-21): the app's page carries `data-look="lit"` on its
- * root from its first byte (apps/customer/index.html), and only the customer app loads `@intafaced/ui/lit/lit.css`.
- * The founder console (apps/admin) never imports anything under `lit/` (`lit.test.ts` checks that). Without
- * `data-look` (the kit gallery's flat view) the same role tokens resolve to today's skin.
+ * The look is scoped: it only applies under `data-look="lit"` on the root element, and only the customer app
+ * loads `@intafaced/ui/lit/lit.css`. The founder console (apps/admin) never imports anything under `lit/`
+ * (`lit.test.ts` checks that). With the look switched off, the same role tokens resolve to today's skin, so a
+ * room moved onto a template shows its new layout in the old colours, flat, never a mix of two skins.
  */
 
-/** The `data-look` value the customer app's root carries. */
+/** The `data-look` value that switches the skin on. */
 export const LIT_LOOK = 'lit' as const;
+
+/** `data-accent` on the root. Blue is the default (owner decision, 26 Oct 2026); the others are a switch. */
+export const accents = ['blue', 'ember', 'violet', 'emerald'] as const;
+export type Accent = (typeof accents)[number];
+export const defaultAccent: Accent = 'blue';
+
+/**
+ * `data-direction` on the root: one of the look directions the owner chooses between (intafaced issue 9227), each its
+ * own material, type and layout on top of the look's roles. Off by default; only `?direction=` sets it (look.ts), and
+ * only with the look on.
+ */
+export const directions = ['ember', 'volt', 'lit-glass'] as const;
+export type Direction = (typeof directions)[number];
 
 /**
  * `data-surfaces` on the root. `solid` replaces every glass and translucent surface with an opaque one and
@@ -23,7 +36,7 @@ export const LIT_LOOK = 'lit' as const;
 export const surfaceModes = ['glass', 'solid'] as const;
 export type SurfaceMode = (typeof surfaceModes)[number];
 
-/** `data-theme` on the root, as the app already uses it. The beta is dark only; light values exist, are tested and stay behind the scheme switch. */
+/** `data-theme` on the root, as the app already uses it. Dark ships; light values exist and are tested. */
 export const schemes = ['dark', 'light'] as const;
 export type Scheme = (typeof schemes)[number];
 
