@@ -209,6 +209,23 @@ test(`${J} #3 reads the key's call log: status and request id rows, the out-of-I
   }
 });
 
+/** A limit buy the market's own rules accept: the last traded price, and whole lots worth about 10 USDT. */
+async function acceptableBuy(key, symbol) {
+  const ticker = await withKey(key, { path: `/api/v1/ticker/${encodeURIComponent(symbol)}` });
+  expect(ticker.status, JSON.stringify(ticker.body).slice(0, 300)).toBe(200);
+  const price = ticker.body.last;
+  expect(Number(price), `${symbol} has a last price`).toBeGreaterThan(0);
+  const markets = await withKey(key, { path: '/api/v1/markets?limit=500' });
+  expect(markets.status).toBe(200);
+  const list = Array.isArray(markets.body) ? markets.body : Object.values(markets.body).find(Array.isArray);
+  const market = list.find((m) => m.symbol === symbol);
+  expect(market, `${symbol} is published`).toBeTruthy();
+  const lot = String(market.precision.amount);
+  const places = (lot.split('.')[1] ?? '').length;
+  const lots = Math.max(Math.ceil(10 / (Number(price) * Number(lot))), Math.ceil(Number(market.limits?.amount?.min ?? 0) / Number(lot)), 1);
+  return { symbol, price: String(price), amount: (lots * Number(lot)).toFixed(places) };
+}
+
 test(`${J} #4 finds an account-restricted reason: the reason code the API returned`, async ({ browser }) => {
   test.setTimeout(300_000);
   const w = await customerWorld(browser);
@@ -217,11 +234,12 @@ test(`${J} #4 finds an account-restricted reason: the reason code the API return
     /OK .* trading restrict: changed/,
   );
   restricted.add(w.holder.who.handle);
-  // The customer's program then places an order, and the API refuses it with the restriction's code.
+  // The customer's program then places an order the market would take (at the last price, about 10 USDT, clear of the
+  // minimum value), and the API refuses it with the restriction's code: trading controls refuse before any funds are held.
   const order = await withKey(w.keys.open, {
     method: 'POST',
     path: '/api/v1/orders',
-    body: { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '0.0001', price: '1', clientOrderId: `dev17-${RUN}` },
+    body: { ...(await acceptableBuy(w.keys.open, 'BTC/USDT')), type: 'limit', side: 'buy', clientOrderId: `dev17-${RUN}` },
   });
   expect(order.status, JSON.stringify(order.body).slice(0, 300)).toBe(403);
   const returned = order.body?.intafacedCode ?? codeOf(order.body);
