@@ -77,7 +77,22 @@ export type RefusalStatus =
   | 'PRECONDITION_FAILED'
   | 'TOO_MANY_REQUESTS'
   | 'SERVICE_UNAVAILABLE'
-  | 'TIMEOUT';
+  | 'TIMEOUT'
+  | 'PAYLOAD_TOO_LARGE';
+
+/** The HTTP status tRPC sends each refusal status with, for tests that check a mounted record on the wire. */
+export const REFUSAL_HTTP_STATUS: Readonly<Record<RefusalStatus, number>> = Object.freeze({
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  CONFLICT: 409,
+  PRECONDITION_FAILED: 412,
+  TOO_MANY_REQUESTS: 429,
+  SERVICE_UNAVAILABLE: 503,
+  TIMEOUT: 408,
+  PAYLOAD_TOO_LARGE: 413,
+});
 
 /** Every named refusal the call may answer with, by its machine code, and the status it is sent with. */
 export type Refusals = Readonly<Record<string, RefusalStatus>>;
