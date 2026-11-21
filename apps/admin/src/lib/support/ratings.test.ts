@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { averageScore, formatShare, ratingWindow, readRatingSummary } from './ratings';
+import { recordReads } from './record-reply';
+import { SUPPORT_DESK_RATING_SUMMARY } from '@intafaced/contracts/support-desk-procedures';
+import { averageScore, formatShare, ratingWindow } from './ratings';
 
 const raw = (over: Record<string, unknown> = {}) => ({
   from: '2026-09-20T00:00:00.000Z',
@@ -13,23 +15,25 @@ const raw = (over: Record<string, unknown> = {}) => ({
 
 describe('rating summary reader', () => {
   it('reads a well-formed summary', () => {
-    expect(readRatingSummary(raw())).toMatchObject({ solved: 3, responses: 2, ratedShareBasisPoints: 6666 });
+    expect(recordReads(SUPPORT_DESK_RATING_SUMMARY, raw())).toMatchObject({ solved: 3, responses: 2, ratedShareBasisPoints: 6666 });
   });
 
   it('reads nothing solved with a null share', () => {
     const zero = raw({ solved: 0, responses: 0, perScore: { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 }, ratedShareBasisPoints: null });
-    expect(readRatingSummary(zero)?.ratedShareBasisPoints).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING_SUMMARY, zero)?.ratedShareBasisPoints).toBeNull();
   });
 
   it('refuses anything that does not add up, rather than showing it', () => {
-    expect(readRatingSummary(null)).toBeNull();
-    expect(readRatingSummary(raw({ responses: 3 }))).toBeNull();
-    expect(readRatingSummary(raw({ responses: 4, solved: 3, perScore: { '1': 0, '2': 0, '3': 0, '4': 4, '5': 0 } }))).toBeNull();
-    expect(readRatingSummary(raw({ perScore: { '1': 0, '2': 0, '3': 0, '4': 2 } }))).toBeNull();
-    expect(readRatingSummary(raw({ perScore: { '1': 0, '2': 0, '3': 0, '4': 2.5, '5': 0 } }))).toBeNull();
-    expect(readRatingSummary(raw({ ratedShareBasisPoints: 10_001 }))).toBeNull();
-    expect(readRatingSummary(raw({ ratedShareBasisPoints: null }))).toBeNull();
-    expect(readRatingSummary(raw({ from: 'nope' }))).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING_SUMMARY, null)).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING_SUMMARY, raw({ responses: 3 }))).toBeNull();
+    expect(
+      recordReads(SUPPORT_DESK_RATING_SUMMARY, raw({ responses: 4, solved: 3, perScore: { '1': 0, '2': 0, '3': 0, '4': 4, '5': 0 } })),
+    ).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING_SUMMARY, raw({ perScore: { '1': 0, '2': 0, '3': 0, '4': 2 } }))).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING_SUMMARY, raw({ perScore: { '1': 0, '2': 0, '3': 0, '4': 2.5, '5': 0 } }))).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING_SUMMARY, raw({ ratedShareBasisPoints: 10_001 }))).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING_SUMMARY, raw({ ratedShareBasisPoints: null }))).toBeNull();
+    expect(recordReads(SUPPORT_DESK_RATING_SUMMARY, raw({ from: 'nope' }))).toBeNull();
   });
 });
 
@@ -41,11 +45,12 @@ describe('rating figures', () => {
   });
 
   it('shows an average only with responses', () => {
-    const base = readRatingSummary(raw())!;
+    const base = recordReads(SUPPORT_DESK_RATING_SUMMARY, raw())!;
     expect(averageScore(base)).toBe('4.0');
-    const mixed = readRatingSummary(raw({ responses: 2, perScore: { '1': 0, '2': 0, '3': 1, '4': 1, '5': 0 } }))!;
+    const mixed = recordReads(SUPPORT_DESK_RATING_SUMMARY, raw({ responses: 2, perScore: { '1': 0, '2': 0, '3': 1, '4': 1, '5': 0 } }))!;
     expect(averageScore(mixed)).toBe('3.5');
-    const none = readRatingSummary(
+    const none = recordReads(
+      SUPPORT_DESK_RATING_SUMMARY,
       raw({ solved: 0, responses: 0, perScore: { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 }, ratedShareBasisPoints: null }),
     )!;
     expect(averageScore(none)).toBeNull();
