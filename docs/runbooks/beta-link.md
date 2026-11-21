@@ -44,7 +44,8 @@ Everything you see is TEST: prices, balances and limits carry the TEST label, an
 - **`blocked`: no TEST screening file.** Edge refuses every call until a sanctions screening list is set, and no agent
   sets or invents one. The owner places his approved TEST fixture at `~/.intafaced/beta/state/screening.local.json`
   (`{"regions": "...", "source": "..."}`, the same file `docs/LOCAL-TEST-STACK.md` names), and the next round starts the
-  stack.
+  stack. From the repository's TEST secrets, unseen: the box dispatches `beta-screening-seal.yml` with a public key it
+  made, downloads the sealed artifact and decrypts it into that file (the workflow's header says how).
 - **`down`:** the reason names the step; the round's log is `~/.intafaced/beta/round.log`. The next round tries again.
 - **`refused`:** the TEST funds check found a route off the machine; the stack stays stopped until a change on main
   removes it.
