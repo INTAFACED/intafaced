@@ -37,6 +37,7 @@ use service_kit::s2s_verify::BodyBind;
 use service_kit::server::Request;
 use service_kit::time::Instant;
 use sha2::Sha256;
+use svc_matching::approval::{Stub, Unwired};
 use svc_matching::book::types::{EngineOrder, OrderType, Side, Tif};
 use svc_matching::book::wire::to_wire;
 use svc_matching::door::{DoorConfig, MatchingDoor, Outcome, ROUTES, Slice};
@@ -254,6 +255,21 @@ fn door(setup: &str) -> MatchingDoor {
             edge_secret: (setup == "set").then(|| EDGE_SECRET.to_owned()),
             edge_key: None,
             clock: now_ms,
+            // `blank`: approvals unwired and nobody on the operator list; `set`: an approval that always consumes,
+            // asked by the operator and approved by the second, both listed.
+            approvals: if setup == "set" {
+                Box::new(Stub {
+                    approver_id: CONFIRM.to_owned(),
+                    requester_id: OPERATOR.to_owned(),
+                })
+            } else {
+                Box::new(Unwired)
+            },
+            operator_ids: if setup == "set" {
+                vec![OPERATOR.to_owned(), CONFIRM.to_owned()]
+            } else {
+                Vec::new()
+            },
         },
         engine(setup),
     )

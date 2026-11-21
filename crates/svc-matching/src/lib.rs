@@ -12,6 +12,7 @@
 //! order events, the cold start, reconcile), and the doors that reach it (`door::book`). The `serve` slice adds the
 //! binary that serves them.
 
+pub mod approval;
 pub mod book;
 pub mod door;
 pub mod engine;
@@ -20,3 +21,4 @@ pub mod errors;
 pub mod errors_table;
 pub mod journal;
 pub mod refines;
+pub mod rulebook;
