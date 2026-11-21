@@ -303,7 +303,9 @@ function MoveForm({
     setStage({ at: 'review', amount: formatAmount(value), key: keys.vaultMove(owner, vault.address, direction, draftId()) });
   };
 
-  const send = async (s: { amount: string; key: string }, again: boolean) => {
+  const send = async (from: { amount: string; key: string }, again: boolean) => {
+    // Only the amount and key are carried on: `from` is a stage object, and its own `at` must not override the new one.
+    const s = { amount: from.amount, key: from.key };
     const prior = stage.at === 'done' ? stage : null;
     setStage({ at: 'sending', ...s });
     const before = again && prior ? prior.before : await figures();
