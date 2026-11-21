@@ -69,7 +69,7 @@ fn every_door_input_answers_as_zod() {
     println!(
         "{} inputs over {} doors; {} differ",
         cases.len(),
-        14,
+        19,
         differ.len()
     );
     assert!(

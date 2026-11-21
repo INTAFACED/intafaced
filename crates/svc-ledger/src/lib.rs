@@ -17,4 +17,5 @@ pub mod errors_table;
 pub mod freeze;
 pub mod migrate;
 pub mod refines;
+pub mod reports;
 pub mod status;

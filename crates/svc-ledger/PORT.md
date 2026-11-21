@@ -25,6 +25,13 @@ The `freeze` slice is ported. It added:
 - `src/door/freeze.rs`: `GET` and `POST /operator/freeze`, `POST /operator/unfreeze` and `GET /operator/integrity/clock`. `freezeSchema` is recorded as zod runs it: its trim, then its pipe (`service_kit::schema` runs pipes).
 - `tests/freeze_pg.rs`: the freeze cases of `service.freeze.test.ts`, the clock-skew Postgres case and the freeze doors of `operator-http.test.ts`, on a real Postgres.
 
+The `reports` slice is ported. It added:
+
+- `src/reports.rs`: `statementPnl`, `reportExport`, `custody`, `financeClose` and `resilience`, each answering as its TypeScript handler does. None of them posts. `statementPnl` reads the owner's balances when no lots are sent, and still refuses, because posted cash is not lots, marks or NAV. A failed read fails the call. A statement sum or product that does not fit `i128` (past about 1.7e20 units) is refused as the ledger's own fault. The TypeScript's bigint answers it, but the port never answers a wrapped or saturated figure. Custody's difference is worked out exactly.
+- The five doors' input schemas, recorded in `schemas.json`. `statementPnl`'s decimal strings carry their own error, recorded as `definedMsg` and run by the kit's `service_kit::schema`.
+- `tests/reports_parity.rs`: 7,301 answers (status and body) that the five TypeScript handlers gave to inputs reaching each branch, recorded by `record-door.mjs` into `tests/fixtures/reports.golden.json`.
+- `tests/reports_pg.rs`: `statement-pnl-postgres.test.ts` on a real Postgres, plus a failed balance read.
+
 Left to later slices:
 
 - The recovery has one relay. `posting` adds the `ledgerTxPosted` one; until then a committed post's intent waits unsent.
