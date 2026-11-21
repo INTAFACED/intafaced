@@ -32,6 +32,7 @@ import { zoneName } from './time';
 import { spotVenueCopy } from './venue-copy';
 import { useSupportedAssets } from '../../../features/money';
 import {
+  WITHDRAW_UNLISTED_PLACES,
   depositPlaces,
   depositTransfer,
   listedPlaces,
@@ -45,10 +46,12 @@ import {
  * The supported asset list's row for `asset` and `action` (J-wallet-01 #5): the venue desk's Deposit and Withdraw use the
  * same rows and precision Assets lists, read from svc-bank `assets.list`.
  */
-function useListed(asset: string, action: 'deposit' | 'withdraw'): ListedPlaces | 'loading' {
+function useListed(asset: string, action: 'deposit' | 'withdraw', unlisted: number): ListedPlaces | 'loading' {
   const { resource } = useSupportedAssets();
   if (resource.status === 'loading') return 'loading';
-  return listedPlaces(resource.status === 'ready' ? resource.data.assets : null, asset, action);
+  // Refused as this person's (a bank read a person cleared for trading alone may not make): not a list that is down.
+  const rows = resource.status === 'ready' ? resource.data.assets : resource.failure.reason === 'forbidden' ? 'gated' : null;
+  return listedPlaces(rows, asset, action, unlisted);
 }
 
 /** Why the list keeps `asset` from `action`, in plain words, or null when it allows it. */
@@ -228,8 +231,9 @@ export function DepositDialog({ route, test, onClose }: { route: DepositRoute | 
   const [note, setNote] = useState<{ good: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const asset = route?.asset ?? '';
-  const listed = useListed(asset, 'deposit');
+  const listed = useListed(asset, 'deposit', route?.tokenDecimals ?? 0);
   const places = route && listed !== 'loading' && listed.ok ? depositPlaces(route, listed.places) : null;
+  const fromList = listed !== 'loading' && listed.ok && listed.from === 'list';
 
   async function send() {
     if (busy) return;
@@ -277,7 +281,7 @@ export function DepositDialog({ route, test, onClose }: { route: DepositRoute | 
                 <dt>{t('Deposit network')}</dt>
                 <dd className="numeric">{route.chainId}</dd>
               </div>
-              {places !== null ? (
+              {places !== null && fromList ? (
                 <div>
                   <dt>{t('Decimal places')}</dt>
                   <dd className="numeric">{places}</dd>
@@ -327,8 +331,9 @@ export function WithdrawDialog({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ActionResult | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const listed = useListed(asset, 'withdraw');
+  const listed = useListed(asset, 'withdraw', WITHDRAW_UNLISTED_PLACES);
   const places = listed !== 'loading' && listed.ok ? listed.places : null;
+  const fromList = listed !== 'loading' && listed.ok && listed.from === 'list';
   const withdrawalKey = keys.withdraw(owner, draft.current);
   let canonical: string | null = null;
   try {
@@ -389,7 +394,7 @@ export function WithdrawDialog({
               {shortAddress(owner)}
             </span>
           </p>
-          {places !== null ? (
+          {places !== null && fromList ? (
             <dl className="protocol-facts">
               <div>
                 <dt>{t('Decimal places')}</dt>

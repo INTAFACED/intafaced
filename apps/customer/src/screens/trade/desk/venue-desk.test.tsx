@@ -353,15 +353,19 @@ describe('the venue desk’s Deposit and Withdraw use the supported asset list�
     { assetId: 'HALT', precision: 6, state: 'halted', allowedActions: ['deposit', 'withdraw'] },
   ];
   it('takes the listed precision for an asset open to the action', () => {
-    expect(listedPlaces(rows, 'USDC', 'deposit')).toEqual({ ok: true, places: 6 });
-    expect(listedPlaces(rows, 'USDT', 'withdraw')).toEqual({ ok: true, places: 2 });
+    expect(listedPlaces(rows, 'USDC', 'deposit', 6)).toEqual({ ok: true, places: 6, from: 'list' });
+    expect(listedPlaces(rows, 'USDT', 'withdraw', 18)).toEqual({ ok: true, places: 2, from: 'list' });
   });
   it('refuses an unread list, an unlisted asset, and one not active or not open to the action', () => {
-    expect(listedPlaces(null, 'USDC', 'deposit')).toEqual({ ok: false, why: 'unread' });
-    expect(listedPlaces(rows, 'BTC', 'deposit')).toEqual({ ok: false, why: 'unlisted' });
-    expect(listedPlaces(rows, 'USDT', 'deposit')).toEqual({ ok: false, why: 'closed' });
-    expect(listedPlaces(rows, 'OLD', 'withdraw')).toEqual({ ok: false, why: 'closed' });
-    expect(listedPlaces(rows, 'HALT', 'withdraw')).toEqual({ ok: false, why: 'closed' });
+    expect(listedPlaces(null, 'USDC', 'deposit', 6)).toEqual({ ok: false, why: 'unread' });
+    expect(listedPlaces(rows, 'BTC', 'deposit', 6)).toEqual({ ok: false, why: 'unlisted' });
+    expect(listedPlaces(rows, 'USDT', 'deposit', 6)).toEqual({ ok: false, why: 'closed' });
+    expect(listedPlaces(rows, 'OLD', 'withdraw', 6)).toEqual({ ok: false, why: 'closed' });
+    expect(listedPlaces(rows, 'HALT', 'withdraw', 6)).toEqual({ ok: false, why: 'closed' });
+  });
+  it('a person the list is not open to (a bank read refused as theirs) keeps the bound the desk had before the list', () => {
+    expect(listedPlaces('gated', 'USDC', 'deposit', 6)).toEqual({ ok: true, places: 6, from: 'venue' });
+    expect(listedPlaces('gated', 'USDC', 'withdraw', 18)).toEqual({ ok: true, places: 18, from: 'venue' });
   });
   it('a deposit takes the finer of the list’s precision and the token’s decimals', () => {
     const route = {

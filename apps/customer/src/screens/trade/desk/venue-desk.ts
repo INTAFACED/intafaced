@@ -264,16 +264,27 @@ export interface ListedAsset {
 /**
  * The places the venue desk's Deposit or Withdraw allows for `asset` (J-wallet-01 #5): the supported asset list's own row
  * and precision, the same rows Assets lists. Refused while the list is unread, for an asset it does not list, and for one
- * not active or not open to the action.
+ * not active or not open to the action. `'gated'`: the list is a bank read this person may not make (a person cleared for
+ * trading alone, who may still move their own USDC between their wallet and their venue account): the desk keeps the
+ * bound it had before the list, `unlisted` places, and names no list figure.
  */
-export type ListedPlaces = { ok: true; places: number } | { ok: false; why: 'unread' | 'unlisted' | 'closed' };
-export function listedPlaces(rows: readonly ListedAsset[] | null, asset: string, action: 'deposit' | 'withdraw'): ListedPlaces {
+export type ListedPlaces = { ok: true; places: number; from: 'list' | 'venue' } | { ok: false; why: 'unread' | 'unlisted' | 'closed' };
+export function listedPlaces(
+  rows: readonly ListedAsset[] | 'gated' | null,
+  asset: string,
+  action: 'deposit' | 'withdraw',
+  unlisted: number,
+): ListedPlaces {
+  if (rows === 'gated') return { ok: true, places: unlisted, from: 'venue' };
   if (rows === null) return { ok: false, why: 'unread' };
   const row = rows.find((r) => r.assetId === asset);
   if (!row) return { ok: false, why: 'unlisted' };
   if (row.state !== 'active' || !row.allowedActions.includes(action)) return { ok: false, why: 'closed' };
-  return { ok: true, places: row.precision };
+  return { ok: true, places: row.precision, from: 'list' };
 }
+
+/** The places the venue withdrawal allowed before the list, and still allows where the list is not this person's to read. */
+export const WITHDRAW_UNLISTED_PLACES = 18;
 
 /** The places a deposit of `route` may carry: the list's precision, and never more than the token itself carries. */
 export const depositPlaces = (route: DepositRoute, places: number): number => Math.min(places, route.tokenDecimals);
