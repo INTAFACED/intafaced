@@ -541,11 +541,11 @@
   },
   "set backtest.accountRules valid anon": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules valid signed": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules valid signed-US": {
     "status": 403,
@@ -557,11 +557,11 @@
   },
   "set backtest.accountRules valid tier-none": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules valid member": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules valid key": {
     "status": 404,
@@ -569,59 +569,59 @@
   },
   "set backtest.accountRules valid ops": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules valid forged": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules absent signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules absent ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules null signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules null ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules wrong-type signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules wrong-type ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules empty signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"symbol\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules empty ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"symbol\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules extra-key signed": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules extra-key ops": {
     "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"venueMarket\":\"BTC-PERP\",\"maxLeverage\":\"5\",\"maintenancePercent\":\"5\",\"marginCallPercent\":\"100\",\"test\":true}}}"
   },
   "set backtest.accountRules all-null signed": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"symbol\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.accountRules all-null ops": {
-    "status": 200,
-    "body": "{\"result\":{\"data\":{\"mode\":\"netting\",\"maxLeverage\":\"5\",\"marginCallPercent\":\"100\",\"stopOutPercent\":\"50\"}}}"
+    "status": 400,
+    "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"symbol\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"backtest.accountRules\",\"requestId\":\"replay-request\"}}}"
   },
   "set backtest.fee valid anon": {
     "status": 200,
