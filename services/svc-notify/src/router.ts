@@ -31,8 +31,6 @@ import {
   NotifyAnnouncementUnsetError,
   NotifyListLimitUnsetError,
   NotifyOperatorDeliveriesLimitUnsetError,
-  NotifyVerifyTtlUnsetError,
-  NotifyVerifyCodePepperUnsetError,
   assertNotifyListLimit,
   readPublicAnnouncement,
   type NotifyService,
@@ -89,7 +87,8 @@ import {
   NOTIFY_UNREAD_COUNT,
   NOTIFY_VERIFY_TARGET,
 } from '@intafaced/contracts/notify-procedures';
-import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { notifyRefusal } from './record-refusal.js';
 import { BLANK_INBOX_SETTINGS, describeInboxPolicy, type InboxSettings } from './inbox-policy.js';
 import { describeAlertsPolicy } from './alerts-policy.js';
 import { UNWIRED_VENUE_INCIDENT, resolveVenueIncident, venueIncidentOutput, type VenueIncidentLoader } from './venue-incident-truth.js';
@@ -224,15 +223,6 @@ function deliveryToWire(d: DeliveryRecord) {
     refusalCode: d.refusalCode,
   };
 }
-
-/**
- * svc-notify's one refusal reader for its record-mounted calls: an owner value the call needs and the owner has not set
- * is PRECONDITION_FAILED with its code. Anything else is not a named refusal and leaves as it was thrown.
- */
-const notifyRefusal: RefusalOf = (err) =>
-  err instanceof NotifyVerifyTtlUnsetError || err instanceof NotifyVerifyCodePepperUnsetError
-    ? { code: err.code, error: new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err }) }
-    : undefined;
 
 function typedRefusal(err: unknown): never {
   if (
