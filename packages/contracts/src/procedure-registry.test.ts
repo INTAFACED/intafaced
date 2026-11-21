@@ -110,6 +110,17 @@ describe('the written records of calls', () => {
         'input check gone names no refinement here',
       );
     });
+    it("an answer's refinement unless `outputChecks` names it where it sits, and a name that names none", () => {
+      const output = z.object({ cap: z.number().refine((v) => v >= 0) });
+      expect(() => procedureJsonSchema(plant({ output }))).toThrow('.output.cap (.refine/.superRefine');
+      const json = procedureJsonSchema(
+        plant({ output, outputChecks: { cap_holds: { at: 'output.cap', says: 'a cap is never negative' } } }),
+      );
+      expect(json.outputChecks).toEqual({ cap_holds: { at: 'output.cap', says: 'a cap is never negative' } });
+      expect(() => procedureJsonSchema(plant({ outputChecks: { gone: { at: 'output.a', says: 'was there' } } }))).toThrow(
+        'output check gone names no refinement here',
+      );
+    });
     it('an input or output that accepts anything', () => {
       expect(() => procedureJsonSchema(plant({ input: z.object({ a: z.unknown() }) }))).toThrow('z.unknown');
       expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.any() }) }))).toThrow('z.any');
