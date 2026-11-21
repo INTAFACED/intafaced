@@ -1,5 +1,6 @@
-//! Each door's input schema against zod's own verdicts: `fixtures/input-parity.golden.json` holds what the
-//! TypeScript schema answered (its output, or its issues) to inputs `scripts/record-door.mjs` made for each door.
+//! Each door's input schema against zod's own verdicts: `fixtures/input-parity/<door>.json` holds what the TypeScript
+//! schema answered (its output, or its issues) to inputs `scripts/record-door.mjs` made for that door. The list
+//! windows are held to `parsePublicL2QueryLimit`'s own verdicts in `fixtures/list-windows.golden.json`.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -8,11 +9,15 @@
     reason = "a test: a failure is the point"
 )]
 
+use std::path::PathBuf;
+
 use service_kit::json::{self, Json};
 use service_kit::schema::{Outcome, Value, issues_json};
 use svc_matching::door;
 
-const GOLDEN: &str = include_str!("fixtures/input-parity.golden.json");
+fn fixtures() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+}
 
 fn verdict(name: &str, text: Option<&str>) -> String {
     let value = text.map_or(Value::Undefined, |t| {
@@ -36,54 +41,65 @@ fn verdict(name: &str, text: Option<&str>) -> String {
 
 #[test]
 fn every_door_input_answers_as_zod() {
-    let golden = json::parse(GOLDEN).unwrap();
-    let Some(Json::Array(verdicts)) = golden.get("verdicts") else {
-        panic!("no verdicts")
-    };
-    let Some(Json::Array(cases)) = golden.get("cases") else {
-        panic!("no cases")
-    };
+    let mut files: Vec<PathBuf> = std::fs::read_dir(fixtures().join("input-parity"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    files.sort();
+    let mut total = 0usize;
     let mut differ = Vec::new();
-    for case in cases {
-        let Json::Array(c) = case else {
-            panic!("a case is a list")
+    for file in &files {
+        let name = file.file_stem().unwrap().to_string_lossy().into_owned();
+        let golden = json::parse(&std::fs::read_to_string(file).unwrap()).unwrap();
+        let Some(Json::Array(verdicts)) = golden.get("verdicts") else {
+            panic!("no verdicts in {name}")
         };
-        let (Json::String(name), Json::Number(i)) = (&c[0], &c[2]) else {
-            panic!("a case: door, input, verdict")
+        let Some(Json::Array(cases)) = golden.get("cases") else {
+            panic!("no cases in {name}")
         };
-        let text = match &c[1] {
-            Json::String(t) => Some(t.as_str()),
-            _ => None,
-        };
-        let Json::String(want) = &verdicts[format!("{i}").parse::<usize>().unwrap()] else {
-            panic!("a verdict is text")
-        };
-        let got = verdict(name, text);
-        if &got != want {
-            differ.push(format!(
-                "{name} {}\n  want {want}\n  got  {got}",
-                text.unwrap_or("undefined")
-            ));
+        for case in cases {
+            let Json::Array(c) = case else {
+                panic!("a case is a list")
+            };
+            let Json::Number(i) = &c[1] else {
+                panic!("a case: input, verdict")
+            };
+            let text = match &c[0] {
+                Json::String(t) => Some(t.as_str()),
+                _ => None,
+            };
+            let Json::String(want) = &verdicts[format!("{i}").parse::<usize>().unwrap()] else {
+                panic!("a verdict is text")
+            };
+            total += 1;
+            let got = verdict(&name, text);
+            if &got != want {
+                differ.push(format!(
+                    "{name} {}\n  want {want}\n  got  {got}",
+                    text.unwrap_or("undefined")
+                ));
+            }
         }
     }
     println!(
-        "{} inputs over {} door schemas; {} differ",
-        cases.len(),
-        15,
+        "{total} inputs over {} door schemas; {} differ",
+        files.len(),
         differ.len()
     );
+    assert_eq!(files.len(), 15, "one fixture for each door schema");
     assert!(
         differ.is_empty(),
-        "{} of {} differ:\n{}",
+        "{} of {total} differ:\n{}",
         differ.len(),
-        cases.len(),
         differ.join("\n")
     );
 }
 
 #[test]
 fn every_list_window_reads_as_parse_public_l2_query_limit() {
-    let golden = json::parse(GOLDEN).unwrap();
+    let golden =
+        json::parse(&std::fs::read_to_string(fixtures().join("list-windows.golden.json")).unwrap())
+            .unwrap();
     let Some(Json::Array(limits)) = golden.get("limits") else {
         panic!("no limits")
     };

@@ -7,8 +7,8 @@
 //   catalogue codes the doors answer with.
 // - `tests/fixtures/requests.json`: every request the TypeScript wire replay sends (`wire-replay-matrix.ts`): its
 //   method, URL, input name and body, so the Rust replay sends the same bytes.
-// - `tests/fixtures/input-parity.golden.json`: zod's own verdict on inputs made from each schema, and
-//   `parsePublicL2QueryLimit`'s on list windows.
+// - `tests/fixtures/input-parity/<door>.json`: zod's own verdict on inputs made from each schema, one file a schema.
+// - `tests/fixtures/list-windows.golden.json`: `parsePublicL2QueryLimit`'s verdict on list windows.
 // - `tests/fixtures/env-parity.golden.json`: what `env.ts` answers for a set of environments.
 //
 // Run from the repository root:
@@ -317,16 +317,21 @@ function probes(door) {
   return out;
 }
 
-const verdicts = [];
-const verdictIndex = new Map();
-const cases = [];
+/** One file per door schema, each with its own verdicts, so every file fits one review part. */
+const parity = {};
+let cases = 0;
 for (const [door, schema] of Object.entries(INPUTS)) {
+  const verdicts = [];
+  const verdictIndex = new Map();
+  const doorCases = [];
   for (const input of probes(door)) {
     const text = JSON.stringify(input) ?? null;
     const v = verdict(schema, input, text);
     if (!verdictIndex.has(v)) verdictIndex.set(v, verdicts.push(v) - 1);
-    cases.push([door, text, verdictIndex.get(v)]);
+    doorCases.push([text, verdictIndex.get(v)]);
   }
+  parity[door] = { verdicts, cases: doorCases };
+  cases += doorCases.length;
 }
 
 // ── The list windows ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -456,7 +461,8 @@ const outputs = [
   [`${CRATE}src/errors_table.rs`, errorsRs],
   [`${CRATE}src/door/schemas.json`, `${JSON.stringify({ nodes, inputs })}\n`],
   [`${CRATE}tests/fixtures/requests.json`, `${JSON.stringify({ requests }, null, 1)}\n`],
-  [`${CRATE}tests/fixtures/input-parity.golden.json`, `${JSON.stringify({ verdicts, cases, limits })}\n`],
+  ...Object.entries(parity).map(([door, p]) => [`${CRATE}tests/fixtures/input-parity/${door}.json`, `${JSON.stringify(p)}\n`]),
+  [`${CRATE}tests/fixtures/list-windows.golden.json`, `${JSON.stringify({ limits })}\n`],
   [`${CRATE}tests/fixtures/env-parity.golden.json`, `${JSON.stringify({ cases: envCases }, null, 1)}\n`],
 ];
 
@@ -483,6 +489,6 @@ for (const [file, raw] of outputs) {
   } else writeFileSync(file, text);
 }
 console.log(
-  `${Object.keys(inputs).length} door inputs, ${nodes.length} schema parts, ${requests.length} requests, ${cases.length} input cases, ${limits.length} list windows, ${envCases.length} environments, ${copy.length} codes`,
+  `${Object.keys(inputs).length} door inputs, ${nodes.length} schema parts, ${requests.length} requests, ${cases} input cases, ${limits.length} list windows, ${envCases.length} environments, ${copy.length} codes`,
 );
 if (stale) process.exit(1);
