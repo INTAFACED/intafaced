@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   businessBulkRunSchema,
@@ -365,11 +365,11 @@ function Parts({
               );
           }}
         >
-          <label className="field">
+          <label className="lt-field">
             <span>{t('file')}</span>
             <input type="file" name="payments" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </label>
-          <Button type="submit" variant="primary" disabled={change.busy || !file}>
+          <Button type="submit" tone="primary" disabled={change.busy || !file}>
             {t('import')}
           </Button>
         </form>
@@ -462,7 +462,7 @@ function RunView({
           </p>
           <p>{partnerAmount === null ? t('balanceNotKnown', { label }) : `${t('balance', { label })}: ${partnerAmount} ${run.assetId}`}</p>
           <Button
-            variant="primary"
+            tone="primary"
             disabled={change.busy}
             onClick={() => void change.run('businessPayouts.confirmRun', { runId: run.id }, businessBulkRunSchema, () => t('confirmed'))}
           >
@@ -477,7 +477,7 @@ function RunView({
       ) : null}
       {run.status === 'awaiting_approval' && run.confirmedBy !== me ? (
         <Button
-          variant="primary"
+          tone="primary"
           disabled={change.busy}
           onClick={() => void change.run('businessPayouts.approveRun', { runId: run.id }, businessBulkRunSchema, () => t('runApproved'))}
         >
@@ -545,23 +545,23 @@ function ContractorParts({ accountId, people, change, t }: { accountId: string; 
             });
         }}
       >
-        <label className="field">
+        <label className="lt-field">
           <span>{t('name')}</span>
           <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </label>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('email')}</span>
           <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
         </label>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('iban')}</span>
           <input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} />
         </label>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('wallet')}</span>
           <input value={form.wallet} onChange={(e) => setForm({ ...form, wallet: e.target.value })} />
         </label>
-        <Button type="submit" variant="primary" disabled={change.busy || !form.name.trim()}>
+        <Button type="submit" tone="primary" disabled={change.busy || !form.name.trim()}>
           {t('addContractor')}
         </Button>
       </form>
@@ -584,7 +584,7 @@ function ContractorParts({ accountId, people, change, t }: { accountId: string; 
           }}
         >
           {open.map((i) => (
-            <label key={i.id} className="field">
+            <label key={i.id} className="lt-field">
               <input
                 type="checkbox"
                 checked={picked.includes(i.id)}
@@ -595,7 +595,7 @@ function ContractorParts({ accountId, people, change, t }: { accountId: string; 
               </span>
             </label>
           ))}
-          <Button type="submit" variant="primary" disabled={change.busy || picked.length === 0}>
+          <Button type="submit" tone="primary" disabled={change.busy || picked.length === 0}>
             {t('payBatch')}
           </Button>
         </form>
@@ -643,19 +643,19 @@ function ContractorRow({ c, change, t }: { c: BusinessContractor; change: Change
             });
         }}
       >
-        <label className="field">
+        <label className="lt-field">
           <span>{t('invoiceNumber')}</span>
           <input value={inv.number} onChange={(e) => setInv({ ...inv, number: e.target.value })} />
         </label>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('invoiceAmount')}</span>
           <input inputMode="decimal" value={inv.amount} onChange={(e) => setInv({ ...inv, amount: e.target.value })} />
         </label>
-        <label className="field">
+        <label className="lt-field">
           <span>{t('invoiceDue')}</span>
           <input type="date" value={inv.due} onChange={(e) => setInv({ ...inv, due: e.target.value })} />
         </label>
-        <Button type="submit" disabled={change.busy || !inv.number.trim() || !inv.amount.trim()}>
+        <Button tone="primary" type="submit" disabled={change.busy || !inv.number.trim() || !inv.amount.trim()}>
           {t('storeInvoice')}
         </Button>
       </form>
@@ -686,7 +686,7 @@ function BatchRow({ b, label, me, change, t }: { b: BusinessContractorBatch; lab
       {b.partnerReasonText ? ` · ${b.partnerReasonText}` : ''}
       {b.status === 'awaiting_approval' && b.createdBy !== me ? (
         <Button
-          variant="primary"
+          tone="primary"
           disabled={change.busy}
           onClick={() =>
             void change.run('businessPayouts.approveBatch', { batchId: b.id }, businessContractorBatchSchema, () => t('runApproved'))
@@ -705,6 +705,7 @@ function InviteParts({ accountId, change, t }: { accountId: string; change: Chan
     <>
       <p>{t('inviteBody')}</p>
       <Button
+        tone="primary"
         disabled={change.busy}
         onClick={() =>
           void change.run('businessPayouts.createInvite', { accountId }, businessContractorInviteSchema).then((made) => {
@@ -742,6 +743,7 @@ function SignatureField({
       <p>{t('signThis')}</p>
       <pre data-testid="sign-message">{message}</pre>
       <Button
+        tone="primary"
         type="button"
         onClick={() =>
           void browserSign(message, address).then((sig) => {
@@ -753,7 +755,7 @@ function SignatureField({
         {t('signWithWallet')}
       </Button>
       {missing ? <p>{t('noBrowserWallet')}</p> : null}
-      <label className="field">
+      <label className="lt-field">
         <span>{t('signature')}</span>
         <input value={value} onChange={(e) => onChange(e.target.value.trim())} />
       </label>
@@ -789,11 +791,11 @@ function WalletParts({
             });
         }}
       >
-        <label className="field">
+        <label className="lt-field">
           <span>{t('walletAddress')}</span>
           <input value={address} onChange={(e) => setAddress(e.target.value)} />
         </label>
-        <Button type="submit" disabled={change.busy || !address.trim()}>
+        <Button tone="primary" type="submit" disabled={change.busy || !address.trim()}>
           {t('walletOffer')}
         </Button>
       </form>
@@ -812,7 +814,7 @@ function WalletParts({
           }}
         >
           <SignatureField message={offer.message} address={address.trim()} value={sig} onChange={setSig} t={t} />
-          <Button type="submit" variant="primary" disabled={change.busy || !sig}>
+          <Button type="submit" tone="primary" disabled={change.busy || !sig}>
             {t('connect')}
           </Button>
         </form>
@@ -845,21 +847,21 @@ function PayrollSetup({ accountId, people, change, t }: { accountId: string; peo
         );
       }}
     >
-      <label className="field">
+      <label className="lt-field">
         <span>{t('payrollName')}</span>
         <input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
-      <label className="field">
+      <label className="lt-field">
         <span>{t('payrollDay')}</span>
         <input inputMode="numeric" value={day} onChange={(e) => setDay(e.target.value)} />
       </label>
       {withWallet.map((c) => (
-        <label key={c.id} className="field">
+        <label key={c.id} className="lt-field">
           <span>{t('memberAmount', { name: c.name })}</span>
           <input inputMode="decimal" value={amounts[c.id] ?? ''} onChange={(e) => setAmounts({ ...amounts, [c.id]: e.target.value })} />
         </label>
       ))}
-      <Button type="submit" variant="primary" disabled={change.busy || !name.trim() || !day || members.length === 0}>
+      <Button type="submit" tone="primary" disabled={change.busy || !name.trim() || !day || members.length === 0}>
         {t('createPayroll')}
       </Button>
     </form>
@@ -888,11 +890,11 @@ function PayrollView({ p, change, t }: { p: BusinessCryptoPayroll; change: Chang
           );
         }}
       >
-        <label className="field">
+        <label className="lt-field">
           <span>{t('period')}</span>
           <input value={period} onChange={(e) => setPeriod(e.target.value)} />
         </label>
-        <Button type="submit" disabled={change.busy || !period.trim()}>
+        <Button tone="primary" type="submit" disabled={change.busy || !period.trim()}>
           {t('prepareRun')}
         </Button>
       </form>
@@ -931,7 +933,7 @@ function PayrollRunView({ r, change, t }: { r: BusinessPayrollRun; change: Chang
           }}
         >
           <SignatureField message={r.message} address={r.walletAddress} value={sig} onChange={setSig} t={t} />
-          <Button type="submit" variant="primary" disabled={change.busy || !sig}>
+          <Button type="submit" tone="primary" disabled={change.busy || !sig}>
             {t('signRun')}
           </Button>
         </form>
@@ -994,23 +996,23 @@ export function ContractorJoinRoom({ search }: { search: string }) {
                     });
                 }}
               >
-                <label className="field">
+                <label className="lt-field">
                   <span>{t('name')}</span>
                   <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                 </label>
-                <label className="field">
+                <label className="lt-field">
                   <span>{t('email')}</span>
                   <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
                 </label>
-                <label className="field">
+                <label className="lt-field">
                   <span>{t('iban')}</span>
                   <input value={form.iban} onChange={(e) => setForm({ ...form, iban: e.target.value })} />
                 </label>
-                <label className="field">
+                <label className="lt-field">
                   <span>{t('wallet')}</span>
                   <input value={form.wallet} onChange={(e) => setForm({ ...form, wallet: e.target.value })} />
                 </label>
-                <Button type="submit" variant="primary" disabled={change.busy || !form.name.trim()}>
+                <Button type="submit" tone="primary" disabled={change.busy || !form.name.trim()}>
                   {t('join')}
                 </Button>
               </form>
