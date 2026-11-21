@@ -700,6 +700,21 @@ if (!db) {
         owedTxId: null,
         payment: null,
       });
+      // A retry in flight: the reconciler takes the unfunded intent to post its key again, exactly as `attempt` does;
+      // until the ledger answers, it still waits on the pot and stays where it stood, in its section and its count.
+      const taken = await db.sql`
+        UPDATE campaigns.reward_intents SET state = 'posting', attempts = attempts + 1, last_attempt_at = now(), updated_at = now()
+        WHERE reward_key = ${pending.rewardKey} AND state = 'pending_funding'`;
+      expect(taken.count).toBe(1);
+      const retrying = await payoutBoard(db.sql, {});
+      expect(retrying.counts).toEqual(board.counts);
+      expect(retrying.rows.find((r) => r.rewardKey === pending.rewardKey)).toMatchObject({
+        board: 'pending_funding',
+        state: 'pending_funding',
+        reason: 'ledger.insufficient_funds',
+      });
+      // Put back as the pot's next refusal leaves it, for the rest of this test.
+      await db.sql`UPDATE campaigns.reward_intents SET state = 'pending_funding' WHERE reward_key = ${pending.rewardKey}`;
       // One campaign's board counts only that campaign.
       const one = await payoutBoard(db.sql, { campaignId: owed.campaignId });
       expect(one.rows.map((r) => r.rewardKey)).toEqual([owed.rewardKey]);

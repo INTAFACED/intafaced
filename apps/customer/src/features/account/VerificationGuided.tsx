@@ -1,16 +1,20 @@
 import { useState, type FormEvent } from 'react';
 import {
   KYC_PROFILE_STEPS,
-  kycDocumentTypesSchema,
-  kycProfileDraftSchema,
-  kycProfileSchema,
+  kycProfileDraftExactSchema,
   type KycProfileDraft,
   type KycProfileFieldStep,
   type KycProfileFields,
   type KycProfileStep,
   type KycProfileUploadCaps,
 } from '@intafaced/contracts/identity-kyc-profile';
-import { z } from 'zod';
+import {
+  IDENTITY_KYC_DOCUMENT_TYPES_READ,
+  IDENTITY_KYC_PROFILE_READ,
+  IDENTITY_KYC_PROFILE_START,
+  IDENTITY_KYC_PROFILE_SUBMIT,
+  IDENTITY_KYC_PROFILE_UPLOAD,
+} from '@intafaced/contracts/identity-kyc-profile-procedures';
 import type { ApiResult } from '../../shared/api';
 import { base64Of, kib } from '../../shared/file-base64';
 import { useSession } from '../session';
@@ -21,7 +25,6 @@ import { verificationGuidedCopy as copy } from './verification-guided-copy';
 type Tier = KycProfileDraft['tier'];
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Problem = { kind: 'copy'; text: string } | { kind: 'failure'; result: Refusal };
-const sentSchema = z.object({ recordId: z.string().uuid(), documentCheck: z.literal('not_connected') });
 
 /**
  * I-kyc-compliance-08 (J-identity-08 #2): guided verification on /verification. Six steps with progress; each save
@@ -34,7 +37,7 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
   const { api, userId } = useSession();
   const { t, Copy } = copy.useCopy();
   const { resource, reload } = useResource(
-    (signal) => api.query('identity', 'kyc.profile.read', undefined, kycProfileSchema, { signal }),
+    (signal) => api.call(IDENTITY_KYC_PROFILE_READ, undefined, { signal }),
     `verification-guided:${userId}`,
   );
   const [view, setView] = useState<number | null>(null);
@@ -129,7 +132,7 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
             disabled={disabled || busy}
             onClick={() => {
               setSent(false);
-              void run(() => api.mutate('identity', 'kyc.profile.start', { tier }, kycProfileDraftSchema), uploadCaps);
+              void run(() => api.call(IDENTITY_KYC_PROFILE_START, { tier }), uploadCaps);
             }}
           >
             <Copy k={draft?.recordId ? 'again' : 'start'} />
@@ -149,7 +152,7 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
                 type="button"
                 className="text-link"
                 disabled={busy || disabled}
-                onClick={() => void run(() => api.mutate('identity', 'kyc.profile.start', { tier }, kycProfileDraftSchema), uploadCaps)}
+                onClick={() => void run(() => api.call(IDENTITY_KYC_PROFILE_START, { tier }), uploadCaps)}
               >
                 <Copy k="switchLevel" params={{ level: t(tier) }} />
               </button>
@@ -188,25 +191,24 @@ export function VerificationGuided({ tier, disabled, onSent }: { tier: Tier; dis
           onProblem={setProblem}
           onSave={(step, fields) =>
             void run(
-              () => api.mutate('identity', 'kyc.profile.saveStep', { step, version: open.version, fields }, kycProfileDraftSchema),
+              () => api.mutate('identity', 'kyc.profile.saveStep', { step, version: open.version, fields }, kycProfileDraftExactSchema),
               uploadCaps,
             )
           }
           onUpload={(file) =>
             void run(
               async () =>
-                api.mutate(
-                  'identity',
-                  'kyc.profile.upload',
-                  { version: open.version, contentType: file.type, bytesBase64: await base64Of(file) },
-                  kycProfileDraftSchema,
-                ),
+                api.call(IDENTITY_KYC_PROFILE_UPLOAD, {
+                  version: open.version,
+                  contentType: file.type,
+                  bytesBase64: await base64Of(file),
+                }),
               uploadCaps,
             )
           }
           onSend={() =>
             void run(
-              () => api.mutate('identity', 'kyc.profile.submit', { version: open.version }, sentSchema),
+              () => api.call(IDENTITY_KYC_PROFILE_SUBMIT, { version: open.version }),
               uploadCaps,
               () => {
                 setSent(true);
@@ -267,7 +269,7 @@ function GuidedStep({
   const types = useResource(
     (signal) =>
       (step === 'document' || step === 'review') && country
-        ? api.query('identity', 'kyc.documentTypes.read', { country }, kycDocumentTypesSchema, { signal })
+        ? api.call(IDENTITY_KYC_DOCUMENT_TYPES_READ, { country }, { signal })
         : Promise.resolve({ ok: true as const, data: { country: country || 'XX', published: false, types: [] } }),
     `verification-guided-types:${step}:${country}`,
   ).resource;

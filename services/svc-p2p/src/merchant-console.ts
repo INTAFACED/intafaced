@@ -1,7 +1,13 @@
 import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { MAX_PRESENCE_WINDOWS, PRESENCE_MODES, TODO_KINDS } from '@intafaced/contracts/p2p-procedures';
+import {
+  MAX_PRESENCE_WINDOWS,
+  P2P_BULK_ACTIONS,
+  P2P_MAX_BULK_OFFERS,
+  PRESENCE_MODES,
+  TODO_KINDS,
+} from '@intafaced/contracts/p2p-procedures';
 import { P2pError, type OfferRecord } from './p2p-service.js';
 
 /**
@@ -202,10 +208,7 @@ export async function listTodos(sql: Sql, userId: string, limit: number): Promis
   });
 }
 
-export const BULK_ACTIONS = ['pause', 'resume', 'remove'] as const;
-export type BulkAction = (typeof BULK_ACTIONS)[number];
-/** Most ads one bulk action may name, or reach with `all`. */
-export const MAX_BULK_OFFERS = 100;
+export type BulkAction = (typeof P2P_BULK_ACTIONS)[number];
 /** A claimed key with no results after this long is a run that died; a retry under it runs again. */
 const BULK_STALE_SECONDS = 300;
 
@@ -235,7 +238,7 @@ interface BulkDoors {
 
 /**
  * Pauses, resumes or removes (closes) several of the caller's ads. `all` reaches every ad the action applies to (active
- * to pause, paused to resume, either to remove), at most `MAX_BULK_OFFERS`. Each ad goes through the same door as a
+ * to pause, paused to resume, either to remove), at most `P2P_MAX_BULK_OFFERS`. Each ad goes through the same door as a
  * single action, in its own transaction, and answers for itself: a closed ad refuses `p2p.offer_closed`, another's ad
  * `p2p.not_a_party`. The key is answered once: the same key and request return the stored results; the same key with
  * another request refuses `p2p.idempotency_conflict`.
@@ -247,8 +250,8 @@ export async function bulkOffers(
 ): Promise<BulkOutcome> {
   const scope = input.all ? 'all' : [...new Set(input.offerIds ?? [])].sort();
   if (scope !== 'all' && scope.length === 0) throw new P2pError('Name at least one ad, or all', 'p2p.bulk_scope_invalid');
-  if (scope !== 'all' && scope.length > MAX_BULK_OFFERS) {
-    throw new P2pError(`At most ${MAX_BULK_OFFERS} ads at once`, 'p2p.bulk_scope_invalid');
+  if (scope !== 'all' && scope.length > P2P_MAX_BULK_OFFERS) {
+    throw new P2pError(`At most ${P2P_MAX_BULK_OFFERS} ads at once`, 'p2p.bulk_scope_invalid');
   }
   const requestHash = createHash('sha256')
     .update(JSON.stringify({ action: input.action, scope }))
@@ -287,12 +290,12 @@ export async function bulkOffers(
                WHERE maker_id = ${input.makerId}
                  AND (status = ${input.action === 'resume' ? 'paused' : 'active'} OR (${input.action === 'remove'} AND status = 'paused'))
                ORDER BY created_at, id
-               LIMIT ${MAX_BULK_OFFERS + 1}
+               LIMIT ${P2P_MAX_BULK_OFFERS + 1}
             `
           ).map((row) => row.id)
         : scope;
-    const more = found.length > MAX_BULK_OFFERS;
-    const ids = found.slice(0, MAX_BULK_OFFERS);
+    const more = found.length > P2P_MAX_BULK_OFFERS;
+    const ids = found.slice(0, P2P_MAX_BULK_OFFERS);
     const results: BulkResult[] = [];
     for (const offerId of ids) results.push(await bulkOne(sql, doors, input.makerId, input.action, offerId));
     await sql`

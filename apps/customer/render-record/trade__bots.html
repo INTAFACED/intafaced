@@ -173,7 +173,7 @@
 </li>
 <li>
 <a href="/trade/bots/dca">Recurring buy (DCA)</a>
-<span data-testid="bot-type-status">Not available: No recurring-order service exists. Use Convert for a single trade.</span>
+<span data-testid="bot-type-status">Available</span>
 </li>
 <li>
 <a href="/trade/bots?tab=paper">Strategy from Quant Studio</a>
@@ -394,16 +394,15 @@
 <span class="cb-wrap">Buys a fixed amount on a schedule</span>
 </td>
 <td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<span class="cb-wrap">An amount, a schedule, and a recurring-order service</span>
+<span class="cb-wrap">An amount, a schedule, and USDC on your own venue account. Set it up from a coin page.</span>
 </td>
 <td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
 <span class="cb-statuscell">
-<span data-slot="badge" data-tone="neutral" data-variant="soft" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs bg-hover text-fg-2">Not built</span>
-<small>No recurring-order service exists. Use Convert for a single trade.</small>
+<span data-slot="badge" data-tone="lime" data-variant="soft" data-density="comfortable" class="inline-flex items-center gap-1 whitespace-nowrap rounded-xs h-6 px-2 text-xs bg-lime-soft text-accent-text">Ready</span>
 </span>
 </td>
 <td data-align="start" class="px-3 text-base text-left overflow-hidden text-ellipsis whitespace-nowrap text-fg">
-<button type="button" data-disabled="" tabindex="0" disabled="" data-slot="button" data-variant="secondary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-field text-fg hover:bg-raised active:bg-pill-active h-7 px-3 text-sm rounded-pill">Not built</button>
+<button type="button" tabindex="0" data-slot="button" data-variant="primary" class="inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap font-medium transition-[background-color,filter,color] duration-(--if-t-fast) ease-if data-disabled:cursor-not-allowed data-disabled:opacity-40 [&amp;_svg]:pointer-events-none [&amp;_svg]:shrink-0 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus bg-lime text-on-lime hover:bg-lime-hover active:bg-lime-press h-7 px-3 text-sm rounded-pill">Set up</button>
 </td>
 </tr>
 <tr data-slot="table-row" data-row-index="5" class="h-(--if-table-row-h) group/row transition-colors duration-(--if-t-fast) ease-if hover:bg-hover aria-selected:bg-hover">

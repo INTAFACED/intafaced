@@ -23,6 +23,11 @@ pub const CONNECT_TIMEOUT_S: u32 = 10;
 pub struct StoreError {
     pub message: String,
     pub code: Option<String>,
+    /// The server never answered: the connection was refused, dropped or timed out (the TypeScript driver's socket
+    /// codes, `ECONNREFUSED` and the like). A write that fails so is blocked, not faulty (`write-block.ts`).
+    pub socket: bool,
+    /// The constraint the server named, for a violation (`constraint_name`).
+    pub constraint: Option<String>,
 }
 
 impl StoreError {
@@ -30,6 +35,8 @@ impl StoreError {
         StoreError {
             message: message.into(),
             code: code.map(str::to_owned),
+            socket: false,
+            constraint: None,
         }
     }
 }
@@ -39,8 +46,25 @@ impl From<&postgres::Error> for StoreError {
         StoreError {
             message: db_message(e),
             code: e.code().map(|c| c.code().to_owned()),
+            socket: e.as_db_error().is_none() && (e.is_closed() || io_error(e)),
+            constraint: e
+                .as_db_error()
+                .and_then(|d| d.constraint())
+                .map(str::to_owned),
         }
     }
+}
+
+/// An error that came from the socket itself.
+fn io_error(e: &postgres::Error) -> bool {
+    let mut source = std::error::Error::source(e);
+    while let Some(s) = source {
+        if s.is::<std::io::Error>() {
+            return true;
+        }
+        source = s.source();
+    }
+    false
 }
 
 impl From<postgres::Error> for StoreError {
@@ -51,9 +75,12 @@ impl From<postgres::Error> for StoreError {
 
 impl From<DbError> for StoreError {
     fn from(e: DbError) -> StoreError {
+        // The pool fails only to connect, or when it or its connection has ended.
         StoreError {
             message: e.0,
             code: None,
+            socket: true,
+            constraint: None,
         }
     }
 }
@@ -73,6 +100,39 @@ impl Store {
             Store::Pool(p) => Ok(p),
             Store::Down(message) => Err(StoreError::new(message.clone(), None)),
         }
+    }
+
+    /// The pool for a query the TypeScript sends with `sql.unsafe(...)`. A store that cannot serve refuses it naming
+    /// that call, as the replay's stubbed `sql` does (`replay stub: sql.unsafe`).
+    pub fn pool_unsafe(&self) -> Result<&Pool, StoreError> {
+        match self {
+            Store::Pool(p) => Ok(p),
+            Store::Down(message) => Err(StoreError::new(format!("{message}.unsafe"), None)),
+        }
+    }
+
+    /// `sql.begin(...)`: `f` in one transaction at `isolation`, read only when asked. The replay's stubbed `sql`
+    /// refuses a transaction with its own name (`<message>.begin`), as `sql.begin` does there.
+    pub fn begin<T>(
+        &self,
+        isolation: IsolationLevel,
+        read_only: bool,
+        f: impl FnOnce(&mut Transaction<'_>) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let pool = match self {
+            Store::Pool(p) => p,
+            Store::Down(message) => return Err(StoreError::new(format!("{message}.begin"), None)),
+        };
+        let mut conn = pool.get()?;
+        let client: &mut Client = conn.client()?;
+        let mut tx = client
+            .build_transaction()
+            .isolation_level(isolation)
+            .read_only(read_only)
+            .start()?;
+        let out = f(&mut tx)?;
+        tx.commit()?;
+        Ok(out)
     }
 
     /// `sql.end()`.

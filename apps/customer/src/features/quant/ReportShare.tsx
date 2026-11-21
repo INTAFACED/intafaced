@@ -1,13 +1,11 @@
+import { type QuantPublicResult, type QuantReport, type QuantShareCreated, type QuantShareState } from '@intafaced/contracts/quant-algo';
 import {
-  quantPublicResultSchema,
-  quantReportSchema,
-  quantShareCreatedSchema,
-  quantShareStateSchema,
-  type QuantPublicResult,
-  type QuantReport,
-  type QuantShareCreated,
-  type QuantShareState,
-} from '@intafaced/contracts/quant-algo';
+  QUANT_BACKTEST_REPORT,
+  QUANT_RESULT_SHARE_CREATE,
+  QUANT_RESULT_SHARE_GET,
+  QUANT_RESULT_SHARE_PUBLIC,
+  QUANT_RESULT_SHARE_REVOKE,
+} from '@intafaced/contracts/quant-result-share-procedures';
 import { type Dispatch, type SetStateAction, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -55,10 +53,7 @@ const SHARE_REFUSALS: Readonly<Record<string, 'shareRateUnset' | 'shareWindowUns
 export function ReportTab({ runId }: { runId: string }) {
   const api = useApi();
   const { t } = reportCopy.useCopy();
-  const report = useResource(
-    (signal) => api.query('quant', 'backtest.report', { runId }, quantReportSchema, { signal }),
-    `quant-report:${runId}`,
-  );
+  const report = useResource((signal) => api.call(QUANT_BACKTEST_REPORT, { runId }, { signal }), `quant-report:${runId}`);
   return (
     <div data-testid="quant-report">
       <h4>{t('reportTitle')}</h4>
@@ -114,10 +109,7 @@ export type CreatedShare = [QuantShareCreated | null, Dispatch<SetStateAction<Qu
 export function ShareTab({ runId, created: [created, setCreated] }: { runId: string; created: CreatedShare }) {
   const api = useApi();
   const { t } = reportCopy.useCopy();
-  const state = useResource(
-    (signal) => api.query('quant', 'result.share.get', { runId }, quantShareStateSchema, { signal }),
-    `quant-share:${runId}`,
-  );
+  const state = useResource((signal) => api.call(QUANT_RESULT_SHARE_GET, { runId }, { signal }), `quant-share:${runId}`);
   const [busy, setBusy] = useState<'create' | 'revoke' | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
   const [revoked, setRevoked] = useState(false);
@@ -127,7 +119,7 @@ export function ShareTab({ runId, created: [created, setCreated] }: { runId: str
     setBusy('create');
     setFailure(null);
     setRevoked(false);
-    const res = await api.mutate('quant', 'result.share.create', { runId, seq: current.links }, quantShareCreatedSchema);
+    const res = await api.call(QUANT_RESULT_SHARE_CREATE, { runId, seq: current.links });
     setBusy(null);
     if (res.ok) setCreated(res.data);
     else setFailure(res);
@@ -138,7 +130,7 @@ export function ShareTab({ runId, created: [created, setCreated] }: { runId: str
     if (busy) return;
     setBusy('revoke');
     setFailure(null);
-    const res = await api.mutate('quant', 'result.share.revoke', { runId }, quantShareStateSchema);
+    const res = await api.call(QUANT_RESULT_SHARE_REVOKE, { runId });
     setBusy(null);
     if (res.ok) {
       setCreated(null);
@@ -264,10 +256,7 @@ function publicRefusal(failure: Failed): 'publicNotFound' | 'publicBusy' | null 
 export function SharedResult({ token }: { token: string }) {
   const api = useApi();
   const { t } = reportCopy.useCopy();
-  const shared = useResource(
-    (signal) => api.query('quant', 'result.share.public', { token }, quantPublicResultSchema, { signal }),
-    `quant-shared:${token}`,
-  );
+  const shared = useResource((signal) => api.call(QUANT_RESULT_SHARE_PUBLIC, { token }, { signal }), `quant-shared:${token}`);
   return (
     <Panel title={t('publicTitle')}>
       <div data-testid="quant-shared-result">

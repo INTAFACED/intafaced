@@ -83,3 +83,12 @@
     padding-inline: 0.5rem;
   }
 }
+
+/* The holdings' column head stays one line ("Amount · Value"), so the card's head never breaks mid-label. */
+[data-direction='volt'] .money-card thead .money-num {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+[data-direction='volt'] .money-card thead .money-num__value {
+  display: inline;
+}

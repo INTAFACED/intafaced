@@ -47,6 +47,8 @@ import { canAccept, holdProgress, spreadPercent, validUntilClock } from './break
 import { defaultPair, edgeFor, edges, fromAssets, planConvert, reviewAmount, spendCap, toAssets, type Edge } from './convert-model';
 import { acceptQuote, holdMs, newClientConvertId, refOf, useQuote, type AcceptRef, type Fill, type Quote } from './convert-flow';
 import type { ScreenProps } from '../../../app/screen-types';
+import { useVenueMode } from '../../../features/trade/use-venue-mode';
+import { VenueConvertRoom } from './VenueConvert';
 
 const ACTIVITY_HREF = '/money/activity?tab=all';
 /** "Available" shows the whole balance, as Money does (up to 8 places); only Max rounds down to the lot (critic M5). */
@@ -122,9 +124,15 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
       ? { from: asked.from, to: asked.to }
       : null;
   const shown = routeAsked ?? (chosen && edgeFor(all, chosen.from, chosen.to) ? chosen : pair);
+  // Venue mode (the launch money model): the conversion is one order on the person's own venue account, signed by their
+  // wallet. The card and Recent conversions are the venue's; our own book's card is the custodial layer, kept off.
+  const venue = useVenueMode();
 
   let card: React.ReactNode;
-  if (markets.status === 'loading')
+  if (venue.mode === 'on') card = <VenueConvertRoom mode={venue} asked={{ from: asked.from, to: asked.to }} />;
+  else if (venue.mode === 'checking')
+    card = <div data-testid="cvt-card--skeleton" className="cvt-card cvt-card--skeleton" aria-busy="true" />;
+  else if (markets.status === 'loading')
     card = (
       <div data-testid="cvt-card--skeleton" className="cvt-card cvt-card--skeleton" aria-busy="true">
         <Skeleton height={28} width={120} />
@@ -168,14 +176,16 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
           <header data-testid="cvt-hero" className="cvt-hero">
             <h1>
               <span>{t('Convert')}</span>
-              <span data-testid="headline-pair">{shown ? t('{from} to {to}', { from: shown.from, to: shown.to }) : ''}</span>
+              <span data-testid="headline-pair">
+                {shown && venue.mode === 'off' ? t('{from} to {to}', { from: shown.from, to: shown.to }) : ''}
+              </span>
             </h1>
             <p>{t('Convert tagline')}</p>
           </header>
           {card}
         </div>
         <OtcConvert />
-        {signedIn ? <RecentConversions /> : null}
+        {signedIn && venue.mode === 'off' ? <RecentConversions /> : null}
         <section data-testid="cvt-faq" className="cvt-faq" aria-labelledby="cvt-faq-title">
           <h2 id="cvt-faq-title">{t('Questions')}</h2>
           <Accordion>

@@ -33,6 +33,10 @@ const trade = (over: Partial<Trade> = {}): Trade => ({
   escrowedAt: '2026-10-17T00:01:00Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   ...over,
 });
 const offer: Offer = {
@@ -50,6 +54,17 @@ const offer: Offer = {
   terms: '',
   status: 'active',
   createdAt: '2026-10-17T00:00:00Z',
+  totalAmount: '500',
+  filledAmount: '0',
+  tradesCompleted: 0,
+  nonInstantMethods: [],
+  acceptsNonInstant: false,
+  releaseWindowSeconds: null,
+  pauseReason: null,
+  closeReason: null,
+  visibility: 'public',
+  statusSince: '2026-10-17T00:00:00Z',
+  relistedFrom: null,
 };
 
 it('shows the buyer whose turn it is and what they can do', () => {

@@ -6,15 +6,14 @@
  */
 import { z } from 'zod';
 import { assetIdSchema } from './asset-id.js';
-import { unsignedAmountSchema } from './wire-amount.js';
 
 const id = z.string().guid();
 const stamp = z.string().datetime({ offset: true });
-/** An exact decimal of up to 18 places, never negative, kept as a string. */
-const amount = z
-  .string()
-  .regex(/^\d+(\.\d{1,18})?$/)
-  .pipe(unsignedAmountSchema);
+/**
+ * An exact decimal of up to 18 places, never negative, kept as a string, whose whole part fits the ledger's column (below
+ * 10^20): `unsignedAmountSchema`'s rule as one regex, so the record's JSON export carries it.
+ */
+const amount = z.string().regex(/^0*\d{1,20}(\.\d{1,18})?$/);
 const destination = z.object({ kind: z.string(), ref: z.string() });
 
 // ── Withdrawals ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -35,6 +34,9 @@ export const PAY_WITHDRAWAL_SHOWN = [
   'needs_review',
 ] as const;
 
+/** Why a withdrawal came back (`withdrawals/returns/schemas.ts`). */
+export const PAY_WITHDRAWAL_RETURN_REASONS = ['destination_rejected', 'network_returned', 'other'] as const;
+
 /** The published withdrawalView (`withdrawal.get`, `withdrawal.create`). */
 export const payWithdrawalSchema = z.object({
   id,
@@ -49,10 +51,15 @@ export const payWithdrawalSchema = z.object({
   failureCode: z.string().nullable(),
   status: z.enum(['pending', 'held', 'sent', 'failed']),
   createdAt: stamp,
-  // The row in the customer vocabulary (a held row split by its dispatch journal), and whether a cancel would run now.
-  // Optional so an older svc-pay without them still reads.
+  // svc-pay always sends the four below; each is optional so a reply from an older svc-pay without it still reads.
+  /** The row in the customer vocabulary: a held row reads `held` while nothing was sent, `dispatching`, then `broadcast`. */
   customerStatus: z.enum(PAY_WITHDRAWAL_SHOWN).optional(),
+  /** Whether `withdrawal.cancel` would cancel it now. False whenever the answer is not proven. */
   cancellable: z.boolean().optional(),
+  /** The network a send out of the platform went on; null on a send inside the platform or an older row. */
+  networkId: z.string().nullable().optional(),
+  /** The quoted network fee its hold carries on top of `amount`; null when it carries none. */
+  fee: amount.nullable().optional(),
 });
 
 /** `withdrawal.cancel`: the cancelled row, and whether a hold went back (`null`: unknown on a repeat). */
@@ -76,7 +83,10 @@ export const payWithdrawalHistoryItemSchema = z.object({
   failure: z.object({ code: z.string(), known: z.boolean(), message: z.string() }).nullable(),
   returned: z.boolean(),
   /** What came back, when anything did, and whether it is back in available yet. An older svc-pay sends none. */
-  returnedFunds: z.object({ amount, reasonCode: z.string().nullable(), credited: z.boolean() }).nullable().optional(),
+  returnedFunds: z
+    .object({ amount, reasonCode: z.enum(PAY_WITHDRAWAL_RETURN_REASONS).nullable(), credited: z.boolean() })
+    .nullable()
+    .optional(),
   createdAt: stamp,
 });
 
@@ -86,17 +96,6 @@ export const payWithdrawalHistoryPageSchema = z.object({
   next: z.string().min(1).max(200).nullable(),
 });
 
-/** `withdrawal.limits`: the owner-set figures for the caller's tier, what 24 hours used, and the most one send may be now. */
-export const payWithdrawLimitsSchema = z.object({
-  tier: z.string(),
-  assetId: assetIdSchema,
-  perTx: amount,
-  rolling24h: amount,
-  used24h: amount,
-  remaining: z.object({ perTx: amount, rolling24h: amount }),
-  maxNow: amount,
-});
-
 /** `withdrawal.quote`: the fee parts, net amount, total debit and expiry for one withdrawal. */
 export const payWithdrawQuoteSchema = z.object({
   quoteRef: z.string(),
@@ -104,7 +103,8 @@ export const payWithdrawQuoteSchema = z.object({
   networkId: z.string(),
   amount,
   feeMode: z.enum(['on_top', 'deducted']),
-  fees: z.array(z.object({ kind: z.string(), amount })),
+  /** The fee parts that apply today; a part with no source is absent, never shown as zero. */
+  fees: z.array(z.object({ kind: z.enum(['network']), amount })),
   feeTotal: amount,
   netAmount: amount,
   totalDebit: amount,
@@ -116,14 +116,16 @@ export const payWithdrawQuoteSchema = z.object({
 });
 
 /** `withdrawal.networkRules`: the owner's minimum, maximum and step for one asset on one network, and its tag rule. */
-export const payWithdrawNetworkRulesSchema = z.object({
-  assetId: assetIdSchema,
-  networkId: z.string(),
-  minimum: amount,
-  maximum: amount,
-  step: amount,
-  tag: z.enum(['none', 'required']),
-});
+export const payWithdrawNetworkRulesSchema = z
+  .object({
+    assetId: assetIdSchema,
+    networkId: z.string(),
+    minimum: amount,
+    maximum: amount,
+    step: amount,
+    tag: z.enum(['none', 'required']),
+  })
+  .strict();
 
 /** `withdrawal.destination`: where an address leads. It never names the other account. */
 export const payWithdrawDestinationSchema = z.union([

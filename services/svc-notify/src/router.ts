@@ -75,8 +75,21 @@ import {
   type PriceAlert,
 } from './alerts/types.js';
 import { describeChannelsPolicy } from './channels-policy.js';
-import { PUSH_KEY_UNSET, pushKeyPolicy } from './push-key.js';
+import { pushKeyPolicy } from './push-key.js';
 import { NOTIFY_INBOX_POLICY } from '@intafaced/contracts/notify-inbox-policy';
+import {
+  NOTIFY_CHANNELS,
+  NOTIFY_DELIVERIES,
+  NOTIFY_MARK_ALL_READ,
+  NOTIFY_MARK_READ,
+  NOTIFY_PUSH_KEY,
+  NOTIFY_REGISTER_TARGET,
+  NOTIFY_REMOVE_TARGET,
+  NOTIFY_TARGETS,
+  NOTIFY_UNREAD_COUNT,
+  NOTIFY_VERIFY_TARGET,
+} from '@intafaced/contracts/notify-procedures';
+import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { BLANK_INBOX_SETTINGS, describeInboxPolicy, type InboxSettings } from './inbox-policy.js';
 import { describeAlertsPolicy } from './alerts-policy.js';
 import { UNWIRED_VENUE_INCIDENT, resolveVenueIncident, venueIncidentOutput, type VenueIncidentLoader } from './venue-incident-truth.js';
@@ -181,39 +194,6 @@ const operatorDeliveriesInput = z
   })
   .optional();
 
-const targetOutput = z.object({
-  channel: outOfAppChannelSchema,
-  address: z.string(),
-  locale: z.string(),
-  verifiedAt: z.string().nullable(),
-});
-
-/**
- * Address shapes, per channel.
- *
- * Deliberately shallow. No regex can tell a real mailbox from a plausible one —
- * the confirmation code does that, which is why registration always sends one.
- * This check exists only to stop obvious nonsense reaching a gateway.
- */
-const registerInput = z.discriminatedUnion('channel', [
-  z.object({ channel: z.literal('email'), address: z.string().email().max(320), locale: z.string().max(16).optional() }),
-  z.object({
-    channel: z.literal('sms'),
-    // E.164, not a formatting preference: a gateway handed a local-format number
-    // still sends it somewhere, and where is nobody's guess but the carrier's.
-    address: z.string().regex(/^\+[1-9]\d{6,14}$/, 'must be an E.164 number, e.g. +447700900000'),
-    locale: z.string().max(16).optional(),
-  }),
-  z.object({
-    channel: z.literal('push'),
-    // Device tokens are opaque strings whose shape belongs to whoever issued
-    // them. Bounded, not parsed — parsing would bake a vendor's format into this
-    // repository (§0.7).
-    address: z.string().min(8).max(4096),
-    locale: z.string().max(16).optional(),
-  }),
-]);
-
 function toWire(n: Notification) {
   const copy = renderInboxCopy(n, 'en');
   return {
@@ -244,6 +224,15 @@ function deliveryToWire(d: DeliveryRecord) {
     refusalCode: d.refusalCode,
   };
 }
+
+/**
+ * svc-notify's one refusal reader for its record-mounted calls: an owner value the call needs and the owner has not set
+ * is PRECONDITION_FAILED with its code. Anything else is not a named refusal and leaves as it was thrown.
+ */
+const notifyRefusal: RefusalOf = (err) =>
+  err instanceof NotifyVerifyTtlUnsetError || err instanceof NotifyVerifyCodePepperUnsetError
+    ? { code: err.code, error: new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err }) }
+    : undefined;
 
 function typedRefusal(err: unknown): never {
   if (
@@ -749,22 +738,23 @@ export function createNotifyRouter(
           }
         }),
 
-      unreadCount: scopedProcedure('notify:read', { module: 'notify' })
-        .output(z.object({ count: z.number().int().nonnegative() }))
-        .query(async ({ ctx }) => ({ count: await notify.unreadCount(ctx.principal.userId) })),
+      unreadCount: mountRecord(
+        NOTIFY_UNREAD_COUNT,
+        async ({ ctx }) => ({ count: await notify.unreadCount(ctx.principal.userId) }),
+        notifyRefusal,
+      ),
 
-      markRead: scopedProcedure('notify:write', { module: 'notify' })
-        .input(z.object({ ids: z.array(z.string().guid()).min(1).max(100) }))
-        .output(z.object({ marked: z.number().int().nonnegative() }))
-        .mutation(async ({ ctx, input }) => ({
-          marked: await notify.markRead(ctx.principal.userId, input.ids),
-        })),
+      markRead: mountRecord(
+        NOTIFY_MARK_READ,
+        async ({ ctx, input }) => ({ marked: await notify.markRead(ctx.principal.userId, input.ids) }),
+        notifyRefusal,
+      ),
 
-      markAllRead: scopedProcedure('notify:write', { module: 'notify' })
-        .output(z.object({ marked: z.number().int().nonnegative() }))
-        .mutation(async ({ ctx }) => ({
-          marked: await notify.markAllRead(ctx.principal.userId),
-        })),
+      markAllRead: mountRecord(
+        NOTIFY_MARK_ALL_READ,
+        async ({ ctx }) => ({ marked: await notify.markAllRead(ctx.principal.userId) }),
+        notifyRefusal,
+      ),
 
       /**
        * Fan-out mountain vs §13 socket honesty (D26-P1-O5).
@@ -780,14 +770,7 @@ export function createNotifyRouter(
        * delivery (key, gateway URL and token), so the app shows the permission state and never registers a device that
        * nothing could reach.
        */
-      pushKey: publicProcedure
-        .output(
-          z.union([
-            z.object({ publicKey: z.string(), unsetCode: z.null() }),
-            z.object({ publicKey: z.null(), unsetCode: z.literal(PUSH_KEY_UNSET) }),
-          ]),
-        )
-        .query(() => pushKeyPolicy(process.env)),
+      pushKey: mountRecord(NOTIFY_PUSH_KEY, () => pushKeyPolicy(process.env), notifyRefusal),
 
       /**
        * v22.alerts refuse honesty — price watch core, unpublished kinds, dark marks.
@@ -843,20 +826,9 @@ export function createNotifyRouter(
        * (D26-P1-O5). Closing a socket needs Class X credentials; refusing
        * when unset is the honest state, not a half-built channel.
        */
-      channels: scopedProcedure('notify:read', { module: 'notify' })
-        .output(
-          z.array(
-            z.object({
-              channel: channelSchema,
-              configured: z.boolean(),
-              available: z.boolean(),
-              reason: z.string().nullable(),
-              requires: z.array(z.string()),
-              socket: z.string().nullable(),
-            }),
-          ),
-        )
-        .query(() =>
+      channels: mountRecord(
+        NOTIFY_CHANNELS,
+        () =>
           notify.channelStatus().map((s) => ({
             channel: s.channel,
             configured: s.configured,
@@ -865,21 +837,21 @@ export function createNotifyRouter(
             requires: [...s.requires],
             socket: s.socket,
           })),
-        ),
+        notifyRefusal,
+      ),
 
-      targets: scopedProcedure('notify:read', { module: 'notify' })
-        .output(z.array(targetOutput))
-        .query(async ({ ctx }) => {
+      targets: mountRecord(
+        NOTIFY_TARGETS,
+        async ({ ctx }) => {
           const targets = await notify.listTargets(ctx.principal.userId);
-          return targets
-            .filter((t) => t.channel !== 'inapp')
-            .map((t) => ({
-              channel: t.channel as 'email' | 'push' | 'sms',
-              address: t.address,
-              locale: t.locale,
-              verifiedAt: t.verifiedAt?.toISOString() ?? null,
-            }));
-        }),
+          return targets.flatMap((t) =>
+            t.channel === 'inapp'
+              ? []
+              : [{ channel: t.channel, address: t.address, locale: t.locale, verifiedAt: t.verifiedAt?.toISOString() ?? null }],
+          );
+        },
+        notifyRefusal,
+      ),
 
       /**
        * Register an address and send it a confirmation code.
@@ -889,76 +861,46 @@ export function createNotifyRouter(
        * for this channel and the address will stay unconfirmed — the truth, and
        * infinitely better than a green tick over silence.
        */
-      registerTarget: scopedProcedure('notify:write', { module: 'notify' })
-        .input(registerInput)
-        .output(
-          z.object({
-            status: z.enum(['sent', 'refused', 'failed']),
-            channel: outOfAppChannelSchema,
-            code: z.string().nullable(),
-            expiresAt: z.string(),
-          }),
-        )
-        .mutation(async ({ ctx, input }) => {
-          try {
-            const outcome = await notify.registerTarget({
-              userId: ctx.principal.userId,
-              channel: input.channel,
-              address: input.address,
-              locale: input.locale ?? 'en',
-            });
-            return {
-              status: outcome.status,
-              channel: outcome.channel,
-              code: outcome.status === 'refused' ? outcome.code : null,
-              expiresAt: outcome.expiresAt.toISOString(),
-            };
-          } catch (err) {
-            if (err instanceof NotifyVerifyTtlUnsetError || err instanceof NotifyVerifyCodePepperUnsetError) {
-              throw new TRPCError({
-                code: 'PRECONDITION_FAILED',
-                message: err.message,
-                cause: err,
-              });
-            }
-            throw err;
-          }
-        }),
+      registerTarget: mountRecord(
+        NOTIFY_REGISTER_TARGET,
+        async ({ ctx, input }) => {
+          const outcome = await notify.registerTarget({
+            userId: ctx.principal.userId,
+            channel: input.channel,
+            address: input.address,
+            locale: input.locale ?? 'en',
+          });
+          return {
+            status: outcome.status,
+            channel: outcome.channel,
+            code: outcome.status === 'refused' ? outcome.code : null,
+            expiresAt: outcome.expiresAt.toISOString(),
+          };
+        },
+        notifyRefusal,
+      ),
 
       /**
        * Confirm an address. Wrong, expired and already-spent codes are one
        * answer (`verified: false`, `code: null`). Rate limit is a named refuse
        * code so the client can render "try later" without inventing copy.
        */
-      verifyTarget: scopedProcedure('notify:write', { module: 'notify' })
-        .input(z.object({ channel: outOfAppChannelSchema, code: z.string().regex(/^\d{6}$/) }))
-        .output(
-          z.object({
-            verified: z.boolean(),
-            /** Set when the call was refused (rate limit). Null on success / wrong code. */
-            code: z.string().nullable(),
-          }),
-        )
-        .mutation(async ({ ctx, input }) => {
-          try {
-            const outcome = await notify.verifyTarget(ctx.principal.userId, input.channel, input.code);
-            if (outcome.status === 'verified') return { verified: true, code: null };
-            if (outcome.status === 'refused') return { verified: false, code: outcome.code };
-            return { verified: false, code: null };
-          } catch (err) {
-            if (err instanceof NotifyVerifyCodePepperUnsetError) {
-              throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
-            }
-            throw err;
-          }
-        }),
+      verifyTarget: mountRecord(
+        NOTIFY_VERIFY_TARGET,
+        async ({ ctx, input }) => {
+          const outcome = await notify.verifyTarget(ctx.principal.userId, input.channel, input.code);
+          if (outcome.status === 'verified') return { verified: true, code: null };
+          if (outcome.status === 'refused') return { verified: false, code: outcome.code };
+          return { verified: false, code: null };
+        },
+        notifyRefusal,
+      ),
 
-      removeTarget: scopedProcedure('notify:write', { module: 'notify' })
-        .input(z.object({ channel: outOfAppChannelSchema }))
-        .output(z.object({ removed: z.boolean() }))
-        .mutation(async ({ ctx, input }) => ({
-          removed: await notify.removeTarget(ctx.principal.userId, input.channel),
-        })),
+      removeTarget: mountRecord(
+        NOTIFY_REMOVE_TARGET,
+        async ({ ctx, input }) => ({ removed: await notify.removeTarget(ctx.principal.userId, input.channel) }),
+        notifyRefusal,
+      ),
 
       /**
        * What actually happened to one of the caller's notifications, per channel.
@@ -967,10 +909,11 @@ export function createNotifyRouter(
        * error, because an error distinguishing "not yours" from "no such row"
        * tells a stranger which notification ids exist.
        */
-      deliveries: scopedProcedure('notify:read', { module: 'notify' })
-        .input(z.object({ notificationId: z.string().guid() }))
-        .output(z.array(deliveryOutput))
-        .query(async ({ ctx, input }) => (await notify.deliveriesFor(ctx.principal.userId, input.notificationId)).map(deliveryToWire)),
+      deliveries: mountRecord(
+        NOTIFY_DELIVERIES,
+        async ({ ctx, input }) => (await notify.deliveriesFor(ctx.principal.userId, input.notificationId)).map(deliveryToWire),
+        notifyRefusal,
+      ),
 
       /**
        * Operator delivery-outcomes view (`ops.notifications` residual).

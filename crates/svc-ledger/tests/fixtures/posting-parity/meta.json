@@ -1,0 +1,41 @@
+{
+  "services": [
+    "svc-academy",
+    "svc-agents",
+    "svc-bank",
+    "svc-campaigns",
+    "svc-identity",
+    "svc-market",
+    "svc-mining-pool",
+    "svc-ops",
+    "svc-p2p",
+    "svc-pay",
+    "svc-token",
+    "svc-trade",
+    "svc-unknown"
+  ],
+  "meta": [
+    {
+      "module": "ledger",
+      "reason": "withdraw.held",
+      "posted": { "fee": "1", "rail": "r" },
+      "asked": { "fee": "1", "rail": "r" },
+      "differs": false
+    },
+    { "module": "ledger", "reason": "withdraw.held", "posted": { "fee": "1", "rail": "r" }, "asked": { "rail": "r" }, "differs": true },
+    { "module": "ledger", "reason": "withdraw.settled", "posted": {}, "asked": { "fee": "" }, "differs": false },
+    { "module": "ledger", "reason": "withdraw.reversed", "posted": { "rail": 1 }, "asked": { "rail": "1" }, "differs": false },
+    { "module": "ledger", "reason": "withdraw.reversed", "posted": { "rail": null }, "asked": {}, "differs": false },
+    { "module": "ledger", "reason": "withdraw.reversed", "posted": { "rail": true }, "asked": { "rail": "true" }, "differs": false },
+    {
+      "module": "ledger",
+      "reason": "withdraw.reversed",
+      "posted": { "rail": { "a": 1 } },
+      "asked": { "rail": "[object Object]" },
+      "differs": false
+    },
+    { "module": "ledger", "reason": "withdraw.reversed", "posted": { "rail": [1, 2] }, "asked": { "rail": "1,2" }, "differs": false },
+    { "module": "ledger", "reason": "deposit.credited", "posted": { "fee": "1" }, "asked": { "fee": "2" }, "differs": false },
+    { "module": "pay", "reason": "withdraw.held", "posted": { "fee": "1" }, "asked": { "fee": "2" }, "differs": false }
+  ]
+}

@@ -1,3 +1,5 @@
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
+import { MISMATCH_CLASSIFICATIONS, MISMATCH_KINDS, ORDER_TABS, REMARK_MAX } from '@intafaced/contracts/p2p-procedures';
 import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
@@ -70,7 +72,6 @@ import {
 } from './take-limits.js';
 import { completionRates, toAppeal, type AppealRecord, type CompletionRates } from './completion-rate.js';
 import {
-  ORDER_TABS,
   OrderListError,
   TAB_STATUSES,
   decodeTradeCursor,
@@ -181,14 +182,7 @@ import { recordSwallowed, withMoneySpan, withSpan } from './tracing.js';
 import { affiliateLegAfterP2pRelease, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
 import { nextReminderAt, type ReminderPolicy, type ReminderState } from './seller-reminders.js';
-import {
-  assertMismatchAmount,
-  classifyMismatch,
-  MISMATCH_CLASSIFICATIONS,
-  MISMATCH_KINDS,
-  type MismatchKind,
-  type MismatchReport,
-} from './amount-mismatch.js';
+import { assertMismatchAmount, classifyMismatch, type MismatchKind, type MismatchReport } from './amount-mismatch.js';
 import { railMismatch, type PaymentRail, type RailMismatch } from './rail-validate.js';
 import { CounterpartyStateUnavailableError, type CounterpartyStatePort } from './counterparty-state.js';
 import {
@@ -961,7 +955,7 @@ export interface OfferRecord {
   maxAmt: Amount;
   totalAmt: Amount;
   remainingAmt: Amount;
-  methods: unknown[];
+  methods: JsonValue[];
   terms: string;
   /** Maker verification tier at create. Null when it was never stored. */
   makerTier: string | null;
@@ -1070,9 +1064,6 @@ export interface RemarkCaseSweepFailure {
   readonly code: string | null;
   readonly error: string;
 }
-
-/** The longest remark a report quotes; the database checks the same. */
-export const REMARK_MAX = 280;
 
 /** P-trade-orders-15: an ad's own release window is at least this long, the published release clock's own floor. */
 export const RELEASE_WINDOW_MIN_SECONDS = 60;

@@ -415,6 +415,13 @@ describe('svc-p2p mount — authorisation', () => {
     await expect(caller.instruments.list({ limit: 50 })).resolves.toEqual([]);
   });
 
+  it('instruments.create refuses a missing or non-UUID instrumentId as BAD_REQUEST, before the service is asked', async () => {
+    const caller = routerFor(stubP2p()).createCaller(signed(principal({ scopes: ['p2p:read', 'p2p:write'] })));
+    const add = { methodId: 'sepa', country: 'DE', fiatCurrency: 'EUR', details: { iban: 'DE00' }, stepUpApprovalId: 'appr-1' };
+    await expect(caller.instruments.create({ ...add, instrumentId: 'not-a-uuid' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(caller.instruments.create(add as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+  });
+
   it('instruments.accessLog omit is PRECONDITION_FAILED — never invents a 100-row page', async () => {
     const instruments = stubInstruments({
       accessLogFor: async (_ownerId: string, limit?: number) => {
@@ -1031,6 +1038,112 @@ describe('svc-p2p mount — merchant API access', () => {
       credential: 'api_key',
       merchantStatus: 'applied',
     });
+  });
+
+  it('refuses a key without approved standing on every trade door, before the door reads or moves anything', async () => {
+    const keyCtx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read', 'p2p:write'] }));
+    const caller = createP2pRouter(stubP2p(), stubInstruments(), undefined, {}, merchantStub('applied') as never).createCaller(keyCtx);
+    const tradeId = '44444444-4444-4444-8444-444444444444';
+    const offerId = '33333333-3333-4333-8333-333333333333';
+    const quoteId = '55555555-5555-4555-8555-555555555555';
+    const take = { offerId, amount: '10', method: 'sepa' };
+    const doors: Array<[string, () => Promise<unknown>]> = [
+      ['stepUpWindow', () => caller.trades.stepUpWindow()],
+      ['releaseStepUpWindow', () => caller.trades.releaseStepUpWindow()],
+      ['take', () => caller.trades.take({ ...take, tradeId })],
+      ['contractEscrow', () => caller.trades.contractEscrow({ asset: 'USDC' })],
+      ['attachContractDeal', () => caller.trades.attachContractDeal({ tradeId, dealId: '7' })],
+      ['syncContractDeal', () => caller.trades.syncContractDeal({ tradeId })],
+      ['markFiatSent', () => caller.trades.markFiatSent({ tradeId })],
+      ['confirmReceived', () => caller.trades.confirmReceived({ tradeId })],
+      ['remind', () => caller.trades.remind({ tradeId })],
+      ['reportSensitiveRemark', () => caller.trades.reportSensitiveRemark({ caseId: quoteId, tradeId, remark: 'for crypto' })],
+      ['remarkCase', () => caller.trades.remarkCase({ tradeId })],
+      ['reportMismatch', () => caller.trades.reportMismatch({ tradeId, kind: 'under', amountReceived: '90' })],
+      ['validatePayment', () => caller.trades.validatePayment({ tradeId })],
+      ['cancel', () => caller.trades.cancel({ tradeId })],
+      ['requestCancel', () => caller.trades.requestCancel({ tradeId })],
+      ['get', () => caller.trades.get({ tradeId })],
+      ['list', () => caller.trades.list({ limit: 50 })],
+      ['page', () => caller.trades.page({ limit: 20 })],
+      ['quote', () => caller.trades.quote(take)],
+      ['lockQuote', () => caller.trades.lockQuote({ ...take, quoteId })],
+      ['export', () => caller.trades.export({ from: '2026-11-01', to: '2026-11-20' })],
+      ['receipt', () => caller.trades.receipt({ tradeId })],
+      ['paymentInstrument', () => caller.trades.paymentInstrument({ tradeId })],
+    ];
+    for (const [name, call] of doors) {
+      await expect(call(), name).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringMatching(/approved merchant/i) });
+    }
+  });
+
+  it('refuses a key without approved standing on every offer door, before the door reads or moves anything', async () => {
+    const keyCtx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read', 'p2p:write'] }));
+    const caller = createP2pRouter(stubP2p(), stubInstruments(), undefined, {}, merchantStub('applied') as never).createCaller(keyCtx);
+    const offerId = '33333333-3333-4333-8333-333333333333';
+    const linkId = '66666666-6666-4666-8666-666666666666';
+    const post = {
+      side: 'sell',
+      asset: 'USDC',
+      fiatCurrency: 'EUR',
+      priceType: 'fixed',
+      price: '1',
+      minAmount: '10',
+      maxAmount: '100',
+    } as const;
+    const doors: Array<[string, () => Promise<unknown>]> = [
+      ['create', () => caller.offers.create({ ...post, methods: ['sepa'], offerId })],
+      ['sellBalance', () => caller.offers.sellBalance({ asset: 'USDC' })],
+      ['list', () => caller.offers.list({ limit: 50 })],
+      ['page', () => caller.offers.page({ limit: 20 })],
+      ['get', () => caller.offers.get({ offerId })],
+      ['mine', () => caller.offers.mine({ status: 'active', limit: 20 })],
+      ['editQuota', () => caller.offers.editQuota()],
+      ['relist', () => caller.offers.relist({ offerId })],
+      ['bulk', () => caller.offers.bulk({ action: 'pause', offerIds: [offerId], idempotencyKey: 'bulk:pause:1' })],
+      ['setVisibility', () => caller.offers.setVisibility({ offerId, visibility: 'private' })],
+      ['shareLinks.create', () => caller.offers.shareLinks.create({ linkId, offerId })],
+      ['shareLinks.list', () => caller.offers.shareLinks.list({ offerId })],
+      ['shareLinks.revoke', () => caller.offers.shareLinks.revoke({ linkId })],
+      ['close', () => caller.offers.close({ offerId })],
+      ['pause', () => caller.offers.pause({ offerId })],
+      ['resume', () => caller.offers.resume({ offerId })],
+      ['update', () => caller.offers.update({ offerId, idempotencyKey: 'edit:offer:1', price: '1.01' })],
+    ];
+    for (const [name, call] of doors) {
+      await expect(call(), name).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringMatching(/approved merchant/i) });
+    }
+  });
+
+  it('refuses a key without approved standing on every payment-instrument door, before the door reads or moves anything', async () => {
+    const keyCtx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read', 'p2p:write'] }));
+    const caller = createP2pRouter(stubP2p(), stubInstruments(), undefined, {}, merchantStub('applied') as never).createCaller(keyCtx);
+    const instrumentId = '66666666-6666-4666-8666-666666666666';
+    const doors: Array<[string, () => Promise<unknown>]> = [
+      ['methods.list', () => caller.instruments.methods.list({ limit: 50 })],
+      [
+        'create',
+        () =>
+          caller.instruments.create({
+            instrumentId,
+            methodId: 'sepa',
+            country: 'DE',
+            fiatCurrency: 'EUR',
+            details: { iban: 'DE00' },
+            stepUpApprovalId: 'appr-1',
+          }),
+      ],
+      ['update', () => caller.instruments.update({ instrumentId, label: 'Salary', stepUpApprovalId: 'appr-1' })],
+      ['removalImpact', () => caller.instruments.removalImpact({ instrumentId })],
+      ['remove', () => caller.instruments.remove({ instrumentId, stepUpApprovalId: 'appr-1' })],
+      ['list', () => caller.instruments.list({ limit: 50 })],
+      ['reveal', () => caller.instruments.reveal({ instrumentId })],
+      ['revealMasked', () => caller.instruments.revealMasked({ instrumentId })],
+      ['accessLog', () => caller.instruments.accessLog({ limit: 50 })],
+    ];
+    for (const [name, call] of doors) {
+      await expect(call(), name).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringMatching(/approved merchant/i) });
+    }
   });
 
   it('reports API eligibility from the same current standing that enforces it', async () => {

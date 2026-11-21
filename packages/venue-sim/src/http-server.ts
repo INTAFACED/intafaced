@@ -41,7 +41,7 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /builder-fee-approval {account,builder}, /builder-totals {builder}, /builder-claims {builder},
  *        /builder-account-mode {builder}   the address's account mode and the mode required to accrue builder fees
  *        /leverage {account,symbol}, /leverage-change {account,symbol,leverageBps,marginMode},
- *        /isolated-margin {account,symbol}, /account-summary {account}, /account-mode {account}, /book {symbol,depth},
+ *        /isolated-margin {account,symbol}, /account-summary {account}, /account-mode {account}, /vaults, /vault-holdings {account}, /book {symbol,depth},
  *        /fee-status {account?}   the published fee tiers, and with an account its tier, counted volume and rates
  *        /sub-accounts {account}, /transfer {account,nonce}   (UserVenueSubAccountReads, on the main account)
  *        /market-margin {account,symbol}                  the owner's balance in a market deployer's own margin account
@@ -58,6 +58,8 @@ import { TEST_VENUE_FIGURE_STALE_AFTER_MS, TestVenueSimulator, type SimMarketCon
  *        /test/account-mode {account,mode?,actionsToday?,unreported?,refuseSwitch?}   the account's mode (J-derivatives-29),
  *                                                         the day's action count, the mode withheld from reads, a mode
  *                                                         switch the venue refuses with that reason (null: takes it)
+ *        /test/vault-lockup {account,vault}               the venue's clock passes one account's lock-up in one vault
+ *                                                         (J-derivatives-31 #5); every other position keeps its own
  *        /test/account-switches {owner,down?,loseAnswers?,failAfterSend?,submitDelayMs?}   one owner's account only, so a journey can
  *                                                         take the venue away from its own person and no one else's:
  *                                                         `down` refuses every call on that owner's account venue_down
@@ -1063,6 +1065,10 @@ async function route(
       return sim.accountSummary(account(body));
     case '/account-mode':
       return sim.accountMode(account(body));
+    case '/vaults':
+      return sim.vaults();
+    case '/vault-holdings':
+      return sim.vaultHoldings(account(body));
     case '/sub-accounts':
       return sim.subAccounts(account(body));
     case '/transfer':
@@ -1210,6 +1216,12 @@ async function route(
       }
       sim.testAccountMode(account(body), set);
       return { label: 'TEST', ...(await sim.accountMode(account(body))) };
+    }
+    case '/test/vault-lockup': {
+      // J-derivatives-31 #5: the venue's clock passes the lock-up of one account's position in one vault.
+      const vault = str(body, 'vault');
+      const endedAt = sim.testVaultLockUpPassed(account(body), vault);
+      return { label: 'TEST', lockUpEndsAt: endedAt.toISOString(), ...(await sim.vaultHoldings(account(body))) };
     }
     case '/test/account-switches':
       return { ...setAccountSwitches(sim, body), label: 'TEST' };

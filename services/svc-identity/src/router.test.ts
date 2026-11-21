@@ -25,7 +25,9 @@ import { ReferralError } from './affiliates/referral-tree.js';
 import { KycCaseError, parseKycRejectReasons } from './kyc/cases.js';
 import { KycCapabilityError } from './kyc/capabilities.js';
 import { KycAttemptsError } from './kyc/attempts.js';
-import { KycProfileError, type KycProfileDesk } from './kyc/profile.js';
+import { KycProfileError, type KycProfileDesk, type KycProfileErrorCode } from './kyc/profile.js';
+import { IDENTITY_KYC_PROFILE_PROCEDURES } from '@intafaced/contracts/identity-kyc-profile-procedures';
+import type { ProcedureSample } from '@intafaced/contracts/procedure';
 import { KycPoaError, type KycPoaDesk } from './kyc/proof-of-address.js';
 import { KycSelfieError, type KycSelfieDesk } from './kyc/selfie.js';
 
@@ -922,6 +924,32 @@ describe('kyc.profile and kyc.documentTypes (I-kyc-compliance-08)', () => {
       [USER, 3],
       [USER, 3],
     ]);
+  });
+
+  it('each record sends every refusal it lists with the status it lists', async () => {
+    for (const record of IDENTITY_KYC_PROFILE_PROCEDURES) {
+      for (const [code, status] of Object.entries(record.refusals)) {
+        const refuse = () => {
+          throw new KycProfileError(code, code as KycProfileErrorCode);
+        };
+        const desk = partial<KycProfileDesk>({ read: refuse, start: refuse, upload: refuse, submit: refuse, documentTypes: refuse });
+        const api = createIdentityRouter(stub.auth, stub.rank, { kycProfile: desk }).createCaller(
+          await ctx(['identity:read', 'identity:write']),
+        );
+        const samples: readonly ProcedureSample[] = record.samples;
+        const accepted = samples.find((sample) => sample.verdict === 'accept')?.input;
+        const calls: Record<string, () => Promise<unknown>> = {
+          'kyc.documentTypes.read': () => api.kyc.documentTypes.read(accepted as never),
+          'kyc.profile.read': () => api.kyc.profile.read(),
+          'kyc.profile.start': () => api.kyc.profile.start(accepted as never),
+          'kyc.profile.upload': () => api.kyc.profile.upload(accepted as never),
+          'kyc.profile.submit': () => api.kyc.profile.submit(accepted as never),
+        };
+        const err = await calls[record.path]!().catch((e: unknown) => e);
+        expect(codeOf(err), `${record.name} ${code}`).toBe(status);
+        expect((err as { cause?: { code?: string } }).cause?.code).toBe(code);
+      }
+    }
   });
 });
 

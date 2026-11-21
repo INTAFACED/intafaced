@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, type MouseEvent, type ReactNode } from 'react';
 import { currentReturnLocation, navigate } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
-import { BOARD_SORTS, id, type BoardQuery } from './schemas';
+import { P2P_BOARD_SORTS } from '@intafaced/contracts/p2p-procedures';
+import { id, type BoardQuery } from './schemas';
 
 export type P2PReturn = { href: string; kind: 'offer' | 'order' | 'offers' | 'orders' };
 const offerPaths = new Set(['/p2p', '/uc/ad']);
@@ -26,7 +27,7 @@ export function p2pReturn(candidate: string | null): P2PReturn {
       (offer && key === 'makerId' && id.safeParse(value).success) ||
       (offer && key === 'methodId' && /^[A-Za-z0-9._-]{1,64}$/.test(value)) ||
       (offer && key === 'fiatAmount' && /^\d{1,18}(\.\d{1,18})?$/.test(value)) ||
-      (offer && key === 'sort' && (BOARD_SORTS as readonly string[]).includes(value));
+      (offer && key === 'sort' && (P2P_BOARD_SORTS as readonly string[]).includes(value));
     if (valid) params.append(key, value);
   }
   if (url.pathname === '/chat' && !params.has(reference)) return fallback;

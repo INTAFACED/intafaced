@@ -9,11 +9,10 @@ import { StepUpConfirm } from '../../money';
 import { PayFailure, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from '../components';
 import { payCopy } from '../copy';
 import type { PersonalPayApi } from '../pay-api';
-import type { z } from 'zod';
-import type { MethodField, methodSchema } from '../schemas';
+import type { MethodField, MethodSchema } from '../schemas';
 import { methodsCopy } from './payment-methods-copy';
 
-type Method = z.infer<typeof methodSchema>;
+type Method = MethodSchema;
 type NoteRules = NonNullable<Method['noteRules']>;
 type CashRules = NonNullable<Method['cashRules']>;
 type Settlement = { instant: true } | { instant: false; windowSeconds: number | null };

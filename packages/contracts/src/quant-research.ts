@@ -7,12 +7,6 @@ import { z } from 'zod';
 const decimalText = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
 const percentiles = z.object({ p5: decimalText, p25: decimalText, p50: decimalText, p75: decimalText, p95: decimalText });
 
-export const quantMonteCarloInputSchema = z.object({
-  runId: z.string().min(1).max(128),
-  /** The seed the resampling draws from: the same run, count and seed always give the same distribution. */
-  seed: z.number().int().min(0).max(2_147_483_647),
-});
-
 export const quantMonteCarloSchema = z.object({
   runId: z.string(),
   runs: z.number().int().positive(),
@@ -83,11 +77,6 @@ export const quantApprovalPolicySchema = z.object({
   setAt: z.string().nullable(),
 });
 
-export const quantApprovalPolicySetInputSchema = z.object({
-  required: z.boolean(),
-  idempotencyKey: z.string().min(1).max(200),
-});
-
 export const quantApprovalRowSchema = z.object({
   approvalId: z.string(),
   strategyVersion: z.number().int().positive(),
@@ -116,15 +105,3 @@ export const quantApprovalStateSchema = z.object({
   canDecide: z.boolean(),
 });
 export type QuantApprovalState = z.infer<typeof quantApprovalStateSchema>;
-
-export const quantApprovalRequestInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  strategyVersion: z.number().int().positive(),
-});
-
-export const quantApprovalDecideInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  approvalId: z.string().min(1).max(64),
-  decision: z.enum(['approved', 'rejected']),
-  reason: z.string().trim().max(500),
-});

@@ -1,5 +1,6 @@
-import { QUANT_BAR_SIZES, quantCompileOutputSchema, type QuantSignalRules } from '@intafaced/contracts/quant-algo';
+import { QUANT_BAR_SIZES, type QuantSignalRules } from '@intafaced/contracts/quant-algo';
 import { useState } from 'react';
+import { QUANT_STUDIO_COMPILE } from '@intafaced/contracts/quant-studio-procedures';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { Select } from '../more';
@@ -51,7 +52,7 @@ export function SignalBuilder({ value, onChange }: { value: QuantSignalRules; on
     setRefusal(null);
     setFailure(null);
     const rules = trimSignalRules(value);
-    const res = await api.query('quant', 'studio.compile', { modules: rules }, quantCompileOutputSchema);
+    const res = await api.call(QUANT_STUDIO_COMPILE, { modules: rules });
     setBusy(false);
     if (res.ok) {
       setBuilt({ rules: JSON.stringify(rules), source: res.data.source });
