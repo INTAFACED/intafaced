@@ -68,7 +68,7 @@
  *   node tooling/ci/journey-touch.mjs --base origin/main     (this checkout's branch against a base; prints what to run)
  *   node tooling/ci/journey-touch.mjs --files a b c          (named paths)
  *   node tooling/ci/journey-touch.mjs --json --files-from f  (one path a line; JSON { mode, full, files }; real-app-journeys.yml's plan)
- *   … --reach                                                 (product paths by the touched-journeys map; GH_TOKEN for its age)
+ *   … --reach                                                 (product paths by the touched-journeys map; its age read with gh)
  *   node tooling/ci/journey-touch.mjs --reuse               (env TARGET, HEAD_SHA: the target less what runs by hand, or
  *                                                              this pull request's earlier run, on that head already run;
  *                                                              real-app-journeys.yml's reuse step)
@@ -81,6 +81,7 @@
  *                                                              how real-app-journeys.yml's touch step passes them)
  */
 import { execFileSync } from 'node:child_process';
+import { githubFetch, githubToken } from './github-fetch.mjs';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -126,6 +127,8 @@ export const JOURNEY_CI = [
   'tooling/ci/factory-switch.mjs',
   // The seal's scripts word a spent API budget with it (judge down).
   'tooling/ci/api-budget.mjs',
+  // The seal's scripts and main-first.mjs call GitHub through it.
+  'tooling/ci/github-fetch.mjs',
   // real-app-journeys.yml's `Main's journeys first` job runs it.
   'tooling/ci/main-first.mjs',
   // Main trust's post-merge job runs it after each journeys run on main, and main-bisect.yml's journeys revert jobs.
@@ -819,7 +822,7 @@ export async function checkoutHead(map, paths, { root = '.', base }) {
   }
 }
 
-/** The pull request's merge base with its base branch, whether a path is on it, and GitHub's compare (GH_TOKEN), for
+/** The pull request's merge base with its base branch, whether a path is on it, and GitHub's compare (gh), for
  *  checkoutHead. Throws when the merge base can't be told. */
 async function mergeBaseReader() {
   const repo = process.env.GITHUB_REPOSITORY || 'INTAFACED/intafaced';
@@ -829,12 +832,15 @@ async function mergeBaseReader() {
   if (!/^[0-9a-f]{40}$/.test(String(mb))) throw new Error('no merge base');
   const compare = async (a, b) => JSON.parse(ghApi(`repos/${repo}/compare/${a}...${b}`));
   const atBase = async (p) => {
-    const res = await fetch(`https://api.github.com/repos/${repo}/contents/${p.split('/').map(encodeURIComponent).join('/')}?ref=${mb}`, {
-      headers: {
-        authorization: `Bearer ${process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN ?? ''}`,
-        accept: 'application/vnd.github.raw+json',
+    const res = await githubFetch(
+      `https://api.github.com/repos/${repo}/contents/${p.split('/').map(encodeURIComponent).join('/')}?ref=${mb}`,
+      {
+        headers: {
+          authorization: `Bearer ${githubToken()}`,
+          accept: 'application/vnd.github.raw+json',
+        },
       },
-    });
+    );
     if (res.status === 404) return false;
     if (!res.ok) throw new Error(`contents: HTTP ${res.status}`);
     return true;
@@ -842,7 +848,7 @@ async function mergeBaseReader() {
   return { mergeBase: mb, atBase, compare };
 }
 
-/** How many of main's finished full runs came after the map's newest run, read with gh (GH_TOKEN), or null. The same
+/** How many of main's finished full runs came after the map's newest run, read with gh, or null. The same
  *  list the seal reads (journey-seal.mjs makeIo mainRuns: the newest 100, so a burst of cancelled runs can't hide the
  *  map's newest run and blank its age), so the two count the same age. */
 function behindFromApi(map) {

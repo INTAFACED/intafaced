@@ -12,7 +12,8 @@
 //! Past those the call is its slice's: [`Outcome::Owed`] names which, until the slice is ported. Ported so far:
 //! `/health` and `/ready` (the `store` slice, `crate::status`), the freeze doors (the `freeze` slice, `freeze.rs`), the
 //! history doors (the `history` slice, `history.rs`), `/operator/reconcile` (the `reconcile` slice, `reconcile.rs`) and
-//! the account and transaction reads (the `balances` slice, `crate::balances`).
+//! the account and transaction reads (the `balances` slice, `crate::balances`) and the five report doors (the `reports`
+//! slice, `crate::reports`).
 
 mod callers;
 mod freeze;
@@ -276,11 +277,31 @@ pub const ROUTES: [Route; 44] = [
         Input::Body("portfolio"),
         Balances,
     ),
-    s2s("statementPnl", "/trpc/statementPnl", Input::None, Reports),
-    s2s("reportExport", "/trpc/reportExport", Input::None, Reports),
-    s2s("custody", "/trpc/custody", Input::None, Reports),
-    s2s("financeClose", "/trpc/financeClose", Input::None, Reports),
-    s2s("resilience", "/trpc/resilience", Input::None, Reports),
+    s2s(
+        "statementPnl",
+        "/trpc/statementPnl",
+        Input::Body("statementPnl"),
+        Reports,
+    ),
+    s2s(
+        "reportExport",
+        "/trpc/reportExport",
+        Input::Body("reportExport"),
+        Reports,
+    ),
+    s2s("custody", "/trpc/custody", Input::Body("custody"), Reports),
+    s2s(
+        "financeClose",
+        "/trpc/financeClose",
+        Input::Body("financeClose"),
+        Reports,
+    ),
+    s2s(
+        "resilience",
+        "/trpc/resilience",
+        Input::Body("resilience"),
+        Reports,
+    ),
     op("GET", "/operator/freeze", Treasury, Input::None, Freeze),
     op(
         "GET",
@@ -675,6 +696,7 @@ impl LedgerDoor {
     fn past_the_door(&self, route: &Route, door: &str, input: &Value) -> Outcome {
         match route.slice {
             Slice::History => Outcome::Answer(self.history_door(door, input)),
+            Slice::Reports => self.reports_door(door, input),
             Slice::Balances => answer(crate::balances::respond(
                 &crate::balances::Reads {
                     store: &self.cfg.store,
@@ -749,6 +771,18 @@ impl LedgerDoor {
             }
             // A refine that throws escapes `parse` as a plain error.
             Err(_) => answer(errors::http_error(&Failure::Fault)),
+        }
+    }
+
+    /// A report door past its input check: the handler's answer, or `httpError` on what it threw (`crate::reports`).
+    fn reports_door(&self, door: &str, input: &Value) -> Outcome {
+        let store = &self.cfg.store;
+        let read = |owner_type: &str, owner_id: &str| {
+            crate::reports::read_balances(store, owner_type, owner_id)
+        };
+        match crate::reports::answer(door, input, (self.cfg.now_ms)(), &read) {
+            Ok(body) => answer((200, body)),
+            Err(failure) => answer(errors::http_error(&failure)),
         }
     }
 
