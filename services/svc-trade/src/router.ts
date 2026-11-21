@@ -102,6 +102,17 @@ import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { VenueCopyRefusal } from './copy/venue-copy.js';
+import { algoPolicyAnswer, optionsPolicyAnswer } from './desk/answers.js';
+import {
+  firmRfqAnswer,
+  otcAcceptAnswer,
+  otcConvertBoundsAnswer,
+  otcConvertQuoteAnswer,
+  otcDeskStatusAnswer,
+  otcMakersAnswer,
+  otcSettleAnswer,
+  rfqQuoteAnswer,
+} from './otc/answers.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgo, presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { algoCreateInputSchema } from './algo/create-input.js';
@@ -1376,34 +1387,36 @@ export function createTradeRouter(
     otc: router({
       policy: publicProcedure.query(() => describeOtcPolicy()),
 
-      deskStatus: scopedProcedure('trade:read', { module: 'trade' }).query(() => {
-        if (!otc) {
-          const deskLaw = OTC_DESK_LAW_RESIDUAL;
-          return {
-            published: false,
-            statusLine: otcDeskLawStatusLine(UNPUBLISHED_OTC_DESK_LAW),
-            residual: deskLaw,
-            assets: null,
-            minTier: null,
-            makerRouting: otcMakerRoutingStatus(),
-            midFeed: otcMidFeedStatus(),
-            residuals: {
-              deskLaw,
-              assets: deskLaw,
-              minTier: deskLaw,
-              makerRouting: OTC_MAKER_ROUTING_RESIDUAL,
-              midFeed: OTC_MID_FEED_RESIDUAL,
-            },
-          };
-        }
-        return otc.deskStatus();
-      }),
+      deskStatus: scopedProcedure('trade:read', { module: 'trade' })
+        .output(otcDeskStatusAnswer)
+        .query(() => {
+          if (!otc) {
+            const deskLaw = OTC_DESK_LAW_RESIDUAL;
+            return {
+              published: false,
+              statusLine: otcDeskLawStatusLine(UNPUBLISHED_OTC_DESK_LAW),
+              residual: deskLaw,
+              assets: null,
+              minTier: null,
+              makerRouting: otcMakerRoutingStatus(),
+              midFeed: otcMidFeedStatus(),
+              residuals: {
+                deskLaw,
+                assets: deskLaw,
+                minTier: deskLaw,
+                makerRouting: OTC_MAKER_ROUTING_RESIDUAL,
+                midFeed: OTC_MID_FEED_RESIDUAL,
+              },
+            };
+          }
+          return otc.deskStatus();
+        }),
 
       /** Liquidity-provider directory and multi-select check (CB-otc-01). */
       makers: router({
-        list: scopedProcedure('trade:read', { module: 'trade' }).query(() =>
-          otc ? otc.listMakers() : listOtcMakers(UNPUBLISHED_OTC_MAKER_DIRECTORY),
-        ),
+        list: scopedProcedure('trade:read', { module: 'trade' })
+          .output(otcMakersAnswer)
+          .query(() => (otc ? otc.listMakers() : listOtcMakers(UNPUBLISHED_OTC_MAKER_DIRECTORY))),
         select: scopedProcedure('trade:read', { module: 'trade' })
           .input(z.object({ makerIds: z.array(z.string().max(120)).max(50) }).strict())
           .query(({ input }) =>
@@ -1471,6 +1484,7 @@ export function createTradeRouter(
             })
             .strict(),
         )
+        .output(otcAcceptAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1483,6 +1497,7 @@ export function createTradeRouter(
 
       settle: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ quoteId: z.string().guid() }).strict())
+        .output(otcSettleAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1491,9 +1506,9 @@ export function createTradeRouter(
         ),
 
       /** Owner bounds for one-click buy and convert at OTC pricing (CB-otc-12). */
-      convertBounds: scopedProcedure('trade:read', { module: 'trade' }).query(() =>
-        otc ? otc.convertBoundsStatus() : { convert: null, oneClickBuy: null },
-      ),
+      convertBounds: scopedProcedure('trade:read', { module: 'trade' })
+        .output(otcConvertBoundsAnswer)
+        .query(() => (otc ? otc.convertBoundsStatus() : { convert: null, oneClickBuy: null })),
 
       /** Bounds-gated OTC quote for one-click buy / convert. The desk names the price. */
       convertQuote: scopedProcedure('trade:read', { module: 'trade' })
@@ -1508,6 +1523,7 @@ export function createTradeRouter(
             })
             .strict(),
         )
+        .output(otcConvertQuoteAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1536,6 +1552,7 @@ export function createTradeRouter(
             })
             .strict(),
         )
+        .output(rfqQuoteAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1552,6 +1569,7 @@ export function createTradeRouter(
 
       accept: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ quoteId: z.string().guid(), assertedPrice: decimal.optional() }).strict())
+        .output(firmRfqAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1564,6 +1582,7 @@ export function createTradeRouter(
 
       expire: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ quoteId: z.string().guid() }).strict())
+        .output(firmRfqAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1573,6 +1592,7 @@ export function createTradeRouter(
 
       get: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ quoteId: z.string().guid() }).strict())
+        .output(firmRfqAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1612,7 +1632,7 @@ export function createTradeRouter(
      */
     algo: router({
       // The flags this service was started with, so the room shows whether slices are placed (CB-order-controls-03 #1).
-      policy: publicProcedure.query(() => trade.algoPolicy()),
+      policy: publicProcedure.output(algoPolicyAnswer).query(() => trade.algoPolicy()),
       ...algoDeskProcedures(trade),
 
       createTwap: scopedProcedure('trade:write', { module: 'trade' })
@@ -1771,7 +1791,7 @@ export function createTradeRouter(
      * Settlement asset law stamp required before listing — no invented live set.
      */
     options: router({
-      policy: publicProcedure.query(() => describeOptionsPolicy()),
+      policy: publicProcedure.output(optionsPolicyAnswer).query(() => describeOptionsPolicy()),
       ...optionsDeskProcedures(trade),
     }),
 
