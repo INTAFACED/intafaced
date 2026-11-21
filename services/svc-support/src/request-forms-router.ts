@@ -1,3 +1,6 @@
+import { SUPPORT_REQUEST_FORMS } from '@intafaced/contracts/support-customer-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { supportRefusal } from './record-refusal.js';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import {
@@ -22,9 +25,7 @@ import { userCopy } from './user-copy.js';
  */
 export function requestFormProcedures(forms: RequestForms, support: Pick<SupportService, 'listStaff' | 'getTicket'>) {
   return {
-    requestForms: scopedProcedure('support:read')
-      .output(supportRequestFormsSchema)
-      .query(() => forms.catalogue()),
+    requestForms: mountRecord(SUPPORT_REQUEST_FORMS, () => forms.catalogue(), supportRefusal),
 
     requestFormsAll: scopedProcedure('support:ops')
       .output(supportRequestFormsSchema)

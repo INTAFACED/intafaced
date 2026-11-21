@@ -29,6 +29,13 @@
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
  *   POST /api/v1/venue/convert/sell-quote   { owner, symbol, amount, quoteKey }   the venue's price for a sell (J-cex-spot-17 #8)
+ *   GET  /api/v1/venue/convert/pairs                   what Convert may use now, each pair's limit, the restricted coins, paused
+ *   GET  /api/v1/venue/convert/route?from=&to=         the market joining two assets, or why none does (J-cex-spot-11 #11)
+ *   POST /api/v1/venue/convert/quote  { owner, from, to, amount, quoteKey }   a price that holds nothing (#3, #12)
+ *   POST /api/v1/venue/convert/accept { owner, quoteId }   the quote's one venue order, prepared for the wallet (#5, #13)
+ *   POST /api/v1/venue/convert/limit  { owner, from, to, amount, price, limitKey }   a resting venue order (#8)
+ *   POST /api/v1/venue/convert/submit { actionKey, signature }   sent, never on a price past its window (#4)
+ *   GET  /api/v1/venue/convert/history?owner=          accepted conversions as the venue records them (#10)
  *   POST /api/v1/venue/prepare   { owner, signer, intent, actionKey?, stepUpApprovalId? }
  *   POST /api/v1/venue/submit    { actionKey, signature }    sent on the venue the action was prepared for
  *   GET  /api/v1/venue/markets/:symbol/venues?owner=&side=   every configured venue for the market (J-derivatives-28 #1)
@@ -86,6 +93,7 @@ import { UserVenueDoor, UserVenueDoorError, orderKeyOfIdempotencyKey } from './u
 import type { UserVenueRouter } from './venue-router.js';
 import { SessionKeys } from './session-key.js';
 import { presentVenueSellQuote, type VenueSellQuotes } from './venue-sell-quotes.js';
+import { presentConversion, presentConvertQuote, presentPairs, type VenueConverts } from './venue-convert.js';
 import { StatementError } from '../statements/statement-export.js';
 import type { VenueStatements } from './venue-statements.js';
 import type { VenueAdlAcks } from './venue-adl-acks.js';
@@ -109,6 +117,8 @@ export interface UserVenueRestDeps {
   spreadLimitBps?: number | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent, the route answers the door's own refusal. */
   sellQuotes?: VenueSellQuotes | null;
+  /** Convert on the customer's own venue account (J-cex-spot-11); absent, its routes refuse `trade.venue_convert_unwired`. */
+  converts?: VenueConverts | null;
   /**
    * True when `principal` is an API key connected to an agent account (J-agents-21 #9; agent-orders.ts `confined`). Such
    * a key trades its agent account through the assistant's own route and nothing else: every other venue route refuses it
@@ -418,6 +428,25 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return answer(reply, async (d) => d.publicFees(), req.query.venueId);
   });
 
+  // J-derivatives-31 #1: the vaults the venue lists, signed in or not, each with its lock-up, leader profit share, value and
+  // past return as the venue publishes them (null: not published). A venue that lists none refuses not_offered.
+  app.get<{ Querystring: Query }>('/api/v1/venue/vaults', publicRead, async (req, reply) => {
+    return answer(
+      reply,
+      async (d) => {
+        const venue = await d.venue();
+        if (!venue.vaults)
+          throw new VenueRefusalError({
+            venueId: venue.venue.id,
+            code: 'not_offered',
+            detail: `${venue.venue.displayName} lists no vaults`,
+          });
+        return venue.vaults();
+      },
+      req.query.venueId,
+    );
+  });
+
   // J-derivatives-07 #4: the venue's own insurance fund or vault and where to read it, signed in or not. A venue that
   // publishes none answers `known: false`, read as "not published by this venue", never a zero. INTAFACED runs no fund.
   app.get<{ Querystring: Query }>('/api/v1/venue/insurance-fund', publicRead, async (req, reply) => {
@@ -675,6 +704,18 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.accountMode(a);
     },
+    // J-derivatives-31 #2 #3 #5: the account's vault positions with their lock-up ends, its account value as the venue
+    // counts it, and its vault transfers; a venue that reads none refuses not_offered.
+    '/api/v1/venue/vault-holdings': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.vaultHoldings)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no vault positions`,
+        });
+      return venue.vaultHoldings(a);
+    },
     // J-derivatives-07 #1 #3: the position's liquidation state on one market and the venue's price and fee rules, in its
     // own words; a venue that reads none refuses not_offered.
     '/api/v1/venue/liquidation': async (d, q, a) => {
@@ -767,16 +808,16 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-cex-spot-10 #6: the account's own fee tier, volume and rates as the venue reports them.
     '/api/v1/venue/fee-tier': async (d, _q, a) => d.accountFees(a),
+    // Read against our builder address alone, so an approval stays readable while the fee is blank (J-derivatives-30 #1).
     '/api/v1/venue/builder-fee-approval': async (d, _q, a) => {
-      const status = await d.status();
-      const builder = 'builder' in status ? status.builder : null;
+      const builder = d.publishedBuilderAddress();
       if (!builder)
         throw new VenueRefusalError({
           venueId: a.venueId,
           code: 'builder_fee_not_published',
           detail: 'our builder is not published (owner value blank)',
         });
-      return (await d.venue()).builderFeeApproval(a, builder.address);
+      return (await d.venue()).builderFeeApproval(a, builder);
     },
   };
   for (const path of [
@@ -794,6 +835,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/isolated-margin',
     '/api/v1/venue/account-summary',
     '/api/v1/venue/account-mode',
+    '/api/v1/venue/vault-holdings',
     '/api/v1/venue/liquidation',
     '/api/v1/venue/liquidations',
     '/api/v1/venue/deleverages',
@@ -911,6 +953,77 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         quoteKey: b.quoteKey ?? '',
       });
       return presentVenueSellQuote(quote);
+    });
+  });
+
+  // Convert on the customer's own venue account (src/venue/venue-convert.ts, J-cex-spot-11), on the primary venue.
+  const converts = (): VenueConverts => {
+    if (!deps.converts) throw new UserVenueDoorError('venue Convert is not wired on this deployment', 'trade.venue_convert_unwired', 503);
+    return deps.converts;
+  };
+  app.get('/api/v1/venue/convert/pairs', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => presentPairs(await converts().pairs(d)));
+  });
+  app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/venue/convert/route', privateRead, async (req, reply) => {
+    if (!(await admit(req, reply, 'trade:read'))) return;
+    return answer(reply, async (d) => {
+      const { market, side } = await converts().route(d, req.query.from ?? '', req.query.to ?? '');
+      return { kind: 'direct', symbol: market.symbol, side };
+    });
+  });
+  app.post('/api/v1/venue/convert/quote', privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(reply, async (d) => {
+      const b = body<{ owner?: string; from?: string; to?: string; amount?: bigint; quoteKey?: string }>(req);
+      const quote = await converts().quote(d, principal, {
+        owner: b.owner ?? '',
+        from: b.from ?? '',
+        to: b.to ?? '',
+        amount: b.amount ?? 0n,
+        quoteKey: b.quoteKey ?? '',
+      });
+      return presentConvertQuote(quote);
+    });
+  });
+  app.post('/api/v1/venue/convert/accept', privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(reply, async (d) => {
+      const b = body<{ owner?: string; quoteId?: string }>(req);
+      return converts().accept(d, principal, { owner: b.owner ?? '', quoteId: b.quoteId ?? '' });
+    });
+  });
+  app.post('/api/v1/venue/convert/limit', privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(reply, async (d) => {
+      const b = body<{ owner?: string; from?: string; to?: string; amount?: bigint; price?: bigint; limitKey?: string }>(req);
+      return converts().limit(d, principal, {
+        owner: b.owner ?? '',
+        from: b.from ?? '',
+        to: b.to ?? '',
+        amount: b.amount ?? 0n,
+        price: b.price ?? 0n,
+        limitKey: b.limitKey ?? '',
+      });
+    });
+  });
+  app.post('/api/v1/venue/convert/submit', privateWrite, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:write');
+    if (!principal) return;
+    return answer(reply, async (d) => {
+      const b = body<{ actionKey?: string; signature?: VenueSignature }>(req);
+      return converts().submit(d, principal, { actionKey: b.actionKey ?? '', signature: b.signature });
+    });
+  });
+  app.get<{ Querystring: { owner?: string } }>('/api/v1/venue/convert/history', privateRead, async (req, reply) => {
+    const principal = await admit(req, reply, 'trade:read');
+    if (!principal) return;
+    return answer(reply, async (d) => {
+      const read = await converts().history(d, principal, req.query.owner ?? '');
+      return { conversions: read.conversions.map(presentConversion), asOf: read.asOf?.toISOString() ?? null };
     });
   });
 

@@ -35,6 +35,18 @@
       "cache": false,
       "outputs": []
     },
+    "@intafaced/admin#test": {
+      "dependsOn": ["^build", "@intafaced/exchange-contract#build", "@intafaced/ledger-client#build", "@intafaced/venue-contracts#build"],
+      "outputs": ["coverage/**"],
+      "cache": false,
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+    },
+    "@intafaced/customer#test": {
+      "dependsOn": ["^build", "@intafaced/db#build"],
+      "outputs": ["coverage/**"],
+      "cache": false,
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+    },
     "@intafaced/svc-matching#test": {
       "dependsOn": ["^build", "@intafaced/sbe-codec#build:jar"],
       "outputs": ["coverage/**"],
@@ -158,6 +170,23 @@
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
+    "@intafaced/config#typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/auth/**",
+        "$TURBO_ROOT$/packages/connect-data-lake/**",
+        "$TURBO_ROOT$/packages/contracts/**",
+        "$TURBO_ROOT$/packages/i18n/**",
+        "$TURBO_ROOT$/packages/ledger-client/**",
+        "$TURBO_ROOT$/packages/quant-honesty/**",
+        "$TURBO_ROOT$/packages/telemetry/**",
+        "$TURBO_ROOT$/services/svc-edge/**",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
     "@intafaced/contracts#typecheck": {
       "dependsOn": ["^build"],
       "outputs": [],
@@ -191,8 +220,13 @@
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "$TURBO_ROOT$/services/svc-ws/**",
+        "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
         "$TURBO_ROOT$/tooling/ci/look-gate/fixture-answer.*",
+        "$TURBO_ROOT$/tooling/ci/published-routes.*",
+        "$TURBO_ROOT$/tooling/lint/count-rule.*",
         "$TURBO_ROOT$/tooling/scripts/local-jobs.*",
+        "$TURBO_ROOT$/tooling/trade/inside.*",
+        "$TURBO_ROOT$/tooling/trade/inside/**",
         "$TURBO_ROOT$/tooling/uiproof/playwright-browsers.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
@@ -221,8 +255,13 @@
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "$TURBO_ROOT$/services/svc-ws/**",
+        "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
         "$TURBO_ROOT$/tooling/ci/look-gate/fixture-answer.*",
+        "$TURBO_ROOT$/tooling/ci/published-routes.*",
+        "$TURBO_ROOT$/tooling/lint/count-rule.*",
         "$TURBO_ROOT$/tooling/scripts/local-jobs.*",
+        "$TURBO_ROOT$/tooling/trade/inside.*",
+        "$TURBO_ROOT$/tooling/trade/inside/**",
         "$TURBO_ROOT$/tooling/uiproof/playwright-browsers.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
@@ -528,7 +567,11 @@
         "$TURBO_ROOT$/packages/ledger-client/**",
         "$TURBO_ROOT$/packages/money-math/**",
         "$TURBO_ROOT$/packages/safe-regex/**",
+        "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
+        "$TURBO_ROOT$/tooling/lint/count-rule.*",
         "$TURBO_ROOT$/tooling/scripts/look-codemod.*",
+        "$TURBO_ROOT$/tooling/trade/inside.*",
+        "$TURBO_ROOT$/tooling/trade/inside/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import type { Principal } from '@intafaced/auth';
-import { createEdgeContext, encodePrincipal, signPrincipalHeader } from './index.js';
+import { createEdgeContext, encodePrincipal, middleware, protectedProcedure, signPrincipalHeader } from './index.js';
 import { defineProcedure, NO_INPUT, type Refusals } from './procedure.js';
 import { mountRecord, mountRecords, TRPCError, UndeclaredRefusalError, type RefusalOf } from './procedure-mount.js';
 
@@ -116,6 +116,41 @@ describe('mountRecords: a router made from records', () => {
     expect(notes).toEqual(['kept']);
   });
 
+  it('mounts an `anyScope` record behind the first of its scopes the caller holds', async () => {
+    const SHARED_READ = defineProcedure({
+      ...base,
+      name: 'example.shared',
+      kind: 'query',
+      path: 'shared',
+      access: { caller: 'anyScope', scopes: ['tax:read', 'admin:read'] },
+      refusals: refuse(),
+      input: NO_INPUT,
+      output: z.object({ ok: z.literal(true) }),
+      samples: [{ verdict: 'accept' }],
+    });
+    const shared = () => mountRecords([SHARED_READ] as const, { 'example.shared': () => ({ ok: true as const }) }, exampleRefusal);
+    await expect(
+      shared()
+        .createCaller(await caller(null))
+        .shared(),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(
+      shared()
+        .createCaller(await caller(['quant:read']))
+        .shared(),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(
+      await shared()
+        .createCaller(await caller(['tax:read']))
+        .shared(),
+    ).toEqual({ ok: true });
+    expect(
+      await shared()
+        .createCaller(await caller(['admin:read']))
+        .shared(),
+    ).toEqual({ ok: true });
+  });
+
   it("sends a listed refusal in the service's wire form", async () => {
     const writer = exampleRouter().createCaller(await caller(['tax:read', 'tax:write']));
     await expect(writer.note.set({ note: '' })).rejects.toMatchObject({
@@ -155,5 +190,44 @@ describe('mountRecords: a router made from records', () => {
   it('mounts no plain HTTP record as a tRPC procedure', () => {
     const http = { ...HEALTH, transport: 'http' } as never;
     expect(() => mountRecord(http, () => ({ ok: true }), exampleRefusal)).toThrow('plain HTTP door');
+  });
+
+  it("mounts a `founder` record behind the service's own founder guard, ahead of its input", async () => {
+    const PAUSE = defineProcedure({
+      ...base,
+      name: 'example.founder.pause',
+      kind: 'mutation',
+      path: 'founder.pause',
+      access: { caller: 'founder' },
+      refusals: refuse(),
+      input: z.object({ reason: z.string().min(1) }).strict(),
+      output: z.object({ by: z.string() }),
+      samples: [
+        { verdict: 'accept', input: { reason: 'r' } },
+        { verdict: 'refuse', input: { reason: '' } },
+      ],
+    });
+    // The service's founder check: here, a principal holding `admin:write` is the founder. A real one reads identity live.
+    const founder = protectedProcedure.use(
+      middleware(({ ctx, next }) => {
+        if (!ctx.principal?.scopes.includes('admin:write')) throw new TRPCError({ code: 'FORBIDDEN', message: 'operator.denied' });
+        return next({ ctx: { ...ctx, founderUserId: ctx.principal.userId } });
+      }),
+    );
+    const handler = ({ ctx }: { ctx: { founderUserId: string } }) => ({ by: ctx.founderUserId });
+    expect(() => mountRecords([PAUSE] as const, { 'example.founder.pause': handler }, exampleRefusal)).toThrow(
+      "example.founder.pause is founder-only: mount it with the service's founder guard",
+    );
+    expect(() => mountRecord(PAUSE, handler, exampleRefusal)).toThrow('founder-only');
+    const parts = { refusalOf: exampleRefusal, founder };
+    const routes = () => mountRecords([PAUSE] as const, { 'example.founder.pause': handler }, parts);
+    // A caller who is not the founder learns nothing about the input: the guard refuses before it is parsed.
+    const stranger = routes().createCaller(await caller(['admin:read']));
+    await expect(stranger.founder.pause({ reason: '' })).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'operator.denied' });
+    const owner = routes().createCaller(await caller(['admin:write']));
+    await expect(owner.founder.pause({ reason: '' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect(await owner.founder.pause({ reason: 'r' })).toEqual({ by: USER });
+    const one = mountRecord(PAUSE, handler, parts);
+    expect(one._def.type).toBe('mutation');
   });
 });

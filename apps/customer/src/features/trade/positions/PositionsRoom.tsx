@@ -867,7 +867,7 @@ function CloseAll({
         for (const v of review.approve) {
           const answer = await run(
             { kind: 'approve_builder_fee', builder: builder.address, maxFeeBps: builder.feeBps },
-            { actionKey: keys.builderApproval(owner, builder.address, builder.feeBps, v.id), venueId: v.id },
+            { actionKey: keys.builderApproval(owner, builder.address, builder.feeBps, v.id, review.id), venueId: v.id },
           );
           if (answer.kind !== 'outcome' || !answer.outcome.accepted) refusedOn.set(v.id, answer);
         }

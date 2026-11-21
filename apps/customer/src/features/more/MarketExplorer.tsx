@@ -1,5 +1,11 @@
 import { useId, useState, type ReactNode } from 'react';
-import { z } from 'zod';
+import {
+  MARKET_LISTED,
+  MARKET_LISTING_CATEGORIES_READ,
+  MARKET_PROFILE,
+  MARKET_SUBSCRIPTION_ACCESS,
+  type MarketSubscriptionAccess,
+} from '@intafaced/contracts/market-procedures';
 import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
@@ -10,14 +16,6 @@ import { assetsOf, isFiltered, NO_FILTER, periodUnit, type ListingFilter, type L
 import { marketExplorerCopy } from './market-explorer-copy';
 import { marketListingCopy } from './market-listing-copy';
 import type { ApiResult } from '../../shared/api';
-
-const sellerSchema = z.object({ id: z.string().guid(), displayName: z.string(), description: z.string(), createdAt: z.string() });
-const accessSchema = z.object({
-  granted: z.literal(true),
-  listingId: z.string().guid(),
-  buyerId: z.string().guid(),
-  accessUntil: z.string(),
-});
 
 /**
  * The Market's four doors to what the copy room runs (MC-market-01): spot and futures copy trading, the bot marketplace
@@ -49,8 +47,6 @@ export function MarketDoors() {
   );
 }
 
-const categoriesSchema = z.object({ categories: z.array(z.string().min(1)) });
-
 /** A category's words: the known slugs are written in every language; an unknown one shows as the service names it. */
 export function useCategoryLabel() {
   const { t } = marketListingCopy.useCopy();
@@ -78,10 +74,7 @@ export function CategorySelect({ value, onChange, allLabel }: { value: string; o
   const api = useApi();
   const { t } = marketListingCopy.useCopy();
   const label = useCategoryLabel();
-  const categories = useResource(
-    (signal) => api.query('market', 'listingCategories', undefined, categoriesSchema, { signal }),
-    'market-categories',
-  );
+  const categories = useResource((signal) => api.call(MARKET_LISTING_CATEGORIES_READ, undefined, { signal }), 'market-categories');
   return (
     <Read resource={categories.resource} retry={categories.reload}>
       {({ categories: slugs }) => (
@@ -190,11 +183,8 @@ export function ListingDetail({
   const { Copy, t } = marketExplorerCopy.useCopy();
   const listingCopy = marketListingCopy.useCopy();
   const preferences = usePreferences();
-  const seller = useResource(
-    (signal) => api.query('market', 'profile', { vendorId: row.vendorId }, sellerSchema, { signal }),
-    `market-seller:${row.vendorId}`,
-  );
-  const [access, setAccess] = useState<ApiResult<z.infer<typeof accessSchema>> | null>(null);
+  const seller = useResource((signal) => api.call(MARKET_PROFILE, { vendorId: row.vendorId }, { signal }), `market-seller:${row.vendorId}`);
+  const [access, setAccess] = useState<ApiResult<MarketSubscriptionAccess> | null>(null);
   const when = (at: string) =>
     new Intl.DateTimeFormat(preferences.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(at));
   const period = row.periodSeconds ? periodUnit(row.periodSeconds) : null;
@@ -258,7 +248,7 @@ export function ListingDetail({
             <>
               <Button
                 variant="secondary"
-                onClick={async () => setAccess(await api.query('market', 'subscriptionAccess', { listingId: row.id }, accessSchema))}
+                onClick={async () => setAccess(await api.call(MARKET_SUBSCRIPTION_ACCESS, { listingId: row.id }))}
               >
                 <Copy k="accessCheck" />
               </Button>
@@ -283,11 +273,10 @@ export function ListingDetail({
   );
 }
 
-const directorySchema = z.array(sellerSchema);
 export function SellerDirectory({ onSeller }: { onSeller: (vendorId: string) => void }) {
   const api = useApi();
   const { Copy, t } = marketExplorerCopy.useCopy();
-  const sellers = useResource((signal) => api.query('market', 'listed', { limit: 20 }, directorySchema, { signal }), 'market-sellers');
+  const sellers = useResource((signal) => api.call(MARKET_LISTED, { limit: 20 }, { signal }), 'market-sellers');
   return (
     <Panel title={t('directoryTitle')}>
       <p className="muted">

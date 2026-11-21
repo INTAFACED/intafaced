@@ -107,13 +107,19 @@ export function rustCrates(root = fileURLToPath(new URL('../..', import.meta.url
   }
 }
 /**
- * Files outside `crates/` that the crates' tests read (`include_str!`): svc-tax's records and their samples, and the
- * compose file that starts it (crates/svc-tax/tests/procedure_samples.rs, refusal_coverage.rs, boot.rs).
+ * Files outside `crates/` that the crates' tests read (`include_str!`): the compose file that starts svc-tax
+ * (crates/svc-tax/tests/boot.rs), and each crate's own records, `packages/<package>/procedures/<crate>.schema.json`
+ * (crates/svc-tax/tests/procedure_samples.rs, refusal_coverage.rs; crates/svc-academy/tests/procedure_records.rs). Another
+ * service's records reach no crate, so a change to them runs no Rust job.
  */
-const RUST_READS = new Set(['packages/contracts/procedures.schema.json', 'docker-compose.apps.yml']);
+const RUST_READS = new Set(['docker-compose.apps.yml']);
+const RECORDS_FILE = /^packages\/[^/]+\/procedures\/([^/]+)\.schema\.json$/;
 /** A file the Rust job judges: a Rust file, a file the crates' tests read, or anything in a TypeScript service a crate replaces. */
 export const reachesRust = (file, crates = rustCrates()) =>
-  isRustFile(file) || RUST_READS.has(posix(file)) || crates.some((name) => posix(file).startsWith(`services/${name}/`));
+  isRustFile(file) ||
+  RUST_READS.has(posix(file)) ||
+  crates.includes(RECORDS_FILE.exec(posix(file))?.[1] ?? '') ||
+  crates.some((name) => posix(file).startsWith(`services/${name}/`));
 /** What defines the Rust job (its steps, and the `rust:check` script it runs): a change to one runs it too. */
 const RUST_JOB_FILES = ['.github/workflows/ci.yml', 'package.json'];
 

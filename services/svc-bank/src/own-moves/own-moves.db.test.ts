@@ -23,7 +23,7 @@ import { payinSim } from '../ramps/payin-sim.js';
 import { memorySanctions } from '../ramps/sanctions-list.js';
 import { createBankRouter } from '../router.js';
 import type { StepUpGate, StepUpRequest } from '../step-up/step-up-gate.js';
-import { ownMoveKey, ownMoveMessage, partnerChainOutAccount } from './own-move-service.js';
+import { ownMoveKey, ownMoveMessage, partnerChainOutAccount, type OwnMoveDepositReader } from './own-move-service.js';
 
 const SECRET = 'bank-own-moves-edge-secret-long-enough';
 const ADA = '11111111-1111-4111-8111-111111111111';
@@ -86,6 +86,7 @@ describe('own moves: spending to trading (J-derivatives-25 #2 #3)', () => {
       deliver?: 'ok' | 'fails-once' | 'none';
       sanctions?: ReturnType<typeof memorySanctions>;
       hold?: { locked?: boolean; selfFrozen?: boolean } | 'unset';
+      deposits?: OwnMoveDepositReader;
     } = {},
   ) {
     const tp = testPartnerBank();
@@ -125,6 +126,7 @@ describe('own moves: spending to trading (J-derivatives-25 #2 #3)', () => {
           : {}),
       },
       onrampPartner: partner,
+      ...(options.deposits ? { ownMoveDeposits: options.deposits } : {}),
       testPartner: tp,
       postingFreeze: { postingEnabled: async () => true, read: async () => ({ postingEnabled: true, cause: null }) },
     });
@@ -274,6 +276,38 @@ describe('own moves: spending to trading (J-derivatives-25 #2 #3)', () => {
     expect((await refusal(bank.ownMoves.recordDeposit(ADA, { moveId: move.id, depositTx: TX(0xd2) }))).code).toBe('bank.own_move_conflict');
     expect((await refusal(bank.ownMoves.recordDeposit(BOB, { moveId: move.id, depositTx: deposit }))).code).toBe('bank.own_move_not_found');
     expect(ledger.journal()).toHaveLength(0);
+  });
+
+  it('a deposit hash the chain was never asked about is recorded as claimed and never reads as confirmed', async () => {
+    const { bank } = wired();
+    const move = await bank.ownMoves.toWallet(ADA, ask('600'));
+    expect(move.depositConfirmed).toBe(false);
+    const unknown = TX(0xbad);
+    const kept = await bank.ownMoves.recordDeposit(ADA, { moveId: move.id, depositTx: unknown });
+    expect(kept).toMatchObject({ depositTx: unknown, depositConfirmed: false });
+    expect(await bank.ownMoves.get(ADA, move.id)).toMatchObject({ depositTx: unknown, depositConfirmed: false });
+    expect((await bank.ownMoves.list(ADA, 10))[0]).toMatchObject({ depositTx: unknown, depositConfirmed: false });
+  });
+
+  it('a deposit leg reads confirmed only when the chain read finds this move’s own transfer', async () => {
+    const onChain = TX(0xc0);
+    const asked: Parameters<OwnMoveDepositReader>[0][] = [];
+    const deposits: OwnMoveDepositReader = async (input) => {
+      asked.push(input);
+      return input.tx === onChain;
+    };
+    const { bank } = wired({ deposits });
+    const move = await bank.ownMoves.toWallet(ADA, ask('600'));
+    expect(move.depositConfirmed).toBe(false);
+    expect(asked).toHaveLength(0);
+    const confirmed = await bank.ownMoves.recordDeposit(ADA, { moveId: move.id, depositTx: onChain });
+    expect(confirmed.depositConfirmed).toBe(true);
+    expect(asked.at(-1)).toEqual({ tx: onChain, wallet: WALLET, assetId: 'USDC', amount: parseAmount('600') });
+    const other = await bank.ownMoves.toWallet(ADA, ask('5'));
+    const claimed = await bank.ownMoves.recordDeposit(ADA, { moveId: other.id, depositTx: TX(0xc1) });
+    expect(claimed.depositConfirmed).toBe(false);
+    const listed = await bank.ownMoves.list(ADA, 10);
+    expect(Object.fromEntries(listed.map((m) => [m.id, m.depositConfirmed]))).toEqual({ [move.id]: true, [other.id]: false });
   });
 
   describe('the door', () => {

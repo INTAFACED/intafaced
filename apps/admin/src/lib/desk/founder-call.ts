@@ -243,7 +243,8 @@ export async function founderAskedCall<R extends TrpcCallRecord>(
     if (!parsed.success) return { kind: 'refused', refusal: { code: null, message: parsed.error.message, status: 400 }, requestId: null };
     checked = parsed.data;
   }
-  return founderCall(
+  // Boxed: `founderCall` reads a null parse as unreadable, and null is a real answer of a record whose reply is nullable.
+  const result = await founderCall(
     ctx,
     record.module,
     record.path,
@@ -251,8 +252,9 @@ export async function founderAskedCall<R extends TrpcCallRecord>(
     checked,
     (raw) => {
       const parsed = record.output.safeParse(raw);
-      return parsed.success && replyAccepted(record, parsed.data) ? (parsed.data as ProcedureOutput<R>) : null;
+      return parsed.success && replyAccepted(record, parsed.data) ? { reply: parsed.data as ProcedureOutput<R> } : null;
     },
     options,
   );
+  return result.kind === 'ok' ? { ...result, data: result.data.reply } : result;
 }

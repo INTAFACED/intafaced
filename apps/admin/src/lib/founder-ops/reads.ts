@@ -7,14 +7,14 @@ import {
   founderRecentMerchantsSchema,
   founderRiskSummarySchema,
   merchantMetricsSnapshotSchema,
-  payHaltPendingClearListSchema,
   type FounderDisputeListInput,
   type FounderMerchantSection,
   type FounderMerchantSectionPage,
   type FounderPayoutListInput,
   type FounderRiskSummaryInput,
 } from '@intafaced/contracts';
-import { parseWith, payCall, type PayCallContext, type PayCallResult } from '@/lib/merchants';
+import { PAY_HALTS_PENDING_CLEARS } from '@intafaced/contracts/pay-halt-procedures';
+import { parseWith, payCall, payRecordCall, type PayCallContext, type PayCallResult } from '@/lib/merchants';
 import { asNotePage } from './notes';
 import { one, PAGE_LIMIT, RISK_TOP_N, RISK_WINDOWS, sectionRequest, type Query, type RiskWindowKey } from './read-model';
 
@@ -96,7 +96,7 @@ export function loadRiskSummary(ctx: PayCallContext, window: RiskWindowKey) {
 
 /** Clears waiting for a second founder. The same read the Halts desk uses. */
 export function loadPendingClears(ctx: PayCallContext) {
-  return payCall(ctx, 'payHalts.pendingClears', 'GET', { limit: 50 }, parseWith(payHaltPendingClearListSchema));
+  return payRecordCall(ctx, PAY_HALTS_PENDING_CLEARS, { limit: 50 });
 }
 
 /** The merchant's 30-day snapshot, used here only for its per-asset balances. */

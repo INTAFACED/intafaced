@@ -3,7 +3,7 @@ import { ZERO, type Amount } from '@intafaced/ledger-client';
 import { partnerFeeKnown } from '../partner/test-partner.js';
 import type { OnrampPartner } from '../ramps/payin-sim.js';
 import type { RampService, RampServiceOptions } from '../ramps/ramp-service.js';
-import { OwnMoveService } from './own-move-service.js';
+import { OwnMoveService, type OwnMoveDepositReader } from './own-move-service.js';
 
 /** Moves between a person's own spending and trading accounts (J-derivatives-25). An area of svc-bank (`area-chain.ts`). */
 export interface OwnMovesServices {
@@ -15,6 +15,8 @@ export interface OwnMovesAreaOptions {
   onrampPartner?: OnrampPartner | null;
   /** The security lock (the ramps area's option): a frozen or locked person's move refuses. */
   ramps?: Pick<RampServiceOptions, 'securityLock'>;
+  /** The chain read that confirms a move's deposit leg. Unset: every deposit leg stays claimed. */
+  ownMoveDeposits?: OwnMoveDepositReader | null;
 }
 
 export function composeOwnMovesArea(root: BankRoot, made: { readonly ramps: RampService }, options: OwnMovesAreaOptions): OwnMovesServices {
@@ -25,6 +27,7 @@ export function composeOwnMovesArea(root: BankRoot, made: { readonly ramps: Ramp
       deliver: deliver ? (input) => deliver(input) : null,
       screenWallet: (address) => made.ramps.screenWallet(address),
       securityLock: options.ramps?.securityLock,
+      depositReader: options.ownMoveDeposits ?? null,
       // The TEST partner charges nothing for its send (TEST) when it says what a move costs; with its fee switch `unknown`
       // it says nothing, read as "not known", never 0.
       partnerFee: (userId): Amount | null => (partnerFeeKnown(root.testPartner, userId) ? ZERO : null),

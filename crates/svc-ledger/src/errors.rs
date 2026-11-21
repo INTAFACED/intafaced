@@ -165,3 +165,9 @@ pub fn lookup_invalid(message: &str) -> (u16, Json) {
 pub fn operator_failed(message: &str) -> (u16, Json) {
     (400, body(message, Some("ledger.operator_request_failed")))
 }
+
+/// A typed refusal `guarded` answers with its own status, message and code (`DualControlError`,
+/// `ActionApprovalConsumeError`, `ledger.freeze_attributed`).
+pub fn operator_coded(status: u16, message: &str, code: &str) -> (u16, Json) {
+    (status, body(message, Some(code)))
+}

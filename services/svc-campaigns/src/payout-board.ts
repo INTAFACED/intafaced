@@ -16,6 +16,11 @@ import {
  * The board state is derived, never stored: `paid` and `failed` and `pending_funding` are the intent's own states (a
  * payment the chain reverted is `failed` too); an owed intent with a payment recorded and not booked is `sending`; an owed
  * one with no payment is `owed`; anything else is `other`, named by its state.
+ *
+ * A retry in flight keeps the standing its last answer gave it: the reconciler moves a `pending_funding` intent to
+ * `posting` while it posts the same key again (every interval, until the pot covers it), and until the ledger answers it
+ * is still waiting on the pot, so it stays in `pending_funding` (its reason, `ledger.insufficient_funds`, says so).
+ * Otherwise every reconcile pass would move it out of its section and back.
  */
 
 type Sql = postgres.Sql;
@@ -40,7 +45,14 @@ type Row = {
   pay_reason: string | null;
 };
 
-/** Where one intent stands on the board, from its own state and its payment's. */
+const POT_SHORT = 'ledger.insufficient_funds';
+
+/** The intent's state as finance reads it: a retry in flight after the pot refused it is still `pending_funding`. */
+function standingOf(state: RewardState, reason: string | null): RewardState {
+  return state === 'posting' && reason === POT_SHORT ? 'pending_funding' : state;
+}
+
+/** Where one intent stands on the board, from its own state (as `standingOf` reads it) and its payment's. */
 export function boardStateOf(state: string, payment: Row['pay_state']): PayoutBoardState {
   if (state === 'paid') return 'paid';
   if (state === 'failed' || payment === 'failed') return 'failed';
@@ -49,11 +61,11 @@ export function boardStateOf(state: string, payment: Row['pay_state']): PayoutBo
   return 'other';
 }
 
-/** The board's state, as SQL, for counting every intent (the same rules as `boardStateOf`). */
+/** The board's state, as SQL, for counting every intent (the same rules as `standingOf` and `boardStateOf`). */
 const BOARD_SQL = `CASE
   WHEN i.state = 'paid' THEN 'paid'
   WHEN i.state = 'failed' OR p.state = 'failed' THEN 'failed'
-  WHEN i.state = 'pending_funding' THEN 'pending_funding'
+  WHEN i.state = 'pending_funding' OR (i.state = 'posting' AND i.reason = '${POT_SHORT}') THEN 'pending_funding'
   WHEN i.state = 'owed' AND p.state IN ('sending', 'sent') THEN 'sending'
   WHEN i.state = 'owed' THEN 'owed'
   ELSE 'other' END`;
@@ -82,30 +94,33 @@ export async function payoutBoard(sql: Sql, input: { campaignId?: string }, now:
   for (const c of counted) counts[c.board] = c.n;
   return {
     counts,
-    rows: rows.map((r): PayoutBoardRow => ({
-      rewardKey: r.reward_key,
-      campaignId: r.campaign_id,
-      accountId: r.account_id,
-      asset: r.asset,
-      amount: formatAmount(parseAmount(r.amount)),
-      board: boardStateOf(r.state, r.pay_state),
-      state: r.state,
-      reason: r.reason ?? r.pay_reason,
-      owedTxId: r.owe_tx_id,
-      paidTxId: r.state === 'paid' ? r.ledger_tx_id : null,
-      payment:
-        r.pay_state && r.pay_to && r.pay_sent_at
-          ? {
-              state: r.pay_state,
-              toWallet: r.pay_to,
-              chainTx: r.pay_chain_tx,
-              sentAt: new Date(r.pay_sent_at).toISOString(),
-              reason: r.pay_reason,
-            }
-          : null,
-      attempts: attempts.get(r.reward_key) ?? [],
-      updatedAt: new Date(r.updated_at).toISOString(),
-    })),
+    rows: rows.map((r): PayoutBoardRow => {
+      const state = standingOf(r.state, r.reason);
+      return {
+        rewardKey: r.reward_key,
+        campaignId: r.campaign_id,
+        accountId: r.account_id,
+        asset: r.asset,
+        amount: formatAmount(parseAmount(r.amount)),
+        board: boardStateOf(state, r.pay_state),
+        state,
+        reason: r.reason ?? r.pay_reason,
+        owedTxId: r.owe_tx_id,
+        paidTxId: r.state === 'paid' ? r.ledger_tx_id : null,
+        payment:
+          r.pay_state && r.pay_to && r.pay_sent_at
+            ? {
+                state: r.pay_state,
+                toWallet: r.pay_to,
+                chainTx: r.pay_chain_tx,
+                sentAt: new Date(r.pay_sent_at).toISOString(),
+                reason: r.pay_reason,
+              }
+            : null,
+        attempts: attempts.get(r.reward_key) ?? [],
+        updatedAt: new Date(r.updated_at).toISOString(),
+      };
+    }),
     asOf: now.toISOString(),
   };
 }

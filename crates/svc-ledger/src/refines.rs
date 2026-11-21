@@ -1,6 +1,8 @@
 //! The ledger's own checks inside its input schemas, by the names `scripts/record-door.mjs` gives them in
 //! `door/schemas.json`: the account owner's identifier space (`accountRefSchema`'s `superRefine`, from
-//! `@intafaced/ledger-client`'s `isValidOwnerId`), and the operator desk's list query (`operator-desk.ts`).
+//! `@intafaced/ledger-client`'s `isValidOwnerId`), the operator desk's list query (`operator-desk.ts`), an account
+//! metadata delete's revision (`operator-account-metadata.ts`), and the asset registry's body (`checkBody` in
+//! `packages/contracts/src/asset-registry.ts`).
 
 use service_kit::json::Json;
 use service_kit::schema::{Refiner, Value};
@@ -83,6 +85,50 @@ fn js_bigint_at_most(text: &str, max: u64) -> Option<bool> {
     Some(u128::from_str_radix(digits, radix).is_ok_and(|n| n <= u128::from(max)))
 }
 
+/// `ASSET_DEFAULT_NETWORK_NOT_LISTED`: `parseAssetEdit` finds the issue by this message.
+pub const DEFAULT_NETWORK_NOT_LISTED: &str = "ledger.asset_default_network_not_listed";
+
+/// `checkBody(body, ctx)`: the network ids unique, the default network one of them, the actions unique. It runs only on
+/// a body whose parts parsed (zod skips it after any other issue), so every part here is the type its schema says.
+fn asset_body(v: &Value) -> Vec<(Vec<Json>, String)> {
+    let texts = |key: &str, field: Option<&str>| -> Vec<String> {
+        v.get(key)
+            .as_array()
+            .unwrap_or_default()
+            .iter()
+            .map(|item| field.map_or(item, |f| item.get(f)).js_string())
+            .collect()
+    };
+    let unique = |list: &[String]| {
+        list.iter()
+            .enumerate()
+            .all(|(i, a)| list.iter().skip(i + 1).all(|b| a != b))
+    };
+    let ids = texts("networks", Some("networkId"));
+    let mut issues = Vec::new();
+    if !unique(&ids) {
+        issues.push((
+            vec![Json::str("networks")],
+            "network ids must be unique".to_owned(),
+        ));
+    }
+    if let Some(default) = v.get("defaultNetworkId").as_str()
+        && !ids.iter().any(|id| id == default)
+    {
+        issues.push((
+            vec![Json::str("defaultNetworkId")],
+            DEFAULT_NETWORK_NOT_LISTED.to_owned(),
+        ));
+    }
+    if !unique(&texts("allowedActions", None)) {
+        issues.push((
+            vec![Json::str("allowedActions")],
+            "actions must be unique".to_owned(),
+        ));
+    }
+    issues
+}
+
 /// The ledger's refines.
 pub struct LedgerRefines;
 
@@ -107,6 +153,8 @@ impl Refiner for LedgerRefines {
                 js_bigint_at_most(&text, INT8_MAX)
                     .ok_or_else(|| format!("Cannot convert {text} to a BigInt"))
             }
+            // `r >= 1` on an account metadata delete's revision: a key never set has nothing to delete.
+            "revision_set" => Ok(v.as_number().is_some_and(|r| r >= 1.0)),
             other => Err(format!("no refine named {other}")),
         }
     }
@@ -127,6 +175,7 @@ impl Refiner for LedgerRefines {
                     ),
                 )])
             }
+            "asset_body" => Ok(asset_body(v)),
             other => Err(format!("no superRefine named {other}")),
         }
     }

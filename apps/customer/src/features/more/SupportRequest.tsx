@@ -1,5 +1,4 @@
 import { useId, useState } from 'react';
-import { z } from 'zod';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState } from '../../shared/ui';
@@ -20,7 +19,13 @@ import {
   type TicketStatus,
 } from './support-desk';
 import { SupportRequestActions } from './SupportRequestActions';
-import { commentSchema, myTicketPropertiesSchema, ticketSchema, type MyTicketProperties, type Ticket } from './support-schemas';
+import { type MyTicketProperties, type Ticket } from './support-schemas';
+import {
+  SUPPORT_COMMENT,
+  SUPPORT_GET,
+  SUPPORT_LIST_COMMENTS,
+  SUPPORT_MY_TICKET_PROPERTIES,
+} from '@intafaced/contracts/support-customer-procedures';
 import { plainSupportResult } from './support-refusal';
 
 const STATUS_KEY = {
@@ -131,35 +136,17 @@ export function SupportRequest({
   const [limit, setLimit] = useState(50),
     [reply, setReply] = useState('');
   const detail = useResource(
-      (signal) =>
-        api.query(
-          'support',
-          'get',
-          { ticketId: id },
-          ticketSchema.refine(
-            (row) => row.id === id && row.userId === userId,
-            copyText('support.ticket.identity.does.not.match.this.account'),
-          ),
-          { signal },
-        ),
+      (signal) => api.call(SUPPORT_GET, { ticketId: id }, { signal, accept: (row) => row.id === id && row.userId === userId }),
       `support-detail:${userId}:${id}`,
     ),
     // The desk's priority and type, where the owner lets the customer read them (SP-tickets-04).
     properties = useResource(
-      (signal) => api.query('support', 'myTicketProperties', { ticketId: id }, myTicketPropertiesSchema, { signal }),
+      (signal) => api.call(SUPPORT_MY_TICKET_PROPERTIES, { ticketId: id }, { signal }),
       `support-properties:${userId}:${id}`,
     ),
     comments = useResource(
       (signal) =>
-        api.query(
-          'support',
-          'listComments',
-          { ticketId: id, limit },
-          z
-            .array(commentSchema)
-            .refine((rows) => rows.every((row) => row.ticketId === id), copyText('support.comments.belong.to.another.ticket')),
-          { signal },
-        ),
+        api.call(SUPPORT_LIST_COMMENTS, { ticketId: id, limit }, { signal, accept: (rows) => rows.every((row) => row.ticketId === id) }),
       `support-comments:${userId}:${id}:${limit}`,
     );
   const replyId = useId();
@@ -277,17 +264,15 @@ export function SupportRequest({
                         ),
                         run: async () =>
                           plainSupportResult(
-                            await api.mutate(
-                              'support',
-                              'comment',
+                            await api.call(
+                              SUPPORT_COMMENT,
                               // The reply to the request as it stood when it was read: sent again after a lost answer it is
                               // the same reply, and the service keeps one. Any change to the request gives the next reply its own.
                               { ticketId: id, body: reply.trim(), clientRequestId: `reply:${id}:${ticket.updatedAt}` },
-                              commentSchema.refine(
-                                (row) =>
+                              {
+                                accept: (row) =>
                                   row.ticketId === id && row.authorId === userId && row.authorRole === 'user' && row.body === reply.trim(),
-                                copyText('support.posted.comment.does.not.match.this.account'),
-                              ),
+                              },
                             ),
                             // The reply key was used for other words: the request moved on since this page read it.
                             { 'support.idempotency_conflict': 'refuseReplyChanged' },

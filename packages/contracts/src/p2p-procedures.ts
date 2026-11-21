@@ -1,5 +1,9 @@
 import { z } from 'zod';
+import { P2P_DELIST_REASONS } from './p2p-delist.js';
+import { P2P_CANCEL_REASONS, P2P_CANCELLED_BY } from './p2p-cancel.js';
 import { defineProcedure, NO_INPUT, type ProcedureRecord, type Refusals, type RefusalStatus } from './procedure.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
+import { unsignedAmountSchema } from './wire-amount.js';
 
 /**
  * svc-p2p's calls that are mounted from records, one record per call. The service mounts each from here
@@ -1090,7 +1094,1979 @@ export const P2P_MERCHANTS_HISTORY = defineProcedure({
   ],
 });
 
+/**
+ * The trade calls' named refusals, read from each handler and the service methods it calls (statuses from svc-p2p's
+ * `toTrpcError`). Internal failures (a ledger or database error) are not listed: they are not refusals.
+ */
+const STEP_UP = {
+  'auth.step_up_required': 'FORBIDDEN',
+  'auth.step_up_expired': 'FORBIDDEN',
+  'auth.step_up_failed': 'FORBIDDEN',
+  'p2p.step_up_unverifiable': 'PRECONDITION_FAILED',
+} as const;
+const TRADE_MOVE = { ...TRADE_NOT_FOUND, 'p2p.invalid_transition': 'CONFLICT', 'p2p.trade_terminal': 'CONFLICT' } as const;
+const ESCROW_HELD = {
+  'p2p.escrow_contract_held': 'CONFLICT',
+  'p2p.trade_moved': 'CONFLICT',
+  'p2p.escrow_missing': 'CONFLICT',
+  'p2p.escrow_terms_unproven': 'PRECONDITION_FAILED',
+} as const;
+/** Everything a quote checks of the ad, the taker and the figures, before anything is reserved; a take checks it again. */
+const QUOTE_CHECKS = {
+  'p2p.trading_disabled': 'FORBIDDEN',
+  'p2p.offer_not_found': 'NOT_FOUND',
+  'p2p.offer_private': 'NOT_FOUND',
+  'p2p.share_link_expired': 'CONFLICT',
+  'p2p.share_link_revoked': 'CONFLICT',
+  'p2p.maker_offline': 'CONFLICT',
+  'p2p.offer_not_active': 'BAD_REQUEST',
+  'p2p.self_trade': 'FORBIDDEN',
+  'p2p.blocked': 'FORBIDDEN',
+  'p2p.invalid_security_change_lock': 'PRECONDITION_FAILED',
+  'p2p.security_change_lock_unwired': 'PRECONDITION_FAILED',
+  'p2p.take_refused': 'BAD_REQUEST',
+  'p2p.method_delisted': 'BAD_REQUEST',
+  'p2p.invalid_amount': 'BAD_REQUEST',
+  'p2p.amount_below_min': 'BAD_REQUEST',
+  'p2p.amount_above_max': 'BAD_REQUEST',
+  'p2p.insufficient_offer_liquidity': 'BAD_REQUEST',
+  'p2p.unsupported_fiat': 'BAD_REQUEST',
+  'p2p.reference_price_unavailable': 'BAD_REQUEST',
+  'p2p.fee_bps_unset': 'PRECONDITION_FAILED',
+  'p2p.release_unpostable': 'BAD_REQUEST',
+  'p2p.active_order_cap': 'CONFLICT',
+  'p2p.config_unset': 'PRECONDITION_FAILED',
+  'p2p.buying_restricted': 'CONFLICT',
+  'p2p.pair_limit_exceeded': 'BAD_REQUEST',
+  'p2p.verification_limits_invalid': 'PRECONDITION_FAILED',
+  'p2p.verification_level_unwired': 'PRECONDITION_FAILED',
+  'p2p.verification_limit_currency': 'BAD_REQUEST',
+  'p2p.verification_order_min': 'BAD_REQUEST',
+  'p2p.verification_order_max': 'BAD_REQUEST',
+  'p2p.verification_daily_limit': 'BAD_REQUEST',
+  'p2p.verification_lifetime_limit': 'BAD_REQUEST',
+} as const;
+/** An API key is refused a confirmation window: it never confirms a take or a release. */
+const REFUSALS_STEP_UP_WINDOW = { 'auth.step_up_required': 'FORBIDDEN' } as const;
+const REFUSALS_TAKE = {
+  ...QUOTE_CHECKS,
+  ...STEP_UP,
+  'p2p.contact_required': 'FORBIDDEN',
+  'p2p.contact_unverifiable': 'PRECONDITION_FAILED',
+  'p2p.take_gate_unwired': 'PRECONDITION_FAILED',
+  'p2p.contract_escrow_unavailable': 'PRECONDITION_FAILED',
+  'p2p.counterparty_unverifiable': 'PRECONDITION_FAILED',
+  'p2p.counterparty_unavailable': 'CONFLICT',
+  'p2p.quote_not_found': 'NOT_FOUND',
+  'p2p.quote_mismatch': 'BAD_REQUEST',
+  'p2p.quote_expired': 'CONFLICT',
+  'p2p.quote_changed': 'CONFLICT',
+  'p2p.trade_exists': 'CONFLICT',
+  'p2p.non_instant_not_accepted': 'BAD_REQUEST',
+  'p2p.floating_not_allowed_for_method': 'BAD_REQUEST',
+  'p2p.escrow_lock_uncertain': 'PRECONDITION_FAILED',
+  'p2p.escrow_terms_unproven': 'PRECONDITION_FAILED',
+  'p2p.trade_moved': 'CONFLICT',
+  'p2p.insufficient_balance': 'CONFLICT',
+  'p2p.offer_unfunded': 'CONFLICT',
+} as const;
+/** An unconfigured escrow is answered as data (`available: false` with its blocker), never refused. */
+const REFUSALS_CONTRACT_ESCROW = {} as const;
+const REFUSALS_ATTACH_CONTRACT_DEAL = {
+  ...TRADE_MOVE,
+  'p2p.contract_escrow_unavailable': 'PRECONDITION_FAILED',
+  'p2p.escrow_deal_mismatch': 'CONFLICT',
+  'p2p.escrow_kind_immutable': 'CONFLICT',
+  'p2p.not_the_seller': 'FORBIDDEN',
+  'p2p.trade_moved': 'CONFLICT',
+} as const;
+const REFUSALS_SYNC_CONTRACT_DEAL = {
+  ...TRADE_MOVE,
+  'p2p.escrow_deal_mismatch': 'CONFLICT',
+  'p2p.contract_escrow_unavailable': 'PRECONDITION_FAILED',
+  'p2p.trade_moved': 'CONFLICT',
+  'p2p.escrow_terms_unproven': 'PRECONDITION_FAILED',
+} as const;
+const REFUSALS_MARK_FIAT_SENT = { ...TRADE_MOVE, 'p2p.not_the_buyer': 'FORBIDDEN' } as const;
+const REFUSALS_CONFIRM_RECEIVED = {
+  ...TRADE_MOVE,
+  ...STEP_UP,
+  ...ESCROW_HELD,
+  'p2p.not_the_seller': 'FORBIDDEN',
+  'p2p.dispute_already_open': 'CONFLICT',
+  'p2p.release_unpostable': 'BAD_REQUEST',
+} as const;
+const REFUSALS_REMIND = {
+  ...TRADE_MOVE,
+  'p2p.not_the_buyer': 'FORBIDDEN',
+  'p2p.config_unset': 'PRECONDITION_FAILED',
+  'p2p.remind_rate_limited': 'CONFLICT',
+  'p2p.remind_too_early': 'CONFLICT',
+} as const;
+const REFUSALS_REPORT_SENSITIVE_REMARK = {
+  ...TRADE_MOVE,
+  'p2p.remark_invalid': 'BAD_REQUEST',
+  'p2p.remark_not_payee': 'FORBIDDEN',
+  'p2p.remark_case_exists': 'CONFLICT',
+} as const;
+const REFUSALS_REMARK_CASE = TRADE_NOT_FOUND;
+const REFUSALS_REPORT_MISMATCH = {
+  ...TRADE_MOVE,
+  'p2p.not_the_seller': 'FORBIDDEN',
+  'p2p.mismatch_report_exists': 'CONFLICT',
+  'p2p.invalid_amount': 'BAD_REQUEST',
+  'p2p.unsupported_fiat': 'BAD_REQUEST',
+} as const;
+const REFUSALS_VALIDATE_PAYMENT = {
+  ...TRADE_MOVE,
+  ...STEP_UP,
+  ...ESCROW_HELD,
+  'p2p.not_the_seller': 'FORBIDDEN',
+  'rail.bank': 'PRECONDITION_FAILED',
+  'p2p.method_not_rail_validated': 'PRECONDITION_FAILED',
+  'p2p.dispute_already_open': 'CONFLICT',
+  'p2p.rail_mismatch': 'CONFLICT',
+  'p2p.release_unpostable': 'BAD_REQUEST',
+} as const;
+const REFUSALS_CANCEL = {
+  ...TRADE_MOVE,
+  ...ESCROW_HELD,
+  'p2p.not_the_seller': 'FORBIDDEN',
+  'p2p.cancel_after_paid': 'CONFLICT',
+  'p2p.dispute_already_open': 'CONFLICT',
+  'p2p.cancel_reason_invalid': 'BAD_REQUEST',
+  'p2p.escrow_lock_uncertain': 'PRECONDITION_FAILED',
+} as const;
+const REFUSALS_REQUEST_CANCEL = {
+  ...TRADE_MOVE,
+  'p2p.not_the_seller': 'FORBIDDEN',
+  'p2p.owner_decision_pending': 'PRECONDITION_FAILED',
+} as const;
+const REFUSALS_GET = TRADE_NOT_FOUND;
+const REFUSALS_LIST = { 'p2p.trade_list_limit_unset': 'PRECONDITION_FAILED' } as const;
+const REFUSALS_PAGE = {
+  'p2p.trade_list_limit_unset': 'PRECONDITION_FAILED',
+  'p2p.cursor_invalid': 'BAD_REQUEST',
+  'p2p.filter_invalid': 'BAD_REQUEST',
+} as const;
+const REFUSALS_QUOTE = { ...QUOTE_CHECKS, 'p2p.escrow_deadline_unset': 'PRECONDITION_FAILED' } as const;
+const REFUSALS_LOCK_QUOTE = { ...REFUSALS_QUOTE, 'p2p.quote_not_found': 'NOT_FOUND', 'p2p.idempotency_conflict': 'CONFLICT' } as const;
+const REFUSALS_EXPORT = {
+  'p2p.config_unset': 'PRECONDITION_FAILED',
+  'p2p.export_format_unbuilt': 'PRECONDITION_FAILED',
+  'p2p.export_range_invalid': 'BAD_REQUEST',
+  'p2p.export_range_too_large': 'BAD_REQUEST',
+  'p2p.export_too_many_rows': 'BAD_REQUEST',
+  'p2p.export_quota_reached': 'TOO_MANY_REQUESTS',
+} as const;
+const REFUSALS_RECEIPT = {
+  ...TRADE_NOT_FOUND,
+  'p2p.config_unset': 'PRECONDITION_FAILED',
+  'p2p.receipt_not_available': 'BAD_REQUEST',
+  'p2p.receipt_quota_reached': 'TOO_MANY_REQUESTS',
+} as const;
+/** Every reason a stranger may not read the destination is one not found, whatever the real reason. */
+const REFUSALS_PAYMENT_INSTRUMENT = {
+  'p2p.instrument_not_found': 'NOT_FOUND',
+  'p2p.escrow_terms_unproven': 'PRECONDITION_FAILED',
+  'p2p.instrument_kms_required': 'PRECONDITION_FAILED',
+} as const;
+
+/** The readable tabs of the order list, and which state machine statuses each holds (svc-p2p `order-list.ts`). */
+export const ORDER_TABS = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;
+/** An order's readable status, derived on the server from its state, resolution and how it got there. */
+export const DISPLAY_STATUSES = [
+  'waiting_for_escrow',
+  'waiting_for_buyer_to_pay',
+  'waiting_for_seller_to_release',
+  'appealing',
+  'completed',
+  'completed_by_dispute_ruling',
+  'cancelled',
+  'cancelled_by_timeout',
+  'cancelled_by_dispute_ruling',
+] as const;
+/** What the seller found in their bank: less, more, or only part of the order's fiat. */
+export const MISMATCH_KINDS = ['under', 'over', 'partial'] as const;
+/** How the owner's band classified a mismatch report; `reported` while the band is blank. */
+export const MISMATCH_CLASSIFICATIONS = ['within_tolerance', 'outside_tolerance', 'reported'] as const;
+/** The export formats a caller may ask for. Only CSV is built; the others refuse `p2p.export_format_unbuilt`. */
+export const EXPORT_FORMATS = ['csv', 'xlsx', 'pdf'] as const;
+const TRADE_STATUSES = ['created', 'escrowed', 'fiat_sent', 'released', 'cancelled', 'disputed'] as const;
+
+const OFFER = '33333333-3333-4333-8333-333333333333';
+const QUOTE = '55555555-5555-4555-8555-555555555555';
+
+/** How money on a method arrives in one market: at once, or within a window (null when the market leaves it blank). */
+export const P2P_SETTLEMENT = z.union([
+  z.object({ instant: z.literal(true) }),
+  z.object({ instant: z.literal(false), windowSeconds: z.number().int().positive().nullable() }),
+]);
+
+/** One order on the wire, as every trade call returns it. */
+export const P2P_TRADE = z.object({
+  id: z.string().guid(),
+  offerId: z.string().guid(),
+  /** The order was taken through a share link. */
+  sharedFrom: z.boolean(),
+  /** The ad's own release window copied at take, or null when the published release clock applies. */
+  releaseWindowSeconds: z.number().int().positive().nullable(),
+  sellerId: z.string(),
+  buyerId: z.string(),
+  asset: z.string(),
+  amount: amountString,
+  fiatCurrency: z.string(),
+  fiatAmount: amountString,
+  price: amountString,
+  method: z.string(),
+  status: z.enum(TRADE_STATUSES),
+  resolution: z.enum(['released', 'refunded', 'voided']).nullable(),
+  deadlineAt: z.string().nullable(),
+  createdAt: z.string(),
+  escrowedAt: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+  settledAt: z.string().nullable(),
+  /** Who holds the coins: the ledger, or the escrow contract (no ledger entry at all). Fixed at take. */
+  escrowKind: z.enum(['ledger', 'contract']),
+  /** The contract deal's terms (fixed at take) and, once the seller attached it, the deal. Null on a ledger order. Base units. */
+  contract: z
+    .object({
+      chainId: z.number().int().positive(),
+      token: z.string(),
+      units: z.string().regex(/^[1-9][0-9]*$/),
+      buyerWallet: z.string(),
+      disputeWindowSeconds: z.number().int().positive(),
+      timeout: z.literal('refund_seller'),
+      dealId: z.string().nullable(),
+      sellerWallet: z.string().nullable(),
+    })
+    .nullable(),
+});
+
+/** The buyer's reminders: how many went, the last, when the next may go (null when none can), and the owner's count. */
+export const P2P_TRADE_REMINDERS = z.object({
+  count: z.number().int().nonnegative(),
+  lastAt: z.string().datetime().nullable(),
+  nextAt: z.string().datetime().nullable(),
+  max: z.number().int().positive().nullable(),
+});
+
+/** The seller's report of what arrived in their bank, and how the owner's band classified it (`toleranceBps`, the band used). */
+export const P2P_TRADE_MISMATCH = z.object({
+  kind: z.enum(MISMATCH_KINDS),
+  amountReceived: amountString,
+  expected: amountString,
+  classification: z.enum(MISMATCH_CLASSIFICATIONS),
+  toleranceBps: z.number().int().nonnegative().nullable(),
+  reportedAt: z.string().datetime(),
+});
+
+/** A case a party's report of a payment-note remark opened. */
+export const P2P_REMARK_CASE = z.object({
+  id: z.string(),
+  tradeId: z.string(),
+  reporterId: z.string(),
+  reportedId: z.string(),
+  reporterRole: z.enum(['buyer', 'seller']),
+  remark: z.string(),
+  status: z.literal('open'),
+  openedAt: z.string(),
+});
+
+/**
+ * One order as its page reads it: the ad's terms when it was placed (null before terms were copied), the readable
+ * status, the fee rate frozen at take and, for a released order, the split the ledger posted from it. A refund or a
+ * void takes no fee, so those carry no split.
+ */
+export const P2P_TRADE_DETAIL = P2P_TRADE.extend({
+  terms: z.string().nullable(),
+  displayStatus: z.enum(DISPLAY_STATUSES),
+  feeBps: z.number().int(),
+  fee: amountString.nullable(),
+  netAmount: amountString.nullable(),
+  /** The method's profile in the market the buyer pays into, copied at take. */
+  settlement: P2P_SETTLEMENT,
+  /** While the escrow is held, the split a release would post; null once it is not held. */
+  releasePreview: z.object({ fee: amountString, netAmount: amountString }).nullable(),
+  /** What is still in escrow: zero once posted and for a void, null while `created` (the lock is not provably done). */
+  escrowHeld: amountString.nullable(),
+  reminders: P2P_TRADE_REMINDERS,
+  mismatch: P2P_TRADE_MISMATCH.nullable(),
+  /** What stops the bank rail checking this order's payment, or null when it can be checked. */
+  paymentValidation: z.object({ blocker: z.enum(['rail.bank', 'p2p.method_not_rail_validated']).nullable() }),
+  /** On a cancelled order, who cancelled it and the reason code they chose; null otherwise. */
+  cancelReason: z.object({ by: z.enum(P2P_CANCELLED_BY), code: z.enum(P2P_CANCEL_REASONS).nullable() }).nullable(),
+});
+
+const stepUpApprovalId = z.string().min(1).max(128);
+/** What every caller checks of a remark case: its own id and its order's are UUIDs. */
+const remarkCaseIds = z.object({ id: z.string().guid(), tradeId: z.string().guid() });
+const shareToken = z.string().regex(/^[A-Za-z0-9_-]{32}$/);
+const stepUpWindow = z.object({ confirmedUntil: z.string().datetime().nullable() });
+/** What every caller checks of a confirmation window: a real ISO date-time with its offset, or null. */
+const stepUpWindowTimes = z.object({ confirmedUntil: z.iso.datetime({ offset: true }).nullable() });
+const stepUpWindowAccept = {
+  times: {
+    says: 'confirmedUntil is an ISO 8601 date-time, or null',
+    holds: (reply: unknown) => stepUpWindowTimes.safeParse(reply).success,
+  },
+} as const;
+const TRADE_ID_SAMPLES = [
+  { verdict: 'accept', input: { tradeId: TRADE } },
+  { verdict: 'refuse', input: { tradeId: 'not-an-id' } },
+] as const;
+
+/** Until when this session's takes need no new confirmation, or null when the next take does. guard: merchantApi. */
+export const P2P_TRADES_STEP_UP_WINDOW = defineProcedure({
+  ...base,
+  name: 'p2p.trades.stepUpWindow',
+  kind: 'query',
+  path: 'trades.stepUpWindow',
+  access: READ,
+  refusals: refuse(REFUSALS_STEP_UP_WINDOW),
+  input: NO_INPUT,
+  output: stepUpWindow,
+  accept: stepUpWindowAccept,
+  samples: [{ verdict: 'accept' }],
+});
+
+/**
+ * Until when this session's releases need no new confirmation, or null when the next one does. A take's confirmation
+ * never counts here. guard: merchantApi.
+ */
+export const P2P_TRADES_RELEASE_STEP_UP_WINDOW = defineProcedure({
+  ...base,
+  name: 'p2p.trades.releaseStepUpWindow',
+  kind: 'query',
+  path: 'trades.releaseStepUpWindow',
+  access: READ,
+  refusals: refuse(REFUSALS_STEP_UP_WINDOW),
+  input: NO_INPUT,
+  output: stepUpWindow,
+  accept: stepUpWindowAccept,
+  samples: [{ verdict: 'accept' }],
+});
+
+/**
+ * Take an ad: the seller's coins lock in escrow (the ledger's, or a contract deal paying the buyer's own wallet). The
+ * eligibility checks run before anything is reserved, then the fresh confirmation of exactly this take, unless the
+ * session's window is live. guard: merchantApi.
+ */
+export const P2P_TRADES_TAKE = defineProcedure({
+  ...base,
+  name: 'p2p.trades.take',
+  kind: 'mutation',
+  path: 'trades.take',
+  access: WRITE,
+  refusals: refuse(REFUSALS_TAKE),
+  input: z.object({
+    offerId: z.string().guid(),
+    tradeId: z.string().guid(),
+    amount: amountString,
+    method: z.string().min(1).max(64),
+    /** The locked quote (`trades.lockQuote`) this take places, inside its window. */
+    quoteId: z.string().guid().optional(),
+    /** Identity's single-use confirmation of exactly this take. Optional inside a live window. */
+    stepUpApprovalId: stepUpApprovalId.optional(),
+    /** The share link the taker came by; required for a private ad, and marks the order shared. */
+    shareToken: shareToken.optional(),
+    /** Who holds the coins: `ledger` by default; `contract`, for the buyer of a sell ad, pays `buyerWallet`. */
+    escrowKind: z.enum(['ledger', 'contract']).default('ledger'),
+    buyerWallet: z
+      .string()
+      .regex(/^0x[0-9a-fA-F]{40}$/)
+      .optional(),
+  }),
+  output: P2P_TRADE,
+  samples: [
+    { verdict: 'accept', input: { offerId: OFFER, tradeId: TRADE, amount: '10', method: 'sepa' } },
+    { verdict: 'refuse', input: { offerId: OFFER, tradeId: TRADE, amount: '-1', method: 'sepa' } },
+    { verdict: 'refuse', input: { offerId: OFFER, tradeId: TRADE, amount: '10', method: 'sepa', buyerWallet: '0x12' } },
+  ],
+});
+
+/**
+ * The contract escrow as a person choosing it sees it for one asset: offered, or not with its blocker named; the
+ * testnet's plain label; and mainnet, always off in this build (`audit.external`). Reads only. guard: merchantApi.
+ */
+export const P2P_TRADES_CONTRACT_ESCROW = defineProcedure({
+  ...base,
+  name: 'p2p.trades.contractEscrow',
+  kind: 'query',
+  path: 'trades.contractEscrow',
+  access: READ,
+  refusals: refuse(REFUSALS_CONTRACT_ESCROW),
+  input: z.object({ asset: z.string().min(1).max(32) }),
+  output: z.object({
+    available: z.boolean(),
+    blocker: z.string().nullable(),
+    reason: z.string().nullable(),
+    network: z.object({ chainId: z.number().int().positive(), label: z.string(), escrow: z.string() }).nullable(),
+    token: z.object({ address: z.string(), decimals: z.number().int() }).nullable(),
+    disputeWindowSeconds: z.number().int().positive().nullable(),
+    timeout: z.literal('refund_seller'),
+    mainnet: z.object({ available: z.literal(false), blocker: z.literal('audit.external') }),
+    audited: z.literal(false),
+  }),
+  samples: [
+    { verdict: 'accept', input: { asset: 'USDC' } },
+    { verdict: 'refuse', input: { asset: '' } },
+  ],
+});
+
+/**
+ * The seller attaches the deal they opened and funded from their own wallet. The deal is read from the chain, never
+ * taken from the caller, and must match the order exactly and be locked; the order is then escrowed. The same deal
+ * again returns the order. No ledger call. guard: merchantApi.
+ */
+export const P2P_TRADES_ATTACH_CONTRACT_DEAL = defineProcedure({
+  ...base,
+  name: 'p2p.trades.attachContractDeal',
+  kind: 'mutation',
+  path: 'trades.attachContractDeal',
+  access: WRITE,
+  refusals: refuse(REFUSALS_ATTACH_CONTRACT_DEAL),
+  input: z.object({ tradeId: z.string().guid(), dealId: z.string().regex(/^[1-9][0-9]{0,77}$/) }),
+  output: P2P_TRADE,
+  samples: [
+    { verdict: 'accept', input: { tradeId: TRADE, dealId: '7' } },
+    { verdict: 'refuse', input: { tradeId: TRADE, dealId: '0' } },
+  ],
+});
+
+/**
+ * Either party brings a contract order to its deal's chain state (released, refunded, disputed), read from the chain;
+ * the same state twice changes the order once. No ledger call. guard: merchantApi.
+ */
+export const P2P_TRADES_SYNC_CONTRACT_DEAL = defineProcedure({
+  ...base,
+  name: 'p2p.trades.syncContractDeal',
+  kind: 'mutation',
+  path: 'trades.syncContractDeal',
+  access: WRITE,
+  refusals: refuse(REFUSALS_SYNC_CONTRACT_DEAL),
+  input: tradeId,
+  output: P2P_TRADE,
+  samples: TRADE_ID_SAMPLES,
+});
+
+/** The buyer says the fiat is sent. guard: merchantApi. */
+export const P2P_TRADES_MARK_FIAT_SENT = defineProcedure({
+  ...base,
+  name: 'p2p.trades.markFiatSent',
+  kind: 'mutation',
+  path: 'trades.markFiatSent',
+  access: WRITE,
+  refusals: refuse(REFUSALS_MARK_FIAT_SENT),
+  input: tradeId,
+  output: P2P_TRADE,
+  samples: TRADE_ID_SAMPLES,
+});
+
+/**
+ * The seller confirms the fiat landed and the escrow releases, confirmed with identity's single-use approval of this
+ * release or inside the session's release window. A second press on an order this seller already released returns it
+ * and asks for nothing. guard: merchantApi.
+ */
+export const P2P_TRADES_CONFIRM_RECEIVED = defineProcedure({
+  ...base,
+  name: 'p2p.trades.confirmReceived',
+  kind: 'mutation',
+  path: 'trades.confirmReceived',
+  access: WRITE,
+  refusals: refuse(REFUSALS_CONFIRM_RECEIVED),
+  input: z.object({ tradeId: z.string().guid(), stepUpApprovalId: stepUpApprovalId.optional() }),
+  output: P2P_TRADE,
+  samples: [
+    { verdict: 'accept', input: { tradeId: TRADE, stepUpApprovalId: 'appr-1' } },
+    { verdict: 'refuse', input: { tradeId: TRADE, stepUpApprovalId: '' } },
+  ],
+});
+
+/**
+ * The buyer of a paid order reminds the seller to check the payment and release. Too early names when it may go; the
+ * owner's count spent, or either owner figure blank, refuses. Nothing moves. guard: merchantApi.
+ */
+export const P2P_TRADES_REMIND = defineProcedure({
+  ...base,
+  name: 'p2p.trades.remind',
+  kind: 'mutation',
+  path: 'trades.remind',
+  access: WRITE,
+  refusals: refuse(REFUSALS_REMIND),
+  input: tradeId,
+  output: P2P_TRADE_REMINDERS,
+  samples: TRADE_ID_SAMPLES,
+});
+
+/** The longest remark a report quotes. */
+export const REMARK_MAX = 280;
+
+/**
+ * The seller reports a sensitive remark the buyer wrote in the payment note; a case opens against the buyer, who is
+ * told. One per order: the same report again returns the first. guard: merchantApi.
+ */
+export const P2P_TRADES_REPORT_SENSITIVE_REMARK = defineProcedure({
+  ...base,
+  name: 'p2p.trades.reportSensitiveRemark',
+  kind: 'mutation',
+  path: 'trades.reportSensitiveRemark',
+  access: WRITE,
+  refusals: refuse(REFUSALS_REPORT_SENSITIVE_REMARK),
+  input: z.object({
+    /** The client's id for this report, made once per form: a lost reply sent again returns the same case. */
+    caseId: z.string().guid(),
+    tradeId: z.string().guid(),
+    /** The remark as written in the payment note. Staff read it; the reported party is told a case opened. */
+    remark: z.string().trim().min(1).max(REMARK_MAX),
+  }),
+  output: P2P_REMARK_CASE,
+  accept: { ids: { says: 'the case id and the order id are UUIDs', holds: (reply) => remarkCaseIds.safeParse(reply).success } },
+  samples: [
+    { verdict: 'accept', input: { caseId: QUOTE, tradeId: TRADE, remark: 'for crypto' } },
+    { verdict: 'refuse', input: { caseId: QUOTE, tradeId: TRADE, remark: '' } },
+  ],
+});
+
+/**
+ * The remark cases on this order as the caller may see them: their own report (or null), and whether the other party
+ * reported them, with the case id and when, never the quote. A non-party gets not found. guard: merchantApi.
+ */
+export const P2P_TRADES_REMARK_CASE = defineProcedure({
+  ...base,
+  name: 'p2p.trades.remarkCase',
+  kind: 'query',
+  path: 'trades.remarkCase',
+  access: READ,
+  refusals: refuse(REFUSALS_REMARK_CASE),
+  input: tradeId,
+  output: z.object({
+    mine: P2P_REMARK_CASE.nullable(),
+    againstMe: z.object({ caseId: z.string(), openedAt: z.string() }).nullable(),
+  }),
+  accept: {
+    ids: {
+      says: 'the case ids and the order id are UUIDs',
+      holds: (reply) =>
+        z.object({ mine: remarkCaseIds.nullable(), againstMe: z.object({ caseId: z.string().guid() }).nullable() }).safeParse(reply)
+          .success,
+    },
+  },
+  samples: TRADE_ID_SAMPLES,
+});
+
+/**
+ * The seller of a paid order reports an under-, over- or part payment found in their own bank. Answers the
+ * classification; the order stays paid either way and nothing moves. guard: merchantApi.
+ */
+export const P2P_TRADES_REPORT_MISMATCH = defineProcedure({
+  ...base,
+  name: 'p2p.trades.reportMismatch',
+  kind: 'mutation',
+  path: 'trades.reportMismatch',
+  access: WRITE,
+  refusals: refuse(REFUSALS_REPORT_MISMATCH),
+  input: z.object({ tradeId: z.string().guid(), kind: z.enum(MISMATCH_KINDS), amountReceived: amountString }),
+  output: P2P_TRADE_MISMATCH,
+  samples: [
+    { verdict: 'accept', input: { tradeId: TRADE, kind: 'under', amountReceived: '90' } },
+    { verdict: 'refuse', input: { tradeId: TRADE, kind: 'lost', amountReceived: '90' } },
+  ],
+});
+
+/**
+ * The seller of a paid order has the bank rail check the payment: an exact match releases once (`released`), nothing
+ * arrived yet answers `pending`. A check that can release asks for the same confirmation as a release by hand.
+ * guard: merchantApi.
+ */
+export const P2P_TRADES_VALIDATE_PAYMENT = defineProcedure({
+  ...base,
+  name: 'p2p.trades.validatePayment',
+  kind: 'mutation',
+  path: 'trades.validatePayment',
+  access: WRITE,
+  refusals: refuse(REFUSALS_VALIDATE_PAYMENT),
+  input: z.object({ tradeId: z.string().guid(), stepUpApprovalId: stepUpApprovalId.optional() }),
+  output: z.object({ outcome: z.enum(['released', 'pending']), trade: P2P_TRADE }),
+  samples: [
+    { verdict: 'accept', input: { tradeId: TRADE } },
+    { verdict: 'refuse', input: { tradeId: TRADE, stepUpApprovalId: '' } },
+  ],
+});
+
+/** Cancel: the escrow refunds the seller in full. A reason code from the caller's side's list wins over free text. guard: merchantApi. */
+export const P2P_TRADES_CANCEL = defineProcedure({
+  ...base,
+  name: 'p2p.trades.cancel',
+  kind: 'mutation',
+  path: 'trades.cancel',
+  access: WRITE,
+  refusals: refuse(REFUSALS_CANCEL),
+  input: z.object({
+    tradeId: z.string().guid(),
+    reason: z.string().max(200).optional(),
+    reasonCode: z.enum(P2P_CANCEL_REASONS).optional(),
+  }),
+  output: P2P_TRADE,
+  samples: [
+    { verdict: 'accept', input: { tradeId: TRADE, reason: 'changed my mind' } },
+    { verdict: 'refuse', input: { tradeId: TRADE, reasonCode: 'not_a_reason' } },
+  ],
+});
+
+/**
+ * The seller's cancellation request on a paid order, parked until the founders choose how a paid order may be
+ * cancelled: the seller of a paid order is refused `p2p.owner_decision_pending`, and nothing is written. guard: merchantApi.
+ */
+export const P2P_TRADES_REQUEST_CANCEL = defineProcedure({
+  ...base,
+  name: 'p2p.trades.requestCancel',
+  kind: 'mutation',
+  path: 'trades.requestCancel',
+  access: WRITE,
+  refusals: refuse(REFUSALS_REQUEST_CANCEL),
+  input: tradeId,
+  output: P2P_TRADE,
+  samples: TRADE_ID_SAMPLES,
+});
+
+/** One order, to its parties only: anyone else gets not found. guard: merchantApi. */
+export const P2P_TRADES_GET = defineProcedure({
+  ...base,
+  name: 'p2p.trades.get',
+  kind: 'query',
+  path: 'trades.get',
+  access: READ,
+  refusals: refuse(REFUSALS_GET),
+  input: tradeId,
+  output: P2P_TRADE_DETAIL,
+  accept: {
+    feeRate: {
+      says: 'feeBps is a rate from 0 to 9999 basis points',
+      holds: (reply) => z.object({ feeBps: z.number().min(0).max(9_999) }).safeParse(reply).success,
+    },
+  },
+  samples: TRADE_ID_SAMPLES,
+});
+
+/** The caller's orders. A missing page size refuses `p2p.trade_list_limit_unset`: blank is not 50. guard: merchantApi. */
+export const P2P_TRADES_LIST = defineProcedure({
+  ...base,
+  name: 'p2p.trades.list',
+  kind: 'query',
+  path: 'trades.list',
+  access: READ,
+  refusals: refuse(REFUSALS_LIST),
+  input: z.object({ limit: z.number().int().min(1).max(200).optional() }).optional(),
+  output: z.array(P2P_TRADE),
+  samples: [
+    { verdict: 'accept', input: { limit: 50 } },
+    { verdict: 'refuse', input: { limit: 0 } },
+  ],
+});
+
+/**
+ * The order list: keyset pages newest first, filtered by tab, asset, side, dates and an order id prefix, with true
+ * per-tab counts and the server's tab and readable status on each row. A missing page size refuses
+ * `p2p.trade_list_limit_unset`. guard: merchantApi.
+ */
+export const P2P_TRADES_PAGE = defineProcedure({
+  ...base,
+  name: 'p2p.trades.page',
+  kind: 'query',
+  path: 'trades.page',
+  access: READ,
+  refusals: refuse(REFUSALS_PAGE),
+  input: z.object({
+    limit: z.number().int().min(1).max(200).optional(),
+    cursor: z.string().max(512).optional(),
+    tab: z.string().max(32).optional(),
+    asset: z.string().max(32).optional(),
+    side: z.string().max(8).optional(),
+    from: z.string().max(40).optional(),
+    to: z.string().max(40).optional(),
+    orderId: z.string().max(64).optional(),
+  }),
+  output: z.object({
+    trades: z.array(P2P_TRADE.extend({ tab: z.enum(ORDER_TABS), displayStatus: z.enum(DISPLAY_STATUSES) })),
+    nextCursor: z.string().nullable(),
+    counts: z.object({
+      in_progress: z.number().int().nonnegative(),
+      in_dispute: z.number().int().nonnegative(),
+      completed: z.number().int().nonnegative(),
+      cancelled: z.number().int().nonnegative(),
+    }),
+  }),
+  samples: [
+    { verdict: 'accept', input: { limit: 20, tab: 'in_progress' } },
+    { verdict: 'refuse', input: { limit: 500 } },
+  ],
+});
+
+/** A take sized in the coin (`amount`) or in the ad's fiat (`fiatAmount`): exactly one. */
+const takeAmountShape = {
+  offerId: z.string().guid(),
+  amount: amountString.optional(),
+  fiatAmount: amountString.optional(),
+  method: z.string().min(1).max(64),
+  /** The share link the taker came by; required for a private ad. */
+  shareToken: shareToken.optional(),
+};
+const oneTakeAmount = (value: { amount?: string; fiatAmount?: string }) =>
+  (value.amount === undefined) !== (value.fiatAmount === undefined);
+const ONE_TAKE_AMOUNT = { message: 'p2p.invalid_amount: give the amount in the coin or in fiat, not both', path: ['amount'] };
+const oneTakeAmountCheck = {
+  'p2p.one_take_amount': { at: 'input', says: 'exactly one of amount (the coin) and fiatAmount (the fiat) is given' },
+};
+/** What every caller checks of a quote: an amount above zero, a fee rate below 100%, and a real end time with its offset. */
+const quoteFigures = z.object({ amount: z.string().regex(/[1-9]/), feeBps: z.number().max(9_999) });
+const previewFigures = quoteFigures.extend({ reservationExpiresAt: z.iso.datetime({ offset: true }) });
+const lockedFigures = quoteFigures.extend({ expiresAt: z.iso.datetime({ offset: true }) });
+
+/** What a take would lock, before it locks anything: exact decimals from the ad and the published fee. No row is written. guard: merchantApi. */
+export const P2P_TRADES_QUOTE = defineProcedure({
+  ...base,
+  name: 'p2p.trades.quote',
+  kind: 'query',
+  path: 'trades.quote',
+  access: READ,
+  refusals: refuse(REFUSALS_QUOTE),
+  checks: oneTakeAmountCheck,
+  input: z.object(takeAmountShape).refine(oneTakeAmount, ONE_TAKE_AMOUNT),
+  output: z.object({
+    amount: amountString,
+    price: amountString,
+    fiatAmount: amountString,
+    feeBps: z.number().int().nonnegative(),
+    fee: amountString,
+    netAmount: amountString,
+    reservationExpiresAt: z.string(),
+  }),
+  accept: {
+    figures: {
+      says: 'the amount is above zero, feeBps is below 10000, and reservationExpiresAt is an ISO 8601 date-time',
+      holds: (reply) => previewFigures.safeParse(reply).success,
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { offerId: OFFER, amount: '10', method: 'sepa' } },
+    { verdict: 'accept', input: { offerId: OFFER, fiatAmount: '100', method: 'sepa' } },
+    { verdict: 'refuse', input: { offerId: OFFER, amount: '10', fiatAmount: '100', method: 'sepa' }, by: 'p2p.one_take_amount' },
+    { verdict: 'refuse', input: { offerId: OFFER, amount: '10', method: '' } },
+  ],
+});
+
+/**
+ * Lock the quote for its window: `trades.take` with this `quoteId` places exactly these terms, or refuses before
+ * anything is reserved. A client-chosen `quoteId`: a retry returns the same quote. guard: merchantApi.
+ */
+export const P2P_TRADES_LOCK_QUOTE = defineProcedure({
+  ...base,
+  name: 'p2p.trades.lockQuote',
+  kind: 'mutation',
+  path: 'trades.lockQuote',
+  access: WRITE,
+  refusals: refuse(REFUSALS_LOCK_QUOTE),
+  checks: oneTakeAmountCheck,
+  input: z.object({ ...takeAmountShape, quoteId: z.string().guid() }).refine(oneTakeAmount, ONE_TAKE_AMOUNT),
+  output: z.object({
+    quoteId: z.string().guid(),
+    amount: amountString,
+    price: amountString,
+    fiatAmount: amountString,
+    feeBps: z.number().int().nonnegative(),
+    fee: amountString,
+    netAmount: amountString,
+    expiresAt: z.string(),
+    /** Time left by the service's clock when answered: count down from receipt, not from the device clock. */
+    expiresInMs: z.number().int().nonnegative(),
+  }),
+  accept: {
+    figures: {
+      says: 'the amount is above zero, feeBps is below 10000, and expiresAt is an ISO 8601 date-time',
+      holds: (reply) => lockedFigures.safeParse(reply).success,
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { offerId: OFFER, amount: '10', method: 'sepa', quoteId: QUOTE } },
+    { verdict: 'refuse', input: { offerId: OFFER, method: 'sepa', quoteId: QUOTE }, by: 'p2p.one_take_amount' },
+    { verdict: 'refuse', input: { offerId: OFFER, amount: '10', method: 'sepa' } },
+  ],
+});
+
+/**
+ * The caller's orders in a date range as CSV, under the owner's range and row caps and a daily quota per person (past
+ * it TOO_MANY_REQUESTS, naming the next UTC midnight), with totals as decimal strings. One audit row per export.
+ * guard: merchantApi.
+ */
+export const P2P_TRADES_EXPORT = defineProcedure({
+  ...base,
+  name: 'p2p.trades.export',
+  kind: 'query',
+  path: 'trades.export',
+  access: READ,
+  refusals: refuse(REFUSALS_EXPORT),
+  input: z.object({ from: z.string().min(1), to: z.string().min(1), format: z.enum(EXPORT_FORMATS).optional() }),
+  output: z.object({
+    csv: z.string(),
+    rows: z.number().int().nonnegative(),
+    format: z.literal('csv'),
+    totals: z.array(z.object({ asset: z.string(), fiatCurrency: z.string(), amount: amountString, fiatAmount: amountString })),
+  }),
+  samples: [
+    { verdict: 'accept', input: { from: '2026-11-01', to: '2026-11-20', format: 'csv' } },
+    { verdict: 'refuse', input: { from: '', to: '2026-11-20' } },
+  ],
+});
+
+/** A receipt for one released order, the caller's own side only, under the owner's quotas: each call spends one. guard: merchantApi. */
+export const P2P_TRADES_RECEIPT = defineProcedure({
+  ...base,
+  name: 'p2p.trades.receipt',
+  kind: 'mutation',
+  path: 'trades.receipt',
+  access: READ,
+  refusals: refuse(REFUSALS_RECEIPT),
+  input: tradeId,
+  output: z.object({
+    receipt: z.object({
+      tradeId: z.string().guid(),
+      offerId: z.string().guid(),
+      role: z.enum(['buyer', 'seller']),
+      asset: z.string(),
+      amount: amountString,
+      fiatCurrency: z.string(),
+      fiatAmount: amountString,
+      price: amountString,
+      feeBps: z.number().int().nonnegative(),
+      method: z.string(),
+      createdAt: z.string(),
+      escrowedAt: z.string().nullable(),
+      fiatSentAt: z.string().nullable(),
+      resolvedAt: z.string().nullable(),
+    }),
+    dailyRemaining: z.number().int().nonnegative(),
+    tradeRemaining: z.number().int().nonnegative(),
+  }),
+  samples: TRADE_ID_SAMPLES,
+});
+
+/**
+ * Where to send the money: the only path to a seller's account details, its own call so every disclosure is one
+ * access-log row. A party, or a moderator of a live dispute on the order, reads it; anyone else gets not found.
+ * `p2p:read`, since a moderator holds no `p2p:write`. guard: merchantApi.
+ */
+export const P2P_TRADES_PAYMENT_INSTRUMENT = defineProcedure({
+  ...base,
+  name: 'p2p.trades.paymentInstrument',
+  kind: 'query',
+  path: 'trades.paymentInstrument',
+  access: READ,
+  refusals: refuse(REFUSALS_PAYMENT_INSTRUMENT),
+  input: tradeId,
+  output: z.object({
+    tradeId: z.string().guid(),
+    methodId: z.string(),
+    country: z.string(),
+    fiatCurrency: z.string(),
+    label: z.string(),
+    details: z.record(z.string(), z.string()),
+    /** Each detail's label from the method schema, in its order. */
+    fields: z.array(z.object({ key: z.string(), label: z.string() })),
+    attachedAt: z.string(),
+    /** The seller changed or removed this destination after the order was placed. The order still pays the details above. */
+    payeeChange: z.object({ kind: z.enum(['changed', 'removed']) }).nullable(),
+  }),
+  samples: TRADE_ID_SAMPLES,
+});
+
 /** Every svc-p2p call mounted from a record. */
+/** Board order (P-trade-orders-01): fixed-price ads by price, then floating ads, which have no fiat price to rank by. */
+export const P2P_BOARD_SORTS = ['price_asc', 'price_desc'] as const;
+/** P-ads-merchant-08: what one bulk action does to each ad it names. */
+export const P2P_BULK_ACTIONS = ['pause', 'resume', 'remove'] as const;
+/** Most ads one bulk action may name, or reach with `all`. */
+export const P2P_MAX_BULK_OFFERS = 100;
+export const P2P_OFFER_STATUSES = ['active', 'paused', 'closed'] as const;
+
+/** One ad as svc-p2p answers it. `methods` are the method ids or `{ id }` objects the ad was posted with, kept as sent. */
+export const P2P_OFFER = z.object({
+  id: z.string().guid(),
+  makerId: z.string(),
+  side: z.enum(['buy', 'sell']),
+  asset: z.string(),
+  fiatCurrency: z.string(),
+  priceType: z.enum(['fixed', 'float']),
+  price: amountString,
+  minAmount: amountString,
+  maxAmount: amountString,
+  remainingAmount: amountString,
+  totalAmount: amountString,
+  filledAmount: amountString,
+  tradesCompleted: z.number().int().nonnegative(),
+  /**
+   * Board reads only, floating ads only: the market reference the multiplier applies to, or null when no market feed
+   * prices this pair (the ad then cannot be priced or taken). Absent on fixed-price ads and on single-offer reads.
+   */
+  referencePrice: amountString.nullable().optional(),
+  methods: z.array(jsonValueSchema),
+  /**
+   * P-disputes-security-09: the listed methods whose money arrives within a settlement window, with the longest window
+   * any market sets (null when a market leaves it blank and the published payment deadline applies). Instant methods
+   * are not listed. The order carries the exact profile of the market it pays into.
+   */
+  nonInstantMethods: z.array(z.object({ methodId: z.string(), windowSeconds: z.number().int().positive().nullable() })),
+  /** P-disputes-security-09: the seller consented at post to non-instant methods. */
+  acceptsNonInstant: z.boolean(),
+  /** P-trade-orders-15: the ad's own release window in seconds, or null when it keeps the published release clock. */
+  releaseWindowSeconds: z.number().int().positive().nullable(),
+  terms: z.string(),
+  status: z.enum(P2P_OFFER_STATUSES),
+  /** P-ads-merchant-18: why the service paused the ad (`method_removed`); null when active, closed or paused by hand. */
+  pauseReason: z.enum(['method_removed']).nullable(),
+  /** P-ads-merchant-06: why the ad is closed (`by_you`, `sold_out`); null when not closed or closed before reasons. */
+  closeReason: z.enum(['by_you', 'sold_out']).nullable(),
+  /** P-ads-merchant-07: `public` (on the board) or `private` (by share link only). */
+  visibility: z.enum(['public', 'private']),
+  /** P-ads-merchant-06: when the ad came into its present status. */
+  statusSince: z.string(),
+  /** P-ads-merchant-06: the closed ad this one relisted, or null. */
+  relistedFrom: z.string().guid().nullable(),
+  /** P-ads-merchant-06: `offers.mine` only, the ad a closed one was relisted as, or null. Absent elsewhere. */
+  relistedAs: z.string().guid().nullable().optional(),
+  createdAt: z.string(),
+});
+
+/** What every caller checks of an ad: a coin code of 1 to 16 characters and every figure an amount it can read. */
+const offerFigures = z.object({
+  asset: z.string().min(1).max(16),
+  price: unsignedAmountSchema,
+  minAmount: unsignedAmountSchema,
+  maxAmount: unsignedAmountSchema,
+  remainingAmount: unsignedAmountSchema,
+  referencePrice: unsignedAmountSchema.nullable().optional(),
+});
+const offerAccept = {
+  figures: {
+    says: 'the asset is 1 to 16 characters and price, minAmount, maxAmount, remainingAmount and referencePrice are unsigned amounts',
+    holds: (reply: unknown) => offerFigures.safeParse(reply).success,
+  },
+};
+const offersAccept = {
+  figures: {
+    says: 'every ad: the asset is 1 to 16 characters and its figures are unsigned amounts',
+    holds: (reply: unknown) => z.array(offerFigures).safeParse(reply).success,
+  },
+};
+
+/** P-ads-merchant-07: one share link, as its maker reads it (never its token). */
+export const P2P_SHARE_LINK = z.object({
+  id: z.string().guid(),
+  offerId: z.string().guid(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  revokedAt: z.string().nullable(),
+});
+const shareLinkTimes = z.object({ createdAt: z.iso.datetime(), expiresAt: z.iso.datetime(), revokedAt: z.iso.datetime().nullable() });
+const shareLinkAccept = {
+  times: {
+    says: 'createdAt, expiresAt and revokedAt (when set) are ISO 8601 date-times',
+    holds: (reply: unknown) => shareLinkTimes.safeParse(reply).success,
+  },
+};
+
+/** P-ads-merchant-07: a share token as `offers.shareLinks.create` makes it (32 base64url characters). */
+export const P2P_SHARE_TOKEN = z.string().regex(/^[A-Za-z0-9_-]{32}$/);
+
+/** A method an ad lists: its id, or `{ id }`. `methodAllowed` matches only those shapes. */
+const offerMethod = z.union([z.string().min(1).max(64), z.object({ id: z.string().min(1).max(64) })]);
+const offerId = z.object({ offerId: z.string().guid() });
+const OFFER_ID_SAMPLES = [
+  { verdict: 'accept', input: { offerId: OFFER } },
+  { verdict: 'refuse', input: { offerId: 'not-an-id' } },
+] as const;
+const LINK = '66666666-6666-4666-8666-666666666666';
+
+const offerBoardShape = {
+  asset: z.string().optional(),
+  fiatCurrency: z.string().length(3).optional(),
+  side: z.enum(['buy', 'sell']).optional(),
+  /**
+   * Page size. Optional here so omit reaches the service named refuse (`p2p.offer_list_limit_unset`) instead of a Zod
+   * "Required" that looks like a typo. Blank is not 50; pass 50 explicitly when that is the page you want.
+   */
+  limit: z.number().int().min(1).max(200).optional(),
+  methodId: z.string().min(1).max(64).optional(),
+  makerId: z.string().min(1).max(128).optional(),
+  /** Minimum fiat the offer can still trade, as an exact decimal. Float offers are left out: no reference is invented. */
+  minFiat: amountString.optional(),
+  /** P-trade-orders-01: a fiat amount the ad can take whole (within its limits and what is left). Fixed price only. */
+  fiatAmount: amountString.optional(),
+  /** P-trade-orders-01: fixed-price ads by price, cheapest or dearest first, then floating ads. Default cheapest. */
+  sort: z.enum(P2P_BOARD_SORTS).optional(),
+};
+
+/** A sell ad's maker must not be inside a security-change lock; a lock the owner left unset or unwired refuses. */
+const SELL_LOCK = {
+  'p2p.invalid_security_change_lock': 'PRECONDITION_FAILED',
+  'p2p.security_change_lock_unwired': 'PRECONDITION_FAILED',
+} as const;
+/** A buy ad's per-order band must sit inside the maker's verification level. */
+const BUY_RANGE = {
+  'p2p.verification_limits_invalid': 'PRECONDITION_FAILED',
+  'p2p.verification_level_unwired': 'PRECONDITION_FAILED',
+  'p2p.verification_limit_currency': 'BAD_REQUEST',
+  'p2p.verification_order_min': 'BAD_REQUEST',
+  'p2p.verification_order_max': 'BAD_REQUEST',
+} as const;
+/** P-ads-merchant-05: the owner's content rules on an ad's terms. */
+const CONTENT = { 'p2p.content_rules_invalid': 'PRECONDITION_FAILED', 'p2p.content_rule_violation': 'BAD_REQUEST' } as const;
+const IDEMPOTENT = { 'p2p.idempotency_conflict': 'CONFLICT', 'p2p.idempotency_in_progress': 'CONFLICT' } as const;
+const OFFER_NOT_FOUND = { 'p2p.offer_not_found': 'NOT_FOUND' } as const;
+const OWN_ACTIVE_OFFER = { ...OFFER_NOT_FOUND, 'p2p.not_a_party': 'FORBIDDEN', 'p2p.offer_not_active': 'BAD_REQUEST' } as const;
+const LIST_LIMIT = { 'p2p.offer_list_limit_unset': 'PRECONDITION_FAILED' } as const;
+/** Every check posting an ad makes; a relist makes them all again. */
+const REFUSALS_POST = {
+  'p2p.instrument_kms_required': 'PRECONDITION_FAILED',
+  'p2p.trading_disabled': 'FORBIDDEN',
+  ...SELL_LOCK,
+  'p2p.config_unset': 'PRECONDITION_FAILED',
+  'p2p.buying_restricted': 'CONFLICT',
+  'p2p.unsupported_fiat': 'BAD_REQUEST',
+  'p2p.offer_methods_required': 'BAD_REQUEST',
+  'p2p.instrument_method_unknown': 'BAD_REQUEST',
+  'p2p.floating_not_allowed_for_method': 'BAD_REQUEST',
+  'p2p.offer_method_no_destination': 'BAD_REQUEST',
+  'p2p.non_instant_not_accepted': 'BAD_REQUEST',
+  'p2p.offer_limit_exceeded': 'BAD_REQUEST',
+  'p2p.release_window_out_of_bounds': 'BAD_REQUEST',
+  ...CONTENT,
+  ...BUY_RANGE,
+  'p2p.terms_version_stale': 'CONFLICT',
+  'p2p.terms_not_accepted': 'FORBIDDEN',
+  'p2p.posting_thresholds_invalid': 'PRECONDITION_FAILED',
+  'p2p.posting_threshold_not_met': 'BAD_REQUEST',
+  'p2p.reference_price_unavailable': 'BAD_REQUEST',
+  'p2p.insufficient_balance': 'CONFLICT',
+  ...IDEMPOTENT,
+  ...OFFER_NOT_FOUND,
+} as const;
+
+/**
+ * Post an ad. A client-chosen `offerId` or `idempotencyKey` (at least one): a retry publishes no second ad. A live key
+ * service is not wired, so outside the local test seal this refuses `p2p.instrument_kms_required`. guard: merchantApi.
+ */
+export const P2P_OFFERS_CREATE = defineProcedure({
+  ...base,
+  name: 'p2p.offers.create',
+  kind: 'mutation',
+  path: 'offers.create',
+  access: WRITE,
+  refusals: refuse(REFUSALS_POST),
+  checks: { 'p2p.idempotency_key_required': { at: 'input', says: 'offerId or idempotencyKey is given' } },
+  input: z
+    .object({
+      side: z.enum(['buy', 'sell']),
+      asset: z.string().min(1).max(16),
+      fiatCurrency: z.string().length(3),
+      priceType: z.enum(['fixed', 'float']),
+      price: amountString,
+      minAmount: amountString,
+      maxAmount: amountString,
+      totalAmount: amountString.optional(),
+      /**
+       * Required, at least one. An offer with no declared methods accepts anything, so the only thing that could refuse
+       * a take on it is the seller's instrument set, a clean per-method probe of the maker.
+       */
+      methods: z.array(offerMethod).min(1),
+      terms: z.string().max(4000).optional(),
+      /** P-disputes-security-09: a sell ad listing a non-instant method without this refuses `p2p.non_instant_not_accepted`. */
+      acceptsNonInstant: z.boolean().optional(),
+      /** Client-chosen id. A retry with the same id must not publish a second offer. */
+      offerId: z.string().guid().optional(),
+      /** Client-chosen key. Required together with offerId: at least one. */
+      idempotencyKey: z.string().min(8).max(128).optional(),
+      /** P-ads-merchant-01: the advertiser terms version the form showed; when sent, it must be the published version. */
+      advertiserTermsVersion: z.string().min(1).max(64).optional(),
+      /** P-trade-orders-15: this ad's release window in seconds; outside 60 s and the release clock it refuses. */
+      releaseWindowSeconds: z.number().int().positive().optional(),
+    })
+    .refine((value) => value.offerId !== undefined || value.idempotencyKey !== undefined, {
+      message: 'p2p.idempotency_key_required',
+      path: ['idempotencyKey'],
+    }),
+  output: P2P_OFFER,
+  accept: offerAccept,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        side: 'sell',
+        asset: 'USDC',
+        fiatCurrency: 'EUR',
+        priceType: 'fixed',
+        price: '1',
+        minAmount: '10',
+        maxAmount: '100',
+        methods: ['sepa'],
+        offerId: OFFER,
+      },
+    },
+    {
+      verdict: 'refuse',
+      input: {
+        side: 'sell',
+        asset: 'USDC',
+        fiatCurrency: 'EUR',
+        priceType: 'fixed',
+        price: '1',
+        minAmount: '10',
+        maxAmount: '100',
+        methods: ['sepa'],
+      },
+      by: 'p2p.idempotency_key_required',
+    },
+    {
+      verdict: 'refuse',
+      input: {
+        side: 'sell',
+        asset: 'USDC',
+        fiatCurrency: 'EUR',
+        priceType: 'fixed',
+        price: '1',
+        minAmount: '10',
+        maxAmount: '100',
+        methods: [],
+        offerId: OFFER,
+      },
+    },
+  ],
+});
+
+/**
+ * P-ads-merchant-01: the caller's own free balance of a coin, which a new sell ad's total may not exceed. Signed in only:
+ * an API key's P2P scope covers ads and orders, not balances (FORBIDDEN, no code). guard: merchantApi.
+ */
+export const P2P_OFFERS_SELL_BALANCE = defineProcedure({
+  ...base,
+  name: 'p2p.offers.sellBalance',
+  kind: 'query',
+  path: 'offers.sellBalance',
+  access: READ,
+  refusals: refuse(),
+  input: z.object({ asset: z.string().min(1).max(16) }),
+  output: z.object({ asset: z.string(), available: z.string() }),
+  accept: {
+    available: {
+      says: 'available is an unsigned amount',
+      holds: (reply) => z.object({ available: unsignedAmountSchema }).safeParse(reply).success,
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { asset: 'USDC' } },
+    { verdict: 'refuse', input: { asset: '' } },
+  ],
+});
+
+/** The board as one array, filtered and sorted here. A missing page size refuses: blank is not 50. guard: merchantApi. */
+export const P2P_OFFERS_LIST = defineProcedure({
+  ...base,
+  name: 'p2p.offers.list',
+  kind: 'query',
+  path: 'offers.list',
+  access: READ,
+  refusals: refuse({ ...LIST_LIMIT, 'p2p.offer_cursor_invalid': 'BAD_REQUEST' }),
+  input: z.object(offerBoardShape).optional(),
+  output: z.array(P2P_OFFER),
+  accept: offersAccept,
+  samples: [
+    { verdict: 'accept', input: { limit: 50 } },
+    { verdict: 'refuse', input: { limit: 0 } },
+  ],
+});
+
+/** One board page, filtered and sorted here; continue with `nextCursor` under the same filters and sort. guard: merchantApi. */
+export const P2P_OFFERS_PAGE = defineProcedure({
+  ...base,
+  name: 'p2p.offers.page',
+  kind: 'query',
+  path: 'offers.page',
+  access: READ,
+  refusals: refuse({ ...LIST_LIMIT, 'p2p.offer_cursor_invalid': 'BAD_REQUEST' }),
+  input: z.object({ ...offerBoardShape, cursor: z.string().max(500).nullable().optional() }).optional(),
+  output: z.object({ offers: z.array(P2P_OFFER), nextCursor: z.string().nullable() }),
+  accept: {
+    figures: {
+      says: 'every ad: the asset is 1 to 16 characters and its figures are unsigned amounts',
+      holds: (reply) => z.object({ offers: z.array(offerFigures) }).safeParse(reply).success,
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { limit: 20, sort: 'price_asc' } },
+    { verdict: 'refuse', input: { limit: 20, sort: 'newest' } },
+  ],
+});
+
+/**
+ * One ad. P-ads-merchant-07: a private ad reads as not there to everyone but its maker unless the caller sends a live
+ * share token for it; an ended or withdrawn link says so. guard: merchantApi.
+ */
+export const P2P_OFFERS_GET = defineProcedure({
+  ...base,
+  name: 'p2p.offers.get',
+  kind: 'query',
+  path: 'offers.get',
+  access: READ,
+  refusals: refuse({
+    ...OFFER_NOT_FOUND,
+    'p2p.offer_private': 'NOT_FOUND',
+    'p2p.share_link_revoked': 'CONFLICT',
+    'p2p.share_link_expired': 'CONFLICT',
+  }),
+  input: z.object({ offerId: z.string().guid(), shareToken: P2P_SHARE_TOKEN.optional() }),
+  output: P2P_OFFER,
+  accept: offerAccept,
+  samples: [
+    { verdict: 'accept', input: { offerId: OFFER } },
+    { verdict: 'refuse', input: { offerId: OFFER, shareToken: 'short' } },
+  ],
+});
+
+/** P-ads-merchant-18: the caller's own ads in one status, newest first; the board lists active ads only. guard: merchantApi. */
+export const P2P_OFFERS_MINE = defineProcedure({
+  ...base,
+  name: 'p2p.offers.mine',
+  kind: 'query',
+  path: 'offers.mine',
+  access: READ,
+  refusals: refuse(LIST_LIMIT),
+  input: z.object({ status: z.enum(P2P_OFFER_STATUSES), limit: z.number().int().min(1).max(200).optional() }),
+  output: z.array(P2P_OFFER),
+  accept: offersAccept,
+  samples: [
+    { verdict: 'accept', input: { status: 'paused', limit: 20 } },
+    { verdict: 'refuse', input: { status: 'draft', limit: 20 } },
+  ],
+});
+
+/** P-ads-merchant-06: the caller's ad edits today against the owner's daily cap, and when the count starts again. guard: merchantApi. */
+export const P2P_OFFERS_EDIT_QUOTA = defineProcedure({
+  ...base,
+  name: 'p2p.offers.editQuota',
+  kind: 'query',
+  path: 'offers.editQuota',
+  access: READ,
+  refusals: refuse({ 'p2p.config_unset': 'PRECONDITION_FAILED' }),
+  input: NO_INPUT,
+  output: z.object({
+    limit: z.number().int().positive(),
+    used: z.number().int().nonnegative(),
+    remaining: z.number().int().nonnegative(),
+    resetsAt: z.string().datetime(),
+  }),
+  samples: [{ verdict: 'accept' }],
+});
+
+/**
+ * P-ads-merchant-06: post a closed ad again, as a new ad that names it, through every check posting makes. One relist per
+ * closed ad; asking again returns the same new ad. guard: merchantApi.
+ */
+export const P2P_OFFERS_RELIST = defineProcedure({
+  ...base,
+  name: 'p2p.offers.relist',
+  kind: 'mutation',
+  path: 'offers.relist',
+  access: WRITE,
+  refusals: refuse({ ...REFUSALS_POST, ...OWN_ACTIVE_OFFER }),
+  input: offerId,
+  output: P2P_OFFER,
+  accept: offerAccept,
+  samples: OFFER_ID_SAMPLES,
+});
+
+/**
+ * P-ads-merchant-08: pause, resume or remove (close) several of the caller's ads at once: named ads, or `all` that the
+ * action applies to. Each ad answers for itself (`ok`, its status, or the code that refused it, such as
+ * `p2p.offer_closed`). The key is answered once: a repeat returns the same results and changes nothing. guard: merchantApi.
+ */
+export const P2P_OFFERS_BULK = defineProcedure({
+  ...base,
+  name: 'p2p.offers.bulk',
+  kind: 'mutation',
+  path: 'offers.bulk',
+  access: WRITE,
+  refusals: refuse({ 'p2p.bulk_scope_invalid': 'BAD_REQUEST', ...IDEMPOTENT }),
+  checks: { 'p2p.bulk_names_or_all': { at: 'input', says: 'exactly one of offerIds and all is given' } },
+  input: z
+    .object({
+      action: z.enum(P2P_BULK_ACTIONS),
+      offerIds: z.array(z.string().guid()).min(1).max(P2P_MAX_BULK_OFFERS).optional(),
+      all: z.literal(true).optional(),
+      idempotencyKey: z.string().min(8).max(200),
+    })
+    .refine((v) => (v.all === true) !== (v.offerIds !== undefined), { message: 'Name ads, or all, not both' }),
+  output: z.object({
+    action: z.enum(P2P_BULK_ACTIONS),
+    replayed: z.boolean(),
+    more: z.boolean(),
+    results: z.array(
+      z.object({ offerId: z.string(), ok: z.boolean(), status: z.enum(P2P_OFFER_STATUSES).nullable(), code: z.string().nullable() }),
+    ),
+  }),
+  samples: [
+    { verdict: 'accept', input: { action: 'pause', offerIds: [OFFER], idempotencyKey: 'bulk:pause:1' } },
+    {
+      verdict: 'refuse',
+      input: { action: 'pause', offerIds: [OFFER], all: true, idempotencyKey: 'bulk:pause:1' },
+      by: 'p2p.bulk_names_or_all',
+    },
+    { verdict: 'refuse', input: { action: 'archive', offerIds: [OFFER], idempotencyKey: 'bulk:pause:1' } },
+  ],
+});
+
+/** P-ads-merchant-07: public (on the board) or private (by share link only). Open orders are unaffected. guard: merchantApi. */
+export const P2P_OFFERS_SET_VISIBILITY = defineProcedure({
+  ...base,
+  name: 'p2p.offers.setVisibility',
+  kind: 'mutation',
+  path: 'offers.setVisibility',
+  access: WRITE,
+  refusals: refuse(OWN_ACTIVE_OFFER),
+  input: z.object({ offerId: z.string().guid(), visibility: z.enum(['public', 'private']) }),
+  output: P2P_OFFER,
+  accept: offerAccept,
+  samples: [
+    { verdict: 'accept', input: { offerId: OFFER, visibility: 'private' } },
+    { verdict: 'refuse', input: { offerId: OFFER, visibility: 'hidden' } },
+  ],
+});
+
+/**
+ * P-ads-merchant-07: a link to the caller's own ad. The token comes back once (only its hash is kept), living `seconds`
+ * or the owner's longest (`P2P_SHARE_LINK_MAX_SECONDS`; blank refuses `p2p.config_unset`). guard: merchantApi.
+ */
+export const P2P_OFFERS_SHARE_LINKS_CREATE = defineProcedure({
+  ...base,
+  name: 'p2p.offers.shareLinks.create',
+  kind: 'mutation',
+  path: 'offers.shareLinks.create',
+  access: WRITE,
+  refusals: refuse({ 'p2p.config_unset': 'PRECONDITION_FAILED', ...OWN_ACTIVE_OFFER, 'p2p.idempotency_conflict': 'CONFLICT' }),
+  input: z.object({ linkId: z.string().guid(), offerId: z.string().guid(), seconds: z.number().int().min(1).max(31_536_000).optional() }),
+  output: P2P_SHARE_LINK.extend({ token: P2P_SHARE_TOKEN }),
+  accept: shareLinkAccept,
+  samples: [
+    { verdict: 'accept', input: { linkId: LINK, offerId: OFFER, seconds: 3600 } },
+    { verdict: 'refuse', input: { linkId: LINK, offerId: OFFER, seconds: 0 } },
+  ],
+});
+
+/** P-ads-merchant-07: the links to the caller's own ad, newest first, never their tokens. guard: merchantApi. */
+export const P2P_OFFERS_SHARE_LINKS_LIST = defineProcedure({
+  ...base,
+  name: 'p2p.offers.shareLinks.list',
+  kind: 'query',
+  path: 'offers.shareLinks.list',
+  access: READ,
+  refusals: refuse({ ...OFFER_NOT_FOUND, 'p2p.not_a_party': 'FORBIDDEN' }),
+  input: offerId,
+  output: z.array(P2P_SHARE_LINK),
+  accept: {
+    times: {
+      says: 'every link: createdAt, expiresAt and revokedAt (when set) are ISO 8601 date-times',
+      holds: (reply) => z.array(shareLinkTimes).safeParse(reply).success,
+    },
+  },
+  samples: OFFER_ID_SAMPLES,
+});
+
+/** P-ads-merchant-07: end a link at once. A link that is unknown or not the caller's reads as `p2p.offer_not_found`. guard: merchantApi. */
+export const P2P_OFFERS_SHARE_LINKS_REVOKE = defineProcedure({
+  ...base,
+  name: 'p2p.offers.shareLinks.revoke',
+  kind: 'mutation',
+  path: 'offers.shareLinks.revoke',
+  access: WRITE,
+  refusals: refuse(OFFER_NOT_FOUND),
+  input: z.object({ linkId: z.string().guid() }),
+  output: P2P_SHARE_LINK,
+  accept: shareLinkAccept,
+  samples: [
+    { verdict: 'accept', input: { linkId: LINK } },
+    { verdict: 'refuse', input: { linkId: 'not-an-id' } },
+  ],
+});
+
+/** P-ads-merchant-06: close the caller's own ad. An ad with open orders closes once they finish. guard: merchantApi. */
+export const P2P_OFFERS_CLOSE = defineProcedure({
+  ...base,
+  name: 'p2p.offers.close',
+  kind: 'mutation',
+  path: 'offers.close',
+  access: WRITE,
+  refusals: refuse({ ...OFFER_NOT_FOUND, 'p2p.not_a_party': 'FORBIDDEN', 'p2p.offer_has_open_trades': 'CONFLICT' }),
+  input: offerId,
+  output: P2P_OFFER,
+  accept: offerAccept,
+  samples: OFFER_ID_SAMPLES,
+});
+
+/** Take the caller's own active ad off the board. guard: merchantApi. */
+export const P2P_OFFERS_PAUSE = defineProcedure({
+  ...base,
+  name: 'p2p.offers.pause',
+  kind: 'mutation',
+  path: 'offers.pause',
+  access: WRITE,
+  refusals: refuse(OWN_ACTIVE_OFFER),
+  input: offerId,
+  output: P2P_OFFER,
+  accept: offerAccept,
+  samples: OFFER_ID_SAMPLES,
+});
+
+/** Put the caller's own paused ad back on the board, through the checks a live ad must still pass. guard: merchantApi. */
+export const P2P_OFFERS_RESUME = defineProcedure({
+  ...base,
+  name: 'p2p.offers.resume',
+  kind: 'mutation',
+  path: 'offers.resume',
+  access: WRITE,
+  refusals: refuse({
+    'p2p.trading_disabled': 'FORBIDDEN',
+    ...OWN_ACTIVE_OFFER,
+    ...SELL_LOCK,
+    'p2p.reference_price_unavailable': 'BAD_REQUEST',
+    'p2p.floating_not_allowed_for_method': 'BAD_REQUEST',
+    'p2p.offer_method_no_destination': 'BAD_REQUEST',
+  }),
+  input: offerId,
+  output: P2P_OFFER,
+  accept: offerAccept,
+  samples: OFFER_ID_SAMPLES,
+});
+
+/**
+ * Edit a live ad, only the fields sent. Open orders keep the price, size, method, fee and terms copied onto them at
+ * take. Each edit counts once against the owner's daily cap. guard: merchantApi.
+ */
+export const P2P_OFFERS_UPDATE = defineProcedure({
+  ...base,
+  name: 'p2p.offers.update',
+  kind: 'mutation',
+  path: 'offers.update',
+  access: WRITE,
+  refusals: refuse({
+    'p2p.offer_update_empty': 'BAD_REQUEST',
+    ...OWN_ACTIVE_OFFER,
+    ...SELL_LOCK,
+    'p2p.offer_methods_required': 'BAD_REQUEST',
+    'p2p.instrument_method_unknown': 'BAD_REQUEST',
+    'p2p.floating_not_allowed_for_method': 'BAD_REQUEST',
+    'p2p.offer_method_no_destination': 'BAD_REQUEST',
+    'p2p.non_instant_not_accepted': 'BAD_REQUEST',
+    ...IDEMPOTENT,
+    'p2p.config_unset': 'PRECONDITION_FAILED',
+    'p2p.edit_quota_reached': 'TOO_MANY_REQUESTS',
+    ...BUY_RANGE,
+    'p2p.insufficient_balance': 'CONFLICT',
+    'p2p.offer_limit_exceeded': 'BAD_REQUEST',
+    ...CONTENT,
+  }),
+  checks: {
+    'p2p.offer_update_empty': {
+      at: 'input',
+      says: 'at least one of price, minAmount, maxAmount, totalAmount, methods and terms is given',
+    },
+  },
+  input: z
+    .object({
+      offerId: z.string().guid(),
+      idempotencyKey: z.string().min(8).max(128),
+      price: amountString.optional(),
+      minAmount: amountString.optional(),
+      maxAmount: amountString.optional(),
+      totalAmount: amountString.optional(),
+      methods: z.array(offerMethod).min(1).optional(),
+      terms: z.string().max(4000).optional(),
+    })
+    .refine(
+      (value) =>
+        value.price !== undefined ||
+        value.minAmount !== undefined ||
+        value.maxAmount !== undefined ||
+        value.totalAmount !== undefined ||
+        value.methods !== undefined ||
+        value.terms !== undefined,
+      { message: 'p2p.offer_update_empty' },
+    ),
+  output: P2P_OFFER,
+  accept: offerAccept,
+  samples: [
+    { verdict: 'accept', input: { offerId: OFFER, idempotencyKey: 'edit:offer:1', price: '1.01' } },
+    { verdict: 'refuse', input: { offerId: OFFER, idempotencyKey: 'edit:offer:1' }, by: 'p2p.offer_update_empty' },
+    { verdict: 'refuse', input: { offerId: OFFER, idempotencyKey: 'short', price: '1.01' } },
+  ],
+});
+
+/**
+ * Payment instruments (§6.2): the registry of what each method needs per market, and the owner's own destinations. Who
+ * may see a seller's account details is stated once in svc-p2p's router: nobody but the owner and, while escrow is held,
+ * the counterparty (plus a moderator during an open dispute). Nothing here returns a field value except `reveal` and
+ * `revealMasked`, and each writes an access-log row in the same statement. Refusals were read from each handler and the
+ * service methods it calls, with statuses from svc-p2p's `toTrpcError`; internal failures are not listed.
+ */
+const INSTRUMENT = '66666666-6666-4666-8666-666666666666';
+
+/** Bounds of the rule texts and the cash release window; the service and the database check the same. */
+export const NOTE_GUIDANCE_MAX = 500;
+export const NOTE_FORBIDDEN_MAX_WORDS = 20;
+export const NOTE_FORBIDDEN_WORD_MAX = 80;
+export const CASH_TEXT_MAX = 1000;
+export const CASH_RELEASE_MIN_SECONDS = 300;
+export const CASH_RELEASE_MAX_SECONDS = 24 * 60 * 60;
+/** The bounds of a settlement window, in seconds (one minute to thirty days); the database checks the same. */
+export const SETTLEMENT_WINDOW_MIN_SECONDS = 60;
+export const SETTLEMENT_WINDOW_MAX_SECONDS = 30 * 24 * 60 * 60;
+
+/** One field a method asks for, as the "add a payment method" screen needs it. About methods, never about people. */
+export const P2P_METHOD_FIELD = z.object({
+  key: z.string(),
+  label: z.string(),
+  required: z.boolean(),
+  pattern: z.string().optional(),
+  minLength: z.number().int().optional(),
+  maxLength: z.number().int().optional(),
+  /** A hint for the input control. Not an access-control decision. */
+  sensitive: z.boolean().optional(),
+  help: z.string().optional(),
+  /** P-ads-merchant-18: the account holder's name, checked against the person's verified legal name. */
+  holderName: z.boolean().optional(),
+});
+
+/** What a method needs in one market, as the operator registered it. */
+export const P2P_METHOD_SCHEMA = z.object({
+  methodId: z.string(),
+  country: z.string(),
+  label: z.string(),
+  fields: z.array(P2P_METHOD_FIELD),
+  enabled: z.boolean(),
+  settlement: P2P_SETTLEMENT,
+  /** P-ads-merchant-19: cash in person when the row carries cash rules; the rules themselves, or null. */
+  kind: z.enum(['transfer', 'cash_in_person']),
+  // Unbounded on the way out: the bounds judge what an operator registers, never a stored row on a read.
+  noteRules: z.object({ guidance: z.string(), forbidden: z.array(z.string()).readonly() }).nullable(),
+  cashRules: z.object({ meetingGuidance: z.string(), proof: z.string(), releaseWindowSeconds: z.number() }).nullable(),
+});
+const methodSchemaAccept = {
+  cashWindow: {
+    says: 'a cash release window is a whole number of seconds',
+    holds: (reply: unknown) =>
+      z
+        .array(z.object({ cashRules: z.object({ releaseWindowSeconds: z.number().int() }).nullable() }))
+        .safeParse(Array.isArray(reply) ? reply : [reply]).success,
+  },
+};
+
+/**
+ * An instrument without its values: the only shape any list returns. No mask, no last four and no fingerprint: a mask
+ * is still the data on a path that is not logged, and a fingerprint is an oracle for a guessed account number.
+ */
+export const P2P_INSTRUMENT = z.object({
+  id: z.string().guid(),
+  methodId: z.string(),
+  country: z.string(),
+  fiatCurrency: z.string(),
+  label: z.string(),
+  status: z.enum(['active', 'removed']),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  removedAt: z.string().nullable(),
+});
+/** The owner's own instrument with its values, only ever produced by a call that wrote an access-log row. */
+export const P2P_REVEALED_INSTRUMENT = P2P_INSTRUMENT.extend({ details: z.record(z.string(), z.string()) });
+
+const instrumentId = z.object({ instrumentId: z.string().guid() });
+const instrumentDetails = z.record(z.string(), z.string());
+const operatorApproval = {
+  confirmOperatorId: z.string().max(128).nullish(),
+  approvalId: z.string().max(128).nullish(),
+  operationId: z.string().max(128).nullish(),
+};
+const NOT_FOUND_INSTRUMENT = { 'p2p.instrument_not_found': 'NOT_FOUND' } as const;
+const INSTRUMENT_KMS = { 'p2p.instrument_kms_required': 'PRECONDITION_FAILED' } as const;
+/** What a method's registered schema says of the details given for it, and the own-name rule. */
+const DETAILS_REFUSALS = {
+  'p2p.instrument_method_unknown': 'BAD_REQUEST',
+  'p2p.instrument_method_disabled': 'BAD_REQUEST',
+  'p2p.instrument_schema_invalid': 'BAD_REQUEST',
+  'p2p.instrument_field_missing': 'BAD_REQUEST',
+  'p2p.instrument_field_undeclared': 'BAD_REQUEST',
+  'p2p.instrument_field_invalid': 'BAD_REQUEST',
+  'p2p.account_format_invalid': 'BAD_REQUEST',
+  'p2p.holder_name_mismatch': 'BAD_REQUEST',
+  'p2p.holder_name_unverified': 'FORBIDDEN',
+  'p2p.holder_name_unverifiable': 'PRECONDITION_FAILED',
+} as const;
+const INSTRUMENT_STEP_UP = {
+  'auth.step_up_required': 'FORBIDDEN',
+  'auth.step_up_failed': 'FORBIDDEN',
+  'p2p.step_up_unverifiable': 'PRECONDITION_FAILED',
+} as const;
+const noteRulesInput = z.object({
+  guidance: z.string().min(1).max(NOTE_GUIDANCE_MAX),
+  forbidden: z.array(z.string().min(1).max(NOTE_FORBIDDEN_WORD_MAX)).max(NOTE_FORBIDDEN_MAX_WORDS).readonly(),
+});
+const cashRulesInput = z.object({
+  meetingGuidance: z.string().min(1).max(CASH_TEXT_MAX),
+  proof: z.string().min(1).max(CASH_TEXT_MAX),
+  releaseWindowSeconds: z.number().int().min(CASH_RELEASE_MIN_SECONDS).max(CASH_RELEASE_MAX_SECONDS),
+});
+
+/**
+ * The registry: what each method needs, per market. Ships empty; until an operator registers a market it refuses
+ * instruments, and an empty registry refuses `p2p.instrument_method_unknown`. A missing page size refuses
+ * `p2p.method_schema_list_limit_unset`: blank is not 50.
+ */
+export const P2P_INSTRUMENTS_METHODS_LIST = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.methods.list',
+  kind: 'query',
+  path: 'instruments.methods.list',
+  access: READ,
+  refusals: refuse({
+    'p2p.method_schema_list_limit_unset': 'PRECONDITION_FAILED',
+    'p2p.instrument_country_invalid': 'BAD_REQUEST',
+    'p2p.instrument_schema_invalid': 'BAD_REQUEST',
+    'p2p.instrument_method_unknown': 'BAD_REQUEST',
+  }),
+  input: z
+    .object({
+      country: z.string().length(2).optional(),
+      methodId: z.string().max(64).optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+    })
+    .optional(),
+  output: z.array(P2P_METHOD_SCHEMA),
+  accept: methodSchemaAccept,
+  samples: [
+    { verdict: 'accept', input: { country: 'NG', limit: 200 } },
+    { verdict: 'refuse', input: { limit: 0 } },
+  ],
+});
+
+/**
+ * OPERATOR ONLY, `admin:compliance`: what a market's rails require is researched, jurisdictional content, like a
+ * sanctions list. MFA and an identity-consumed approval from a second operator; missing approval ids refuse.
+ */
+export const P2P_INSTRUMENTS_METHODS_REGISTER = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.methods.register',
+  kind: 'mutation',
+  path: 'instruments.methods.register',
+  access: ADMIN,
+  refusals: refuse({
+    ...APPROVAL_REFUSALS,
+    'p2p.instrument_country_invalid': 'BAD_REQUEST',
+    'p2p.instrument_schema_invalid': 'BAD_REQUEST',
+    'p2p.delist_reason_required': 'BAD_REQUEST',
+  }),
+  input: z.object({
+    methodId: z.string().min(1).max(64),
+    /** ISO 3166-1 alpha-2, or `*` for "the same everywhere". */
+    country: z.string().min(1).max(2),
+    label: z.string().min(1).max(120),
+    /** The field list, checked whole by the service (`parseFieldSpecs`), which names the field it refuses. */
+    fields: z.array(jsonValueSchema).min(1),
+    enabled: z.boolean().optional(),
+    /**
+     * P-disputes-security-09: whether money on the method arrives at once here, or within `windowSeconds` (null: the
+     * published payment deadline applies). Omitted keeps a row's profile; a new row is instant.
+     */
+    settlement: z
+      .discriminatedUnion('instant', [
+        z.object({ instant: z.literal(true) }),
+        z.object({
+          instant: z.literal(false),
+          windowSeconds: z.number().int().min(SETTLEMENT_WINDOW_MIN_SECONDS).max(SETTLEMENT_WINDOW_MAX_SECONDS).nullable(),
+        }),
+      ])
+      .optional(),
+    /** P-ads-merchant-19: payment-note rules. Omitted keeps the row's; null clears them. */
+    noteRules: noteRulesInput.nullable().optional(),
+    /** P-ads-merchant-19: rules make the method cash in person; null makes it a transfer; omitted keeps. */
+    cashRules: cashRulesInput.nullable().optional(),
+    ...operatorApproval,
+  }),
+  output: P2P_METHOD_SCHEMA.extend({ confirmOperatorId: z.string() }),
+  accept: methodSchemaAccept,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        methodId: 'bank_transfer',
+        country: 'NG',
+        label: 'Bank transfer',
+        fields: [{ label: 'Account number', required: true, key: 'example' }],
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+      },
+    },
+    { verdict: 'refuse', input: { methodId: 'bank_transfer', country: 'NG', label: 'Bank transfer', fields: [] } },
+  ],
+});
+
+/**
+ * OPERATOR ONLY. Retiring a rail is the same class of change as registering one: MFA and a second operator's approval.
+ * Retiring needs a reason (`p2p.delist_reason_required`), which a take on it is then told; switching on takes none.
+ */
+export const P2P_INSTRUMENTS_METHODS_SET_ENABLED = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.methods.setEnabled',
+  kind: 'mutation',
+  path: 'instruments.methods.setEnabled',
+  access: ADMIN,
+  refusals: refuse({
+    ...APPROVAL_REFUSALS,
+    'p2p.delist_reason_required': 'BAD_REQUEST',
+    'p2p.instrument_country_invalid': 'BAD_REQUEST',
+    'p2p.instrument_schema_invalid': 'BAD_REQUEST',
+    'p2p.instrument_method_unknown': 'BAD_REQUEST',
+  }),
+  input: z.object({
+    methodId: z.string().min(1).max(64),
+    country: z.string().min(1).max(2),
+    enabled: z.boolean(),
+    /** Required when retiring (`enabled: false`); the customer is told it on a take. */
+    reason: z.enum(P2P_DELIST_REASONS).optional(),
+    ...operatorApproval,
+  }),
+  output: P2P_METHOD_SCHEMA.extend({ confirmOperatorId: z.string() }),
+  accept: methodSchemaAccept,
+  samples: [
+    { verdict: 'accept', input: { methodId: 'bank_transfer', country: 'NG', enabled: false, reason: 'regulation', approvalId: 'appr-1' } },
+    { verdict: 'refuse', input: { methodId: 'bank_transfer', country: 'NG', enabled: false, reason: 'whim' } },
+  ],
+});
+
+/**
+ * Add a destination. The caller names its id (adding does not mint one), the details are exactly the fields the
+ * method's schema declares, and identity's approval of exactly this change and these details comes with it
+ * (P-ads-merchant-18). Saved details are sealed with the instrument key: without it nothing is saved.
+ */
+export const P2P_INSTRUMENTS_CREATE = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.create',
+  kind: 'mutation',
+  path: 'instruments.create',
+  access: WRITE,
+  refusals: refuse({
+    ...INSTRUMENT_KMS,
+    ...INSTRUMENT_STEP_UP,
+    'p2p.instrument_id_required': 'BAD_REQUEST',
+    'p2p.instrument_country_invalid': 'BAD_REQUEST',
+    ...DETAILS_REFUSALS,
+    'p2p.instrument_slot_taken': 'CONFLICT',
+  }),
+  input: z.object({
+    instrumentId: z.string().guid(),
+    methodId: z.string().min(1).max(64),
+    country: z.string().length(2),
+    fiatCurrency: z.string().length(3),
+    label: z.string().max(120).optional(),
+    /** Exactly the fields the method schema declared. An extra key is refused. */
+    details: instrumentDetails,
+    /** Identity's approval of exactly this change and these details (P-ads-merchant-18). Without it, refused. */
+    stepUpApprovalId: z.string().min(1).max(200).optional(),
+  }),
+  output: P2P_INSTRUMENT,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        instrumentId: INSTRUMENT,
+        methodId: 'bank_transfer',
+        country: 'NG',
+        fiatCurrency: 'NGN',
+        details: { account: '0123456789' },
+        stepUpApprovalId: 'appr-1',
+      },
+    },
+    { verdict: 'refuse', input: { instrumentId: INSTRUMENT, methodId: 'bank_transfer', country: 'NGA', fiatCurrency: 'NGN', details: {} } },
+  ],
+});
+
+/** Edit a destination. A trade already holding a snapshot of it keeps that snapshot: that is the snapshot's point. */
+export const P2P_INSTRUMENTS_UPDATE = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.update',
+  kind: 'mutation',
+  path: 'instruments.update',
+  access: WRITE,
+  refusals: refuse({ ...INSTRUMENT_KMS, ...INSTRUMENT_STEP_UP, ...NOT_FOUND_INSTRUMENT, ...DETAILS_REFUSALS }),
+  input: z.object({
+    instrumentId: z.string().guid(),
+    label: z.string().max(120).optional(),
+    details: instrumentDetails.optional(),
+    stepUpApprovalId: z.string().min(1).max(200).optional(),
+  }),
+  output: P2P_INSTRUMENT,
+  samples: [
+    { verdict: 'accept', input: { instrumentId: INSTRUMENT, label: 'Salary account', stepUpApprovalId: 'appr-1' } },
+    { verdict: 'refuse', input: { instrumentId: 'not-a-uuid' } },
+  ],
+});
+
+/**
+ * P-ads-merchant-18: the caller's active sell ads that list this method, and which of them it is the last payable
+ * method for (`pauses`). Read before removing, so the warning names the ads. Ad ids and coins only.
+ */
+export const P2P_INSTRUMENTS_REMOVAL_IMPACT = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.removalImpact',
+  kind: 'query',
+  path: 'instruments.removalImpact',
+  access: READ,
+  refusals: refuse(NOT_FOUND_INSTRUMENT),
+  input: instrumentId,
+  output: z.object({
+    instrumentId: z.string(),
+    methodId: z.string(),
+    fiatCurrency: z.string(),
+    ads: z.array(z.object({ offerId: z.string(), asset: z.string(), fiatCurrency: z.string(), pauses: z.boolean() })),
+  }),
+  accept: {
+    ids: {
+      says: 'the instrument id and every ad id are UUIDs, and every coin code is 1 to 16 characters',
+      holds: (reply) =>
+        z
+          .object({
+            instrumentId: z.string().guid(),
+            ads: z.array(z.object({ offerId: z.string().guid(), asset: z.string().min(1).max(16) })),
+          })
+          .safeParse(reply).success,
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { instrumentId: INSTRUMENT } },
+    { verdict: 'refuse', input: { instrumentId: 'not-a-uuid' } },
+  ],
+});
+
+/**
+ * Remove a destination: a state change that drops its values in the same statement. An in-flight trade keeps its own
+ * snapshot. When the method is the last payable one of an active sell ad, the removal refuses `p2p.method_in_use`
+ * unless `pauseOfferIds` names each of those ads, and is refused before the person's confirmation is spent.
+ */
+export const P2P_INSTRUMENTS_REMOVE = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.remove',
+  kind: 'mutation',
+  path: 'instruments.remove',
+  access: WRITE,
+  refusals: refuse({ ...NOT_FOUND_INSTRUMENT, 'p2p.method_in_use': 'CONFLICT', ...INSTRUMENT_STEP_UP }),
+  input: z.object({
+    instrumentId: z.string().guid(),
+    stepUpApprovalId: z.string().min(1).max(200).optional(),
+    /** The ads `removalImpact` marked `pauses`, which the person agreed to pause with the method. */
+    pauseOfferIds: z.array(z.string().guid()).max(1000).optional(),
+  }),
+  output: P2P_INSTRUMENT,
+  samples: [
+    { verdict: 'accept', input: { instrumentId: INSTRUMENT, stepUpApprovalId: 'appr-1', pauseOfferIds: [OFFER] } },
+    { verdict: 'refuse', input: { instrumentId: INSTRUMENT, pauseOfferIds: ['not-a-uuid'] } },
+  ],
+});
+
+/** The caller's own instruments, headers only. A missing page size refuses `p2p.instrument_list_limit_unset`. */
+export const P2P_INSTRUMENTS_LIST = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.list',
+  kind: 'query',
+  path: 'instruments.list',
+  access: READ,
+  refusals: refuse({ 'p2p.instrument_list_limit_unset': 'PRECONDITION_FAILED' }),
+  input: z
+    .object({
+      includeRemoved: z.boolean().optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+    })
+    .optional(),
+  output: z.array(P2P_INSTRUMENT),
+  samples: [
+    { verdict: 'accept', input: { limit: 200 } },
+    { verdict: 'refuse', input: { limit: 201 } },
+  ],
+});
+
+/**
+ * The owner reads their own account details, logged like anyone else's read: an account takeover holds the session too.
+ * `p2p:write`, so a read-only API key cannot dump a person's stored bank details.
+ */
+export const P2P_INSTRUMENTS_REVEAL = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.reveal',
+  kind: 'mutation',
+  path: 'instruments.reveal',
+  access: WRITE,
+  refusals: refuse({ ...NOT_FOUND_INSTRUMENT, ...INSTRUMENT_KMS }),
+  input: instrumentId,
+  output: P2P_REVEALED_INSTRUMENT,
+  samples: [
+    { verdict: 'accept', input: { instrumentId: INSTRUMENT } },
+    { verdict: 'refuse', input: {} },
+  ],
+});
+
+/**
+ * The owner's own details masked (J-p2p-04 #3): the account holder whole, every other value as its last four. Logged
+ * like `reveal`, and `p2p:write` for the same reason; the whole values stay behind `reveal`.
+ */
+export const P2P_INSTRUMENTS_REVEAL_MASKED = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.revealMasked',
+  kind: 'mutation',
+  path: 'instruments.revealMasked',
+  access: WRITE,
+  refusals: refuse({ ...NOT_FOUND_INSTRUMENT, ...INSTRUMENT_KMS, 'p2p.instrument_schema_invalid': 'BAD_REQUEST' }),
+  input: instrumentId,
+  output: P2P_REVEALED_INSTRUMENT,
+  samples: [
+    { verdict: 'accept', input: { instrumentId: INSTRUMENT } },
+    { verdict: 'refuse', input: {} },
+  ],
+});
+
+/**
+ * "Who has looked at my account details, and when", the owner's own log, refusals included. A missing page size refuses
+ * `p2p.access_log_limit_unset`: blank is not 100.
+ */
+export const P2P_INSTRUMENTS_ACCESS_LOG = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.accessLog',
+  kind: 'query',
+  path: 'instruments.accessLog',
+  access: READ,
+  refusals: refuse({ 'p2p.access_log_limit_unset': 'PRECONDITION_FAILED' }),
+  input: z.object({ limit: z.number().int().min(1).max(500).optional() }).optional(),
+  output: z.array(
+    z.object({
+      id: z.string().guid(),
+      instrumentId: z.string().guid().nullable(),
+      viewerId: z.string(),
+      viewerRole: z.enum(['owner', 'counterparty', 'moderator', 'other']),
+      tradeId: z.string().guid().nullable(),
+      outcome: z.enum(['revealed', 'denied']),
+      denyReason: z.string().nullable(),
+      at: z.string(),
+    }),
+  ),
+  samples: [
+    { verdict: 'accept', input: { limit: 100 } },
+    { verdict: 'refuse', input: { limit: 501 } },
+  ],
+});
+
 export const P2P_PROCEDURES = [
   P2P_HEALTH,
   P2P_FIAT_LIST,
@@ -1132,4 +3108,55 @@ export const P2P_PROCEDURES = [
   P2P_MERCHANTS_WITHDRAW,
   P2P_MERCHANTS_DECIDE,
   P2P_MERCHANTS_HISTORY,
+  P2P_TRADES_STEP_UP_WINDOW,
+  P2P_TRADES_RELEASE_STEP_UP_WINDOW,
+  P2P_TRADES_TAKE,
+  P2P_TRADES_CONTRACT_ESCROW,
+  P2P_TRADES_ATTACH_CONTRACT_DEAL,
+  P2P_TRADES_SYNC_CONTRACT_DEAL,
+  P2P_TRADES_MARK_FIAT_SENT,
+  P2P_TRADES_CONFIRM_RECEIVED,
+  P2P_TRADES_REMIND,
+  P2P_TRADES_REPORT_SENSITIVE_REMARK,
+  P2P_TRADES_REMARK_CASE,
+  P2P_TRADES_REPORT_MISMATCH,
+  P2P_TRADES_VALIDATE_PAYMENT,
+  P2P_TRADES_CANCEL,
+  P2P_TRADES_REQUEST_CANCEL,
+  P2P_TRADES_GET,
+  P2P_TRADES_LIST,
+  P2P_TRADES_PAGE,
+  P2P_TRADES_QUOTE,
+  P2P_TRADES_LOCK_QUOTE,
+  P2P_TRADES_EXPORT,
+  P2P_TRADES_RECEIPT,
+  P2P_TRADES_PAYMENT_INSTRUMENT,
+  P2P_OFFERS_CREATE,
+  P2P_OFFERS_SELL_BALANCE,
+  P2P_OFFERS_LIST,
+  P2P_OFFERS_PAGE,
+  P2P_OFFERS_GET,
+  P2P_OFFERS_MINE,
+  P2P_OFFERS_EDIT_QUOTA,
+  P2P_OFFERS_RELIST,
+  P2P_OFFERS_BULK,
+  P2P_OFFERS_SET_VISIBILITY,
+  P2P_OFFERS_SHARE_LINKS_CREATE,
+  P2P_OFFERS_SHARE_LINKS_LIST,
+  P2P_OFFERS_SHARE_LINKS_REVOKE,
+  P2P_OFFERS_CLOSE,
+  P2P_OFFERS_PAUSE,
+  P2P_OFFERS_RESUME,
+  P2P_OFFERS_UPDATE,
+  P2P_INSTRUMENTS_METHODS_LIST,
+  P2P_INSTRUMENTS_METHODS_REGISTER,
+  P2P_INSTRUMENTS_METHODS_SET_ENABLED,
+  P2P_INSTRUMENTS_CREATE,
+  P2P_INSTRUMENTS_UPDATE,
+  P2P_INSTRUMENTS_REMOVAL_IMPACT,
+  P2P_INSTRUMENTS_REMOVE,
+  P2P_INSTRUMENTS_LIST,
+  P2P_INSTRUMENTS_REVEAL,
+  P2P_INSTRUMENTS_REVEAL_MASKED,
+  P2P_INSTRUMENTS_ACCESS_LOG,
 ] as const satisfies readonly ProcedureRecord[];

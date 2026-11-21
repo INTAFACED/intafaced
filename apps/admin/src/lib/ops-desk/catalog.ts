@@ -1,9 +1,17 @@
+import { ACADEMY_ADMIN_COURSES } from '@intafaced/contracts/academy-admin-procedures';
+import { ACADEMY_CERT_DEFINITIONS } from '@intafaced/contracts/academy-learner-procedures';
 import { DEX_HEALTH } from '@intafaced/contracts/dex-procedures';
+import {
+  MARKET_COMMERCE_PROGRAMME,
+  MARKET_LIST_APPLICATIONS,
+  MARKET_LISTINGS,
+  MARKET_OPS_SALES,
+} from '@intafaced/contracts/market-procedures';
 import { INDEXER_STATUS } from '@intafaced/contracts/indexer-procedures';
 import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
 import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
-import { TOKEN_BURNED_SUPPLY } from '@intafaced/contracts/token-procedures';
+import { TOKEN_BURNED_SUPPLY, TOKEN_LIST_PROPOSALS } from '@intafaced/contracts/token-procedures';
 import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 
 /** A read whose call has a record: its module and path are the record's, never typed again here. */
@@ -1536,8 +1544,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.courses',
         title: 'Courses',
         note: 'Courses staff created on the course desk, counted by state. The four shipped courses (the curriculum paths) are counted under Curriculum inventory, not here.',
-        module: 'academy',
-        procedure: 'admin.courses',
+        ...readOf(ACADEMY_ADMIN_COURSES),
         input: { limit: 1 },
         shape: 'record',
         columns: [
@@ -1650,8 +1657,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.cert-defs',
         title: 'Certificate definitions',
         note: 'What each certificate requires. Definitions, not grants.',
-        module: 'academy',
-        procedure: 'certDefinitions',
+        ...readOf(ACADEMY_CERT_DEFINITIONS),
         shape: 'list',
         idKey: 'id',
         columns: [text('id', 'Certificate'), text('title', 'Title'), list('requiredItemSlugs', 'Required items', { detail: true })],
@@ -2094,8 +2100,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.applications',
         title: 'Vendor applications awaiting a decision',
         note: 'Applied and not yet decided, oldest first. Approve, reject or suspend each as a two-founder request.',
-        module: 'market',
-        procedure: 'listApplications',
+        ...readOf(MARKET_LIST_APPLICATIONS),
         input: { status: 'applied', limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2116,8 +2121,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.approved',
         title: 'Approved vendors',
         note: 'Vendors currently approved. Suspend one here if it must stop selling.',
-        module: 'market',
-        procedure: 'listApplications',
+        ...readOf(MARKET_LIST_APPLICATIONS),
         input: { status: 'approved', limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2138,8 +2142,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.suspended',
         title: 'Suspended vendors',
         note: 'Vendors taken out of the market. A suspended vendor can be approved again.',
-        module: 'market',
-        procedure: 'listApplications',
+        ...readOf(MARKET_LIST_APPLICATIONS),
         input: { status: 'suspended', limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2160,8 +2163,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.listings',
         title: 'Public listings',
         note: 'What a shopper can see today. svc-market refuses to publish a listing while the house commission is blank (see Commerce programme on this desk), so a blank rate also means an empty list.',
-        module: 'market',
-        procedure: 'listings',
+        ...readOf(MARKET_LISTINGS),
         input: { limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2187,9 +2189,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.sales',
         title: 'Sales by vendor, last 30 days',
         note: 'Settled volume, settled count and the house commission for each vendor and asset, for sales settled in the window. The commission is each purchase’s own rate at the time, so changing the rate later changes nothing here. Refused purchases are not in the volume. The 50 first rows; a full page is not a total.',
-        module: 'market',
+        ...readOf(MARKET_OPS_SALES),
         plainName: 'market sales',
-        procedure: 'ops.sales',
         input: { limit: 50 },
         windowDays: 30,
         shape: 'list',
@@ -2210,9 +2211,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.sales-counts',
         title: 'Purchases not settled, last 30 days',
         note: 'Purchases that were refused and purchases still pending in the same window, counted over the whole window and not just the page above.',
-        module: 'market',
+        ...readOf(MARKET_OPS_SALES),
         plainName: 'market purchase counts',
-        procedure: 'ops.sales',
         input: { limit: 50 },
         windowDays: 30,
         shape: 'record',
@@ -2224,8 +2224,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.commerce',
         title: 'Commerce programme',
         note: 'The house commission. Blank means listings and purchases refuse.',
-        module: 'market',
-        procedure: 'commerceProgramme',
+        ...readOf(MARKET_COMMERCE_PROGRAMME),
         shape: 'record',
         columns: [bps('commissionBps', 'House commission', { nullable: true }), bool('commissionConfigured', 'Configured')],
         emptyText: '',
@@ -2253,9 +2252,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'token.proposals',
         title: 'Governance proposals',
         note: 'Proposals as svc-token lists them, with their window. The free-form proposal body and each proposal’s vote tally are separate reads (getProposal, one proposal at a time) that this desk does not make, so neither is shown.',
-        module: 'token',
         plainName: 'governance proposals',
-        procedure: 'listProposals',
+        ...readOf(TOKEN_LIST_PROPOSALS),
         input: { limit: 50 },
         shape: 'list',
         idKey: 'id',

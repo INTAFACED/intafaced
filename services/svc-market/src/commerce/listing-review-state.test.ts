@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { LISTING_REVIEW_STATES, listingReviewState } from './commerce-service.js';
+import { LISTING_REVIEW_STATES } from '@intafaced/contracts/market-procedures';
+import { listingReviewState } from './commerce-service.js';
 
 // J-more-catalogue-02 #3: every kind of listing shows its review state. The state is the seller's operator review
 // (`vet`), unless an operator took the listing itself down. It does not depend on the listing's kind.

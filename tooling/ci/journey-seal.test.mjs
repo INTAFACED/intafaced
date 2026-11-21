@@ -836,6 +836,8 @@ const touchedPull = async ({
   body = '',
   files = ['apps/customer/tests/real-app/J-bank-13.pw.mjs'],
   text = { 'apps/customer/tests/real-app/J-bank-13.pw.mjs': BANK13 },
+  states = { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-13#3': 'passed' },
+  runs = [run(1)],
 }) =>
   sealPull({
     repo: REPO,
@@ -843,10 +845,10 @@ const touchedPull = async ({
     sha: HEAD,
     io: {
       pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: OLD }, title, body }),
-      runs: async () => [run(1)],
+      runs: async () => runs,
       reportOf: reports({
         // The CANARY too: a product path no map narrows runs its bounded set (journey-touch.mjs pullPick).
-        1: { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-13#3': 'passed' }, ran: ['J-bank-13.pw.mjs', ...CANARY] },
+        1: { states, ran: ['J-bank-13.pw.mjs', ...CANARY] },
       }),
       // The run on the head is clean by the journeys verdict, so these cases judge the step naming alone.
       verdictOf: async () => ({ red: [], failing: 0, missing: [] }),
@@ -855,11 +857,30 @@ const touchedPull = async ({
     },
   });
 
-test('the seal gap (#1249): a journey test change whose title names no step fails, and prints the steps the file holds', async () => {
-  const v = await touchedPull({ title: 'test(journeys): J-bank-13 waits for the card list' });
-  assert.equal(v.ok, false);
-  assert.match(v.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of J-bank-13 #1, J-bank-13 #2, J-bank-13 #3/);
-  assert.match(v.lines.join('\n'), /Left-or-replaced: J-bank-13 #1 #2 #3/);
+// A step of the touched file that fails on the head (#2), for the planted cases below.
+const RED2 = { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'failed', 'J-bank-13#3': 'passed' };
+
+test('the seal gap (#1249): a journey test change whose title names no step is judged on every step the file holds', async () => {
+  const green = await touchedPull({ title: 'test(journeys): J-bank-13 waits for the card list' });
+  assert.equal(green.ok, true, 'all of them passing on the head: no body line needed (owner, 21 Nov 2026)');
+  const text = green.lines.join('\n');
+  assert.match(text, /J-bank-13\.pw\.mjs changes the tests of J-bank-13 #1, J-bank-13 #2, J-bank-13 #3, .*so the seal judges them all/);
+  for (const k of ['J-bank-13#1', 'J-bank-13#2', 'J-bank-13#3']) assert.match(text, new RegExp(`${k}: passed in run 1`));
+  // Planted: what the old seal stopped for a missing line, with a step failing, still fails, and prints the line that
+  // would leave it.
+  const red = await touchedPull({ title: 'test(journeys): J-bank-13 waits for the card list', states: RED2 });
+  assert.equal(red.ok, false, 'a derived step failing on the head fails the seal, as a named one does');
+  assert.match(red.lines.join('\n'), /J-bank-13#2: failed in run 1/);
+  assert.match(red.lines.join('\n'), /Left-or-replaced: J-bank-13 #2$/m);
+  const missing = await touchedPull({ title: 'x', states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' } });
+  assert.equal(missing.ok, false, 'a derived step no run on the head reports fails');
+  assert.match(missing.lines.join('\n'), /J-bank-13#3: no finished Real-app journeys run on this head reports it/);
+  assert.equal((await touchedPull({ title: 'x', runs: [] })).ok, false, 'no run on the head at all');
+  assert.equal(
+    (await touchedPull({ title: 'x', states: RED2, body: 'Left-or-replaced: J-bank-13 #2\n' })).ok,
+    true,
+    'the line keeps its real use: leaving the step that fails',
+  );
 });
 
 test('JOURNEY_TEST: whole and split journey files, never the look sweeps', () => {
@@ -889,13 +910,18 @@ test('a journey test change passes when the title names its steps or a strict li
 });
 
 test('planted: a title naming another journey, a malformed line, an unreadable file', async () => {
-  const wrong = await touchedPull({ title: 'test(journeys): J-bank-14 #2 waits for the card list' });
-  assert.equal(wrong.ok, false, "another journey's step does not cover this file");
+  const wrong = await touchedPull({ title: 'test(journeys): J-bank-14 #2 waits for the card list', states: RED2 });
+  assert.equal(wrong.ok, false, "another journey's step does not cover this file: its own are judged");
   assert.match(wrong.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of/);
-  const bad = await touchedPull({ title: 'test(journeys): waits', body: '- Left-or-replaced: J-bank-13 #3' });
-  assert.equal(bad.ok, false, 'an exemption-like line that is not one names nothing');
-  assert.match(bad.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of/);
-  assert.equal((await touchedPull({ title: 'x', body: 'Left-or-replaced: J-bank-13 #9' })).ok, false, 'a step the file does not hold');
+  assert.match(wrong.lines.join('\n'), /J-bank-13#2: failed in run 1/);
+  const bad = await touchedPull({ title: 'test(journeys): waits', body: '- Left-or-replaced: J-bank-13 #2', states: RED2 });
+  assert.equal(bad.ok, false, 'an exemption-like line that is not one leaves nothing');
+  assert.match(bad.lines.join('\n'), /J-bank-13#2: failed in run 1/);
+  assert.equal(
+    (await touchedPull({ title: 'x', body: 'Left-or-replaced: J-bank-13 #9', states: RED2 })).ok,
+    false,
+    'a step the file does not hold covers nothing',
+  );
   const empty = await touchedPull({ title: 'x (J-bank-13 #1)', text: { 'apps/customer/tests/real-app/J-bank-13.pw.mjs': '// nothing' } });
   assert.equal(empty.ok, false, 'a journey file with no readable step fails closed');
   await assert.rejects(
@@ -914,31 +940,28 @@ test('planted: a title naming another journey, a malformed line, an unreadable f
   assert.deepEqual(judgeTouched({ title: 'x', body: '', touched: [] }), { ok: true, lines: [] });
 });
 
-test('titleBeforePush: the title #8469 and #8478 first had is refused with the one they merged on; a wrong one stays refused', () => {
-  const t = (journey) => [
-    { file: `apps/customer/tests/real-app/${journey}.pw.mjs`, journey, steps: [1, 2, 3].map((n) => `${journey}#${n}`) },
+test('titleBeforePush: a title naming none of the steps is no longer refused (the seal judges them); an unreadable one still is', () => {
+  const t = (journey, steps = [1, 2, 3].map((n) => `${journey}#${n}`)) => [
+    { file: `apps/customer/tests/real-app/${journey}.pw.mjs`, journey, steps },
   ];
   assert.deepEqual(
     titleBeforePush({ title: null, touched: t('J-bank-13') }),
     { ok: true, need: ['J-bank-13 #1 #2 #3'] },
     'no pull request yet',
   );
-  const pick = (v) => [v.ok, v.fix];
-  assert.deepEqual(pick(titleBeforePush({ title: 'fix(svc-ws): TEST limits (#8311)', touched: t('J-dev-01') })), [
-    false,
-    'fix(svc-ws): TEST limits, J-dev-01 #1 #2 #3 (#8311)',
-  ]);
-  assert.deepEqual(pick(titleBeforePush({ title: 'tests(J-dev-01): first (#8477)', touched: t('J-dev-01') })), [
-    false,
-    'tests(J-dev-01 #1 #2 #3): first (#8477)',
-  ]);
+  // The titles #8469 and #8478 first had, refused before 21 Nov 2026: the seal now judges their steps on the head.
+  assert.deepEqual(titleBeforePush({ title: 'fix(svc-ws): TEST limits (#8311)', touched: t('J-dev-01') }), {
+    ok: true,
+    need: ['J-dev-01 #1 #2 #3'],
+  });
+  assert.equal(titleBeforePush({ title: 'tests(J-dev-01): first (#8477)', touched: t('J-dev-01') }).ok, true);
   assert.equal(titleBeforePush({ title: 'tests(J-dev-01 #2): first', touched: t('J-dev-01') }).ok, true);
-  const wrong = titleBeforePush({ title: 'tests(J-dev-02 #2): first', touched: t('J-dev-01') });
-  assert.equal(wrong.ok, false, "another journey's steps");
-  assert.match(wrong.lines.join('\n'), /J-dev-01\.pw\.mjs changes the tests of/);
-  assert.equal(wrong.fix, 'tests(J-dev-02 #2): first, J-dev-01 #1 #2 #3');
+  assert.equal(titleBeforePush({ title: 'tests(J-dev-02 #2): first', touched: t('J-dev-01') }).ok, true, "another journey's steps");
   assert.equal(titleBeforePush({ title: 'x', body: 'Left-or-replaced: J-dev-01 #3', touched: t('J-dev-01') }).ok, true, 'a strict line');
   assert.equal(titleBeforePush({ title: 'x J-dev-01 #2-120', touched: t('J-dev-01') }).ok, false, 'an unreadable range');
+  const none = titleBeforePush({ title: 'x', touched: t('J-dev-01', []) });
+  assert.equal(none.ok, false, 'a journey file with no readable step');
+  assert.match(none.lines.join('\n'), /the seal fails closed/);
 });
 
 test('the recheck takes a pull request whose body gained an exemption line, so leaving steps there re-runs the seal', () => {
@@ -963,21 +986,25 @@ test("a GitHub revert of a journey-test PR passes; a fake Revert title without G
   });
   assert.equal(revert.ok, true, "GitHub's Revert form is never slowed by a body line (OWNER 180)");
   assert.match(revert.lines.join('\n'), /a revert of #7434/);
-  const fake = await touchedPull({ title: 'Revert "test(journeys): J-bank-13 waits for the card list"', body: 'undoes the flaky wait' });
-  assert.equal(fake.ok, false, 'a Revert title alone is not a revert');
+  const fake = await touchedPull({
+    title: 'Revert "test(journeys): J-bank-13 waits for the card list"',
+    body: 'undoes the flaky wait',
+    states: RED2,
+  });
+  assert.equal(fake.ok, false, 'a Revert title alone is not a revert: its steps are judged');
   assert.match(fake.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of/);
   assert.equal(
-    (await touchedPull({ title: 'Revert "x"', body: 'Reverts someone/else#7434' })).ok,
+    (await touchedPull({ title: 'Revert "x"', body: 'Reverts someone/else#7434', states: RED2 })).ok,
     false,
     "another repository's PR is not this one's revert",
   );
   assert.equal(
-    (await touchedPull({ title: 'Revert "x" and more', body: 'Reverts INTAFACED/intafaced#7434' })).ok,
+    (await touchedPull({ title: 'Revert "x" and more', body: 'Reverts INTAFACED/intafaced#7434', states: RED2 })).ok,
     false,
     'more after the quote',
   );
   assert.equal(
-    (await touchedPull({ title: 'Revert "x"', body: '  Reverts INTAFACED/intafaced#7434' })).ok,
+    (await touchedPull({ title: 'Revert "x"', body: '  Reverts INTAFACED/intafaced#7434', states: RED2 })).ok,
     false,
     'the line at column 0 only',
   );

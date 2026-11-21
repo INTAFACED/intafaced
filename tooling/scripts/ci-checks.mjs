@@ -46,8 +46,10 @@ const ROOT = process.cwd();
 const ACTION = '.github/actions/test-infra/action.yml';
 const BOOTSTRAP = 'tooling/infra/postgres-init/02-intafaced-test-db.sh';
 
-/** A test that walks a directory and reads the source files it finds: no file imports it, so `related` never picks it. */
-export const WALKS = /\breaddirSync\b|\bopendirSync\b|\bglobSync\b|\bls-files\b/;
+/** A test that walks a directory and reads the source files it finds: no file imports it, so `related` never picks it.
+ * `declaredRoutes` is the published-routes gate's walk of svc-trade's files (tooling/ci/published-routes.mjs), which a
+ * test may call instead of walking them itself. */
+export const WALKS = /\breaddirSync\b|\bopendirSync\b|\bglobSync\b|\bls-files\b|\bdeclaredRoutes\b/;
 export const READS_SOURCE = /\\?\.tsx?(?:\?|\$|['"`)\]|])|\bts\|tsx\b/;
 export const IS_VITEST_FILE = /\.test\.tsx?$/;
 export const ruleTest = (path, text) => IS_VITEST_FILE.test(path) && WALKS.test(text) && READS_SOURCE.test(text);
