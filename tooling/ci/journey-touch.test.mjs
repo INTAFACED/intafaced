@@ -1653,6 +1653,18 @@ test('15 Nov: a run by hand that names one file of a journey runs every file of 
   assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', real), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
 });
 
+test('20 Nov: a run by hand given a bare journey id runs every file of that journey (run 44808167679, #9286)', () => {
+  const head = new Set(['J-cex-spot-10.pw.mjs', 'J-cex-spot-10-venue.pw.mjs', 'J-home-ia-01-venue.pw.mjs', 'J-bank-13.pw.mjs']);
+  assert.equal(dispatchTarget('J-cex-spot-10', head), 'J-cex-spot-10-venue.pw.mjs J-cex-spot-10.pw.mjs');
+  assert.equal(dispatchTarget('J-bank-13 J-cex-spot-10', head), 'J-bank-13.pw.mjs J-cex-spot-10-venue.pw.mjs J-cex-spot-10.pw.mjs');
+  assert.equal(dispatchTarget('J-home-ia-01', head), 'J-home-ia-01-venue.pw.mjs', 'an id whose only file is a part file');
+  assert.equal(dispatchTarget('J-nope-01', head), 'J-nope-01', 'an id with no file at the head stays, so the run refuses it');
+  assert.equal(dispatchTarget('J-cex-spot-10', null), 'J-cex-spot-10', 'the head unknown: the input as given');
+  // At this checkout: the real cex-spot-10 pair.
+  const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
+  assert.equal(dispatchTarget('J-cex-spot-10', real), 'J-cex-spot-10-venue.pw.mjs J-cex-spot-10.pw.mjs');
+});
+
 // The named rule's reach (17 Nov 2026): four real pull requests that each named one journey, ran only it and the
 // always-run files, merged green, and broke another journey on main (the revert in brackets). The fixture holds each
 // one's changed paths (git diff of its merge), title and branch, the journey files at its merge, which of its service
