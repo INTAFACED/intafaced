@@ -100,6 +100,7 @@ impl Desk {
             ops: svc_agents::ops::Ops::unwired(),
             background: svc_agents::background::Settings::default(),
             advisors: svc_agents::advisors::Advisors::unwired(),
+            team: svc_agents::team::Team::unwired(),
         })
         .unwrap();
         door.gateway().refresh(door.store()).unwrap();

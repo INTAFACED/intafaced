@@ -15,6 +15,7 @@
 //! `rulebook`). Nothing here reads or moves a book.
 
 pub mod book;
+pub mod liquidity;
 pub mod rulebook;
 
 use std::sync::{LazyLock, Mutex, PoisonError};
@@ -63,7 +64,10 @@ impl Slice {
 
     /// Its doors are served past the input checks (`book::serve`); every other slice's are owed.
     pub fn is_ported(self) -> bool {
-        matches!(self, Slice::Journal | Slice::Book | Slice::Triggers)
+        matches!(
+            self,
+            Slice::Journal | Slice::Book | Slice::Triggers | Slice::Liquidity
+        )
     }
 
     /// The slice's name in `PORT.md`.
@@ -763,7 +767,10 @@ impl MatchingDoor {
                 .map_or_else(String::new, |(_, _, v)| v.clone())
         };
         let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
-        book::serve(route, req, &param, &parsed, &mut engine)
+        match route.slice {
+            Slice::Liquidity => liquidity::serve(route, &param, &parsed, &mut engine),
+            _ => book::serve(route, req, &param, &parsed, &mut engine),
+        }
     }
 
     /// `/health`, `/ready` and `/metrics`: the process's own doors.

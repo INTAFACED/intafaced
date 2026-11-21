@@ -119,6 +119,7 @@ fn serve() -> AgentsDoor {
         ops: svc_agents::ops::Ops::unwired(),
         background: svc_agents::background::Settings::default(),
         advisors: replay_advisors(),
+        team: svc_agents::team::Team::unwired(),
     })
     .unwrap()
 }

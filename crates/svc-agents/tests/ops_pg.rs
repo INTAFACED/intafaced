@@ -127,6 +127,7 @@ impl World {
             ops,
             background: svc_agents::background::Settings::default(),
             advisors: svc_agents::advisors::Advisors::unwired(),
+            team: svc_agents::team::Team::unwired(),
         })
         .unwrap()
     }

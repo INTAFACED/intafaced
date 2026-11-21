@@ -1275,6 +1275,33 @@ export class UserVenueDoor {
   }
 
   /**
+   * The margin rules the venue publishes for the listed perpetual on `base` (J-algo-dev-02 #5: a margin backtest reads
+   * them, never sets them): its maximum leverage and its one maintenance rate, each `null` where the venue publishes none
+   * (a tiered market publishes no single rate). Refuses `not_offered` when we list no perpetual on that asset.
+   */
+  async marginRules(base: string) {
+    const venue = await this.venue();
+    const wanted = base.toUpperCase();
+    const read = await this.markets();
+    const perp = read.value.find((m) => m.kind === 'perpetual' && m.baseAsset.toUpperCase() === wanted);
+    if (!perp)
+      throw new VenueRefusalError({
+        venueId: venue.venue.id,
+        code: 'not_offered',
+        detail: `no perpetual on ${wanted} is listed on this venue`,
+      });
+    const rate = perp.maintenanceMarginRate;
+    return {
+      venueId: read.venueId,
+      asOf: read.asOf,
+      symbol: perp.symbol,
+      maxLeverageBps: perp.maxLeverageBps,
+      maintenanceRate: rate?.known ? rate.value : null,
+      test: isTestVenue(venue.venue),
+    };
+  }
+
+  /**
    * A perpetual's risk-limit tiers as the venue publishes them, lowest notional first (J-derivatives-14 #4). While the
    * venue publishes no ladder the tiers are `null` with the reason `ladder_unset`, never a ladder of ours.
    */

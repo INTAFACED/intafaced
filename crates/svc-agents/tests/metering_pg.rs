@@ -1471,6 +1471,7 @@ fn door_of(w: World) -> (AgentsDoor, FakeLedger, TestDb) {
         ops: svc_agents::ops::Ops::unwired(),
         background: svc_agents::background::Settings::default(),
         advisors: svc_agents::advisors::Advisors::unwired(),
+        team: svc_agents::team::Team::unwired(),
     })
     .unwrap();
     (door, ledger, db)
