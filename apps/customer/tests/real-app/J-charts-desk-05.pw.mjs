@@ -78,7 +78,7 @@ async function paneValueAt(page, point) {
  * rescales as the live bar's volume grows, so a line at a fixed value moves on screen after it is placed; this reads the
  * pane's own scale now rather than trusting the scale at the click. The scale is read at a quarter and three quarters of
  * the pane's height, never at the painted height itself: the chart's pane-resize handle covers the pixels next to each
- * pane separator (#8933), and a pointer there reads nothing, so a line the rescale carried near the pane's edge could not
+ * pane separator, and a pointer there reads nothing, so a line the rescale carried near the pane's edge could not
  * be read at its own height. The Volume pane's scale is linear, so two reads place every value on it.
  */
 async function pixelsFromValue(page, x, y, value) {
@@ -239,7 +239,7 @@ test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price 
   }).toPass({ timeout: 15_000 });
 
   // The measure above reads a painted height next to the pane's top edge too, where the chart's pane-resize handle
-  // takes the pointer and the crosshair reads nothing (#8933): a height a pixel under the separator is measured from the
+  // takes the pointer and the crosshair reads nothing: a height a pixel under the separator is measured from the
   // same value as the clicked height, by exactly the pixels between them.
   await expect(async () => {
     const hostBox = await chartHost(page).boundingBox();
