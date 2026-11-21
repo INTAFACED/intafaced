@@ -589,6 +589,14 @@ import {
 import { TRADE_BUILDER_ACCOUNT_MODE } from './trade-builder-mode-procedures.js';
 import { COPY_MY_COPY_FEES } from './trade-copy-procedures.js';
 import { GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD } from './trade-grid-procedures.js';
+import {
+  RECURRING_CREATE,
+  RECURRING_SUBMIT_PERMISSION,
+  RECURRING_GET,
+  RECURRING_LIST,
+  RECURRING_UPDATE,
+  RECURRING_TERMINATE,
+} from './trade-recurring-procedures.js';
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
 import type { ProcedureRecord } from './procedure.js';
 
@@ -1147,5 +1155,11 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   GRID_SUBMIT_PERMISSION,
   GRID_SET_EXITS,
   GRID_SET_IDLE_YIELD,
+  RECURRING_CREATE,
+  RECURRING_SUBMIT_PERMISSION,
+  RECURRING_GET,
+  RECURRING_LIST,
+  RECURRING_UPDATE,
+  RECURRING_TERMINATE,
   WS_SBE_CONSUMERS,
 ];

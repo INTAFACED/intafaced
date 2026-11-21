@@ -14,6 +14,7 @@ import {
   coreOpsReconciliationAlertUpdated,
   copySkipped,
   copyStopped,
+  recurringBuySuspended,
   agentUsageAlertCrossed,
   agentAlertFired,
   agentApprovalRequested,
@@ -987,6 +988,26 @@ export async function subscribeNotificationEvents(
           sourceSubject: copyStopped.subject,
           // A stop is one-way, so one notice per follow and close-only.
           sourceIdempotencyKey: `${payload.followId}:${payload.closeOnly}`,
+        }),
+      );
+    }),
+  );
+
+  // A recurring buy suspended for insufficient funds (J-copy-bots-otc-16 #6): svc-trade publishes once per rule and slot
+  // after the status moved. One notice per rule and slot, however often it is sent; the room shows the suspended state.
+  attachments.push(
+    await attach(bus, 'recurringBuySuspended', recurringBuySuspended.subject, 'notify-recurring-buy-suspended', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'trade.recurring_buy.suspended',
+          titleKey: 'notify.trade.recurring_buy_suspended.title',
+          bodyKey: 'notify.trade.recurring_buy_suspended.body',
+          params: { ruleId: payload.ruleId, asset: payload.asset, amount: payload.amount, free: payload.free },
+          href: '/trade/bots/dca',
+          severity: 'action',
+          sourceSubject: recurringBuySuspended.subject,
+          sourceIdempotencyKey: `${payload.ruleId}:${payload.slot}`,
         }),
       );
     }),
