@@ -1,6 +1,3 @@
-import './pay-screen.css';
-import './personal.css';
-import '../trade/buy/buy.css';
 import { useMemo } from 'react';
 import type { ScreenProps } from '../../app/screen-types';
 import {
