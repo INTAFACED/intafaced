@@ -8,7 +8,8 @@
 // (`join(HERE, '..', 'router.ts')`, `new URL('./a.ts', import.meta.url)`). The path is read from its literals, through
 // `join`, `resolve`, `new URL` and `const` names, each name the declaration in scope where it is used (two tests' own
 // `const repo` are two names). Migrations (.sql), compose files, JSON and docs are data and are not counted, nor a path
-// under a folder the test made itself (`mkdtempSync`, `tmpdir()`): that is a generator's output, which the test checks.
+// under a folder the test made itself (`mkdtempSync`, `tmpdir()`), nor a `*.generated.*` file: each is a generator's
+// output, and a test that holds it equal to its generator checks the generator.
 // The pattern is common, so the rule fails only when a change adds one: judged by the lint ratchet, the copies on main are
 // each file's ceiling and a file the change adds starts at zero (tooling/ci/lint-ratchet.mjs, tooling/lint/ratchet.json
 // failInAddedFiles). `node tooling/lint/count-rule.mjs garden/no-source-text-test` prints how many are left and where.
@@ -18,6 +19,7 @@ const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\
 const SRC_TREE = /(?:^|\/)(?:services|apps|packages)\/[^/]+\/src(?:\/|$)/u;
 const CODE_EXT = /\.(?:[cm]?[jt]sx?)$/u;
 const ANY_EXT = /\.[A-Za-z0-9]+$/u;
+const GENERATED = /\.generated\.[cm]?[jt]sx?$/u;
 const READS = new Set(['readFileSync', 'readFile']);
 const FIX =
   'a test reads no source text: call the code and assert on its answer, records or events; a rule about what code ' +
@@ -96,7 +98,7 @@ const noSourceTextTest = {
           // A path through a src tree as written (`join(ROOT, 'services/svc-x/src/a.ts')`), else as read from this test's folder.
           const where = SRC_TREE.test(path) ? path : posix.join(posix.dirname(file), path);
           const name = where.split('/').pop() ?? '';
-          const source = SRC_TREE.test(where) && (CODE_EXT.test(name) || !ANY_EXT.test(name));
+          const source = SRC_TREE.test(where) && !GENERATED.test(name) && (CODE_EXT.test(name) || !ANY_EXT.test(name));
           if (source) context.report({ node, message: `this test reads source text (\`${path}\`): ${FIX}` });
         }
       },

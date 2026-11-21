@@ -1,0 +1,112 @@
+[
+  {
+    "file": "packages/i18n/src/locale-files.test.ts",
+    "target": "locales",
+    "verdict": "rule",
+    "asserts": "the drop-in language files are the generated index, each a declared locale with known keys",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/i18n/src/locale-files.test.ts#has a generated index that holds exactly the files on disk"
+    },
+    "why": "The reads were always of locales/*.json, which is translation data. Each file is now read by its code as `${code}.json`, so the path says what it is. Every assertion is unchanged."
+  },
+  {
+    "file": "packages/i18n/src/locale-files.test.ts",
+    "target": "locales",
+    "verdict": "rule",
+    "asserts": "each language file names a declared locale, a known provenance and only English keys",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/i18n/src/locale-files.test.ts#names a declared locale, a known provenance and only keys English has"
+    },
+    "why": "The same: each JSON file is read by its locale code."
+  },
+  {
+    "file": "apps/customer/src/data/queries.test.ts",
+    "target": "./__fixtures__/",
+    "verdict": "rule",
+    "asserts": "the market data sources parse the recorded wire answers",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/data/queries.test.ts"
+    },
+    "why": "The fixtures are wire JSON; the helper now adds .json to their names."
+  },
+  {
+    "file": "packages/ui/src/theme/tokens.test.ts",
+    "target": ".",
+    "verdict": "rule",
+    "asserts": "the generated stylesheets equal their generators, and hand-written CSS has no raw hex",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/ui/src/theme/tokens.test.ts"
+    },
+    "why": "The reads are CSS (tokens.css, theme.css, customer-legacy.css, base.css), and each is now named where it is read."
+  },
+  {
+    "file": "packages/ui/src/components/coins/coin-art.test.ts",
+    "target": "/coin-art.generated.ts",
+    "verdict": "rule",
+    "asserts": "the generated art module is what renderCoinArt makes from the SVG files",
+    "guard": {
+      "kind": "lint",
+      "ref": "garden/no-source-text-test"
+    },
+    "why": "A generated file held equal to its generator. The rule no longer counts *.generated.* files, and its own test shows that."
+  },
+  {
+    "file": "tooling/ci/published-routes.test.mjs",
+    "target": "scratch checkout",
+    "verdict": "rule",
+    "asserts": "the published-routes gate, replayed on past route changes in a scratch checkout, fails and passes as it should",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/ci/published-routes.test.mjs#replay"
+    },
+    "why": "Each read was of the scratch copy (mkdtempSync) the gate ran in, reached through s.dir, which the rule could not follow. They now go through the scratch helper read(), under its temp folder."
+  },
+  {
+    "file": "tooling/ci/published-routes.test.mjs",
+    "target": "scratch checkout",
+    "verdict": "rule",
+    "asserts": "the published-routes gate, replayed on past route changes in a scratch checkout, fails and passes as it should",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/ci/published-routes.test.mjs#replay"
+    },
+    "why": "Each read was of the scratch copy (mkdtempSync) the gate ran in, reached through s.dir, which the rule could not follow. They now go through the scratch helper read(), under its temp folder."
+  },
+  {
+    "file": "tooling/ci/published-routes.test.mjs",
+    "target": "scratch checkout",
+    "verdict": "rule",
+    "asserts": "the published-routes gate, replayed on past route changes in a scratch checkout, fails and passes as it should",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/ci/published-routes.test.mjs#replay"
+    },
+    "why": "Each read was of the scratch copy (mkdtempSync) the gate ran in, reached through s.dir, which the rule could not follow. They now go through the scratch helper read(), under its temp folder."
+  },
+  {
+    "file": "tooling/ci/published-routes.test.mjs",
+    "target": "scratch checkout",
+    "verdict": "rule",
+    "asserts": "the published-routes gate, replayed on past route changes in a scratch checkout, fails and passes as it should",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/ci/published-routes.test.mjs#replay"
+    },
+    "why": "Each read was of the scratch copy (mkdtempSync) the gate ran in, reached through s.dir, which the rule could not follow. They now go through the scratch helper read(), under its temp folder."
+  },
+  {
+    "file": "apps/customer/src/features/developers/developers-reference.test.ts",
+    "target": "../../../../../services/svc-trade/src/",
+    "verdict": "rewrite",
+    "asserts": "the portal publishes every route svc-trade registers, with its access and scopes, and the futures double registration is marked",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/features/developers/developers-reference.test.ts#publishes every /api/v1 route svc-trade declares"
+    },
+    "why": "The test re-read svc-trade's files itself to feed svc-trade's parser. It now calls the published-routes gate's declaredRoutes(), the one reader that writes the list, so the generated file is checked against its generator."
+  }
+]
