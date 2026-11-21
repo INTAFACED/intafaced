@@ -1,0 +1,167 @@
+[
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-matching/src/action-approval-consume.ts",
+    "verdict": "rewrite",
+    "asserts": "The approval hash the stack signs for matching is the one svc-matching recomputes, so its open/halt/resume approvals are consumable.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#matching's hash recipe changed; update matchingPayloadHash"
+    },
+    "why": "Calls svc-matching's matchingActionPayloadHash and the tool's matchingPayloadHash on the same inputs and requires equal hashes."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-identity/src/auth/privileged-dual-control.ts",
+    "verdict": "rewrite",
+    "asserts": "The approval hash the stack signs for identity's privileged doors is the one svc-identity recomputes.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#identity's hash recipe changed; update identityPayloadHash"
+    },
+    "why": "Calls svc-identity's identityActionPayloadHash and the tool's identityPayloadHash on the same inputs and requires equal hashes."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-matching/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-matching's open, halt and resume doors consume exactly the proposal the stack has approved (target id, hash, version).",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#matching ${action} recipe changed; update bookProposal"
+    },
+    "why": "Mounts svc-matching's routes with a recording consumer, POSTs /markets/m-1/open|halt|resume signed as svc-trade, and requires the consume request to equal bookProposal's."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-identity/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-identity's kyc.approve consumes exactly kycApproveProposal for the record.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#kyc.approve recipe changed; update kycApproveProposal"
+    },
+    "why": "Calls the identity router's kyc.approve through createCaller with an MFA admin:compliance principal and a recording consumer, and requires the consume request to equal kycApproveProposal's."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-bank/src/action-approval-consume.ts",
+    "verdict": "rewrite",
+    "asserts": "The approval hash the stack signs for bank ops is the one svc-bank recomputes (fields sorted by key).",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#bank hash recipe changed; update bankPayloadHash"
+    },
+    "why": "Calls svc-bank's bankActionPayloadHash and the tool's bankPayloadHash on the same inputs, and drives consumeBankOpsApprovalPair to read what bank consumes."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-bank/src/transfers/transfer-terms.ts",
+    "verdict": "rewrite",
+    "asserts": "The stack's transfer-terms proposal names svc-bank's publish action and binds the fields svc-bank normalises.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#${t.assetId}: the terms proposal is not what svc-bank consumes"
+    },
+    "why": "Imports PUBLISH_TRANSFER_TERMS_ACTION and publishTransferTermsFields, and requires each TEST row's termsProposal to equal what consumeBankOpsApprovalPair asks to consume for them."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-bank/src/ramps/fraud-list.ts",
+    "verdict": "rewrite",
+    "asserts": "The stack's fraud-listing approval names svc-bank's action and the fields svc-bank normalises, so its hash is the one svc-bank recomputes.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#fraud listing approval fields changed; update fraudListingFields"
+    },
+    "why": "Compares SET_FRAUD_LISTING_ACTION and svc-bank's own fraudListingFields with the tool's on the same inputs (including every TEST_FRAUD_LIST row) and the consumed hash."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../packages/contracts/src/asset-registry.ts",
+    "verdict": "rewrite",
+    "asserts": "The asset-edit proposal names the action type and target service svc-ledger consumes.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#asset edit action renamed; update assetEditProposal"
+    },
+    "why": "Imports ASSET_EDIT_ACTION_TYPE and ASSET_EDIT_TARGET_SERVICE from the shared contract and requires the proposal to carry them."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-identity/src/auth/totp.ts",
+    "verdict": "rewrite",
+    "asserts": "The gates never send a TOTP step further ahead than identity's default skew window accepts.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#the gates look ahead no further than identity's skew window"
+    },
+    "why": "Generates codes with identity's totp() and requires matchTotpStep, with its default window, to accept the step TOTP_SKEW_STEPS ahead and refuse the one after."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-edge/src/live-authority.ts",
+    "verdict": "rewrite",
+    "asserts": "apply waits exactly as long as Edge's authority cache can hold a session's tier.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#the gates wait exactly as long as Edge's authority cache can hold a session's tier"
+    },
+    "why": "Imports Edge's AUTHORITY_POSITIVE_CACHE_MAX_MS and requires it to equal EDGE_AUTHORITY_CACHE_MAX_MS."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-ledger/src/ledger/action-approval-consume.ts",
+    "verdict": "rewrite",
+    "asserts": "The posting-freeze approval hash the stack signs is the one svc-ledger recomputes.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#freeze consume changed"
+    },
+    "why": "Calls svc-ledger's ledgerActionPayloadHash for freeze and unfreeze and requires the proposals' hashes to equal it."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-ledger/src/operator-http.ts",
+    "verdict": "rewrite",
+    "asserts": "svc-ledger's freeze and thaw doors consume exactly the posting-freeze proposals, bound to the version the ledger reports.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#unfreeze consume changed"
+    },
+    "why": "Mounts svc-ledger's operator routes with a ledger reporting a version and a recording consumer, POSTs /operator/freeze and /operator/unfreeze with an MFA admin:treasury token, and requires each consume request to equal the proposal's."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-identity/src/auth/action-approval-audience.ts",
+    "verdict": "rewrite",
+    "asserts": "Identity holds ledger.freeze and ledger.unfreeze approvals for founders, as the posting-freeze proposals assume.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#${p.actionType} is founder-level"
+    },
+    "why": "Calls identity's audienceOfApproval on both posting-freeze proposals and requires 'founder'."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../services/svc-trade/src/events.ts",
+    "verdict": "rewrite",
+    "asserts": "engine-drop takes the cancel from svc-trade's own durable consumer of matching's orderCancelled.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#trade's cancel consumer is the one named"
+    },
+    "why": "Calls svc-trade's subscribeMatchingEvents with a recording bus and requires orderCancelled's durable to be TRADE_CANCELS.durable."
+  },
+  {
+    "file": "tooling/scripts/local-test-gates.test.mjs",
+    "target": "../../apps/admin/src/lib/founder-session.ts",
+    "verdict": "rewrite",
+    "asserts": "A cookie scoped-session seals opens in the console: same cookie name, cipher, AAD (name, origin, v1) and session keys.",
+    "guard": {
+      "kind": "test",
+      "ref": "tooling/scripts/local-test-gates.test.mjs#the console opens the sealed session"
+    },
+    "why": "Seals with sealConsoleSession and opens with the console's openFounderSession; another origin, another key or another key set is refused admin.session_required."
+  }
+]

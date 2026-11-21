@@ -648,7 +648,9 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
                 {displayAmount(m.amount, 2)} {m.assetId}
               </td>
               <td data-cell="partner-leg">{m.deliveryTx ? <Tx hash={m.deliveryTx} sent={t('legSent')} /> : t('legNotYet')}</td>
-              <td data-cell="deposit-leg">{m.depositTx ? <Tx hash={m.depositTx} sent={t('legSent')} /> : t('legNotYet')}</td>
+              <td data-cell="deposit-leg" data-confirmed={m.depositConfirmed ? 'yes' : 'no'}>
+                {m.depositTx ? <Tx hash={m.depositTx} sent={m.depositConfirmed ? t('legConfirmed') : t('legClaimed')} /> : t('legNotYet')}
+              </td>
             </tr>
           ))}
         </DataTable>
@@ -687,6 +689,9 @@ function MoveLegs({ move, venue, t }: { move: OwnMove; venue: Venue; t: T }) {
         <span data-tx={move.depositTx ?? ''} title={move.depositTx ?? undefined}>
           {move.depositTx ? shortTx(move.depositTx) : null}
         </span>{' '}
+        {move.depositTx ? (
+          <span data-confirmed={move.depositConfirmed ? 'yes' : 'no'}>{move.depositConfirmed ? t('legConfirmed') : t('legClaimed')}</span>
+        ) : null}{' '}
         <span data-fee>{t('moveFeeUnknown')}</span>
       </li>
     </ol>

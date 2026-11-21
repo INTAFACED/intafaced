@@ -70,6 +70,34 @@
         "typescript/consistent-type-assertions": ["error", { "assertionStyle": "never" }],
         "typescript/no-non-null-assertion": "error"
       }
+    },
+    {
+      "files": ["apps/customer/src/screens/trade/desk/VenueSpotDesk.tsx"],
+      "rules": {
+        "max-lines": ["error", { "max": 600 }],
+        "react/no-multi-comp": "error"
+      }
+    },
+    {
+      "files": ["apps/customer/src/features/money/contracts.ts"],
+      "rules": {
+        "garden/compose-only": [
+          "error",
+          { "names": ["BankRead", "BankWrite", "bankWriteForReview"], "spreads": ["bankReads", "bankWrites"] }
+        ]
+      }
+    },
+    {
+      "files": ["apps/customer/src/screens/trade/desk/OrderForm.tsx", "apps/customer/src/screens/trade/desk/EditOrder.tsx"],
+      "rules": {
+        "garden/no-random-request-key": ["error", { "anyRandomUUID": true }]
+      }
+    },
+    {
+      "files": ["apps/customer/src/screens/trade/copybots/*.tsx"],
+      "rules": {
+        "garden/no-service-sentence": "error"
+      }
     }
   ]
 }

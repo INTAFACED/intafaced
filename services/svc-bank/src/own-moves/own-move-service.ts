@@ -17,6 +17,9 @@ import { assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort
  *      wallet (the same key): the partner deduplicates both, so a retry after a crash anywhere sends nothing more.
  *   2. The wallet's own signed deposit to the venue account. Only the person's wallet sends it; svc-bank records its
  *      transfer once it is signed (`recordDeposit`), so the room can show the move whole and never asks the wallet twice.
+ *      The hash is the client's claim: the leg reads confirmed only once a chain read (`OwnMoveDepositReader`) finds that
+ *      transfer from the move's wallet to the venue's deposit address, in the move's asset and amount. With no reader
+ *      wired, every deposit leg stays claimed and never reads as done.
  *
  * Before anything is kept or sent: the amount is above zero, the wallet signed this move's own message (`ownMoveMessage`),
  * the owner's destination sanctions list clears the wallet, and the amount is at most what the partner reports in the
@@ -37,6 +40,12 @@ export function partnerChainOutAccount(assetId: string): PartnerAccountRef {
 /** The partner's send of a move to the person's wallet on chain, once per key; the transfer's hash back. */
 export type OwnMoveDelivery = (input: { key: string; to: string; assetId: string; amount: string }) => Promise<string>;
 
+/**
+ * The chain's own answer for a move's deposit leg: true only when `tx` is mined and is a transfer from `wallet` to the
+ * venue's deposit address of exactly `amount` of `assetId`. Anything else, an unknown or pending hash included, is false.
+ */
+export type OwnMoveDepositReader = (input: { tx: string; wallet: string; assetId: string; amount: Amount }) => Promise<boolean>;
+
 export interface OwnMove {
   readonly id: string;
   readonly direction: 'in';
@@ -47,6 +56,8 @@ export interface OwnMove {
   readonly partnerRef: string | null;
   readonly deliveryTx: string | null;
   readonly depositTx: string | null;
+  /** The deposit leg read on chain as the move's own transfer to the venue; false while it is only the client's claim. */
+  readonly depositConfirmed: boolean;
   readonly createdAt: Date;
   readonly sentAt: Date | null;
   readonly depositAt: Date | null;
@@ -102,6 +113,8 @@ export interface OwnMoveServiceOptions {
   readonly partnerFee: (userId: string) => Amount | null;
   /** The owner's self-freeze and the security lock, asked of identity. Unset: every move refuses `bank.security_lock_unset`. */
   readonly securityLock?: SecurityLockPort;
+  /** The chain read that confirms a deposit leg. Unset: every recorded deposit stays claimed, never confirmed. */
+  readonly depositReader?: OwnMoveDepositReader | null;
 }
 
 export class OwnMoveService {
@@ -251,7 +264,14 @@ export class OwnMoveService {
       `,
     );
     const bank = this.options.custody.bankFor(userId);
-    return rows.map((row) => this.view(row, userId, bank));
+    return Promise.all(rows.map((row) => this.view(row, userId, bank)));
+  }
+
+  /** The deposit leg as the chain reads it; with no reader, or no deposit, it is not confirmed. */
+  private async depositConfirmed(row: Row): Promise<boolean> {
+    const reader = this.options.depositReader;
+    if (!reader || row.deposit_tx === null) return false;
+    return reader({ tx: row.deposit_tx, wallet: row.wallet, assetId: row.asset_id, amount: parseAmount(String(row.amount)) });
   }
 
   private partnerBank(userId: string): PartnerBank {
@@ -277,7 +297,7 @@ export class OwnMoveService {
     return row;
   }
 
-  private view(row: Row, userId: string, bank: PartnerBank | null): OwnMove {
+  private async view(row: Row, userId: string, bank: PartnerBank | null): Promise<OwnMove> {
     return {
       id: row.id,
       direction: row.direction,
@@ -288,6 +308,7 @@ export class OwnMoveService {
       partnerRef: row.partner_ref,
       deliveryTx: row.delivery_tx,
       depositTx: row.deposit_tx,
+      depositConfirmed: await this.depositConfirmed(row),
       createdAt: row.created_at,
       sentAt: row.sent_at,
       depositAt: row.deposit_at,
