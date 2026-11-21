@@ -1,16 +1,18 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { procedureSchemaFile, routePath } from '@intafaced/contracts/procedure';
-import { sampleDisagreements } from '@intafaced/contracts/procedure-sides';
+import { routePath } from '@intafaced/contracts/procedure';
+import { committedProcedureSchemas, procedureSchemaDrift, sampleDisagreements } from '@intafaced/contracts/procedure-sides';
 import { MATCHING_SUBMIT_ORDER } from './matching-submit-order.js';
 import { EXCHANGE_PROCEDURES } from './procedure-registry.js';
 
+const committed = () => committedProcedureSchemas(new URL('../procedures/', import.meta.url));
+
 describe('the written records of exchange calls', () => {
-  it('procedures.schema.json is what the records say (run `pnpm --filter @intafaced/exchange-contract procedures:write`)', () => {
-    const committed = readFileSync(new URL('../procedures.schema.json', import.meta.url), 'utf8');
-    expect(JSON.parse(committed)).toEqual(JSON.parse(procedureSchemaFile(EXCHANGE_PROCEDURES)));
+  it('procedures/ is what the records say, one file per service', () => {
+    expect(procedureSchemaDrift(committed(), EXCHANGE_PROCEDURES, 'pnpm --filter @intafaced/exchange-contract procedures:write')).toEqual(
+      [],
+    );
   });
 
   it('the registry is every `defineProcedure` in src/, written by code (run `procedures:write` when this fails)', () => {
@@ -19,8 +21,7 @@ describe('the written records of exchange calls', () => {
   });
 
   it("every record's samples get the same verdict from its zod schema and from its committed JSON export", () => {
-    const committed = readFileSync(new URL('../procedures.schema.json', import.meta.url), 'utf8');
-    expect(sampleDisagreements(EXCHANGE_PROCEDURES, committed)).toEqual([]);
+    expect(sampleDisagreements(EXCHANGE_PROCEDURES, committed())).toEqual([]);
   });
 
   it("matching's submit refuses the body #8847 found: no lifecycle proof, and a client order id where a GUID belongs", () => {

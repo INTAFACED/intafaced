@@ -5,7 +5,7 @@
 //!
 //! What is produced is read from the recorded answers the Rust service is held to byte for byte: the service parity
 //! corpus (`service_parity.rs`) and the wire replay (`wire_replay.rs`). The records are the contracts' published schema
-//! (`packages/contracts/procedures.schema.json`), so a refusal added to a record shows here at once.
+//! (`packages/contracts/procedures/svc-tax.schema.json`), so a refusal added to a record shows here at once.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use svc_tax::json::{self, Json};
 
-const SCHEMA: &str = include_str!("../../../packages/contracts/procedures.schema.json");
+const SCHEMA: &str = include_str!("../../../packages/contracts/procedures/svc-tax.schema.json");
 const WIRE: &str = include_str!("fixtures/wire-replay.golden.json");
 const CEILING: &str = include_str!("fixtures/refusals-unproduced.json");
 const PARITY_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/service-parity");

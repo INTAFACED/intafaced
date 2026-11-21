@@ -30,6 +30,8 @@ export type PartId = 'wallet' | 'venue' | 'partner';
 export interface SourceRow {
   asset: string;
   amount: string;
+  /** A row a source holds apart from its plain balance of `asset` (a venue vault position, `vault:<address>`). */
+  key?: string;
 }
 
 /** What one source answered: still reading, could not be read, or its rows as of its own time. */

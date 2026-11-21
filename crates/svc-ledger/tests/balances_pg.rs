@@ -247,6 +247,8 @@ fn door_with(store: Store, indexer_url: Option<&str>, fetch: Arc<dyn Fetch>) -> 
         clock_skew_bound_ms: None,
         now_ms: svc_ledger::clock::system_ms,
         log: service_kit::telemetry::Logger::new("info", Box::new(std::io::sink())),
+        custody: svc_ledger::reconcile::CustodyLayer::On,
+        reconcile_statement_timeout_ms: svc_ledger::reconcile::DEFAULT_STATEMENT_TIMEOUT_MS,
         indexer_url: indexer_url.map(str::to_owned),
         fetch,
     })

@@ -450,6 +450,14 @@ describe('a read whose call has a record takes its module and path from the reco
   });
 });
 
+// A read of a call with a record names it (`readOf`): only then does the server parse the answer by the record and its checks.
+describe('a read of a call that has a record names it', () => {
+  it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+    const record = CONTRACT_PROCEDURES.find((r) => r.transport === 'trpc' && r.module === read.module && r.path === read.procedure);
+    expect(record?.name, `${read.module}.${read.procedure} has a record: write \`...readOf(<its record>)\` in catalog.ts`).toBeUndefined();
+  });
+});
+
 // A read with a record is mounted from that record (`mountRecords`), so its query is checked there, not in router text.
 describe('every read names a QUERY that exists in the owning router (drift guard)', () => {
   it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
