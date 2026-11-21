@@ -365,7 +365,7 @@ const bankSections: readonly DeskSection[] = [
       {
         id: 'bank.card-pay-from-breaks',
         title: 'Pay-from breaks',
-        note: 'Each pay-from payment whose figures the card partner does not report as this app recorded them: not reported (the partner has no record of the hold) or different. A break is named here once, never folded into a total.',
+        note: 'Each pay-from payment whose figures the card partner does not report as this app recorded them: not reported (the partner has no record of the hold), unreadable (the partner’s read failed, so nothing is known of it) or different. A break is named here once, never folded into a total.',
         module: 'bank',
         plainName: 'card pay-from breaks',
         procedure: 'ops.cardPayFromReconciliation',
@@ -376,7 +376,11 @@ const bankSections: readonly DeskSection[] = [
           text('authorizationRef', 'Payment'),
           text('assetId', 'Asset'),
           text('reason', 'Break', {
-            words: { not_reported: 'not reported by the partner', differs: 'the partner reports it differently' },
+            words: {
+              not_reported: 'not reported by the partner',
+              unreadable: 'the partner could not be read',
+              differs: 'the partner reports it differently',
+            },
           }),
           amount('app.spend', 'Spend (app)'),
           amount('app.open', 'Open hold (app)'),

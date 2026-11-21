@@ -250,7 +250,7 @@ export function cardPayFromReconciliationProcedure(bank: BankServices, guard: Gu
           z.object({
             authorizationRef: z.string(),
             assetId: z.string(),
-            reason: z.enum(['not_reported', 'differs']),
+            reason: z.enum(['not_reported', 'unreadable', 'differs']),
             app: figures,
             partner: figures.nullable(),
           }),

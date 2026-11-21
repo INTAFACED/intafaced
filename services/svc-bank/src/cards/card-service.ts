@@ -673,8 +673,11 @@ export interface PayFromReconciliationLine {
 export interface PayFromReconciliationBreak {
   readonly authorizationRef: string;
   readonly assetId: string;
-  /** `not_reported`: the partner has no record of the hold. `differs`: its figures are not the app's. */
-  readonly reason: 'not_reported' | 'differs';
+  /**
+   * `not_reported`: the partner answered and has no record of the hold. `unreadable`: the partner's read of the hold
+   * failed, so nothing is known of it. `differs`: its figures are not the app's.
+   */
+  readonly reason: 'not_reported' | 'unreadable' | 'differs';
   readonly app: { readonly spend: Amount; readonly open: Amount };
   readonly partner: { readonly spend: Amount; readonly open: Amount } | null;
 }
@@ -1416,12 +1419,15 @@ export class CardService {
       const appOpen = parseAmount(row.amount) - n(row.captured) - n(row.returned);
       const t = totals.get(row.asset_id) ?? { appSpend: 0n, partnerSpend: 0n, appOpen: 0n, partnerOpen: 0n };
       totals.set(row.asset_id, t);
-      const report = partner ? await partner.holdState({ holdKey: partnerCardKey('hold', row.id) }).catch(() => null) : null;
-      if (!report) {
+      // A read that throws is not the partner saying it holds nothing: it stays its own reason.
+      const report = partner
+        ? await partner.holdState({ holdKey: partnerCardKey('hold', row.id) }).catch(() => 'unreadable' as const)
+        : null;
+      if (report === null || report === 'unreadable') {
         breaks.push({
           authorizationRef: row.authorization_ref,
           assetId: row.asset_id,
-          reason: 'not_reported',
+          reason: report ?? 'not_reported',
           app: { spend: appSpend, open: appOpen },
           partner: null,
         });

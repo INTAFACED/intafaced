@@ -234,8 +234,9 @@ describe.each(stores)('address book: %s', (_name, make) => {
 });
 
 describe('address book: postgres only', () => {
-  // The legacy upsert's target is (user_id, kind), so a racing loser clashes on the label index instead; it must still
-  // get the winner's row, never "label taken" for its own label. Many rounds, since one race is not certain to interleave.
+  // The legacy upsert's target is (user_id, kind), and the label index is a second unique index the target does not
+  // absorb, so unserialised racers clashed there or deadlocked (40P01). Each must get the winner's row, never "label
+  // taken" for its own label and never a deadlock. Many rounds, since one race is not certain to interleave.
   it('two first persists racing with the same label both return the one legacy row', async () => {
     const store = new UserWithdrawDestinationStore(db.sql, { addressBookCap: () => '5' });
     for (let round = 0; round < 40; round++) {
@@ -253,7 +254,7 @@ describe('address book: postgres only', () => {
     }
   });
 
-  it('a persist whose label another entry holds is still refused after the race retry', async () => {
+  it('a persist whose label another entry holds is still refused under the address-book lock', async () => {
     const store = new UserWithdrawDestinationStore(db.sql, { addressBookCap: () => '5' });
     const u = fresh();
     await store.save({ userId: u, assetId: 'USDT', network: 'erc20', ref: ADDR_A, label: 'Taken' });
