@@ -34,7 +34,15 @@
  *
  *   node tooling/ci/look-gate/look-gate.mjs [--shard 1/4] [--out <dir>] [--only gallery|customer|admin] [--routes /a,/b]
  *        [--update-baselines] [--changed-from origin/main]
+ *   node tooling/ci/look-gate/look-gate.mjs --pr --before <base's apps/customer/dist> [--after <dist>] [--shard 1/3]
+ *        [--out <dir>] [--routes /a,/b]
  *   node tooling/ci/look-gate/look-gate.mjs --self-test
+ *
+ * `--pr` is a pull request's run (#9325): every Customer room is shot at the phone and the computer from the base's
+ * build and from the head's, one after the other on the same port. The rooms whose pictures differ are the rooms the
+ * change reaches; only those get every check above, at the base and at the head, and the run fails when the head adds a
+ * finding on a new-look page (policy.mjs newFindings, prVerdict). It keeps each reached room's before, after and diff
+ * pictures in `<out>/pictures/<room>/` with `pictures-<k>-of-<n>.json` naming them, for the CI review.
  */
 import { execFileSync } from 'node:child_process';
 import { createDecipheriv } from 'node:crypto';
@@ -80,7 +88,7 @@ const MIME = {
 };
 
 function args(argv) {
-  const out = { shard: [1, 1], out: join(ROOT, 'look-gate-out'), only: null, routes: null, update: false, changedFrom: null };
+  const out = { shard: [1, 1], out: join(ROOT, 'look-gate-out'), only: null, routes: null, update: false, changedFrom: null, pr: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--shard') {
@@ -95,8 +103,12 @@ function args(argv) {
     else if (a === '--update-baselines') out.update = true;
     else if (a === '--changed-from') out.changedFrom = argv[++i];
     else if (a === '--self-test') out.selfTest = true;
+    else if (a === '--pr') out.pr = true;
+    else if (a === '--before') out.before = resolve(argv[++i]);
+    else if (a === '--after') out.after = resolve(argv[++i]);
     else throw new Error(`unknown argument ${a}`);
   }
+  if (out.pr && !out.before) throw new Error('--pr needs --before <the base build of apps/customer/dist>');
   return out;
 }
 
@@ -993,7 +1005,7 @@ async function main(opts) {
   const [k, n] = opts.shard;
   const mine = targets.filter((_, i) => i % n === k - 1);
   // Pages in parallel (each in its own browser context), rows kept in target order.
-  const perTarget = new Array(mine.length);
+  const perTarget = Array.from({ length: mine.length });
   let next = 0;
   const worker = async () => {
     while (next < mine.length) {
@@ -1039,6 +1051,235 @@ async function main(opts) {
     rows.push(r);
   }
   const v = report(rows, opts);
+  if (v.mode === 'block') process.exit(1);
+}
+
+/**
+ * One room's picture as check() takes it (the same freeze, wait, settle and full-page viewport), with no checks: the
+ * cheap first pass of a pull request's run, which finds the rooms the change reaches.
+ */
+async function picture(browser, origin, target, vpName) {
+  const context = await browser.newContext({
+    viewport: VIEWPORTS[vpName],
+    deviceScaleFactor: 1,
+    reducedMotion: 'reduce',
+    timezoneId: 'UTC',
+    locale: 'en-GB',
+  });
+  const page = await context.newPage();
+  try {
+    await prepare(page, target);
+    await page.goto(origin + target.path, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await page.waitForLoadState('networkidle', { timeout: 6_000 }).catch(() => {});
+    await page.addStyleTag({ content: FREEZE_CSS });
+    await page.waitForFunction(() => !document.querySelector('.loading, [aria-busy="true"]'), null, { timeout: 8_000 }).catch(() => {});
+    await page.evaluate(() => document.fonts.ready);
+    // Settled before the height is read, and read again after each resize until it holds: a room still filling in
+    // when its height is read is shot cut short, and two shots of one build then differ (seen on /portfolio).
+    await settle(page);
+    const { width, height } = page.viewportSize();
+    for (let i = 0, last = height; i < 4; i++) {
+      const full = Math.min(Math.max(height, await page.evaluate(() => Math.ceil(document.documentElement.scrollHeight))), 12_000);
+      if (full === last && i > 0) break;
+      await page.setViewportSize({ width, height: full });
+      last = full;
+      await settle(page);
+    }
+    return await page.screenshot({ animations: 'disabled', caret: 'hide', timeout: 30_000 });
+  } catch (error) {
+    // A page that can't be shot is reached: the full checks say why.
+    return `error: ${String(error?.message ?? error)
+      .split('\n')[0]
+      .slice(0, 200)}`;
+  } finally {
+    await context.close();
+  }
+}
+
+/** `items` through `fn` on LOOK_GATE_WORKERS workers, results in item order. */
+async function pool(items, fn) {
+  const out = Array.from({ length: items.length });
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+      process.stdout.write('.');
+    }
+  };
+  await Promise.all(Array.from({ length: Number(process.env.LOOK_GATE_WORKERS ?? 3) }, worker));
+  process.stdout.write('\n');
+  return out;
+}
+
+/** Whether two pictures differ (any pixel past the baseline tolerance, a size change, or a shot that failed). */
+function picturesDiffer(a, b) {
+  if (typeof a === 'string' || typeof b === 'string') return { differ: true, diff: null };
+  const pa = decodePng(a);
+  const pb = decodePng(b);
+  if (pa.width !== pb.width || pa.height !== pb.height)
+    return { differ: true, diff: null, size: `${pa.width}x${pa.height} → ${pb.width}x${pb.height}` };
+  const mark = new Uint8Array(pb.data);
+  const d = policy.pixelDiff(pa.data, pb.data, pa, 2, mark);
+  return {
+    differ: d.differing > 0,
+    differing: d.differing,
+    diff: d.differing > 0 ? encodePng({ width: pb.width, height: pb.height, data: mark }) : null,
+  };
+}
+
+/** A pull request's run (`--pr`; the header names what it does). */
+async function prMain(opts) {
+  const { chromium } = await import('@playwright/test');
+  const sides = { before: opts.before, after: opts.after ?? join(ROOT, 'apps/customer/dist') };
+  for (const [side, dir] of Object.entries(sides))
+    if (!existsSync(join(dir, 'index.html'))) throw new Error(`no Customer build for the ${side} side in ${dir}`);
+  if (!existsSync(join(ROOT, I18N_FIXTURES)))
+    throw new Error(`no @intafaced/i18n build for the 130% copy pass (${I18N_FIXTURES}): pnpm --filter @intafaced/i18n build`);
+  const [k, n] = opts.shard;
+  const targets = (opts.routes ?? customerRoutes())
+    .filter((_, i) => i % n === k - 1)
+    .map((route) => ({ name: route, path: route, room: roomName(route), baselines: 'apps/customer/look-baselines', customer: true }));
+  const browser = await chromium.launch(process.env.LOOK_GATE_CHROMIUM ? { executablePath: process.env.LOOK_GATE_CHROMIUM } : {});
+  const started = Date.now();
+  // Each side on the gate's one fixed port in turn, so a room that prints its own address draws the same one.
+  const onSide = async (side, fn) => {
+    const { server, origin } = await serve(sides[side], [], PORT_BASE);
+    try {
+      return await fn(origin);
+    } finally {
+      server.close();
+    }
+  };
+
+  // 1. Pictures of every room on both sides.
+  const shots = {};
+  for (const side of ['before', 'after'])
+    shots[side] = await onSide(side, (origin) =>
+      pool(targets, async (t) =>
+        Object.fromEntries(await Promise.all(Object.keys(VIEWPORTS).map(async (vp) => [vp, await picture(browser, origin, t, vp)]))),
+      ),
+    );
+  // A room whose pictures differ is shot again on both sides: it counts as reached only when they differ again. A real
+  // change differs every time; antialiasing noise (a few pixels a few levels apart, 3 of 388 pictures in a run of one
+  // build against itself) does not repeat.
+  const candidates = targets.flatMap((t, i) => {
+    const vps = Object.keys(VIEWPORTS).filter((vp) => picturesDiffer(shots.before[i][vp], shots.after[i][vp]).differ);
+    return vps.length ? [{ t, i, vps }] : [];
+  });
+  const again = {};
+  for (const side of ['before', 'after'])
+    again[side] = await onSide(side, (origin) =>
+      pool(candidates, async ({ t, vps }) =>
+        Object.fromEntries(await Promise.all(vps.map(async (vp) => [vp, await picture(browser, origin, t, vp)]))),
+      ),
+    );
+  const confirmed = new Set();
+  candidates.forEach(({ i, vps }, c) => {
+    for (const vp of vps) if (picturesDiffer(again.before[c][vp], again.after[c][vp]).differ) confirmed.add(`${i}|${vp}`);
+  });
+  const pictured = Date.now();
+
+  // 2. The rooms whose pictures differ, with their before, after and diff pictures kept.
+  const reached = [];
+  const manifest = [];
+  targets.forEach((t, i) => {
+    const views = [];
+    for (const vp of Object.keys(VIEWPORTS)) {
+      const a = shots.before[i][vp];
+      const b = shots.after[i][vp];
+      if (!confirmed.has(`${i}|${vp}`)) continue;
+      const d = picturesDiffer(a, b);
+      const dir = join(opts.out, 'pictures', t.room);
+      mkdirSync(dir, { recursive: true });
+      const files = {};
+      for (const [name, png] of [
+        ['before', a],
+        ['after', b],
+        ['diff', d.diff],
+      ])
+        if (png && typeof png !== 'string') {
+          writeFileSync(join(dir, `${vp}.${name}.png`), png);
+          files[name] = `pictures/${t.room}/${vp}.${name}.png`;
+        }
+      views.push({
+        viewport: vp,
+        ...files,
+        differing: d.differing ?? null,
+        size: d.size ?? null,
+        error: [a, b].find((x) => typeof x === 'string') ?? null,
+      });
+    }
+    if (views.length) {
+      reached.push(t);
+      manifest.push({ route: t.name, room: t.room, views });
+    }
+  });
+
+  // 3. Every check on the reached rooms, at the base and at the head.
+  const rows = {};
+  for (const side of ['before', 'after'])
+    rows[side] = (
+      await onSide(side, (origin) =>
+        pool(reached, async (t) => {
+          const out = [];
+          for (const [vpName, viewport] of Object.entries(VIEWPORTS)) {
+            const context = await browser.newContext({
+              viewport,
+              deviceScaleFactor: 1,
+              reducedMotion: 'reduce',
+              timezoneId: 'UTC',
+              locale: 'en-GB',
+            });
+            out.push(await check(context, origin, t, vpName, { ...opts, out: join(opts.out, side), update: false }));
+            await context.close();
+          }
+          out.push(...(await variants(browser, origin, t, { ...opts, out: join(opts.out, side) })));
+          return out;
+        }),
+      )
+    ).flat();
+  await browser.close();
+
+  // 4. The verdict: what the head adds on the rooms it reaches.
+  const litTargets = new Set(rows.after.filter((r) => r.lit).map((r) => r.target));
+  const fresh = policy.newFindings(rows.before, rows.after);
+  const v = policy.prVerdict({ fresh, litTargets, today: new Date().toISOString().slice(0, 10) });
+  const minutes = (ms) => (ms / 60_000).toFixed(1);
+  const tag = opts.shard.join('-of-');
+  const lines = [
+    `# Look gate on the rooms this pull request changes (shard ${opts.shard.join('/')})`,
+    '',
+    `${targets.length} rooms shot at the base and the head (${minutes(pictured - started)} min); ${reached.length} differ: ${
+      reached.map((t) => t.name).join(', ') || 'none'
+    }. Checked at both (${minutes(Date.now() - pictured)} min).`,
+    '',
+    `Verdict: **${v.mode}**${v.why ? ` (${v.why})` : ''}. New findings on new-look pages: ${v.blocking.length}; on old-look pages (reported only): ${fresh.length - v.blocking.length}.`,
+    '',
+    ...(fresh.length
+      ? [
+          '| Page | Viewport | New finding | Blocks |',
+          '| --- | --- | --- | --- |',
+          ...fresh.map(
+            (f) =>
+              `| ${f.target} | ${f.viewport} | **${f.kind}**: ${f.items.slice(0, 3).join('; ').replace(/\|/g, '/')} | ${litTargets.has(f.target) ? 'yes' : 'no'} |`,
+          ),
+          '',
+        ]
+      : []),
+    "Findings the base already has on these rooms are main's, in the daily run's report; they block nobody here.",
+    '',
+  ];
+  const md = lines.join('\n');
+  mkdirSync(opts.out, { recursive: true });
+  writeFileSync(
+    join(opts.out, `pictures-${tag}.json`),
+    JSON.stringify({ shard: opts.shard, rooms: targets.length, reached: manifest }, null, 2) + '\n',
+  );
+  writeFileSync(join(opts.out, `report-pr-${tag}.md`), md + '\n');
+  writeFileSync(join(opts.out, `report-pr-${tag}.json`), JSON.stringify({ verdict: v, fresh, rows }, null, 2) + '\n');
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md.slice(0, 900_000) + '\n');
+  console.log(md);
   if (v.mode === 'block') process.exit(1);
 }
 
@@ -1413,6 +1654,62 @@ async function selfTest() {
     'diff counted once',
   );
   eq([...fakeMark], [0, 0, 0, 0, 255, 0, 80, 255], 'and the differing pixel is marked');
+  // A pull request's run (#9325): only what the head adds on a room it reaches blocks.
+  const base = [
+    {
+      target: '/pay',
+      viewport: 'phone',
+      findings: { contrast: ['p "Send" 3.10 < 4.5 (worst pixel under it rgb(1,2,3), box at 10,20)'], baseline: ['9 pixels differ'] },
+    },
+    { target: '/old', viewport: 'phone', findings: {} },
+  ];
+  const head = [
+    {
+      target: '/pay',
+      viewport: 'phone',
+      findings: {
+        contrast: [
+          'p "Send" 3.02 < 4.5 (worst pixel under it rgb(1,2,4), box at 10,64)',
+          'span.label "Fee" 2.00 < 4.5 (worst pixel under it rgb(9,9,9), box at 4,4)',
+          '… 3 more',
+        ],
+        baseline: ['900 pixels differ'],
+      },
+    },
+    { target: '/old', viewport: 'phone', findings: { axe: ['color-contrast ×2: p'] } },
+    { target: '/new', viewport: 'computer', findings: { error: ['net::ERR_ABORTED'] } },
+  ];
+  const fresh = policy.newFindings(base, head);
+  eq(
+    fresh,
+    [
+      {
+        target: '/pay',
+        viewport: 'phone',
+        kind: 'contrast',
+        items: ['span.label "Fee" 2.00 < 4.5 (worst pixel under it rgb(9,9,9), box at 4,4)'],
+      },
+      { target: '/old', viewport: 'phone', kind: 'axe', items: ['color-contrast ×2: p'] },
+      { target: '/new', viewport: 'computer', kind: 'error', items: ['net::ERR_ABORTED'] },
+    ],
+    'pr: a moved box or shifted ratio is the same finding; a new text, a new rule and a page the base never drew are new; baseline moves never block',
+  );
+  eq(policy.newFindings(base, base), [], 'pr: a head that draws what the base drew adds nothing');
+  eq(
+    policy.prVerdict({ fresh, litTargets: new Set(['/pay']), today: '2026-11-22' }).mode,
+    'block',
+    'pr: a new finding on a new-look page blocks',
+  );
+  eq(
+    policy.prVerdict({ fresh: fresh.slice(1), litTargets: new Set(['/pay']), today: '2026-11-22' }).mode,
+    'pass',
+    'pr: a new finding on an old-look page is reported, never blocks',
+  );
+  eq(
+    policy.prVerdict({ fresh, litTargets: new Set(['/pay']), today: '2026-11-01' }).mode,
+    'report',
+    'pr: report-only before BLOCKING_FROM',
+  );
   const h = securityHeaders({ reportUri: REPORT_PATH })['Content-Security-Policy'];
   ok(/script-src 'self';/.test(h) && /font-src 'self';/.test(h), 'the gate serves the production policy');
   await selfTestBrowser(eq);
@@ -1421,4 +1718,5 @@ async function selfTest() {
 
 const opts = args(process.argv.slice(2));
 if (opts.selfTest) await selfTest();
+else if (opts.pr) await prMain(opts);
 else await main(opts);
