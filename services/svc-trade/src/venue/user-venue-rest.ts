@@ -30,7 +30,7 @@
  *   POST /api/v1/venue/preview   { owner, intent }
  *   POST /api/v1/venue/convert/sell-quote   { owner, symbol, amount, quoteKey }   the venue's price for a sell (J-cex-spot-17 #8)
  *   GET  /api/v1/venue/convert/pairs                   what Convert may use now, each pair's limit, the restricted coins, paused
- *   GET  /api/v1/venue/convert/route?from=&to=         the market joining two assets, or why none does (J-cex-spot-11 #11)
+ *   GET  /api/v1/venue/convert/route?from=&to=         the market joining two assets, a cash currency's two linked legs, or why none does (#11)
  *   POST /api/v1/venue/convert/quote  { owner, from, to, amount, quoteKey }   a price that holds nothing (#3, #12)
  *   POST /api/v1/venue/convert/accept { owner, quoteId }   the quote's one venue order, prepared for the wallet (#5, #13)
  *   POST /api/v1/venue/convert/limit  { owner, from, to, amount, price, limitKey }   a resting venue order (#8)
@@ -968,8 +968,11 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/venue/convert/route', privateRead, async (req, reply) => {
     if (!(await admit(req, reply, 'trade:read'))) return;
     return answer(reply, async (d) => {
-      const { market, side } = await converts().route(d, req.query.from ?? '', req.query.to ?? '');
-      return { kind: 'direct', symbol: market.symbol, side };
+      const { market, side, cash } = await converts().route(d, req.query.from ?? '', req.query.to ?? '');
+      // From cash: the partner's cash leg into `stable`, then the venue order on `symbol`, two linked legs (#11).
+      return cash
+        ? { kind: 'cash', symbol: market.symbol, side, currency: cash.currency, stable: cash.stable }
+        : { kind: 'direct', symbol: market.symbol, side };
     });
   });
   app.post('/api/v1/venue/convert/quote', privateWrite, async (req, reply) => {

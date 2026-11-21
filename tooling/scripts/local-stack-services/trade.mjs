@@ -119,6 +119,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // How long a venue Convert price may be accepted before a fresh one must be (J-cex-spot-11 #4); the venue holds no
     // price. The labelled TEST value; venue convert quotes refuse trade.convert_window_unset without it.
     TRADE_CONVERT_ACCEPT_WINDOW_MS: testValue('TRADE_CONVERT_ACCEPT_WINDOW_MS'),
+    // LOCAL TEST cash partner for a Convert from cash (J-cex-spot-11 #11; src/venue/cash-partner.ts; takes no cash, refused
+    // at boot outside APP_ENV dev or test): it offers the currencies of its TEST catalogue and delivers TEST USDC through
+    // the TEST venue's deposit control. `LOCAL_STACK_TRADE_CASH_PARTNER=off` on a restart runs with no partner, so every
+    // cash currency is not offered.
+    TRADE_CONVERT_CASH_PARTNER: process.env.LOCAL_STACK_TRADE_CASH_PARTNER === 'off' ? '' : 'test',
+    TRADE_CONVERT_CASH_TEST_JSON: testValue('TRADE_CONVERT_CASH_TEST_JSON'),
     // LOCAL TEST, not an owner decision (option B, 2026-10-13): the dead-man switch (cancel-all-after) timeouts, in
     // seconds, as retail exchanges publish them (OKX accepts 10 to 120). Without them arming refuses
     // trade.cancel_all_after_unset. The sweep runs every second here so a journey does not wait on the 5 s default.

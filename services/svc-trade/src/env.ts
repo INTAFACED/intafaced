@@ -328,6 +328,15 @@ const schema = serviceEnvSchema
       TRADE_CONVERT_ACCEPT_WINDOW_MS: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
+       * Convert from a cash currency (J-cex-spot-11 #11, src/venue/cash-partner.ts): the partner that carries out the
+       * cash leg. NO DEFAULT and no partner is contracted: blank refuses every cash currency `trade.convert_cash_not_offered`.
+       * `test` is the LOCAL TEST stand-in, refused at boot outside APP_ENV dev or test.
+       */
+      TRADE_CONVERT_CASH_PARTNER: z.string().default(''),
+      /** The TEST cash partner's catalogue (its stablecoin; each currency's rate, fee and largest leg). Read only with `test`. */
+      TRADE_CONVERT_CASH_TEST_JSON: z.string().default(''),
+
+      /**
        * Kill-switch for TWAP algo execution (D-S-04 / trade.algo).
        * OFF refuses new schedules; cancel/pause of existing still work.
        */

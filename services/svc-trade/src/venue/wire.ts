@@ -6,7 +6,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
 import type { EventBus } from '@intafaced/events';
-import { VenueRefusalError } from '@intafaced/venue-contracts';
+import { VenueRefusalError, encodeVenueWire } from '@intafaced/venue-contracts';
 import type { ServiceAuthMode, ServiceSigner, ServiceVerifier, StepUpCheck } from '@intafaced/contracts';
 import { env } from '../env.js';
 import type { RankPerksSource } from '../spot/rank-perks.js';
@@ -32,6 +32,7 @@ import { UserVenueRouter, parseUserVenueUrls } from './venue-router.js';
 import { parseVenueEligibilityLevel } from './venue-eligibility.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue-sell-quotes.js';
 import { SqlConvertQuoteStore, VenueConverts } from './venue-convert.js';
+import { SqlCashLegStore, cashPartnerFor } from './cash-partner.js';
 
 export function wireUserVenue(deps: {
   app: FastifyInstance;
@@ -149,6 +150,24 @@ export function wireUserVenue(deps: {
     : null;
   // Convert on the customer's own venue account (J-cex-spot-11): quotes hold nothing; an accept is one venue order the
   // wallet signs. On whichever door the request names. Off with the door.
+  // From a cash currency, the partner's cash leg first (#11). The LOCAL TEST partner delivers its TEST stablecoin through
+  // the TEST venue's own deposit control, on the venue the account is on, under the leg's id (credited once).
+  const cashPartner = cashPartnerFor(env.TRADE_CONVERT_CASH_PARTNER, env.TRADE_CONVERT_CASH_TEST_JSON, process.env.APP_ENV, {
+    store: new SqlCashLegStore(sql),
+    now: () => new Date(),
+    deliver: async (account, asset, amount, depositRef) => {
+      const ids = await Promise.all(userVenueDoors.map(async (d) => (await d.venue()).venue.id));
+      const url = userVenueUrls[ids.indexOf(account.venueId)];
+      if (!url) throw new Error(`no TEST venue ${account.venueId} to deliver the cash leg to`);
+      const res = await fetch(`${url}/test/deposit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(encodeVenueWire({ account, asset, amount, depositRef })),
+        signal: AbortSignal.timeout(env.TRADE_USER_VENUE_TIMEOUT_MS),
+      });
+      if (!res.ok) throw new Error(`the TEST venue refused the cash leg's delivery: ${res.status} ${(await res.text()).slice(0, 200)}`);
+    },
+  });
   const venueConverts = userVenueRouter
     ? new VenueConverts({
         store: new SqlConvertQuoteStore(sql),
@@ -156,6 +175,7 @@ export function wireUserVenue(deps: {
         enabled: env.TRADE_CONVERT_ENABLED,
         windowMs: env.TRADE_CONVERT_ACCEPT_WINDOW_MS,
         slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+        cashPartner,
       })
     : null;
 

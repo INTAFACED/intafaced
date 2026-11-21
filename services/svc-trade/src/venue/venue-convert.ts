@@ -15,6 +15,12 @@
  *   · A conversion's state, paid and received amounts and time are read from the venue by client id, never posted. The
  *     ledger posts nothing for the swap; a sell's builder fee is posted once per fill by the builder-fee poster, as for
  *     every order the door signed (src/builder-fee/builder-fee-poster.ts). A buy carries no builder fee.
+ *   · FROM A CASH CURRENCY (#11, owner row d115) where the cash partner offers it (src/venue/cash-partner.ts): two linked
+ *     legs, one record. The quote holds the partner's figure for its cash leg (cash in, stablecoin delivered) and sizes
+ *     the venue leg (a buy on `<coin>-<stable>`) from that stablecoin. At submit, once the wallet's signature over the
+ *     venue order checks, the partner carries out the cash leg under `convert-cash:<owner>:<quoteId>` (once per key),
+ *     and only a settled leg lets the venue order be sent: a refused or failed one sends nothing to the venue. With no
+ *     partner, or one that does not offer the currency, a cash currency refuses `trade.convert_cash_not_offered`.
  */
 import type { Sql } from 'postgres';
 import { z } from 'zod';
@@ -22,6 +28,7 @@ import type { Principal } from '@intafaced/auth';
 import { add, div, formatAmount, mul, parseAmount, sub, type Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
+  assertSignatureMatches,
   type MaybeKnown,
   type PlaceUserOrderIntent,
   type UserVenueFill,
@@ -31,10 +38,12 @@ import {
 } from '@intafaced/venue-contracts';
 import { isCashCurrency } from '../convert/pairs.js';
 import { requireMarketSlippageCapBps } from '../spot/risk.js';
+import { CashPartnerRefusal, type CashLeg, type CashPartner, type CashPrice } from './cash-partner.js';
 import type { StoredVenueAction } from './prepared-action-store.js';
 import {
   CONVERT_KEY_PREFIX,
   UserVenueDoorError,
+  assertSignatureRecovers,
   discountedBuilderFee,
   marketProtectionBound,
   type PreparedAnswer,
@@ -79,6 +88,8 @@ export interface ConvertQuote {
   /** The end of the window this price may be accepted in. The venue holds no price: it is only how long ours is fresh. */
   readonly freshUntil: Date;
   readonly createdAt: Date;
+  /** From a cash currency: the partner's figure for the cash leg (`spend` of `from` in, its stablecoin out). Else null. */
+  readonly cash: CashPrice | null;
 }
 
 export interface ConvertQuoteStore {
@@ -128,6 +139,10 @@ const Row = z.object({
   fill_average_price: z.string().nullable(),
   fresh_until: z.date(),
   created_at: z.date(),
+  cash_stable: z.string().nullable(),
+  cash_rate: z.string().nullable(),
+  cash_fee: z.string().nullable(),
+  cash_stable_amount: z.string().nullable(),
 });
 type Row = z.infer<typeof Row>;
 
@@ -173,13 +188,24 @@ function fromRow(r: Row): ConvertQuote {
     fill,
     freshUntil: r.fresh_until,
     createdAt: r.created_at,
+    cash:
+      r.cash_stable === null || r.cash_rate === null || r.cash_fee === null || r.cash_stable_amount === null
+        ? null
+        : {
+            currency: r.from_asset,
+            cash: parseAmount(r.spend),
+            fee: parseAmount(r.cash_fee),
+            rate: parseAmount(r.cash_rate),
+            stable: r.cash_stable,
+            stableAmount: parseAmount(r.cash_stable_amount),
+          },
   };
 }
 
 const COLUMNS = `user_id, quote_id, venue_id, test, owner, market, side, from_asset, to_asset, spend::text, size::text,
   best_price::text, best_as_of, limit_price::text, slippage_bps, builder_fee_bps::text,
   builder_fee_amount::text, venue_fee_amount::text, venue_fee_asset, fill_known, fill_amount::text,
-  fill_average_price::text, fresh_until, created_at`;
+  fill_average_price::text, fresh_until, created_at, cash_stable, cash_rate::text, cash_fee::text, cash_stable_amount::text`;
 
 export class SqlConvertQuoteStore implements ConvertQuoteStore {
   constructor(private readonly sql: Sql) {}
@@ -192,7 +218,8 @@ export class SqlConvertQuoteStore implements ConvertQuoteStore {
       INSERT INTO trade.venue_convert_quotes (
         user_id, quote_id, venue_id, test, owner, market, side, from_asset, to_asset, spend, size, best_price, best_as_of,
         limit_price, slippage_bps, builder_fee_bps, builder_fee_known, builder_fee_amount, venue_fee_known, venue_fee_amount,
-        venue_fee_asset, fill_known, fill_amount, fill_average_price, fresh_until, created_at
+        venue_fee_asset, fill_known, fill_amount, fill_average_price, fresh_until, created_at, cash_stable, cash_rate, cash_fee,
+        cash_stable_amount
       ) VALUES (
         ${q.userId}, ${q.quoteId}, ${q.venueId}, ${q.test}, ${q.owner}, ${q.market}, ${q.side}, ${q.from}, ${q.to},
         ${formatAmount(q.spend)}, ${formatAmount(q.size)}, ${formatAmount(q.bestPrice.price)}, ${q.bestPrice.asOf.toISOString()},
@@ -200,7 +227,9 @@ export class SqlConvertQuoteStore implements ConvertQuoteStore {
         ${fee && fee.amount.known ? formatAmount(fee.amount.value) : null}, ${q.venueFee.known},
         ${venueFee ? formatAmount(venueFee.amount) : null}, ${venueFee ? venueFee.asset : null}, ${q.fill.known},
         ${fill ? formatAmount(fill.amount) : null}, ${fill && fill.averagePrice !== null ? formatAmount(fill.averagePrice) : null},
-        ${q.freshUntil.toISOString()}, ${q.createdAt.toISOString()}
+        ${q.freshUntil.toISOString()}, ${q.createdAt.toISOString()}, ${q.cash?.stable ?? null},
+        ${q.cash ? formatAmount(q.cash.rate) : null}, ${q.cash ? formatAmount(q.cash.fee) : null},
+        ${q.cash ? formatAmount(q.cash.stableAmount) : null}
       )
       ON CONFLICT (user_id, quote_id) DO NOTHING`;
     const stored = await this.get(q.userId, q.quoteId);
@@ -264,6 +293,14 @@ export interface LimitConvertAsk {
 
 export type ConversionState = 'filled' | 'partially_filled' | 'resting' | 'not_filled' | 'rejected' | 'unknown';
 
+/** A conversion's cash leg as the partner records it; `unknown` with no `legId` when the partner has no record of it. */
+export interface ConversionCashLeg extends CashPrice {
+  readonly key: string;
+  readonly legId: string | null;
+  readonly state: CashLeg['state'] | 'unknown';
+  readonly settledAt: Date | null;
+}
+
 /** One accepted conversion, as the venue records it. */
 export interface Conversion {
   readonly actionKey: string;
@@ -285,6 +322,8 @@ export interface Conversion {
   /** The last fill's venue time, or `null` before one. */
   readonly filledAt: Date | null;
   readonly acceptedAt: Date;
+  /** From a cash currency: the linked cash leg, the partner's; the fields above are the venue leg's. Else null. */
+  readonly cashLeg: ConversionCashLeg | null;
 }
 
 export interface VenueConvertDeps {
@@ -296,6 +335,15 @@ export interface VenueConvertDeps {
   readonly windowMs: number | null;
   /** TRADE_MARKET_SLIPPAGE_CAP_BPS, or null when blank: every quote refuses `trade.slippage_cap_unset`. */
   readonly slippageCapBps: number | null;
+  /** TRADE_CONVERT_CASH_PARTNER, or null when blank: every cash currency refuses `trade.convert_cash_not_offered`. */
+  readonly cashPartner: CashPartner | null;
+}
+
+/** How `from` reaches `to`: one venue market, and from a cash currency the partner's cash leg into its stablecoin first. */
+export interface ConvertRoute {
+  readonly market: ListedVenueMarket;
+  readonly side: ConvertSide;
+  readonly cash: { readonly currency: string; readonly stable: string } | null;
 }
 
 const KEY_RE = /^[A-Za-z0-9_-]{8,80}$/;
@@ -309,6 +357,8 @@ const bad = (message: string): never => refuse(message, 'trade.venue_request_inv
 /** The business key an accepted quote's one order is stored and placed under. */
 export const convertKey = (owner: string, quoteId: string) => `${CONVERT_KEY_PREFIX}${owner}:${quoteId}`;
 const limitConvertKey = (owner: string, limitKey: string) => `${CONVERT_KEY_PREFIX}${owner}:${LIMIT_PART}:${limitKey}`;
+/** The business key of a cash quote's cash leg at the partner, linked to its venue order's `convert:<owner>:<quoteId>`. */
+export const cashLegKey = (owner: string, quoteId: string) => `convert-cash:${owner}:${quoteId}`;
 
 /** `{ quoteId }` for an instant conversion's key, `{ limitKey }` for a limit convert's, `null` for anything else. */
 function partsOf(key: string): { owner: string; quoteId: string | null; limitKey: string | null } | null {
@@ -363,20 +413,26 @@ export class VenueConverts {
   }
 
   /**
-   * How `from` converts to `to` (#11): the one venue market joining them, bought or sold. A cash currency needs a partner
-   * for its cash leg, and none is set: `trade.convert_cash_not_offered`, never one leg priced alone.
+   * How `from` converts to `to` (#11): the one venue market joining them, bought or sold. From a cash currency the cash
+   * partner offers, its cash leg into the partner's stablecoin, then a buy of `to` on `<to>-<stable>`. Any other cash
+   * currency, and every one with no partner set, is `trade.convert_cash_not_offered`, never one leg priced alone.
    */
-  async route(door: UserVenueDoor, from: string, to: string): Promise<{ market: ListedVenueMarket; side: ConvertSide }> {
+  async route(door: UserVenueDoor, from: string, to: string): Promise<ConvertRoute> {
     if (typeof from !== 'string' || typeof to !== 'string' || !from.trim() || !to.trim() || from === to)
       bad('from and to are two different assets');
     const open = (await door.markets()).value.filter(convertible);
     const buy = open.find((m) => m.baseAsset === to && m.quoteAsset === from);
-    if (buy) return { market: buy, side: 'buy' };
+    if (buy) return { market: buy, side: 'buy', cash: null };
     const sell = open.find((m) => m.baseAsset === from && m.quoteAsset === to);
-    if (sell) return { market: sell, side: 'sell' };
+    if (sell) return { market: sell, side: 'sell', cash: null };
+    const partner = this.deps.cashPartner;
+    if (partner && isCashCurrency(from) && !isCashCurrency(to) && partner.offers(from)) {
+      const leg = open.find((m) => m.baseAsset === to && m.quoteAsset === partner.stable);
+      if (leg) return { market: leg, side: 'buy', cash: { currency: from, stable: partner.stable } };
+    }
     if (isCashCurrency(from) || isCashCurrency(to))
       refuse(
-        `${from} to ${to} needs a cash leg through a partner, and no partner offers one here; nothing was priced`,
+        `${from} to ${to} needs a cash leg through a partner, and none is offered for it here; nothing was priced`,
         'trade.convert_cash_not_offered',
         422,
       );
@@ -396,7 +452,8 @@ export class VenueConverts {
     const had = await this.deps.store.get(principal.userId, ask.quoteKey);
     if (had) return same(had, owner, ask);
 
-    const { market, side } = await this.route(door, ask.from, ask.to);
+    const { market, side, cash: cashRoute } = await this.route(door, ask.from, ask.to);
+    const cash = cashRoute ? this.cashPrice(cashRoute.currency, ask.amount) : null;
     const cap = requireMarketSlippageCapBps(this.deps.slippageCapBps);
     const venue = await door.venue();
     const best = venue.bestPrices ? await venue.bestPrices(market.symbol) : null;
@@ -408,7 +465,8 @@ export class VenueConverts {
         'trade.convert_no_price',
         422,
       );
-    const size = this.sizeOf({ side, amount: ask.amount, price: limitPrice, market });
+    // From cash, the venue leg spends the stablecoin the partner delivers, never more.
+    const size = this.sizeOf({ side, amount: cash ? cash.stableAmount : ask.amount, price: limitPrice, market });
     const intent = orderOf({
       symbol: market.symbol,
       side,
@@ -456,6 +514,7 @@ export class VenueConverts {
       fill: preview.value.fill,
       freshUntil: new Date(now.getTime() + windowMs),
       createdAt: now,
+      cash,
     });
     return same(stored, owner, ask);
   }
@@ -492,7 +551,13 @@ export class VenueConverts {
     if (typeof ask.amount !== 'bigint' || ask.amount <= 0n) bad('amount must be a positive decimal string');
     if (typeof ask.price !== 'bigint' || ask.price <= 0n) bad('price must be the positive target rate as a decimal string');
     const owner = (await door.account(ask.owner)).owner;
-    const { market, side } = await this.route(door, ask.from, ask.to);
+    const { market, side, cash } = await this.route(door, ask.from, ask.to);
+    if (cash)
+      refuse(
+        `a limit convert from ${cash.currency} is not offered: the cash leg is carried out at once, so only an instant convert takes it`,
+        'trade.convert_cash_not_offered',
+        422,
+      );
     if (!onGrid(ask.price, market.tickSize))
       refuse(
         `the target rate must be a multiple of ${formatAmount(market.tickSize)} ${market.quoteAsset}`,
@@ -531,7 +596,14 @@ export class VenueConverts {
     const row = await door.stored(principal, key);
     if (row && !row.signature) {
       this.assertOpen();
-      if (parts.quoteId) this.assertFresh(await this.quoteOf(principal, parts.quoteId));
+      const q = parts.quoteId ? await this.quoteOf(principal, parts.quoteId) : null;
+      if (q) this.assertFresh(q);
+      if (q?.cash) {
+        // The wallet signed this venue order before the partner moves anything; then the cash leg, once per key.
+        assertSignatureMatches(row.prepared, signature);
+        await assertSignatureRecovers(row.prepared, signature);
+        await this.runCashLeg(principal, q, q.cash);
+      }
     }
     return door.submit(principal, key, signature, { convert: true });
   }
@@ -560,12 +632,85 @@ export class VenueConverts {
       const cloid = row.prepared.venueClientOrderId;
       const order = cloid ? (await venue.orderByClientId(account, cloid)).value : null;
       const mine = fills.value.filter((f) => cloid !== null && f.venueClientOrderId === cloid);
-      conversions.push(
-        conversionOf({ row, parts, intent, base: market.baseAsset, quote: market.quoteAsset, status: order?.status ?? null, fills: mine }),
-      );
+      const q = parts.quoteId ? await this.deps.store.get(principal.userId, parts.quoteId) : null;
+      const cashLeg = q?.cash ? await this.cashLegOf(q, q.cash) : null;
+      conversions.push({
+        ...conversionOf({
+          row,
+          parts,
+          intent,
+          base: market.baseAsset,
+          quote: market.quoteAsset,
+          status: order?.status ?? null,
+          fills: mine,
+        }),
+        cashLeg,
+      });
     }
     conversions.sort((a, b) => b.acceptedAt.getTime() - a.acceptedAt.getTime());
     return { conversions, asOf: fills.asOf };
+  }
+
+  /** The partner's figure for a cash leg, or its refusal by name; nothing is priced without a partner. */
+  private cashPrice(currency: string, amount: Amount): CashPrice {
+    const partner = this.deps.cashPartner;
+    if (!partner)
+      return refuse(`no partner offers a cash leg for ${currency} here; nothing was priced`, 'trade.convert_cash_not_offered', 422);
+    try {
+      return partner.price(currency, amount);
+    } catch (err) {
+      if (err instanceof CashPartnerRefusal) return refuse(`${err.message}; nothing was priced`, 'trade.convert_cash_leg_refused', 422);
+      throw err;
+    }
+  }
+
+  /** The cash leg carried out, once per key; anything but a settled leg refuses, and nothing is sent to the venue. */
+  private async runCashLeg(principal: Principal, q: ConvertQuote, price: CashPrice): Promise<CashLeg> {
+    const partner = this.deps.cashPartner;
+    if (!partner)
+      return refuse(`no partner offers a cash leg for ${q.from} here now; nothing was sent`, 'trade.convert_cash_not_offered', 422);
+    let leg: CashLeg;
+    try {
+      leg = await partner.exchange({
+        key: cashLegKey(q.owner, q.quoteId),
+        userId: principal.userId,
+        account: { venueId: q.venueId, owner: q.owner, subAccount: null },
+        price,
+      });
+    } catch (err) {
+      if (err instanceof CashPartnerRefusal) return refuse(`${err.message}; nothing was sent`, 'trade.convert_cash_leg_refused', 422);
+      return refuse(
+        'the partner did not finish the cash leg, so nothing was sent to the venue. Try again: the leg never runs twice',
+        'trade.convert_cash_leg_failed',
+        502,
+      );
+    }
+    if (leg.state === 'refused')
+      refuse(
+        `the partner refused the cash leg: ${leg.refusal ?? 'no reason given'}; nothing was sent`,
+        'trade.convert_cash_leg_refused',
+        422,
+      );
+    return leg;
+  }
+
+  private async cashLegOf(q: ConvertQuote, price: CashPrice): Promise<ConversionCashLeg> {
+    const key = cashLegKey(q.owner, q.quoteId);
+    const leg = this.deps.cashPartner ? await this.deps.cashPartner.legOf(key) : null;
+    return leg
+      ? {
+          key,
+          legId: leg.legId,
+          state: leg.state,
+          settledAt: leg.settledAt,
+          currency: leg.currency,
+          cash: leg.cash,
+          fee: leg.fee,
+          rate: leg.rate,
+          stable: leg.stable,
+          stableAmount: leg.stableAmount,
+        }
+      : { ...price, key, legId: null, state: 'unknown', settledAt: null };
   }
 
   private assertOpen(): void {
@@ -666,7 +811,7 @@ function conversionOf({
   quote: string;
   status: string | null;
   fills: readonly UserVenueFill[];
-}): Conversion {
+}): Omit<Conversion, 'cashLeg'> {
   let baseAmount = 0n;
   let quoteAmount = 0n;
   let venueFee = 0n;
@@ -769,8 +914,19 @@ export function presentConvertQuote(q: ConvertQuote) {
     held: false as const,
     freshUntil: q.freshUntil.toISOString(),
     createdAt: q.createdAt.toISOString(),
+    /** From cash: the partner's figure for the cash leg; the lines above are the venue leg's, in `stable`. */
+    cash: q.cash ? presentCashPrice(q.cash) : null,
   };
 }
+
+const presentCashPrice = (c: CashPrice) => ({
+  currency: c.currency,
+  cash: formatAmount(c.cash),
+  fee: formatAmount(c.fee),
+  rate: formatAmount(c.rate),
+  stable: c.stable,
+  stableAmount: formatAmount(c.stableAmount),
+});
 
 export function presentConversion(c: Conversion) {
   return {
@@ -791,6 +947,15 @@ export function presentConversion(c: Conversion) {
     fills: c.fills,
     filledAt: c.filledAt?.toISOString() ?? null,
     acceptedAt: c.acceptedAt.toISOString(),
+    cashLeg: c.cashLeg
+      ? {
+          ...presentCashPrice(c.cashLeg),
+          key: c.cashLeg.key,
+          legId: c.cashLeg.legId,
+          state: c.cashLeg.state,
+          settledAt: c.cashLeg.settledAt?.toISOString() ?? null,
+        }
+      : null,
   };
 }
 

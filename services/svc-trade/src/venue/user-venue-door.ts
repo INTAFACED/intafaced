@@ -276,6 +276,8 @@ export type UserVenueDoorCode =
   | 'trade.convert_quote_key_reused'
   | 'trade.convert_pair_unlisted'
   | 'trade.convert_cash_not_offered'
+  | 'trade.convert_cash_leg_refused'
+  | 'trade.convert_cash_leg_failed'
   | 'trade.convert_no_price'
   | 'trade.convert_amount_too_small'
   | 'trade.convert_amount_not_on_lot'
@@ -718,7 +720,7 @@ function sameJson(a: unknown, b: unknown): boolean {
  * prepared digest and the bytes must recover to the prepared signer. Bad bytes are refused and never stored, so the key
  * can still complete with a good signature.
  */
-async function assertSignatureRecovers(prepared: PreparedVenueAction, signature: VenueSignature): Promise<void> {
+export async function assertSignatureRecovers(prepared: PreparedVenueAction, signature: VenueSignature): Promise<void> {
   let recovered: string | null = null;
   try {
     const typed = prepared.typedData as TypedDataDefinition;

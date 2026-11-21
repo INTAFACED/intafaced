@@ -202,9 +202,15 @@ venue order under `convert:<owner>:<quoteId>`, so a double press, the same quote
 past `TRADE_CONVERT_ACCEPT_WINDOW_MS` (owner value; blank refuses `trade.convert_window_unset`) an unsigned action is
 refused at accept and at submit (`trade.convert_quote_expired`). A limit convert rests one GTC order under
 `convert:<owner>:limit:<limitKey>`. The door refuses a `convert:` key on its plain routes (`trade.venue_convert_only`).
-`TRADE_CONVERT_ENABLED` off refuses `trade.convert_disabled`; a cash currency refuses `trade.convert_cash_not_offered` (no
-partner is set). History reads each accepted order's fills from the venue by client id. The ledger posts nothing for the
-swap; a sell's builder fee is posted once per fill by the builder-fee poster. The older `convert.*` tRPC path settles on
+`TRADE_CONVERT_ENABLED` off refuses `trade.convert_disabled`. From a cash currency the cash partner offers
+(`TRADE_CONVERT_CASH_PARTNER`, `src/venue/cash-partner.ts`) a convert is two linked legs in one record: the quote holds the
+partner's figure for the cash leg (cash in, stablecoin delivered) and sizes the venue buy from it; at submit, once the
+wallet's signature checks, the partner carries out the cash leg under `convert-cash:<owner>:<quoteId>` (once per key) and
+only a settled leg lets the venue order go (`trade.convert_cash_leg_refused`, `trade.convert_cash_leg_failed` send nothing).
+No partner is contracted, so blank is the default and every cash currency refuses `trade.convert_cash_not_offered`; `test`
+is the LOCAL TEST stand-in (refused outside APP_ENV dev or test), whose own record is `trade.test_cash_partner_legs`.
+History reads each accepted order's fills from the venue by client id. The ledger posts nothing for the swap or the cash
+leg; a sell's builder fee is posted once per fill by the builder-fee poster. The older `convert.*` tRPC path settles on
 our own book and is the custodial layer, kept and switched off with it.
 
 **The person's own venue trading, for svc-tax (J-cex-spot-01 #11).** `venue.ownActivity` (tRPC mutation, svc-tax only,
