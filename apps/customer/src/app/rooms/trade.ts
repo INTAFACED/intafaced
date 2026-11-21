@@ -247,6 +247,14 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     area: 'trade',
     hidden: true,
   },
+  {
+    path: '/trade/bots/dca/share/:id',
+    title: 'Recurring buy result',
+    description: 'What a recurring buy cost and what it is worth, to share',
+    door: 'Trade',
+    area: 'trade',
+    hidden: true,
+  },
   { path: '/bots', title: 'Trading bots', description: 'Automated strategies', area: 'trade', alias: '/trade/bots' },
   {
     path: '/trade/risk',

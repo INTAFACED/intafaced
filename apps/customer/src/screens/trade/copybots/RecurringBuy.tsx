@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import {
   Badge,
   Button,
@@ -92,7 +92,7 @@ function useRoomApi(): RoomApi {
 }
 
 /** The wallet signs what the service asks for: our builder fee once, then the recurring-buy agent permission. */
-function useWalletSteps(api: RoomApi, status: VenueUp) {
+function useWalletSteps(api: RoomApi, status: VenueUp, onSigning: (signing: boolean) => void) {
   const wallet = useWallet();
   const venue = useVenueApi();
   const owner = useOwner();
@@ -101,7 +101,8 @@ function useWalletSteps(api: RoomApi, status: VenueUp) {
   async function sign(typed: unknown): Promise<{ ok: true; signature: string } | { ok: false; failure: Failure }> {
     const parsed = preparedAnswerSchema.shape.prepared.shape.typedData.safeParse(typed);
     if (!parsed.success) return { ok: false, failure: failed('trade.recurring_wallet_failed') };
-    const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(parsed.data) });
+    onSigning(true);
+    const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(parsed.data) }).finally(() => onSigning(false));
     if (signed.status === 'signed') return { ok: true, signature: signed.signature };
     return {
       ok: false,
@@ -153,16 +154,22 @@ export function RecurringBuyButton({ asset }: { asset: string }) {
   const venueMode = useVenueMode();
   if (!session) return null;
   const venueUp = venueMode.mode === 'on' && venueMode.status.available ? venueMode.status : null;
-  const dialog = (
-    <Dialog open={open} onOpenChange={setOpen}>
+  const header = (
+    <DialogHeader>
+      <DialogTitle>{t('Recurring buy')}</DialogTitle>
+      <DialogDescription>
+        {t('Buy a basket of coins on a schedule, on your own venue account. Each time, each coin is bought as one order there.')}
+      </DialogDescription>
+    </DialogHeader>
+  );
+  // Mounted when the form opens, so each opening is a new request with its own key.
+  const dialog = !open ? null : venueUp ? (
+    <RecurringEditor asset={asset} status={venueUp} header={header} onClose={() => setOpen(false)} />
+  ) : (
+    <Dialog open onOpenChange={setOpen}>
       <DialogContent className="cb-dialog">
-        <DialogHeader>
-          <DialogTitle>{t('Recurring buy')}</DialogTitle>
-          <DialogDescription>
-            {t('Buy a basket of coins on a schedule, on your own venue account. Each time, each coin is bought as one order there.')}
-          </DialogDescription>
-        </DialogHeader>
-        {venueUp ? <RecurringEditor asset={asset} status={venueUp} /> : <RefusalNote failure={failed('trade.recurring_unavailable')} />}
+        {header}
+        <RefusalNote failure={failed('trade.recurring_unavailable')} />
       </DialogContent>
     </Dialog>
   );
@@ -178,11 +185,22 @@ export function RecurringBuyButton({ asset }: { asset: string }) {
 
 type Row = { symbol: string; weight: string; lowest: string; highest: string };
 
-function RecurringEditor({ asset, status }: { asset: string; status: VenueUp }) {
+function RecurringEditor({ asset, status, header, onClose }: { asset: string; status: VenueUp; header: ReactNode; onClose: () => void }) {
   const { t } = roomCopy.useCopy();
   const api = useRoomApi();
   const venue = useVenueApi();
-  const steps = useWalletSteps(api, status);
+  // While the wallet asks, its own "Check before you sign" sheet is the only thing on screen: this modal would hide it from
+  // the accessibility tree and block pointer input to it. The form keeps its state and comes back once the wallet answers.
+  const [signing, setSigning] = useState(false);
+  const steps = useWalletSteps(api, status, setSigning);
+  const frame = (body: ReactNode) => (
+    <Dialog open={!signing} onOpenChange={(next) => (next ? undefined : onClose())}>
+      <DialogContent className="cb-dialog">
+        {header}
+        {body}
+      </DialogContent>
+    </Dialog>
+  );
   const markets = useResource((signal) => venue.markets(signal), 'recurring-venue-markets');
   const spot = useMemo(
     () =>
@@ -205,7 +223,7 @@ function RecurringEditor({ asset, status }: { asset: string; status: VenueUp }) 
   const set = (i: number, patch: Partial<Row>) => setRows((all) => all.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
   if (saved) {
-    return (
+    return frame(
       <div className="cb-form">
         <p role="status" className="cb-note-body">
           {saved.status === 'signing'
@@ -218,7 +236,7 @@ function RecurringEditor({ asset, status }: { asset: string; status: VenueUp }) 
         <Button nativeButton={false} render={<a href={DCA_HREF} />}>
           {t('Open my recurring buys')}
         </Button>
-      </div>
+      </div>,
     );
   }
 
@@ -258,7 +276,7 @@ function RecurringEditor({ asset, status }: { asset: string; status: VenueUp }) 
       setRequestId(newRequestKey());
   }
 
-  return (
+  return frame(
     <div className="cb-form">
       <WalletBar />
       <InfoNote>
@@ -270,11 +288,11 @@ function RecurringEditor({ asset, status }: { asset: string; status: VenueUp }) 
       </InfoNote>
       <fieldset className="cb-form" aria-label={t('Pay with')}>
         <legend className="cb-label">{t('Pay with')}</legend>
-        <label>
+        <label className="cb-check">
           <input type="radio" name="recurring-funding" checked={funding === 'venue'} onChange={() => setFunding('venue')} />{' '}
           {t('USDC on your venue account')}
         </label>
-        <label>
+        <label className="cb-check">
           <input type="radio" name="recurring-funding" checked={funding === 'card'} onChange={() => setFunding('card')} /> {t('Card')}
         </label>
       </fieldset>
@@ -373,7 +391,7 @@ function RecurringEditor({ asset, status }: { asset: string; status: VenueUp }) 
         </p>
       ) : null}
       {failure ? <RefusalNote failure={failure} /> : null}
-    </div>
+    </div>,
   );
 }
 
