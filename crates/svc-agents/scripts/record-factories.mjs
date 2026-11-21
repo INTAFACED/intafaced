@@ -56,7 +56,7 @@ const fromService = createRequire(`${SVC}index.ts`);
 const load = (name) => import(pathToFileURL(fromService.resolve(name)).href);
 const { createEdgeContext, encodePrincipal, signPrincipalHeader } = await load('@intafaced/contracts');
 
-export const SECRET = 'an-agents-factories-parity-edge-secret-long-enough';
+export const SECRET = 'placeholder-agents-record-factories-edge-secret';
 export const USER = '11111111-1111-4111-8111-111111111111';
 
 const ctx = (c) => {

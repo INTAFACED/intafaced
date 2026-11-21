@@ -34,7 +34,7 @@ use svc_agents::gateway::readiness::ReadyInput;
 use svc_agents::runtime::Runtime;
 use svc_agents::runtime::eligibility::parse_tier_laws;
 
-const SECRET: &str = "an-agents-factories-parity-edge-secret-long-enough";
+const SECRET: &str = "placeholder-agents-record-factories-edge-secret";
 const USER: &str = "11111111-1111-4111-8111-111111111111";
 
 /// 2026-11-19T00:00:00Z, the recording's fixed clock.
