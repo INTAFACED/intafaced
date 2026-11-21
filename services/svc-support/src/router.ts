@@ -25,16 +25,11 @@ import {
   publicProcedure,
   router,
   scopedProcedure,
-  supportChartsLookupInputSchema,
-  supportChartsLookupSchema,
   supportAttachmentIdInputSchema,
   supportAttachmentSchema,
   supportAwaitingMineSchema,
   supportTicketSchema,
-  supportTicketStatusSchema,
   supportViewDeleteInputSchema,
-  supportViewListSchema,
-  supportViewSaveInputSchema,
   supportViewSchema,
 } from '@intafaced/contracts';
 import { MemoryContactBook, type ContactBook } from './contact-channels.js';
@@ -127,20 +122,11 @@ import {
 } from '@intafaced/contracts/support-customer-procedures';
 import { SUPPORT_DESK_ATTACH_OPS, SUPPORT_DESK_ATTACHMENT_DOWNLOAD_OPS } from '@intafaced/contracts/support-desk-settings-procedures';
 import { SLA_POLICY_STALE, SLA_TARGETS_UNSET } from './response-targets.js';
-
-const queueEntrySchema = z.object({
-  ticketId: z.string().guid(),
-  userId: z.string().guid(),
-  category: z.string().min(1),
-  status: supportTicketStatusSchema,
-  subject: z.string().min(1),
-  score: z.number().finite(),
-  ageMs: z.number().nonnegative(),
-  createdAt: z.string().datetime(),
-  timingKind: z.literal('score_not_promise'),
-  sla: z.literal(false),
-  responseDue: z.object({ dueAt: z.string().datetime(), targetMinutes: z.number().int().positive() }).nullable(),
-});
+import { queueEntrySchema } from '@intafaced/contracts/support-call-schemas';
+import { SUPPORT_LIST_QUEUE } from '@intafaced/contracts/support-list-queue-procedures';
+import { SUPPORT_VIEWS_LIST } from '@intafaced/contracts/support-views-list-procedures';
+import { SUPPORT_TICKET_CHARTS_LOOKUP } from '@intafaced/contracts/support-ticket-charts-lookup-procedures';
+import { SUPPORT_VIEWS_SAVE } from '@intafaced/contracts/support-views-save-procedures';
 
 /** The caller a scoped procedure has already checked; a missing one is refused, never assumed. */
 function principalOf<P>(principal: P | null | undefined): P {
@@ -154,11 +140,6 @@ const responseTargetPolicySchema = z.object({
   revision: z.number().int().nonnegative(),
   updatedAt: z.string().datetime().nullable(),
 });
-
-const queueResultSchema = z.discriminatedUnion('status', [
-  z.object({ status: z.literal('ok'), entries: z.array(queueEntrySchema) }),
-  z.object({ status: z.literal('empty') }),
-]);
 
 export function mapError(err: unknown): never {
   if (err instanceof SupportError) throw supportTrpcError(err);
@@ -496,10 +477,9 @@ export function createSupportRouter(
      * `userId` is refused rather than silently dropped, as on `accountState`. One `charts_lookup` trail row is written
      * before anything is read; when it does not land the lookup is refused.
      */
-    ticketChartsLookup: scopedProcedure('support:ops')
-      .input(supportChartsLookupInputSchema)
-      .output(supportChartsLookupSchema)
-      .query(async ({ ctx, input }) => {
+    ticketChartsLookup: mountRecord(
+      SUPPORT_TICKET_CHARTS_LOOKUP,
+      async ({ ctx, input }) => {
         try {
           const principal = principalOf(ctx.principal);
           requireSupportOps(principal);
@@ -507,7 +487,9 @@ export function createSupportRouter(
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      supportRefusal,
+    ),
 
     /** Escalate with a case file. Refuses when nothing was read. No money. */
     escalate: mountRecord(
@@ -609,27 +591,9 @@ export function createSupportRouter(
     ),
 
     /** Stage-2 — prioritised operator queue (open/pending only). */
-    listQueue: scopedProcedure('support:ops')
-      .input(
-        z
-          .object({
-            /**
-             * Page size. Optional here so omit reaches the service named
-             * refuse (`support.queue_list_limit_unset`) instead of a Zod
-             * "Required" that looks like a typo. Blank is not 100; pass 100
-             * explicitly when that is the page you want.
-             */
-            limit: z.number().int().positive().max(500).optional(),
-            /** Only tickets carrying this label. */
-            label: z.string().max(200).optional(),
-            filter: z.unknown().optional(),
-            sort: z.unknown().nullable().optional(),
-            q: z.string().max(200).optional(),
-          })
-          .optional(),
-      )
-      .output(queueResultSchema)
-      .query(async ({ ctx, input }) => {
+    listQueue: mountRecord(
+      SUPPORT_LIST_QUEUE,
+      async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
           const asked = input?.filter !== undefined || (input?.sort !== undefined && input.sort !== null) || Boolean(input?.q?.trim());
@@ -656,7 +620,9 @@ export function createSupportRouter(
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      supportRefusal,
+    ),
 
     /** The desk's response targets (SP-sla-01): the first-reply target in minutes, or null, and whether it is on. */
     responseTargets: scopedProcedure('support:ops')
@@ -1169,29 +1135,32 @@ export function createSupportRouter(
     ),
 
     /** Saved filters this operator may open, and whether the owner has set a cap. */
-    viewsList: scopedProcedure('support:ops')
-      .output(supportViewListSchema)
-      .query(async ({ ctx }) => {
+    viewsList: mountRecord(
+      SUPPORT_VIEWS_LIST,
+      async ({ ctx }) => {
         try {
           requireSupportOps(ctx.principal!);
           return await support.listDeskViews(ctx.principal!.userId);
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      supportRefusal,
+    ),
 
     /** Create or replace one view. Keyed by the caller's id, the name and the revision they read. */
-    viewsSave: scopedProcedure('support:ops')
-      .input(supportViewSaveInputSchema)
-      .output(supportViewSchema)
-      .mutation(async ({ ctx, input }) => {
+    viewsSave: mountRecord(
+      SUPPORT_VIEWS_SAVE,
+      async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
           return await support.saveDeskView({ actorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      supportRefusal,
+    ),
 
     viewsDelete: scopedProcedure('support:ops')
       .input(supportViewDeleteInputSchema)

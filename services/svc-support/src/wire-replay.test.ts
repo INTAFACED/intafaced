@@ -250,6 +250,7 @@ type Schema = Record<string, unknown>;
 
 /** The smallest input a JSON Schema accepts by its shape: required fields only, the first member of each choice. */
 function sample(schema: Schema | undefined, defs: Record<string, Schema>, depth = 0): Json {
+  if (acceptsAnyJson(schema)) return null;
   if (!schema || depth > 12) return null;
   if (typeof schema.$ref === 'string') return sample(defs[schema.$ref.split('/').pop() ?? ''], defs, depth + 1);
   if ('const' in schema) return schema.const as Json;
@@ -461,3 +462,15 @@ describe('the wire replay: svc-support answers as main did before its calls are 
     expect(diffs).toEqual([]);
   }, 300_000);
 });
+
+/**
+ * `jsonValueSchema` (z.json()) as JSON Schema: a choice of every JSON kind. Main had `z.unknown()` there (`{}`), which
+ * the sampler read as null; this reads the same, so the replay sends main's request (tooling/codemod/call-records/portable.mjs).
+ */
+function acceptsAnyJson(schema: unknown): boolean {
+  if (typeof schema !== 'object' || schema === null) return false;
+  const options = (schema as { anyOf?: unknown }).anyOf;
+  if (!Array.isArray(options)) return false;
+  const kinds = new Set(options.map((o: unknown) => (typeof o === 'object' && o !== null ? (o as { type?: unknown }).type : undefined)));
+  return ['string', 'number', 'boolean', 'null', 'array', 'object'].every((k) => kinds.has(k));
+}
