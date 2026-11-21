@@ -57,6 +57,19 @@ import {
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
 import type { LeadDesk } from './copy/lead-applications.js';
+import {
+  applyToLeadAnswer,
+  leadCopiersAnswer,
+  leadEarningsAnswer,
+  leadEligibilityAnswer,
+  leadLevelAnswer,
+  leadMissionsAnswer,
+  leadTradesAnswer,
+  myLeadAnswer,
+  myLeadApplicationAnswer,
+  platformPausesAnswer,
+  refusedAlwaysAnswer,
+} from './copy/lead-answers.js';
 import { signalsRouter } from './signals/router.js';
 import type { SignalDesk } from './signals/signal-desk.js';
 import type { PlatformPauseDesk } from './copy/platform-pauses.js';
@@ -2009,6 +2022,7 @@ export function createTradeRouter(
       /** The caller's own lead earnings: settled fee-share rows and their sum per asset; never a profit figure (J-copy-bots-otc-06 #3). */
       leadEarnings: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ limit: z.number() }))
+        .output(leadEarningsAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('lead earnings are not mounted', 'trade.copy_unavailable');
@@ -2028,16 +2042,19 @@ export function createTradeRouter(
       ),
 
       /** The caller's own lead level: not set while the owner's thresholds are blank; the maximum ratio is never set (J-copy-bots-otc-06 #5). */
-      leadLevel: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
-        guard(async () => {
-          if (!copy) throw new CopyError('lead level is not mounted', 'trade.copy_unavailable');
-          return copy.leadLevel(ctx.principal);
-        }),
-      ),
+      leadLevel: scopedProcedure('trade:read', { module: 'trade' })
+        .output(leadLevelAnswer)
+        .query(({ ctx }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('lead level is not mounted', 'trade.copy_unavailable');
+            return copy.leadLevel(ctx.principal);
+          }),
+        ),
 
       /** A profit pre-deduction or profit-share ratio: refused `trade.copy_pnl_fee_forbidden` whatever is sent (J-copy-bots-otc-06 #4). */
       setProfitShare: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.unknown())
+        .output(refusedAlwaysAnswer)
         .mutation(() =>
           guard(async () => {
             refusePnlLinkedCopyFee();
@@ -2047,6 +2064,7 @@ export function createTradeRouter(
       /** A maximum ratio: refused `trade.copy_pnl_fee_forbidden` whatever is sent (J-copy-bots-otc-06 #5). */
       setMaxRatio: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.unknown())
+        .output(refusedAlwaysAnswer)
         .mutation(() =>
           guard(async () => {
             refusePnlLinkedCopyFee();
@@ -2101,32 +2119,43 @@ export function createTradeRouter(
       applyToLead: scopedProcedure('trade:write', { module: 'trade' })
         // A blank name reaches the desk, which refuses it with its own code, so the room can say what to fix.
         .input(z.object({ displayName: z.string().max(200) }))
+        .output(applyToLeadAnswer)
         .mutation(({ ctx, input }) => lead((desk) => desk.apply(ctx.principal, input))),
 
       /** What applying to lead is measured by for the caller: whom they follow, the threshold and their venue USDC. */
-      leadEligibility: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
-        lead((desk) => desk.eligibility(ctx.principal)),
-      ),
+      leadEligibility: scopedProcedure('trade:read', { module: 'trade' })
+        .output(leadEligibilityAnswer)
+        .query(({ ctx }) => lead((desk) => desk.eligibility(ctx.principal))),
 
       /** The caller's newest lead application, or null. */
-      myLeadApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
+      myLeadApplication: scopedProcedure('trade:read', { module: 'trade' })
+        .output(myLeadApplicationAnswer)
+        .query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
 
       /** The caller's lead account once approved, or null (CB-copy-18, J-copy-bots-otc-04 #4). */
-      myLead: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.myLead(ctx.principal))),
+      myLead: scopedProcedure('trade:read', { module: 'trade' })
+        .output(myLeadAnswer)
+        .query(({ ctx }) => lead((desk) => desk.myLead(ctx.principal))),
 
       /** The caller's new-trader missions and how far each has come (CB-copy-12, J-copy-bots-otc-04 #3). */
-      leadMissions: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.missions(ctx.principal))),
+      leadMissions: scopedProcedure('trade:read', { module: 'trade' })
+        .output(leadMissionsAnswer)
+        .query(({ ctx }) => lead((desk) => desk.missions(ctx.principal))),
 
       /** The caller's own lead trades, ongoing and history, with counts (CB-copy-15, J-copy-bots-otc-04 #8). */
-      leadTrades: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.trading.trades(ctx.principal))),
+      leadTrades: scopedProcedure('trade:read', { module: 'trade' })
+        .output(leadTradesAnswer)
+        .query(({ ctx }) => lead((desk) => desk.trading.trades(ctx.principal))),
 
       /** The caller's copiers and each one's state (CB-copy-15, J-copy-bots-otc-04 #8). */
-      leadCopiers: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
-        lead((desk) => desk.trading.copiers(ctx.principal)),
-      ),
+      leadCopiers: scopedProcedure('trade:read', { module: 'trade' })
+        .output(leadCopiersAnswer)
+        .query(({ ctx }) => lead((desk) => desk.trading.copiers(ctx.principal))),
 
       /** The scopes the platform has paused now (CB-ops-03): leads by listing ref, bot types and symbols. */
-      platformPauses: scopedProcedure('trade:read', { module: 'trade' }).query(() => pauses((desk) => desk.publicPauses())),
+      platformPauses: scopedProcedure('trade:read', { module: 'trade' })
+        .output(platformPausesAnswer)
+        .query(() => pauses((desk) => desk.publicPauses())),
 
       ops: router({
         /**
