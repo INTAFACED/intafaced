@@ -181,6 +181,37 @@ test('bell: count, popover layout, words, and a click opens the trade in Activit
   expect(errors).toEqual([]);
 });
 
+// A page scroll while a row is pressed must not move the popover with the page, or the press begins on one row, ends off
+// it, and the click opens nothing. The bell sits in the sticky top bar, so the popover stays put too.
+test('bell: a page scroll under the open popover leaves every row where it was', async ({ page }) => {
+  await mock(page);
+  await page.goto('/home');
+  await expect(bell(page)).toBeVisible();
+  await page.evaluate(() => {
+    const tall = document.createElement('div');
+    tall.style.height = '3000px';
+    document.getElementById('main').append(tall);
+  });
+  await bell(page).click();
+  await expect(page.getByTestId('nf-row')).toHaveCount(8);
+  await expect(popup(page)).not.toHaveAttribute('data-starting-style');
+  // Scrolled and read in one task, before any scroll handler could put a moved popover back.
+  const moved = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('[data-testid="nf-row"]')];
+    const before = rows.map((row) => row.getBoundingClientRect().top);
+    window.scrollBy(0, 200);
+    if (window.scrollY !== 200) return `the page did not scroll (scrollY ${window.scrollY})`;
+    return rows
+      .map((row, i) => {
+        const box = row.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.left + box.width / 2, before[i] + box.height / 2)?.closest('[data-testid="nf-row"]');
+        return box.top === before[i] && hit === row ? null : `row ${i} moved from ${before[i]} to ${box.top}`;
+      })
+      .filter(Boolean);
+  });
+  expect(moved).toEqual([]);
+});
+
 test('bell: cancelled order opens Orders; Mark all as read clears the dots and the badge', async ({ page }) => {
   const api = await mock(page);
   await page.goto('/home');

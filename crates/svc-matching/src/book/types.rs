@@ -189,10 +189,34 @@ impl<T: Copy> Opt<T> {
     }
 }
 
+/// An order's OCO and bracket parts, each as JavaScript tells it apart (absent, `null`, or a value).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Exits {
+    /// `bracket`: `true` rests the exits once the entry trades.
+    pub bracket: Opt<bool>,
+    /// `oco: true`.
+    pub oco: bool,
+    pub take_profit: Opt<Amount>,
+    pub stop_loss: Opt<Amount>,
+    /// The stop-loss leg's limit price; absent makes it a market stop.
+    pub stop_loss_limit: Opt<Amount>,
+    pub take_profit_order_id: Opt<String>,
+    pub stop_loss_order_id: Opt<String>,
+    /// `cancel: true`: a linked OCO cancel, never journalled (`toWire` leaves it out).
+    pub cancel: bool,
+}
+
+impl Exits {
+    /// None of the parts is set.
+    pub fn is_empty(&self) -> bool {
+        *self == Exits::default()
+    }
+}
+
 /// An order as the engine sees it (`EngineOrder`), already checked by svc-trade and in scaled integers. It holds every
-/// field the core book (`book.ts`) reads. The parts only a later slice's module reads (brackets, option and combo terms,
-/// spreads, client ids) are not here: an order naming one is that slice's, and the engine refuses it before it reaches a
-/// book (`engine::owed_by`).
+/// field the core book (`book.ts`) reads, and the trigger wrappers' [`Exits`]. The parts only a later slice's module reads
+/// (option and combo terms, spreads, client ids) are not here: an order naming one is that slice's, and the door owes it
+/// before it reaches a book.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineOrder {
     pub order_id: String,
@@ -219,8 +243,14 @@ pub struct EngineOrder {
     pub position_qty: Option<Amount>,
     pub display_qty: Opt<Amount>,
     pub iceberg: bool,
-    pub trail: Option<Amount>,
-    pub mark: Option<Amount>,
+    /// Trail distance (`trail`): present makes the order a trailing stop, which refuses while it is null or not
+    /// positive.
+    pub trail: Opt<Amount>,
+    /// The mark the trail starts from (`mark`).
+    pub mark: Opt<Amount>,
+    /// The trigger parts the `triggers` wrappers read before the core book (`oco-link.ts`, `oco-cancel.ts`,
+    /// `bracket.ts`); the core book never reads them.
+    pub exits: Exits,
     pub min_qty: Opt<Amount>,
     pub aon: Opt<bool>,
     pub peg: Opt<bool>,
@@ -294,8 +324,9 @@ impl EngineOrder {
             position_qty: None,
             display_qty: Opt::Absent,
             iceberg: false,
-            trail: None,
-            mark: None,
+            trail: Opt::Absent,
+            mark: Opt::Absent,
+            exits: Exits::default(),
             min_qty: Opt::Absent,
             aon: Opt::Absent,
             peg: Opt::Absent,
