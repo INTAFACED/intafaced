@@ -592,7 +592,7 @@ import { GRID_SUBMIT_PERMISSION, GRID_SET_EXITS, GRID_SET_IDLE_YIELD } from './t
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
 import type { ProcedureRecord } from './procedure.js';
 
-/** Every call recorded in this package. `procedures.schema.json` is written from this list. */
+/** Every call recorded in this package. `procedures/<service>.schema.json` is written from this list. */
 export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ACADEMY_ADMIN_COURSES,
   ACADEMY_ADMIN_COURSE,

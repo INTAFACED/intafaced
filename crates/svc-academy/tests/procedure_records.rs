@@ -1,5 +1,5 @@
 //! The door against svc-academy's written records (`packages/contracts/src/academy-*-procedures.ts`), read from the
-//! contracts' published schema (`packages/contracts/procedures.schema.json`), so a record added there is held here at
+//! contracts' published schema (`packages/contracts/procedures/svc-academy.schema.json`), so a record added there is held here at
 //! once with no edit. For every tRPC record: the door serves its path, as the same query or mutation, under the same
 //! scope; each refusal it names is a catalogue code (`door/errors_table.rs`) sent with the status it names; and each of
 //! its samples, sent by an operator holding every scope, is refused 400 at the door exactly when the record refuses it
@@ -24,7 +24,7 @@ use svc_academy::door::{self, AcademyDoor, Access, DoorConfig, Kind};
 use svc_academy::ports::{Ports, StubApprovals};
 use svc_academy::settings::Settings;
 
-const SCHEMA: &str = include_str!("../../../packages/contracts/procedures.schema.json");
+const SCHEMA: &str = include_str!("../../../packages/contracts/procedures/svc-academy.schema.json");
 const SECRET: &str = "an-academy-procedure-records-edge-secret";
 const USER: &str = "11111111-1111-4111-8111-111111111111";
 const SCOPES: [&str; 5] = [
