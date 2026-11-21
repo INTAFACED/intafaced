@@ -178,11 +178,22 @@ pub fn consume_ledger_approval(
         expected_version,
         replay: (!request_id.is_empty()).then_some(Replay {
             request_id,
-            consumer_principal_id: consumer,
+            consumer_principal_id: Some(consumer),
         }),
     })?;
-    match founder_verdict(&consumed, action_type, TARGET_SERVICE, target_id) {
-        None => Ok(consumed),
+    assert_founders(&consumed, action_type, target_id)?;
+    Ok(consumed)
+}
+
+/// `assertFounderAudienceAttestation(consumed, { actionType, targetService: 'svc-ledger', targetId })`: fail closed
+/// unless identity attested a distinct founder pair (a protective brake needs none).
+pub fn assert_founders(
+    consumed: &Consumed,
+    action_type: &str,
+    target_id: &str,
+) -> Result<(), Refused> {
+    match founder_verdict(consumed, action_type, TARGET_SERVICE, target_id) {
+        None => Ok(()),
         Some(reason) => Err(Refused::Coded {
             message: if reason == "missing" {
                 "a founder-audience action needs identity to attest that the proposer and the approver are both founders"
