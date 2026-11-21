@@ -116,6 +116,7 @@ fn serve() -> AgentsDoor {
         ready: ReadyInput::unwired(),
         metering: svc_agents::metering::Metering::unwired("USDC", 60),
         runtime: svc_agents::runtime::Runtime::unwired(),
+        background: svc_agents::background::Settings::default(),
         advisors: replay_advisors(),
     })
     .unwrap()
