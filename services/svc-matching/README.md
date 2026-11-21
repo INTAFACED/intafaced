@@ -393,4 +393,4 @@ comparing two empty books.
 
 ## Service keys: inbound doors
 
-The order, close, basket and surveillance doors name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The per-door caller lists (svc-trade; svc-trade, svc-execution and svc-fix for basket children) are unchanged. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The order, close, basket and surveillance doors name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The per-door caller lists (svc-trade; svc-trade, svc-execution and svc-fix for basket children) are unchanged. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.

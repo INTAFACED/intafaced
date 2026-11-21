@@ -166,7 +166,7 @@ export const FEATURES = [
     module: 'ledger',
     phase: '1',
     status: 'done',
-    requires: ['services/svc-ledger'],
+    requires: ['crates/svc-ledger'],
   }),
   f('ledger.recipes', 'Money recipes — every value path in the OS', {
     module: 'ledger',
@@ -2051,7 +2051,7 @@ export const FEATURES = [
       'packages/portfolio-view/src/mount-vs-tracker.ts',
       'packages/portfolio-view/src/mount-vs-tracker.test.ts',
       'packages/portfolio-view/src/portfolio-view.ts',
-      'services/svc-ledger/src/router.ts',
+      'crates/svc-ledger/src/balances.rs',
     ],
     note:
       '**D26-P1-P2 Done 2026-08-21:** Stage-1 custodial ledger view mounted (`mount-vs-tracker.ts`). ' +
