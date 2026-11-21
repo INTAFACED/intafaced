@@ -5,9 +5,9 @@
 //! \`think\`'s order is the TypeScript's: the route; a metered replay; Copy-Intel's returns board; the published rate;
 //! the guardrail; unpaid windows; a sealed window; the funds (only without a spend gate); the claim; the spend hold
 //! (caps, team limits and funds under the person's lock); the engine; then the meter, the audit row, the transcript
-//! and the hold's commit in one transaction. \`act\` (a guarded tool call) is the tool-running slices' to port: no call
-//! of this slice runs a tool.
+//! and the hold's commit in one transaction. \`act\` runs a tool inside the guardrail (\`act\`).
 //!
+//! - [\`act\`]: a guarded tool call and its place intents.
 //! - [\`guardrails\`]: the guardrail, parsed and evaluated.
 //! - [\`funds\`]: the funds a run is checked against.
 //! - [\`holds\`]: the spend holds.
@@ -15,6 +15,7 @@
 //! - [\`reads\`]: the session, run and log reads.
 //! - [\`slice\`]: the eighteen calls.
 
+pub mod act;
 pub mod copy_intel;
 pub mod eligibility;
 pub mod funds;

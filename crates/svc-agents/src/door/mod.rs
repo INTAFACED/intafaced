@@ -34,6 +34,7 @@ use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
 
 use crate::db::Store;
+use crate::factories::Factories;
 use crate::gateway::desk::GatewaySlice;
 use crate::gateway::readiness::{self, ReadyInput};
 use crate::metering::Metering;
@@ -288,6 +289,7 @@ pub struct AgentsDoor {
     ready: ReadyInput,
     metering: Metering,
     runtime: Runtime,
+    factories: Factories,
 }
 
 /// The system clock.
@@ -331,12 +333,19 @@ impl AgentsDoor {
             ready: config.ready,
             metering: config.metering,
             runtime: config.runtime,
+            factories: Factories::unwired(),
         })
     }
 
     /// Also believes principals the edge signed with its key (`EDGE_PRINCIPAL_PUBLIC_KEY`).
     pub fn with_edge_key(mut self, key: EdgeKey) -> AgentsDoor {
         self.edge_key = Some(key);
+        self
+    }
+
+    /// The door with the factories' live ports (\`factories\`); without them every live run refuses.
+    pub fn with_factories(mut self, factories: Factories) -> AgentsDoor {
+        self.factories = factories;
         self
     }
 
@@ -370,6 +379,14 @@ impl AgentsDoor {
                 &self.gateway,
                 &self.metering,
                 &self.runtime,
+            ),
+            Slice::Factories => crate::factories::handle(
+                ctx,
+                &self.store,
+                &self.gateway,
+                &self.metering,
+                &self.runtime,
+                &self.factories,
             ),
             other => Err(not_ported(other)),
         }

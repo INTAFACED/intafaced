@@ -15,6 +15,7 @@ pub mod door;
 pub mod env;
 pub mod errors;
 pub mod errors_table;
+pub mod factories;
 pub mod gateway;
 pub mod metering;
 pub mod migrate;
