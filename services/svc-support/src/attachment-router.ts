@@ -1,6 +1,5 @@
 import { SUPPORT_ATTACHMENT_LIMITS } from '@intafaced/contracts/support-customer-procedures';
 import { TRPCError } from '@trpc/server';
-import { scopedProcedure, supportAttachmentLimitsSchema } from '@intafaced/contracts';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   SUPPORT_DESK_ATTACHMENT_STATUS,

@@ -30,7 +30,6 @@ import {
   supportAccountGroundingSchema,
   supportChartsLookupInputSchema,
   supportChartsLookupSchema,
-  supportAttachmentDownloadSchema,
   supportBulkInputSchema,
   supportBulkPolicySchema,
   supportBulkResultSchema,
