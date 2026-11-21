@@ -142,8 +142,6 @@ import {
   quantEnvironmentInputSchema as environmentInput,
   quantDecimalSchema as decimal,
   quantSandboxRunOutputSchema as runOutput,
-  quantStudioBlockSchema as studioBlock,
-  quantStrategyHeadRecordSchema as strategyHead,
   quantStrategyDetailRecordSchema as strategyDetail,
   quantCostEvidenceSchema as costEvidence,
   quantAccountField as accountField,
@@ -153,18 +151,7 @@ import {
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { z } from 'zod';
 
-export {
-  simulatedStamp,
-  environmentInput,
-  decimal,
-  runOutput,
-  studioBlock,
-  strategyHead,
-  strategyDetail,
-  accountField,
-  writeKeyField,
-  clientIdField,
-};
+export { simulatedStamp, environmentInput, decimal, runOutput, strategyDetail, accountField, writeKeyField, clientIdField };
 
 /** The head an organise sets: a name, one level of folder (blank is the root) and a description, each checked by name. */
 export function organisationOf(input: { name?: unknown; folder?: unknown; description?: unknown }): StrategyOrganisation {
