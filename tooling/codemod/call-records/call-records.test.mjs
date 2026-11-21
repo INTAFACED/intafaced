@@ -128,3 +128,36 @@ test('the report sorts each hand reason into the kind one script change or one d
   );
   assert.equal(reasonOf('something new'), 'other');
 });
+
+test('the router reader follows a builder member, an imported builder and both branches of a switch, and names a path two branches define', async () => {
+  const { procedures } = await import('./router.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-svc-'));
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(
+    join(dir, 'src/parts.ts'),
+    [
+      'export function partRoutes() { return { customer: { one: p.input(a).query(h) } }; }',
+      'export function liveRouter() { return router({ shared: p.query(h), live: p.query(h) }); }',
+      'export function standIn() { return router({ shared: p.query(h2) }); }',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { partRoutes, liveRouter, standIn } from './parts.js';",
+      'export function createSvcRouter(flag: boolean) {',
+      '  const part = partRoutes();',
+      '  return router({ ...part.customer, flagged: flag ? liveRouter() : standIn() });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found, unread } = procedures(dir);
+  assert.deepEqual([...found.keys()].sort(), ['flagged.live', 'one']);
+  assert.deepEqual(
+    unread.map((u) => `${u.path}: ${u.why}`),
+    ['flagged.shared: two procedures under one path (a switch router)'],
+  );
+});
