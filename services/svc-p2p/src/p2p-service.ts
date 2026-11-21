@@ -7490,4 +7490,3 @@ function toPgTextArray(values: readonly string[]): string {
 }
 
 export { TradeStateError, PricingError };
-export { MAX_EVIDENCE_PER_CALL };
