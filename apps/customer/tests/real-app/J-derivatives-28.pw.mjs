@@ -560,7 +560,7 @@ test(`${J} money: a lost answer to the review's approval read never asks for a s
   await expect.poll(() => readsLost).toBeGreaterThan(0);
   await expect(sheet.getByRole('button', { name: 'Open long', exact: true })).toBeEnabled();
   loseReads = false;
-  await sheet.getByRole('button', { name: 'Open long' }).click();
+  await sheet.getByRole('button', { name: 'Open long', exact: true }).click();
   await continueInWallet(page);
   const p = (await (await prepared).json()).prepared;
   await expect(sheet.getByTestId('venue-route-filled')).toBeVisible({ timeout: 20_000 });
