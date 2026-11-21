@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { movesCustomerBalance } from '@intafaced/ledger-client';
+import { movesCustomerBalance } from '../index.js';
 import { recipeGateSamples, unsampledRecipeNames } from './recipe-gate.js';
 
 /**
@@ -11,7 +11,16 @@ import { recipeGateSamples, unsampledRecipeNames } from './recipe-gate.js';
  * (`isCustomerBalanceAccount`). A new recipe that touches a customer account, or a recipe whose legs change, fails here
  * until the list says so, so the static check can never quietly stop looking for it.
  */
-const inventoryPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'tooling', 'ci', 'custody-layer-inventory.json');
+const inventoryPath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  '..',
+  '..',
+  'tooling',
+  'ci',
+  'custody-layer-inventory.json',
+);
 
 describe('custody-layer inventory: customer-balance recipes', () => {
   it('every recipe is sampled, so none escapes the classification', () => {

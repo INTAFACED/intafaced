@@ -1,5 +1,5 @@
-import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
-import { LEDGER_POST_RECIPE } from '@intafaced/ledger-client/post-recipe';
+import { LEDGER_HISTORY_PAGE } from '../history-page-record.js';
+import { LEDGER_POST_RECIPE } from '../post-recipe-client.js';
 import type { ServiceName } from '@intafaced/contracts';
 import { LEDGER_CALLER_SERVICES } from './caller-allowlist.js';
 

@@ -90,6 +90,24 @@
       "cache": false,
       "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
     },
+    "@intafaced/contracts#test": {
+      "dependsOn": ["^build", "build"],
+      "outputs": ["coverage/**"],
+      "cache": false,
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+    },
+    "@intafaced/exchange-contract#test": {
+      "dependsOn": ["^build", "build"],
+      "outputs": ["coverage/**"],
+      "cache": false,
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+    },
+    "@intafaced/telemetry#test": {
+      "dependsOn": ["^build", "build"],
+      "outputs": ["coverage/**"],
+      "cache": false,
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+    },
     "test:watch": {
       "cache": false,
       "persistent": true
@@ -331,7 +349,11 @@
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
+        "$TURBO_ROOT$/services/svc-bank/**",
+        "$TURBO_ROOT$/services/svc-campaigns/**",
         "$TURBO_ROOT$/services/svc-ledger/**",
+        "$TURBO_ROOT$/services/svc-market/**",
+        "$TURBO_ROOT$/services/svc-mining-pool/**",
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
@@ -448,10 +470,6 @@
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-bank/**",
-        "$TURBO_ROOT$/services/svc-campaigns/**",
-        "$TURBO_ROOT$/services/svc-market/**",
-        "$TURBO_ROOT$/services/svc-mining-pool/**",
         "$TURBO_ROOT$/services/svc-ops/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
@@ -471,10 +489,6 @@
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-bank/**",
-        "$TURBO_ROOT$/services/svc-campaigns/**",
-        "$TURBO_ROOT$/services/svc-market/**",
-        "$TURBO_ROOT$/services/svc-mining-pool/**",
         "$TURBO_ROOT$/services/svc-ops/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",

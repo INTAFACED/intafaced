@@ -19,7 +19,7 @@ import {
   updateReconciliationControlInputSchema,
 } from '@intafaced/contracts/ledger-reconciliation';
 import { accountRefSchema, postRequestSchema } from '@intafaced/ledger-client';
-import { LEDGER_DOOR_CALLERS } from './door-callers.js';
+import { LEDGER_DOOR_CALLERS } from '@intafaced/ledger-client/gate';
 import { unwiredApprovalConsumer } from './ledger/action-approval-consume.js';
 import { custodyInputSchema } from './ledger/custody-adapters.js';
 import { financeCloseInputSchema } from './ledger/finance-close.js';

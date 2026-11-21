@@ -7,7 +7,7 @@
 //! `@intafaced/contracts` (the edge trust boundary `edge`, service-to-service signing `s2s`, zod's input checks `zod`,
 //! identity's action approvals `approvals`,
 //! the Fastify server `server`), `@intafaced/auth` (access tokens a service verifies itself, `tokens`), `@intafaced/config` (the environment slices `env`, the production posture
-//! `posture`), `@intafaced/telemetry` (tracing and pino logs `telemetry`) and `@intafaced/ledger-client`'s money
+//! `posture`), `@intafaced/telemetry` (tracing and pino logs `telemetry`, Prometheus `metrics`) and `@intafaced/ledger-client`'s money
 //! (`money`: format, parse and divide amounts; it never posts). `json` and `time` are JavaScript's `JSON` and `Date`;
 //! `http` is the outgoing `fetch` seam; `pg` and `migrate` are a service's own Postgres pool and migration runner.
 //!
@@ -21,6 +21,7 @@ pub mod env;
 pub mod http;
 pub mod json;
 pub mod jsregex;
+pub mod metrics;
 pub mod migrate;
 pub mod money;
 pub mod nats;

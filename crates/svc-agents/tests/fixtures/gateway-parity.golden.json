@@ -1,0 +1,1918 @@
+{
+  "tables": [
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": {
+        "routes": [
+          {
+            "task": "a.task",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 100,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          }
+        ],
+        "fallbackTask": null
+      }
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"},\"capability\":\"embed\",\"extra\":true}],\"extra\":1}",
+      "table": {
+        "routes": [
+          {
+            "task": "a.task",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 100,
+            "capability": "embed",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          }
+        ],
+        "fallbackTask": null
+      }
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}},{\"task\":\"b.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"0.000000000000000001\",\"outputPerMillion\":\"0\"}}],\"fallbackTask\":\"b.task\"}",
+      "table": {
+        "routes": [
+          {
+            "task": "a.task",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 100,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "b.task",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 100,
+            "capability": "complete",
+            "price": { "inputPerMillion": "0.000000000000000001", "outputPerMillion": "0" }
+          }
+        ],
+        "fallbackTask": "b.task"
+      }
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":1000000,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": {
+        "routes": [
+          {
+            "task": "a.task",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 1000000,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          }
+        ],
+        "fallbackTask": null
+      }
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":5,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": {
+        "routes": [
+          {
+            "task": "a.task",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 5,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          }
+        ],
+        "fallbackTask": null
+      }
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": {
+        "routes": [
+          {
+            "task": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 100,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          }
+        ],
+        "fallbackTask": null
+      }
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": {
+        "routes": [
+          {
+            "task": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 100,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          }
+        ],
+        "fallbackTask": null
+      }
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": {
+        "routes": [
+          {
+            "task": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 100,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          }
+        ],
+        "fallbackTask": null
+      }
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":0,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":1000001,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":1.5,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":\"10\",\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1.\",\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"-1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1e3\",\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"0.1234567890123456789\",\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":1,\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":null}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"},\"capability\":\"chat\"}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"},\"capability\":null}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}},{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}]}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}],\"fallbackTask\":\"nope\"}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}],\"fallbackTask\":\"\"}",
+      "table": null
+    },
+    {
+      "text": "{\"routes\":[{\"task\":\"a.task\",\"providerId\":\"primary\",\"model\":\"reasoning-md\",\"maxOutputTokens\":100,\"price\":{\"inputPerMillion\":\"1\",\"outputPerMillion\":\"5\"}}],\"fallbackTask\":null}",
+      "table": null
+    },
+    { "text": "{\"routes\":[]}", "table": null },
+    { "text": "{\"routes\":{}}", "table": null },
+    { "text": "{}", "table": null },
+    { "text": "[]", "table": null },
+    { "text": "\"text\"", "table": null }
+  ],
+  "mock": [
+    {
+      "task": "own.run",
+      "request": { "messages": [{ "role": "user", "content": "hello" }] },
+      "digest": "1de14897af59ff1280113329661e1b50ea6eb19ed7b5c82ecef0d188bffd35f2",
+      "result": {
+        "providerId": "primary",
+        "model": "reasoning-md",
+        "text": "mock:reasoning-md:c28e9e5e7d475e3d",
+        "usage": { "inputTokens": 3, "outputTokens": 655 },
+        "stopReason": "end"
+      },
+      "embed": {
+        "inputs": ["hello"],
+        "vectors": [
+          [
+            0.890625, 0.9375, -0.0234375, -0.3515625, -0.7890625, 0.40625, 0.4921875, -0.984375, -0.8046875, 0.6328125, -0.625, -0.90625, 0,
+            -0.1015625, -0.796875, 0.640625
+          ]
+        ],
+        "usage": { "inputTokens": 2, "outputTokens": 0 }
+      }
+    },
+    {
+      "task": "own.run",
+      "request": {
+        "system": "You are terse.",
+        "messages": [
+          { "role": "user", "content": "a" },
+          { "role": "assistant", "content": "b" }
+        ]
+      },
+      "digest": "76bea50647f33cb5f2bfcc3fca64e06b1e5a55f91872532487c6e6dd9b887406",
+      "result": {
+        "providerId": "primary",
+        "model": "reasoning-md",
+        "text": "mock:reasoning-md:1fc7dbbcfc91494c",
+        "usage": { "inputTokens": 8, "outputTokens": 1992 },
+        "stopReason": "end"
+      },
+      "embed": {
+        "inputs": ["a", "b"],
+        "vectors": [
+          [
+            0.2421875, -0.2890625, -0.203125, 0.8125, -0.03125, 0.234375, -0.078125, -0.203125, 0.9296875, 0.328125, 0.6796875, 0.515625,
+            -0.671875, -0.2578125, 0.8984375, -0.8125
+          ],
+          [
+            -0.2421875, -0.296875, 0.6015625, -0.953125, -0.28125, 0.609375, -0.9140625, 0.359375, -0.078125, 0.3828125, 0.6796875,
+            0.6484375, -0.25, -0.1953125, -0.4765625, 0.65625
+          ]
+        ],
+        "usage": { "inputTokens": 2, "outputTokens": 0 }
+      }
+    },
+    {
+      "task": "support.classify",
+      "request": { "system": "", "messages": [{ "role": "user", "content": "Grüße 😀 — “quoted”\n\ttab" }], "maxOutputTokens": 9999 },
+      "digest": "d0bf2f23ebde64e61b77286c35782e886534d2b591a233763e1d32bebd325f62",
+      "result": {
+        "providerId": "primary",
+        "model": "fast-sm",
+        "text": "mock:fast-sm:aa2b2dc91cd18619",
+        "usage": { "inputTokens": 8, "outputTokens": 44 },
+        "stopReason": "end"
+      },
+      "embed": {
+        "inputs": ["Grüße 😀 — “quoted”\n\ttab"],
+        "vectors": [
+          [
+            0.015625, 0.6171875, -0.015625, -0.765625, 0.53125, -0.5703125, -0.390625, 0.359375, 0.828125, -0.25, 0.2265625, 0.46875, -0.25,
+            0.8203125, -0.7578125, -1
+          ]
+        ],
+        "usage": { "inputTokens": 6, "outputTokens": 0 }
+      }
+    },
+    {
+      "task": "support.classify",
+      "request": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        ],
+        "maxOutputTokens": 3,
+        "temperature": 0.7,
+        "stopSequences": ["END", "\u0000"]
+      },
+      "digest": "a85c835625058c304ea35f9cdc1883c957a4f9556f396b9eb0400d1afbdcd793",
+      "result": {
+        "providerId": "primary",
+        "model": "fast-sm",
+        "text": "mock:fast-sm:02a07d2cd64aa675",
+        "usage": { "inputTokens": 1002, "outputTokens": 1 },
+        "stopReason": "end"
+      },
+      "embed": {
+        "inputs": [
+          "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        ],
+        "vectors": [
+          [
+            -0.546875, -0.4453125, -0.0703125, 0.9453125, 0.0703125, -0.2890625, -0.671875, 0.9921875, 0.6640625, 0.765625, 0.78125,
+            -0.40625, 0.8046875, 0.25, 0.8359375, 0.2421875
+          ]
+        ],
+        "usage": { "inputTokens": 1001, "outputTokens": 0 }
+      }
+    },
+    {
+      "task": "navigator.plan",
+      "request": { "messages": [], "maxOutputTokens": 1 },
+      "digest": "9d2b3529756e83ae6e0c231bb437f10385613ee71a99c167da171dab630dfee2",
+      "result": {
+        "providerId": "primary",
+        "model": "reasoning-lg",
+        "text": "mock:reasoning-lg:4bbfc7a3b15585ab",
+        "usage": { "inputTokens": 0, "outputTokens": 1 },
+        "stopReason": "max_tokens"
+      },
+      "embed": { "inputs": [], "vectors": [], "usage": { "inputTokens": 0, "outputTokens": 0 } }
+    },
+    {
+      "task": "index.embed",
+      "request": { "messages": [{ "role": "user", "content": "embed me" }] },
+      "digest": "a631ff136ccd2d580ad8ef02bdbacca52ba696dfb4c5a0e72ced873210272212",
+      "result": {
+        "providerId": "primary",
+        "model": "embed-sm",
+        "text": "mock:embed-sm:806004ba398517b4",
+        "usage": { "inputTokens": 4, "outputTokens": 1 },
+        "stopReason": "max_tokens"
+      },
+      "embed": {
+        "inputs": ["embed me"],
+        "vectors": [
+          [
+            0.4609375, 0.125, 0.2109375, -0.015625, 0.046875, 0.2890625, -0.0546875, -0.7890625, -0.0234375, 0.4921875, -0.46875,
+            -0.8671875, 0.4140625, -0.6640625, -0.234375, -0.2421875
+          ]
+        ],
+        "usage": { "inputTokens": 2, "outputTokens": 0 }
+      }
+    }
+  ],
+  "upstream": {
+    "config": {
+      "id": "primary",
+      "baseUrl": "https://engine.test/",
+      "apiKey": "placeholder-upstream-key",
+      "authHeader": "authorization",
+      "authPrefix": "Bearer ",
+      "headers": { "x-protocol": "2", "accept": "application/json; v=2" },
+      "models": { "reasoning-md": "engine-model-7" },
+      "timeoutMs": 5000
+    },
+    "request": {
+      "system": "Be exact.",
+      "messages": [{ "role": "user", "content": "What is 2+2?" }],
+      "maxOutputTokens": 64,
+      "temperature": 0.25,
+      "stopSequences": ["\n\n"]
+    },
+    "cases": [
+      {
+        "answer": {
+          "status": 200,
+          "body": {
+            "content": [{ "type": "text", "text": "Hi" }, { "type": "tool_use", "text": "no" }, { "text": " there" }],
+            "stop_reason": "end_turn",
+            "usage": { "input_tokens": 12, "output_tokens": 3 }
+          }
+        },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "result": {
+          "providerId": "primary",
+          "model": "reasoning-md",
+          "text": "Hi there",
+          "usage": { "inputTokens": 12, "outputTokens": 3 },
+          "stopReason": "end"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": {
+          "status": 200,
+          "body": {
+            "content": [{ "type": "text", "text": "x" }],
+            "stop_reason": "length",
+            "usage": { "prompt_tokens": 5, "completion_tokens": 7 }
+          }
+        },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "result": {
+          "providerId": "primary",
+          "model": "reasoning-md",
+          "text": "x",
+          "usage": { "inputTokens": 5, "outputTokens": 7 },
+          "stopReason": "max_tokens"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": {
+          "status": 200,
+          "body": { "content": null, "stop_reason": "refusal", "usage": { "input_tokens": 0, "output_tokens": 0 } }
+        },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "result": {
+          "providerId": "primary",
+          "model": "reasoning-md",
+          "text": "",
+          "usage": { "inputTokens": 0, "outputTokens": 0 },
+          "stopReason": "refusal"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": { "status": 200, "body": { "content": [], "stop_reason": "weird", "usage": { "input_tokens": 1, "output_tokens": 1 } } },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "result": {
+          "providerId": "primary",
+          "model": "reasoning-md",
+          "text": "",
+          "usage": { "inputTokens": 1, "outputTokens": 1 },
+          "stopReason": "end"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": { "status": 200, "body": { "content": [], "usage": { "input_tokens": 1 } } },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "error": {
+          "code": "agents.provider_failed",
+          "userMessageKey": "agents.error.engine_unavailable",
+          "message": "Provider \"primary\" failed: Upstream did not report usable token counts — refusing to meter a call we cannot price"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": { "status": 200, "body": { "content": [], "usage": { "input_tokens": 1.5, "output_tokens": 1 } } },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "error": {
+          "code": "agents.provider_failed",
+          "userMessageKey": "agents.error.engine_unavailable",
+          "message": "Provider \"primary\" failed: Upstream did not report usable token counts — refusing to meter a call we cannot price"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": { "status": 200, "body": { "content": [], "usage": { "input_tokens": -1, "output_tokens": 1 } } },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "error": {
+          "code": "agents.provider_failed",
+          "userMessageKey": "agents.error.engine_unavailable",
+          "message": "Provider \"primary\" failed: Upstream did not report usable token counts — refusing to meter a call we cannot price"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": { "status": 200, "body": { "content": [] } },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "error": {
+          "code": "agents.provider_failed",
+          "userMessageKey": "agents.error.engine_unavailable",
+          "message": "Provider \"primary\" failed: Upstream did not report usable token counts — refusing to meter a call we cannot price"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": { "status": 200, "body": { "content": "text", "usage": { "input_tokens": 1, "output_tokens": 1 } } },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "error": {
+          "code": "agents.provider_failed",
+          "userMessageKey": "agents.error.engine_unavailable",
+          "message": "Provider \"primary\" failed unexpectedly"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": { "status": 200, "raw": "not json" },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "error": {
+          "code": "agents.provider_unavailable",
+          "userMessageKey": "agents.error.engine_unavailable",
+          "message": "Provider \"primary\" failed: Upstream returned a body that is not JSON"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": { "status": 429, "body": { "error": "slow down" } },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "error": {
+          "code": "agents.provider_unavailable",
+          "userMessageKey": "agents.error.engine_unavailable",
+          "message": "Provider \"primary\" failed: Upstream rejected the request (status 429)"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": { "status": 500, "body": {} },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "error": {
+          "code": "agents.provider_unavailable",
+          "userMessageKey": "agents.error.engine_unavailable",
+          "message": "Provider \"primary\" failed: Upstream rejected the request (status 500)"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": { "status": 400, "body": {} },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "error": {
+          "code": "agents.provider_failed",
+          "userMessageKey": "agents.error.engine_unavailable",
+          "message": "Provider \"primary\" failed: Upstream rejected the request (status 400)"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "answer": { "throws": true },
+        "sent": [
+          {
+            "url": "https://engine.test/v1/messages",
+            "headers": [
+              ["content-type", "application/json"],
+              ["accept", "application/json; v=2"],
+              ["authorization", "Bearer placeholder-upstream-key"],
+              ["x-protocol", "2"]
+            ],
+            "body": "{\"model\":\"engine-model-7\",\"system\":\"Be exact.\",\"messages\":[{\"role\":\"user\",\"content\":\"What is 2+2?\"}],\"max_tokens\":64,\"temperature\":0.25,\"stop_sequences\":[\"\\n\\n\"]}"
+          }
+        ],
+        "error": {
+          "code": "agents.provider_unavailable",
+          "userMessageKey": "agents.error.engine_unavailable",
+          "message": "Provider \"primary\" failed: Upstream call failed in transport"
+        },
+        "health": { "healthy": true, "reason": null }
+      },
+      {
+        "outage": true,
+        "calls": 3,
+        "errors": [
+          {
+            "code": "agents.provider_unavailable",
+            "userMessageKey": "agents.error.engine_unavailable",
+            "message": "Provider \"primary\" failed: Upstream rejected the request (status 503)"
+          },
+          {
+            "code": "agents.provider_unavailable",
+            "userMessageKey": "agents.error.engine_unavailable",
+            "message": "Provider \"primary\" failed: Upstream rejected the request (status 503)"
+          },
+          {
+            "code": "agents.provider_unavailable",
+            "userMessageKey": "agents.error.engine_unavailable",
+            "message": "Provider \"primary\" failed: Upstream rejected the request (status 503)"
+          },
+          {
+            "code": "agents.provider_unavailable",
+            "userMessageKey": "agents.error.engine_unavailable",
+            "message": "Provider \"primary\" is not currently usable: upstream status 503"
+          }
+        ],
+        "health": { "healthy": false, "reason": "upstream status 503" }
+      }
+    ]
+  },
+  "ready": [
+    {
+      "name": "mock, the unpriced default",
+      "mode": "mock",
+      "metering": true,
+      "table": {
+        "routes": [
+          {
+            "task": "navigator.plan",
+            "providerId": "primary",
+            "model": "reasoning-lg",
+            "maxOutputTokens": 4096,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "navigator.tool_select",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "support.reply",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "own.run",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "support.classify",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 256,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "scanner.rank",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "merchant.watch",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "copy_intel.stats",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "index.embed",
+            "providerId": "primary",
+            "model": "embed-sm",
+            "maxOutputTokens": 1,
+            "capability": "embed",
+            "price": null
+          }
+        ],
+        "fallbackTask": null
+      },
+      "body": {
+        "ready": true,
+        "providerMode": "mock",
+        "providers": [
+          { "id": "primary", "usable": true, "healthy": true, "reason": null, "capabilities": ["complete", "stream", "embed"] }
+        ],
+        "meteringEnabled": true,
+        "meteringMode": "billed",
+        "meteringAllowsFeeCharge": true,
+        "tasks": [
+          "navigator.plan",
+          "navigator.tool_select",
+          "support.reply",
+          "own.run",
+          "support.classify",
+          "scanner.rank",
+          "merchant.watch",
+          "copy_intel.stats",
+          "index.embed"
+        ],
+        "productAgentsRegistered": 5,
+        "fleet": { "agents": 5, "withRunSession": 5, "bootRegistered": 5, "tasksMissingRoute": 0 },
+        "livePlanes": {
+          "tradeUrlConfigured": true,
+          "payUrlConfigured": false,
+          "supportUrlConfigured": false,
+          "identityUrlConfigured": false,
+          "academyUrlConfigured": true,
+          "copyLeaderPlaneOpenConfigured": true,
+          "copyLeaderAllowlistCount": 3,
+          "storesMayStillRefuse": true
+        },
+        "usefulPath": {
+          "available": true,
+          "task": "navigator.plan",
+          "residual": "engine is the deterministic mock — not production inference; 5 product agent(s) registered at boot"
+        }
+      }
+    },
+    {
+      "name": "mock, metering off, no product agents",
+      "mode": "mock",
+      "metering": false,
+      "table": {
+        "routes": [
+          {
+            "task": "navigator.plan",
+            "providerId": "primary",
+            "model": "reasoning-lg",
+            "maxOutputTokens": 4096,
+            "capability": "complete",
+            "price": { "inputPerMillion": "3", "outputPerMillion": "15" }
+          },
+          {
+            "task": "navigator.tool_select",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "support.reply",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "own.run",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "support.classify",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 256,
+            "capability": "complete",
+            "price": { "inputPerMillion": "0.25", "outputPerMillion": "1.25" }
+          },
+          {
+            "task": "scanner.rank",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "merchant.watch",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": { "inputPerMillion": "0.25", "outputPerMillion": "1.25" }
+          },
+          {
+            "task": "copy_intel.stats",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "index.embed",
+            "providerId": "primary",
+            "model": "embed-sm",
+            "maxOutputTokens": 1,
+            "capability": "embed",
+            "price": { "inputPerMillion": "0.1", "outputPerMillion": "0" }
+          }
+        ],
+        "fallbackTask": null
+      },
+      "body": {
+        "ready": true,
+        "providerMode": "mock",
+        "providers": [
+          { "id": "primary", "usable": true, "healthy": true, "reason": null, "capabilities": ["complete", "stream", "embed"] }
+        ],
+        "meteringEnabled": false,
+        "meteringMode": "audit_only",
+        "meteringAllowsFeeCharge": false,
+        "tasks": [
+          "navigator.plan",
+          "navigator.tool_select",
+          "support.reply",
+          "own.run",
+          "support.classify",
+          "scanner.rank",
+          "merchant.watch",
+          "copy_intel.stats",
+          "index.embed"
+        ],
+        "productAgentsRegistered": 0,
+        "fleet": { "agents": 5, "withRunSession": 5, "bootRegistered": 5, "tasksMissingRoute": 0 },
+        "livePlanes": {
+          "tradeUrlConfigured": true,
+          "payUrlConfigured": false,
+          "supportUrlConfigured": false,
+          "identityUrlConfigured": false,
+          "academyUrlConfigured": true,
+          "copyLeaderPlaneOpenConfigured": true,
+          "copyLeaderAllowlistCount": 3,
+          "storesMayStillRefuse": true
+        },
+        "usefulPath": {
+          "available": true,
+          "task": "navigator.plan",
+          "residual": "engine is the deterministic mock — not production inference; product agents are not registered by this service"
+        }
+      }
+    },
+    {
+      "name": "mock that is down",
+      "mode": "mock",
+      "metering": true,
+      "table": {
+        "routes": [
+          {
+            "task": "navigator.plan",
+            "providerId": "primary",
+            "model": "reasoning-lg",
+            "maxOutputTokens": 4096,
+            "capability": "complete",
+            "price": { "inputPerMillion": "3", "outputPerMillion": "15" }
+          },
+          {
+            "task": "navigator.tool_select",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "support.reply",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "own.run",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "support.classify",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 256,
+            "capability": "complete",
+            "price": { "inputPerMillion": "0.25", "outputPerMillion": "1.25" }
+          },
+          {
+            "task": "scanner.rank",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "merchant.watch",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": { "inputPerMillion": "0.25", "outputPerMillion": "1.25" }
+          },
+          {
+            "task": "copy_intel.stats",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "index.embed",
+            "providerId": "primary",
+            "model": "embed-sm",
+            "maxOutputTokens": 1,
+            "capability": "embed",
+            "price": { "inputPerMillion": "0.1", "outputPerMillion": "0" }
+          }
+        ],
+        "fallbackTask": null
+      },
+      "body": {
+        "ready": true,
+        "providerMode": "mock",
+        "providers": [
+          {
+            "id": "primary",
+            "usable": false,
+            "healthy": false,
+            "reason": "engine outage (test)",
+            "capabilities": ["complete", "stream", "embed"]
+          }
+        ],
+        "meteringEnabled": true,
+        "meteringMode": "billed",
+        "meteringAllowsFeeCharge": true,
+        "tasks": [
+          "navigator.plan",
+          "navigator.tool_select",
+          "support.reply",
+          "own.run",
+          "support.classify",
+          "scanner.rank",
+          "merchant.watch",
+          "copy_intel.stats",
+          "index.embed"
+        ],
+        "productAgentsRegistered": 5,
+        "fleet": { "agents": 5, "withRunSession": 5, "bootRegistered": 5, "tasksMissingRoute": 0 },
+        "livePlanes": {
+          "tradeUrlConfigured": true,
+          "payUrlConfigured": false,
+          "supportUrlConfigured": false,
+          "identityUrlConfigured": false,
+          "academyUrlConfigured": true,
+          "copyLeaderPlaneOpenConfigured": true,
+          "copyLeaderAllowlistCount": 3,
+          "storesMayStillRefuse": true
+        },
+        "usefulPath": { "available": false, "task": null, "residual": "provider \"primary\" is not usable: engine outage (test)" }
+      }
+    },
+    {
+      "name": "upstream, unprobed",
+      "mode": "upstream",
+      "metering": true,
+      "table": {
+        "routes": [
+          {
+            "task": "navigator.plan",
+            "providerId": "primary",
+            "model": "reasoning-lg",
+            "maxOutputTokens": 4096,
+            "capability": "complete",
+            "price": { "inputPerMillion": "3", "outputPerMillion": "15" }
+          },
+          {
+            "task": "navigator.tool_select",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "support.reply",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "own.run",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "support.classify",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 256,
+            "capability": "complete",
+            "price": { "inputPerMillion": "0.25", "outputPerMillion": "1.25" }
+          },
+          {
+            "task": "scanner.rank",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "merchant.watch",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": { "inputPerMillion": "0.25", "outputPerMillion": "1.25" }
+          },
+          {
+            "task": "copy_intel.stats",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "index.embed",
+            "providerId": "primary",
+            "model": "embed-sm",
+            "maxOutputTokens": 1,
+            "capability": "embed",
+            "price": { "inputPerMillion": "0.1", "outputPerMillion": "0" }
+          }
+        ],
+        "fallbackTask": null
+      },
+      "body": {
+        "ready": true,
+        "providerMode": "upstream",
+        "providers": [
+          {
+            "id": "primary",
+            "usable": false,
+            "healthy": false,
+            "reason": "no call made yet",
+            "capabilities": ["complete", "stream", "embed"]
+          }
+        ],
+        "meteringEnabled": true,
+        "meteringMode": "billed",
+        "meteringAllowsFeeCharge": true,
+        "tasks": [
+          "navigator.plan",
+          "navigator.tool_select",
+          "support.reply",
+          "own.run",
+          "support.classify",
+          "scanner.rank",
+          "merchant.watch",
+          "copy_intel.stats",
+          "index.embed"
+        ],
+        "productAgentsRegistered": 5,
+        "fleet": { "agents": 5, "withRunSession": 5, "bootRegistered": 5, "tasksMissingRoute": 0 },
+        "livePlanes": {
+          "tradeUrlConfigured": true,
+          "payUrlConfigured": false,
+          "supportUrlConfigured": false,
+          "identityUrlConfigured": false,
+          "academyUrlConfigured": true,
+          "copyLeaderPlaneOpenConfigured": true,
+          "copyLeaderAllowlistCount": 3,
+          "storesMayStillRefuse": true
+        },
+        "usefulPath": { "available": false, "task": null, "residual": "provider \"primary\" is not usable: no call made yet" }
+      }
+    },
+    {
+      "name": "a route naming an unregistered provider first",
+      "mode": "mock",
+      "metering": true,
+      "table": {
+        "routes": [
+          {
+            "task": "z",
+            "providerId": "elsewhere",
+            "model": "reasoning-md",
+            "maxOutputTokens": 100,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "y",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 100,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          }
+        ],
+        "fallbackTask": null
+      },
+      "body": {
+        "ready": true,
+        "providerMode": "mock",
+        "providers": [{ "id": "primary", "usable": true, "healthy": true, "reason": null, "capabilities": ["embed"] }],
+        "meteringEnabled": true,
+        "meteringMode": "billed",
+        "meteringAllowsFeeCharge": true,
+        "tasks": ["z", "y"],
+        "productAgentsRegistered": 5,
+        "fleet": { "agents": 5, "withRunSession": 5, "bootRegistered": 5, "tasksMissingRoute": 0 },
+        "livePlanes": {
+          "tradeUrlConfigured": true,
+          "payUrlConfigured": false,
+          "supportUrlConfigured": false,
+          "identityUrlConfigured": false,
+          "academyUrlConfigured": true,
+          "copyLeaderPlaneOpenConfigured": true,
+          "copyLeaderAllowlistCount": 3,
+          "storesMayStillRefuse": true
+        },
+        "usefulPath": { "available": false, "task": null, "residual": "route \"z\" names provider \"elsewhere\", which is not registered" }
+      }
+    },
+    {
+      "name": "no routes",
+      "mode": "mock",
+      "metering": true,
+      "table": { "routes": [], "fallbackTask": null },
+      "body": {
+        "ready": true,
+        "providerMode": "mock",
+        "providers": [],
+        "meteringEnabled": true,
+        "meteringMode": "billed",
+        "meteringAllowsFeeCharge": true,
+        "tasks": [],
+        "productAgentsRegistered": 5,
+        "fleet": { "agents": 5, "withRunSession": 5, "bootRegistered": 5, "tasksMissingRoute": 0 },
+        "livePlanes": {
+          "tradeUrlConfigured": true,
+          "payUrlConfigured": false,
+          "supportUrlConfigured": false,
+          "identityUrlConfigured": false,
+          "academyUrlConfigured": true,
+          "copyLeaderPlaneOpenConfigured": true,
+          "copyLeaderAllowlistCount": 3,
+          "storesMayStillRefuse": true
+        },
+        "usefulPath": { "available": false, "task": null, "residual": "no routes configured" }
+      }
+    },
+    {
+      "name": "only an embedding route",
+      "mode": "mock",
+      "metering": true,
+      "table": {
+        "routes": [
+          {
+            "task": "a.task",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 100,
+            "capability": "embed",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          }
+        ],
+        "fallbackTask": null
+      },
+      "body": {
+        "ready": true,
+        "providerMode": "mock",
+        "providers": [
+          { "id": "primary", "usable": true, "healthy": true, "reason": null, "capabilities": ["complete", "stream", "embed"] }
+        ],
+        "meteringEnabled": true,
+        "meteringMode": "billed",
+        "meteringAllowsFeeCharge": true,
+        "tasks": ["a.task"],
+        "productAgentsRegistered": 5,
+        "fleet": { "agents": 5, "withRunSession": 5, "bootRegistered": 5, "tasksMissingRoute": 0 },
+        "livePlanes": {
+          "tradeUrlConfigured": true,
+          "payUrlConfigured": false,
+          "supportUrlConfigured": false,
+          "identityUrlConfigured": false,
+          "academyUrlConfigured": true,
+          "copyLeaderPlaneOpenConfigured": true,
+          "copyLeaderAllowlistCount": 3,
+          "storesMayStillRefuse": true
+        },
+        "usefulPath": { "available": false, "task": null, "residual": "no completion route is currently servable" }
+      }
+    }
+  ],
+  "list": [
+    {
+      "name": "mock, the unpriced default, metering unset",
+      "provider": "mock",
+      "metering": null,
+      "table": {
+        "routes": [
+          {
+            "task": "navigator.plan",
+            "providerId": "primary",
+            "model": "reasoning-lg",
+            "maxOutputTokens": 4096,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "navigator.tool_select",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "support.reply",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "own.run",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "support.classify",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 256,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "scanner.rank",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "merchant.watch",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "copy_intel.stats",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": null
+          },
+          {
+            "task": "index.embed",
+            "providerId": "primary",
+            "model": "embed-sm",
+            "maxOutputTokens": 1,
+            "capability": "embed",
+            "price": null
+          }
+        ],
+        "fallbackTask": null
+      },
+      "answer": [
+        {
+          "task": "navigator.plan",
+          "maxOutputTokens": 4096,
+          "capability": "complete",
+          "inputPerMillion": null,
+          "outputPerMillion": null,
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": false
+        },
+        {
+          "task": "navigator.tool_select",
+          "maxOutputTokens": 1024,
+          "capability": "complete",
+          "inputPerMillion": null,
+          "outputPerMillion": null,
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": false
+        },
+        {
+          "task": "support.reply",
+          "maxOutputTokens": 2048,
+          "capability": "complete",
+          "inputPerMillion": null,
+          "outputPerMillion": null,
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": false
+        },
+        {
+          "task": "own.run",
+          "maxOutputTokens": 2048,
+          "capability": "complete",
+          "inputPerMillion": null,
+          "outputPerMillion": null,
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": false
+        },
+        {
+          "task": "support.classify",
+          "maxOutputTokens": 256,
+          "capability": "complete",
+          "inputPerMillion": null,
+          "outputPerMillion": null,
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": false
+        },
+        {
+          "task": "scanner.rank",
+          "maxOutputTokens": 2048,
+          "capability": "complete",
+          "inputPerMillion": null,
+          "outputPerMillion": null,
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": false
+        },
+        {
+          "task": "merchant.watch",
+          "maxOutputTokens": 1024,
+          "capability": "complete",
+          "inputPerMillion": null,
+          "outputPerMillion": null,
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": false
+        },
+        {
+          "task": "copy_intel.stats",
+          "maxOutputTokens": 2048,
+          "capability": "complete",
+          "inputPerMillion": null,
+          "outputPerMillion": null,
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": false
+        },
+        {
+          "task": "index.embed",
+          "maxOutputTokens": 1,
+          "capability": "embed",
+          "inputPerMillion": null,
+          "outputPerMillion": null,
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": false
+        }
+      ]
+    },
+    {
+      "name": "mock, the default rates, metering on",
+      "provider": "mock",
+      "metering": true,
+      "table": {
+        "routes": [
+          {
+            "task": "navigator.plan",
+            "providerId": "primary",
+            "model": "reasoning-lg",
+            "maxOutputTokens": 4096,
+            "capability": "complete",
+            "price": { "inputPerMillion": "3", "outputPerMillion": "15" }
+          },
+          {
+            "task": "navigator.tool_select",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "support.reply",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "own.run",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "support.classify",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 256,
+            "capability": "complete",
+            "price": { "inputPerMillion": "0.25", "outputPerMillion": "1.25" }
+          },
+          {
+            "task": "scanner.rank",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "merchant.watch",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": { "inputPerMillion": "0.25", "outputPerMillion": "1.25" }
+          },
+          {
+            "task": "copy_intel.stats",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "index.embed",
+            "providerId": "primary",
+            "model": "embed-sm",
+            "maxOutputTokens": 1,
+            "capability": "embed",
+            "price": { "inputPerMillion": "0.1", "outputPerMillion": "0" }
+          }
+        ],
+        "fallbackTask": null
+      },
+      "answer": [
+        {
+          "task": "navigator.plan",
+          "maxOutputTokens": 4096,
+          "capability": "complete",
+          "inputPerMillion": "3",
+          "outputPerMillion": "15",
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": true
+        },
+        {
+          "task": "navigator.tool_select",
+          "maxOutputTokens": 1024,
+          "capability": "complete",
+          "inputPerMillion": "1",
+          "outputPerMillion": "5",
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": true
+        },
+        {
+          "task": "support.reply",
+          "maxOutputTokens": 2048,
+          "capability": "complete",
+          "inputPerMillion": "1",
+          "outputPerMillion": "5",
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": true
+        },
+        {
+          "task": "own.run",
+          "maxOutputTokens": 2048,
+          "capability": "complete",
+          "inputPerMillion": "1",
+          "outputPerMillion": "5",
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": true
+        },
+        {
+          "task": "support.classify",
+          "maxOutputTokens": 256,
+          "capability": "complete",
+          "inputPerMillion": "0.25",
+          "outputPerMillion": "1.25",
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": true
+        },
+        {
+          "task": "scanner.rank",
+          "maxOutputTokens": 2048,
+          "capability": "complete",
+          "inputPerMillion": "1",
+          "outputPerMillion": "5",
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": true
+        },
+        {
+          "task": "merchant.watch",
+          "maxOutputTokens": 1024,
+          "capability": "complete",
+          "inputPerMillion": "0.25",
+          "outputPerMillion": "1.25",
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": true
+        },
+        {
+          "task": "copy_intel.stats",
+          "maxOutputTokens": 2048,
+          "capability": "complete",
+          "inputPerMillion": "1",
+          "outputPerMillion": "5",
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": true
+        },
+        {
+          "task": "index.embed",
+          "maxOutputTokens": 1,
+          "capability": "embed",
+          "inputPerMillion": "0.1",
+          "outputPerMillion": "0",
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": true
+        }
+      ]
+    },
+    {
+      "name": "upstream, the default rates, metering off",
+      "provider": "upstream",
+      "metering": false,
+      "table": {
+        "routes": [
+          {
+            "task": "navigator.plan",
+            "providerId": "primary",
+            "model": "reasoning-lg",
+            "maxOutputTokens": 4096,
+            "capability": "complete",
+            "price": { "inputPerMillion": "3", "outputPerMillion": "15" }
+          },
+          {
+            "task": "navigator.tool_select",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "support.reply",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "own.run",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "support.classify",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 256,
+            "capability": "complete",
+            "price": { "inputPerMillion": "0.25", "outputPerMillion": "1.25" }
+          },
+          {
+            "task": "scanner.rank",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "merchant.watch",
+            "providerId": "primary",
+            "model": "fast-sm",
+            "maxOutputTokens": 1024,
+            "capability": "complete",
+            "price": { "inputPerMillion": "0.25", "outputPerMillion": "1.25" }
+          },
+          {
+            "task": "copy_intel.stats",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 2048,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "index.embed",
+            "providerId": "primary",
+            "model": "embed-sm",
+            "maxOutputTokens": 1,
+            "capability": "embed",
+            "price": { "inputPerMillion": "0.1", "outputPerMillion": "0" }
+          }
+        ],
+        "fallbackTask": null
+      },
+      "answer": [
+        {
+          "task": "navigator.plan",
+          "maxOutputTokens": 4096,
+          "capability": "complete",
+          "inputPerMillion": "3",
+          "outputPerMillion": "15",
+          "assetId": "USDC",
+          "engine": "live",
+          "metered": false
+        },
+        {
+          "task": "navigator.tool_select",
+          "maxOutputTokens": 1024,
+          "capability": "complete",
+          "inputPerMillion": "1",
+          "outputPerMillion": "5",
+          "assetId": "USDC",
+          "engine": "live",
+          "metered": false
+        },
+        {
+          "task": "support.reply",
+          "maxOutputTokens": 2048,
+          "capability": "complete",
+          "inputPerMillion": "1",
+          "outputPerMillion": "5",
+          "assetId": "USDC",
+          "engine": "live",
+          "metered": false
+        },
+        {
+          "task": "own.run",
+          "maxOutputTokens": 2048,
+          "capability": "complete",
+          "inputPerMillion": "1",
+          "outputPerMillion": "5",
+          "assetId": "USDC",
+          "engine": "live",
+          "metered": false
+        },
+        {
+          "task": "support.classify",
+          "maxOutputTokens": 256,
+          "capability": "complete",
+          "inputPerMillion": "0.25",
+          "outputPerMillion": "1.25",
+          "assetId": "USDC",
+          "engine": "live",
+          "metered": false
+        },
+        {
+          "task": "scanner.rank",
+          "maxOutputTokens": 2048,
+          "capability": "complete",
+          "inputPerMillion": "1",
+          "outputPerMillion": "5",
+          "assetId": "USDC",
+          "engine": "live",
+          "metered": false
+        },
+        {
+          "task": "merchant.watch",
+          "maxOutputTokens": 1024,
+          "capability": "complete",
+          "inputPerMillion": "0.25",
+          "outputPerMillion": "1.25",
+          "assetId": "USDC",
+          "engine": "live",
+          "metered": false
+        },
+        {
+          "task": "copy_intel.stats",
+          "maxOutputTokens": 2048,
+          "capability": "complete",
+          "inputPerMillion": "1",
+          "outputPerMillion": "5",
+          "assetId": "USDC",
+          "engine": "live",
+          "metered": false
+        },
+        {
+          "task": "index.embed",
+          "maxOutputTokens": 1,
+          "capability": "embed",
+          "inputPerMillion": "0.1",
+          "outputPerMillion": "0",
+          "assetId": "USDC",
+          "engine": "live",
+          "metered": false
+        }
+      ]
+    },
+    {
+      "name": "no provider for a route, a zero rate",
+      "provider": "mock",
+      "metering": null,
+      "table": {
+        "routes": [
+          {
+            "task": "a.task",
+            "providerId": "elsewhere",
+            "model": "reasoning-md",
+            "maxOutputTokens": 100,
+            "capability": "complete",
+            "price": { "inputPerMillion": "1", "outputPerMillion": "5" }
+          },
+          {
+            "task": "zero",
+            "providerId": "primary",
+            "model": "reasoning-md",
+            "maxOutputTokens": 100,
+            "capability": "complete",
+            "price": { "inputPerMillion": "0", "outputPerMillion": "0" }
+          }
+        ],
+        "fallbackTask": null
+      },
+      "answer": [
+        {
+          "task": "a.task",
+          "maxOutputTokens": 100,
+          "capability": "complete",
+          "inputPerMillion": "1",
+          "outputPerMillion": "5",
+          "assetId": "USDC",
+          "engine": "unknown",
+          "metered": true
+        },
+        {
+          "task": "zero",
+          "maxOutputTokens": 100,
+          "capability": "complete",
+          "inputPerMillion": "0",
+          "outputPerMillion": "0",
+          "assetId": "USDC",
+          "engine": "sandbox",
+          "metered": false
+        }
+      ]
+    }
+  ],
+  "livePlanesEnv": {
+    "TRADE_URL": "http://trade",
+    "PAY_URL": "  ",
+    "ACADEMY_URL": "http://academy",
+    "LIVE_TRADE_COPY_LEADER_PLANE_OPEN": " true ",
+    "LIVE_TRADE_COPY_LEADER_IDS": " a, ,b,c "
+  }
+}

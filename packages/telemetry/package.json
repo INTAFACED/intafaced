@@ -14,7 +14,7 @@
   "scripts": {
     "build": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json",
     "typecheck": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit",
-    "test": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json && vitest run",
+    "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo"
   },

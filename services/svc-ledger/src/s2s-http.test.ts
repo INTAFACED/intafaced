@@ -26,7 +26,7 @@ import {
   registerS2sHttp,
 } from './s2s-http.js';
 import { HISTORY_MAX_ENTRIES, HistoryTooLargeError, type HistoryEntry } from './ledger/history.js';
-import { RECIPE_REQUIRED_CODE } from './recipe-gate.js';
+import { RECIPE_REQUIRED_CODE } from '@intafaced/ledger-client/gate';
 import type { LedgerService } from './service.js';
 
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

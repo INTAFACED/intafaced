@@ -32,6 +32,7 @@ pub use callers::DOOR_CALLERS;
 use std::sync::{Arc, LazyLock};
 
 use service_kit::json::{self, Json};
+use service_kit::metrics::{GaugeSample, Metrics};
 use service_kit::s2s::Mode;
 use service_kit::s2s_verify::{self, BodyBind, Incoming, ServiceVerifier};
 use service_kit::schema::{self, Outcome as Parsed, Schema, Value};
@@ -474,6 +475,8 @@ pub struct DoorConfig {
 pub struct LedgerDoor {
     cfg: DoorConfig,
     ids: RequestIds,
+    /// The process's request metrics, served at `GET /metrics` (`registerMetrics` in `index.ts`).
+    metrics: Metrics,
 }
 
 /// The recorded input schemas and which part each door starts at.
@@ -666,6 +669,7 @@ impl LedgerDoor {
         Ok(LedgerDoor {
             cfg,
             ids: RequestIds::new(),
+            metrics: Metrics::default(),
         })
     }
 
@@ -1064,5 +1068,14 @@ impl Door for LedgerDoor {
     /// `/health` and `/ready` read the freeze from the book, so the door answers them, not the kit's fixed bodies.
     fn status(&self, req: &Request<'_>) -> Option<Response> {
         Some(self.handle_as(req, &self.ids.next()))
+    }
+
+    fn metrics(&self) -> Option<&Metrics> {
+        Some(&self.metrics)
+    }
+
+    /// `reconcileGauges(await ledger.lastVerified())`, read from the book on each scrape.
+    fn gauges(&self) -> Result<Vec<GaugeSample>, String> {
+        crate::metrics::gauges(&self.cfg.store)
     }
 }

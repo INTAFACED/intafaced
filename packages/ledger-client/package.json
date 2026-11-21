@@ -37,6 +37,10 @@
     "./post-recipe": {
       "types": "./dist/post-recipe-client.d.ts",
       "default": "./dist/post-recipe-client.js"
+    },
+    "./gate": {
+      "types": "./dist/gate/index.d.ts",
+      "default": "./dist/gate/index.js"
     }
   },
   "scripts": {

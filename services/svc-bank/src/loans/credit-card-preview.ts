@@ -14,15 +14,15 @@
  */
 
 import { PREVIEW_LABEL, previewRefusal, type PreviewRefusal } from '@intafaced/contracts';
+import { CREDIT_CARD_TABS, CREDIT_CARD_VARIANTS } from '@intafaced/contracts/bank-credit-preview-procedures';
 
-export const CREDIT_CARD_PREVIEW_LABEL = PREVIEW_LABEL;
+const CREDIT_CARD_PREVIEW_LABEL = PREVIEW_LABEL;
 /** Engine id for the typed Preview refusal (`<module>.<engine>`). */
 export const CREDIT_CARD_PREVIEW_ENGINE = 'bank.credit_card' as const;
 
-export const CREDIT_CARD_TABS = ['application', 'limit', 'repayment', 'usage_rules', 'statements'] as const;
+export { CREDIT_CARD_TABS, CREDIT_CARD_VARIANTS };
 export type CreditCardTab = (typeof CREDIT_CARD_TABS)[number];
 
-export const CREDIT_CARD_VARIANTS = ['credit_card', 'charge_card'] as const;
 export const CREDIT_CARD_REPAYMENT_OPTIONS = ['pay_in_full', 'pay_early', 'pay_extra', 'choose_date'] as const;
 export const CREDIT_CARD_RESTRICTIONS = ['cash_withdrawal', 'gambling', 'crypto', 'balance_transfer', 'money_transfer'] as const;
 export const CREDIT_CARD_REPAYMENT_VARIANTS = ['daily', 'thirty_day'] as const;

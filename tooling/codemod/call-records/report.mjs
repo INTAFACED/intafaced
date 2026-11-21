@@ -21,10 +21,6 @@ export function reasonOf(why) {
   const rules = [
     [/no refusal reader this file can import/, 'service has no exported refusal reader (one file per service)'],
     [/comes from @intafaced\/[a-z-]+, wh|is not declared/, 'answer or input schema from another package or generic'],
-    [/useBankRead has no record form/, 'no record form: useBankRead'],
-    [/founderEdgeCall has no record form/, 'no record form: founderEdgeCall'],
-    [/payCall has no record form/, 'no record form: payCall'],
-    [/has no record form/, 'no record form: other'],
     [/named by a template/, 'service or call named by a template'],
     [/builds the schema/, "schema built by the caller's own function"],
     [/own schema checks the answer/, 'caller schema checks the answer (.refine and the like)'],
@@ -34,6 +30,7 @@ export function reasonOf(why) {
     [/clashes with another/, 'helper name clash (a rerun places it)'],
     [/is not a declaration in/, 'helper the closure cannot follow'],
     [/scopedProcedure with a scope or options/, 'scopedProcedure scope or options a record cannot copy'],
+    [/guard \S+ kept by hand/, 'guard kept by hand (named, with its reason)'],
     [/guard .*chained/, 'guard chained with .use()'],
     [/guard /, 'guard a record cannot name'],
     [/no \.output\(\)/, 'no answer schema in the router'],

@@ -120,15 +120,6 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
 ];
 
 /**
- * S2S `/trpc/post` catalog (`services/svc-ledger/src/recipe-gate.ts`) samples
- * every registry recipe to freeze (module, reason, legs) signatures. It never
- * `ledger.post` — not a second chargeback door (or any money writer).
- * `chargeback-ledger.ts` posts `chargebackOpen`, `chargebackShortfall`,
- * `chargebackWon`, and `chargebackShortfallRecovered`.
- */
-const RECIPE_GATE_CATALOG = 'services/svc-ledger/src/recipe-gate.ts';
-
-/**
  * svc-trade's buyback door places these, but svc-ledger has not granted svc-trade the three recipes yet. Until that
  * grant lands and the rows turn live, a key-signed (S2S v3 keypair) post is refused at the ledger; a shared-secret post
  * is only logged there as a binding violation.
@@ -137,20 +128,9 @@ const BUYBACK_PLACE = 'services/svc-trade/src/spot/trade-service/buyback.ts';
 const BUYBACK_ORDER = 'services/svc-trade/src/spot/buyback-order.ts';
 const BUYBACK_FILLS = 'services/svc-trade/src/spot/trade-service/fills.ts';
 const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new Map([
-  ['marketMakerSeedFund', [RECIPE_GATE_CATALOG]],
-  ['feeSharePayOut', [RECIPE_GATE_CATALOG]],
-  ['partnerFeeSettle', [RECIPE_GATE_CATALOG]],
-  ['feeGiveBackOwe', [RECIPE_GATE_CATALOG]],
-  ['feeGiveBackPayOut', [RECIPE_GATE_CATALOG]],
-  ['tradeFillFeeCorrection', [RECIPE_GATE_CATALOG]],
-  ['orderHoldAmend', [RECIPE_GATE_CATALOG]],
-  ['marketListingFee', [RECIPE_GATE_CATALOG]],
-  ['marketPremiumPlacement', [RECIPE_GATE_CATALOG]],
-  ['buybackOrderHold', [RECIPE_GATE_CATALOG, BUYBACK_PLACE]],
-  ['buybackOrderHoldRelease', [RECIPE_GATE_CATALOG, BUYBACK_ORDER]],
-  ['buybackTakerFill', [RECIPE_GATE_CATALOG, BUYBACK_FILLS]],
-  ['bankTransferReversal', [RECIPE_GATE_CATALOG]],
-  ['subAccountTransfer', [RECIPE_GATE_CATALOG]],
+  ['buybackOrderHold', [BUYBACK_PLACE]],
+  ['buybackOrderHoldRelease', [BUYBACK_ORDER]],
+  ['buybackTakerFill', [BUYBACK_FILLS]],
 ]);
 
 describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
@@ -185,9 +165,8 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
 
   it('production scan: live recipes have callers; socket callers stay explicitly allowlisted', () => {
     const callers = scanProductionRecipeCallers();
-    // The recipe-gate catalog samples every recipe and never posts, so it proves nothing live.
     for (const name of inventory.live) {
-      const posters = (callers.get(name) ?? []).filter((file) => file !== RECIPE_GATE_CATALOG);
+      const posters = callers.get(name) ?? [];
       expect(posters, `live recipe ${name} has no production caller: wire it, or give it a §13 row in RECIPE_SOCKETS`).not.toEqual([]);
     }
     for (const name of inventory.sockets) {

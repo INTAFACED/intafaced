@@ -11,7 +11,7 @@ import {
   type ServiceName,
 } from '@intafaced/contracts';
 import { LedgerError } from '@intafaced/ledger-client';
-import { LEDGER_DOOR_CALLERS } from './door-callers.js';
+import { LEDGER_DOOR_CALLERS } from '@intafaced/ledger-client/gate';
 import { registerS2sHttp } from './s2s-http.js';
 import { registerOperatorHttp } from './operator-http.js';
 import { stubApprovalConsumer } from './ledger/action-approval-consume.js';

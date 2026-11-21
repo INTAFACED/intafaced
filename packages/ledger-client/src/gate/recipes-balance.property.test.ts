@@ -1,6 +1,6 @@
 import fc from 'fast-check';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { recipes, type PostRequest } from '@intafaced/ledger-client';
+import { recipes, type PostRequest } from '../index.js';
 import { recipeGateSamples } from './recipe-gate.js';
 
 /**
