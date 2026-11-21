@@ -161,7 +161,7 @@ export const passkeyList = (count = 1) =>
   Array.from({ length: count }, (_, index) => ({ credentialId: `cred${index}`, createdAt: '2026-10-13T11:00:00Z' }));
 /** notify notify.alerts */
 /** notify alerts: one active price alert, every field svc-notify's record sends, and the evaluation that comes with the list. */
-export const priceAlertRow = (over = {}) => ({
+const priceAlertRow = (over = {}) => ({
   id: '00000000-0000-4000-8000-0000000000b1',
   userId: '00000000-0000-4000-8000-000000000001',
   marketId: 'BTC-USDT',
