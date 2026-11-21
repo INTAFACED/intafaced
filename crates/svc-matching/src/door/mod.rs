@@ -56,6 +56,11 @@ impl Slice {
         Slice::Operator,
     ];
 
+    /// Its doors are served past the input checks (`book::serve`); every other slice's are owed.
+    pub fn is_ported(self) -> bool {
+        matches!(self, Slice::Journal | Slice::Book | Slice::Triggers)
+    }
+
     /// The slice's name in `PORT.md`.
     pub fn name(self) -> &'static str {
         match self {
@@ -672,7 +677,7 @@ impl MatchingDoor {
             Ok(parsed) => parsed,
             Err(refused) => return answer(refused),
         };
-        if route.slice != Slice::Book {
+        if !route.slice.is_ported() {
             return Outcome::Owed(route.slice);
         }
         let param = |name: &str| {

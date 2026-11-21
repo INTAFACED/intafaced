@@ -15,14 +15,15 @@ pub mod reconcile;
 use std::collections::{HashMap, HashSet};
 
 use service_kit::json::Json;
-use service_kit::money::{Amount, format_amount};
+use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::time::Instant;
 
 use crate::book::order_book::{OrderBook, QueueLevel};
 use crate::book::rules::{mass_cancel_session_refuse, read_session_id};
+use crate::book::triggers::mark_refuse;
 use crate::book::types::{
     AmendResult, CancelReason, CancelResult, CancelledRef, EngineAmend, EngineOrder, Fill,
-    OrderType, Reject, RestKind, Side, SubmitResult, Tif, TriggerFact, seq_json,
+    OrderType, Reject, RestKind, Side, SubmitResult, Tif, TriggerFact, reject_or_null, seq_json,
 };
 use crate::book::wire::{WireError, from_wire, from_wire_amend, to_wire, to_wire_amend};
 use crate::door::Slice;
@@ -939,6 +940,95 @@ impl MatchingEngine {
         self.submit(market_id, &order, lifecycle_proof)
     }
 
+    // ── triggers ────────────────────────────────────────────────────────
+
+    /// `markTrailingStops`: walk one market's live trailing stops with a server-side mark. A blank or non-positive
+    /// mark refuses, never replaced; the market's modes gate it as they gate an amend. A mark that moved a peak or a
+    /// trigger is journalled in the same step; one that moved nothing writes nothing.
+    pub fn mark_trailing_stops(
+        &mut self,
+        market_id: &str,
+        mark: &str,
+    ) -> Result<MarkResult, EngineError> {
+        let parsed = is_mark_text(mark)
+            .then(|| parse_amount(mark).ok())
+            .flatten();
+        let refuse = |r: Reject| MarkResult {
+            accepted: false,
+            applied: false,
+            rejected: Some(r),
+        };
+        if let Some(r) = mark_refuse(parsed) {
+            return Ok(refuse(r));
+        }
+        let id = "trailing-mark";
+        if !self.enabled {
+            return Ok(refuse(disabled(id)));
+        }
+        if let Some(r) = mode_refusal(&self.modes, market_id, id) {
+            return Ok(refuse(r));
+        }
+        let Some(book) = self.books.get_mut(market_id) else {
+            return Ok(MarkResult {
+                accepted: true,
+                applied: false,
+                rejected: None,
+            });
+        };
+        let walked = book.apply_mark(parsed);
+        if let Some(r) = walked.refused {
+            return Ok(refuse(r));
+        }
+        if walked.changed {
+            let at = self.now_iso((self.clock)());
+            self.append(Json::obj([
+                ("kind", Json::str("mark")),
+                ("marketId", Json::str(market_id)),
+                ("at", Json::str(at)),
+                ("mark", Json::str(mark)),
+            ]))?;
+        }
+        Ok(MarkResult {
+            accepted: true,
+            applied: walked.changed,
+            rejected: None,
+        })
+    }
+
+    /// `sweepExpiry`: cancel every GTD and GTT order already due, market by market, even when no later order arrives.
+    /// Without the engine clock it refuses.
+    pub fn sweep_expiry(&mut self) -> Result<ExpirySweep, EngineError> {
+        let Some(now) = self.expiry_now() else {
+            return Ok(ExpirySweep {
+                accepted: false,
+                cancelled: Vec::new(),
+                rejected: Some(Reject::new(
+                    "engine_clock_missing",
+                    "GTD/GTT expires on the engine clock; refuse when that clock is missing",
+                )),
+            });
+        };
+        let mut markets: Vec<String> = self.books.keys().cloned().collect();
+        markets.sort_by(|a, b| js_sort_cmp(a, b));
+        let mut cancelled = Vec::new();
+        for market in markets {
+            let due = self
+                .books
+                .get(&market)
+                .map(|b| b.due_expiry(now))
+                .unwrap_or_default();
+            for id in due {
+                let r = self.cancel(&market, &id, CancelReason::Expired)?;
+                cancelled.extend(r.cancellation);
+            }
+        }
+        Ok(ExpirySweep {
+            accepted: true,
+            cancelled,
+            rejected: None,
+        })
+    }
+
     // ── cold start ──────────────────────────────────────────────────────
 
     /// Rebuild every book and mode from the journal alone, then announce again what replay printed (the fills, the
@@ -992,6 +1082,42 @@ impl MatchingEngine {
             markets: self.books.len(),
         })
     }
+}
+
+/// `/^\d+(\.\d{1,18})?$/`: the mark's text, before it is read.
+fn is_mark_text(mark: &str) -> bool {
+    let (whole, frac) = match mark.split_once('.') {
+        Some((w, f)) => (w, Some(f)),
+        None => (mark, None),
+    };
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    digits(whole) && frac.is_none_or(|f| digits(f) && f.len() <= 18)
+}
+
+/// What a mark answers (`MarkResult`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkResult {
+    pub accepted: bool,
+    pub applied: bool,
+    pub rejected: Option<Reject>,
+}
+
+impl MarkResult {
+    pub fn to_json(&self) -> Json {
+        Json::obj([
+            ("accepted", Json::Bool(self.accepted)),
+            ("applied", Json::Bool(self.applied)),
+            ("rejected", reject_or_null(self.rejected.as_ref())),
+        ])
+    }
+}
+
+/// What an expiry sweep answers (`ExpirySweepResult`). Every book here is readable, so it names no misses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpirySweep {
+    pub accepted: bool,
+    pub cancelled: Vec<CancelledRef>,
+    pub rejected: Option<Reject>,
 }
 
 /// What a cold start rebuilt.
@@ -1295,12 +1421,27 @@ impl ReplayBooks for Rebuild {
         self.drop_if_never_traded(market_id);
     }
 
-    fn mark(&mut self, _market_id: &str, _record: &JournalRecord) {
-        if self.error.is_none() {
-            self.error = Some(WireError::Owed {
-                field: "trailing-stop mark".to_owned(),
-                slice: Slice::Triggers,
-            });
+    /// `applyMark(existing, parseAmount(record.mark))`: the walk prints nothing replay collects, as the live mark
+    /// announces nothing.
+    fn mark(&mut self, market_id: &str, record: &JournalRecord) {
+        if self.error.is_some() {
+            return;
+        }
+        let mark = match record.field("mark") {
+            Some(Json::String(m)) => match parse_amount(m) {
+                Ok(a) => a,
+                Err(e) => {
+                    self.error = Some(WireError::Malformed(format!("a mark of {m}: {e}")));
+                    return;
+                }
+            },
+            _ => {
+                self.error = Some(WireError::Malformed("a mark that is not text".to_owned()));
+                return;
+            }
+        };
+        if let Some(book) = self.books.get_mut(market_id) {
+            book.apply_mark(Some(mark));
         }
     }
 
