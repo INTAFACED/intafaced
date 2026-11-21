@@ -1,6 +1,12 @@
-import { parseAmount } from '@intafaced/ledger-client/money';
+import { div, formatAmount, mul, parseAmount } from '@intafaced/ledger-client/money';
 import { z } from 'zod';
-import { QUANT_BACKTEST_HISTORY_RANGE, QUANT_BACKTEST_LAKE_MISSING, QUANT_COST_UNSET, QuantError } from '../errors.js';
+import {
+  QUANT_ACCOUNT_RULE_UNSET,
+  QUANT_BACKTEST_HISTORY_RANGE,
+  QUANT_BACKTEST_LAKE_MISSING,
+  QUANT_COST_UNSET,
+  QuantError,
+} from '../errors.js';
 import { barSpanMs, type Bar, type BarSize } from './bars.js';
 
 /**
@@ -143,6 +149,102 @@ export function tradeFeePort(options: { readonly tradeUrl: string; readonly fetc
       const row = parsed.data.fees[symbol];
       if (!row) throw new QuantError(QUANT_COST_UNSET, `fees — the published schedule has no rate for ${symbol}`);
       return { version: parsed.data.version, makerBps: row.makerBps, takerBps: row.takerBps };
+    },
+  };
+}
+
+/**
+ * The venue's published margin rules for the perpetual on a backtest symbol's asset (J-algo-dev-02 #5), read from
+ * svc-trade's public route (`GET /api/v1/venue/margin-rules?base=BTC`), never set by us: the maximum leverage in times and
+ * the maintenance level as a percent of the position's value, each null where the venue publishes none, and the market
+ * null where the venue lists no perpetual on the asset. A read that does not answer refuses by name.
+ */
+export interface VenueMarginRules {
+  readonly venueMarket: string | null;
+  readonly maxLeverage: string | null;
+  readonly maintenancePercent: string | null;
+  readonly test: boolean;
+}
+
+export interface MarginRulesPort {
+  readonly wired: boolean;
+  rules(symbol: string): Promise<VenueMarginRules>;
+}
+
+const marginRulesAnswer = z.object({
+  symbol: z.string().min(1),
+  maxLeverageBps: z.number().int().positive().nullable(),
+  maintenanceRate: price.nullable(),
+  test: z.boolean(),
+});
+
+/** The asset a backtest symbol trades: `BTC/USDT` and `BTC-USDC` are BTC. */
+function baseAssetOf(symbol: string): string {
+  const [asset = ''] = symbol.split(/[/-]/);
+  return asset.toUpperCase();
+}
+
+export function missingMarginRules(): MarginRulesPort {
+  return {
+    wired: false,
+    rules: async () => {
+      throw new QuantError(
+        QUANT_ACCOUNT_RULE_UNSET,
+        "maximum leverage — the venue's margin rules read is not wired (TRADE_URL is unset); nothing is assumed",
+      );
+    },
+  };
+}
+
+export function tradeMarginRulesPort(options: {
+  readonly tradeUrl: string;
+  readonly fetch?: Fetch;
+  readonly timeoutMs?: number;
+}): MarginRulesPort {
+  const base = options.tradeUrl.replace(/\/+$/, '');
+  const fetchImpl: Fetch = options.fetch ?? ((url, init) => globalThis.fetch(url, init));
+  return {
+    wired: true,
+    async rules(symbol) {
+      const asset = baseAssetOf(symbol);
+      let answer: { status: number; body: unknown };
+      try {
+        answer = await getJson(
+          fetchImpl,
+          `${base}/api/v1/venue/margin-rules?base=${encodeURIComponent(asset)}`,
+          options.timeoutMs ?? 10_000,
+        );
+      } catch {
+        throw new QuantError(
+          QUANT_ACCOUNT_RULE_UNSET,
+          "maximum leverage — the venue's margin rules read did not answer; nothing is assumed",
+        );
+      }
+      // The venue lists no perpetual on the asset: there are no venue rules to follow, which the run refuses by name.
+      if (answer.status === 422 && codeOf(answer.body) === 'trade.venue.not_offered') {
+        return { venueMarket: null, maxLeverage: null, maintenancePercent: null, test: false };
+      }
+      if (answer.status !== 200) {
+        throw new QuantError(
+          QUANT_ACCOUNT_RULE_UNSET,
+          `maximum leverage — the venue's margin rules read answered ${answer.status} (${codeOf(answer.body)}); nothing is assumed`,
+        );
+      }
+      const parsed = marginRulesAnswer.safeParse(answer.body);
+      if (!parsed.success) {
+        throw new QuantError(
+          QUANT_ACCOUNT_RULE_UNSET,
+          "maximum leverage — the venue's margin rules read answered no rules; nothing is assumed",
+        );
+      }
+      const { maxLeverageBps, maintenanceRate } = parsed.data;
+      return {
+        venueMarket: parsed.data.symbol,
+        maxLeverage: maxLeverageBps === null ? null : formatAmount(div(parseAmount(String(maxLeverageBps)), parseAmount('10000'), 'floor')),
+        maintenancePercent:
+          maintenanceRate === null ? null : formatAmount(mul(parseAmount(maintenanceRate), parseAmount('100'), 'half-up')),
+        test: parsed.data.test,
+      };
     },
   };
 }
