@@ -1,0 +1,154 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  BETA_LINK,
+  BETA_SLOT,
+  MAILBOX_PORT,
+  betaPaths,
+  decide,
+  environEntries,
+  fundsCheck,
+  mailboxPage,
+  mailboxRows,
+  outsideAddresses,
+  reservedHost,
+  stackEnv,
+  unitText,
+} from './beta-host.mjs';
+import { slotPorts } from '../scripts/local-test-facts.mjs';
+
+const environ = (obj) =>
+  Object.entries(obj)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\0') + '\0';
+const PAGE = '<body><div id="local-test-stack-banner">LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money</div>';
+
+test('the link is the Customer port of the beta slot, as localhost, and the mailbox port is free on that slot', () => {
+  const ports = slotPorts(BETA_SLOT);
+  assert.equal(BETA_LINK, `http://localhost:${ports.stack.customer}/`);
+  const used = Object.values(ports).flatMap((group) => Object.values(group));
+  assert.ok(!used.includes(MAILBOX_PORT), `mailbox port ${MAILBOX_PORT} collides with a slot ${BETA_SLOT} port`);
+});
+
+test('every stack command of the beta runs on its own slot and state folder', () => {
+  const paths = betaPaths('/home/x');
+  assert.deepEqual(
+    { slot: stackEnv(paths, { A: '1' }).LOCAL_STACK_SLOT, state: stackEnv(paths, {}).LOCAL_STACK_STATE, a: stackEnv(paths, { A: '1' }).A },
+    { slot: String(BETA_SLOT), state: '/home/x/.intafaced/beta/state', a: '1' },
+  );
+  assert.equal(paths.screening, '/home/x/.intafaced/beta/state/screening.local.json');
+});
+
+test('outsideAddresses: loopback passes, any other host is named by key and host, never by value', () => {
+  const found = outsideAddresses(
+    environEntries(
+      environ({
+        LEDGER_URL: 'http://127.0.0.1:17501',
+        DATABASE_URL: 'postgres://svc@127.0.0.1:18460/db',
+        NATS_URL: 'nats://localhost:17232',
+        V6: 'http://[::1]:9',
+        CHAIN_RPC: 'https://svc@rpc.mainnet-node.io/v1?key=KEYVALUE',
+        LIST: 'http://127.0.0.1:1,https://api.venue-live.net:443/x',
+        PLAIN: 'not a url',
+      }),
+    ),
+  );
+  assert.deepEqual(found, [
+    { key: 'CHAIN_RPC', scheme: 'https', host: 'rpc.mainnet-node.io' },
+    { key: 'LIST', scheme: 'https', host: 'api.venue-live.net' },
+  ]);
+  assert.ok(!JSON.stringify(found).includes('KEYVALUE'), 'a credential in the value is never returned');
+});
+
+test('fundsCheck passes a stack whose every route stays on this machine and whose page carries the TEST banner', () => {
+  const envs = { 11: environ({ EDGE_URL: 'http://127.0.0.1:17500' }), 12: environ({ X: 'nats://127.0.0.1:1' }) };
+  const r = fundsCheck({
+    records: { edge: { pid: 11 }, ledger: { pid: 12 }, gone: { pid: 13 } },
+    readEnviron: (pid) => envs[pid] ?? null,
+    page: PAGE,
+  });
+  assert.equal(r.ok, true, r.lines.join('\n'));
+  assert.match(r.lines.join('\n'), /2 of 2 running processes/);
+});
+
+test('fundsCheck fails on a route off the machine, naming the process, key and host', () => {
+  const r = fundsCheck({
+    records: { pay: { pid: 21 } },
+    readEnviron: () => environ({ RAIL_URL: 'https://rail.bank-live.com/api', SECRET: 'zzz' }),
+    page: PAGE,
+  });
+  assert.equal(r.ok, false);
+  assert.ok(r.lines.includes('FAIL pay (pid 21): RAIL_URL names https://rail.bank-live.com, off this machine'), r.lines.join('\n'));
+  assert.ok(!r.lines.join('\n').includes('zzz'));
+});
+
+test('fundsCheck fails closed: no process, no readable process, no page, or a page with no TEST banner', () => {
+  const ok = () => environ({ A: 'http://127.0.0.1:1' });
+  assert.equal(fundsCheck({ records: {}, readEnviron: ok, page: PAGE }).ok, false);
+  assert.equal(fundsCheck({ records: { a: { pid: 1 } }, readEnviron: () => null, page: PAGE }).ok, false);
+  assert.equal(fundsCheck({ records: { a: { pid: 1 } }, readEnviron: ok, page: null }).ok, false);
+  const noBanner = fundsCheck({ records: { a: { pid: 1 } }, readEnviron: ok, page: '<body>app</body>' });
+  assert.equal(noBanner.ok, false);
+  assert.match(noBanner.lines[0], /lacks the TEST banner/);
+});
+
+test('decide: no screening file builds nothing; a moved main updates; the same commit only launches', () => {
+  assert.equal(decide({ screening: false, head: 'a', target: 'b' }), 'blocked');
+  assert.equal(decide({ screening: true, head: 'a', target: 'b' }), 'update');
+  assert.equal(decide({ screening: true, head: 'a', target: 'a' }), 'launch');
+});
+
+test('mailboxRows: the last day, newest first, codes and links read from the outbox lines', () => {
+  const now = Date.parse('2026-11-22T12:00:00Z');
+  const text = [
+    'LOCAL-TEST purpose=signup-code email=old@local-test.invalid expires=2026-11-20T10:00:00.000Z code=111111',
+    'LOCAL-TEST purpose=signup-code email=a@local-test.invalid expires=2026-11-22T11:10:00.000Z code=222222',
+    'something else',
+    'LOCAL-TEST purpose=email-confirm email=a@local-test.invalid expires=2026-11-22T13:00:00.000Z link=confirm-email?token=abc',
+  ].join('\n');
+  const rows = mailboxRows(text, { now });
+  assert.deepEqual(
+    rows.map((r) => [r.purpose, r.email, r.code, r.link]),
+    [
+      ['email-confirm', 'a@local-test.invalid', null, 'confirm-email?token=abc'],
+      ['signup-code', 'a@local-test.invalid', '222222', null],
+    ],
+  );
+  const page = mailboxPage(rows);
+  assert.match(page, /TEST MAILBOX/);
+  assert.match(page, /222222/);
+  assert.ok(page.includes(`href="${BETA_LINK}confirm-email?token=abc"`), 'a mailed link opens on the beta app');
+  assert.match(mailboxPage([]), /No mail yet/);
+  assert.ok(!mailboxPage([{ purpose: '<script>', email: 'x', code: '1' }]).includes('<script>'), 'escaped');
+});
+
+test('the service keeps the supervisor running from the beta checkout and leaves the stack up across its restarts', () => {
+  const unit = unitText(betaPaths('/home/x'));
+  assert.match(unit, /WorkingDirectory=\/home\/x\/\.intafaced\/beta\/checkout/);
+  assert.match(unit, /ExecStart=\/bin\/bash -lc 'exec node tooling\/beta\/beta-host\.mjs serve'/);
+  assert.match(unit, /Restart=always/);
+  assert.match(unit, /KillMode=process/);
+});
+
+test('reserved names never reach a service, so they pass; a real host that only looks like one does not', () => {
+  // What a real stack held on 22 Nov: svc-mining-pool, svc-pay and svc-ops settings on reserved names.
+  for (const h of [
+    '198.51.100.1',
+    '192.0.2.7',
+    '203.0.113.9',
+    'terms.example',
+    'archive.test.invalid',
+    'a.test',
+    'x.localhost',
+    'example.com',
+    'www.example.org',
+  ])
+    assert.equal(reservedHost(h), true, h);
+  for (const h of ['198.51.101.1', 'example.io', 'notexample.com', 'test.com', 'api.hyperliquid.xyz', 'invalid.org', '8.8.8.8'])
+    assert.equal(reservedHost(h), false, h);
+  const found = outsideAddresses([
+    ['MINING_POOL_SECURE_URL', 'stratum+ssl://198.51.100.1:3334'],
+    ['PAY_MERCHANT_TERMS_URL', 'https://terms.example/t'],
+  ]);
+  assert.deepEqual(found, []);
+});

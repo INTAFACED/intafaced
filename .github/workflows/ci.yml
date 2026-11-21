@@ -295,6 +295,7 @@ jobs:
       full: ${{ steps.cls.outputs.full }}
       affected: ${{ steps.cls.outputs.affected }}
       rust: ${{ steps.cls.outputs.rust }}
+      look: ${{ steps.cls.outputs.look }}
       shards: ${{ steps.cls.outputs.shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -709,6 +710,17 @@ jobs:
         if: always()
         run: node tooling/ci/infra-verdict.mjs
 
+  # The look gate on the rooms a pull request changes (#9325; look-pr.yml): before and after pictures for the CI review,
+  # and red when the head adds a finding on a new-look page. Only when the change draws a Customer room or the kit
+  # (ci-affected.mjs reachesLook); the seal needs it green then.
+  look:
+    name: Look
+    needs: [changes]
+    if: needs.changes.outputs.look == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/look-pr.yml
+
   merge-seal:
     # `CI jobs` on a pull request: there the seal is merge-seal.yml's alone, which waits for its inputs with no check on
     # the head, so a job of this name here would pass the required check in its place (journey-seal.mjs CI_JOBS_NAME,
@@ -723,7 +735,7 @@ jobs:
       actions: read # the CI review's runs and their jobs on the head (ci-review.yml); no comment or status is read
       pull-requests: read # the changed files, to tell whether this change needs the independent review or a full journeys run
       issues: read # the journeys verdict a shared-setup change needs reads the regression issues the baseline names
-    needs: [changes, gates, format, build, test-full, rust]
+    needs: [changes, gates, format, build, test-full, rust, look]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Require needed jobs
@@ -732,12 +744,14 @@ jobs:
           FULL: ${{ needs.changes.outputs.full }}
           AFFECTED: ${{ needs.changes.outputs.affected }}
           RUST: ${{ needs.changes.outputs.rust }}
+          LOOK: ${{ needs.changes.outputs.look }}
           CHANGES: ${{ needs.changes.result }}
           GATES: ${{ needs.gates.result }}
           FORMAT: ${{ needs.format.result }}
           BUILD: ${{ needs.build.result }}
           T_FULL: ${{ needs.test-full.result }}
           RUST_RESULT: ${{ needs.rust.result }}
+          LOOK_RESULT: ${{ needs.look.result }}
         run: node tooling/ci/ci-affected.mjs --seal
       # The default branch's copy of the seal's scripts, which decide the two steps below whatever the pull request changes.
       - name: The default branch's seal scripts
@@ -827,7 +841,7 @@ jobs:
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
   seal-start:
     name: Start the seal
-    needs: [changes, gates, format, build, test-full, rust, merge-seal]
+    needs: [changes, gates, format, build, test-full, rust, look, merge-seal]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes

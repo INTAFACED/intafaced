@@ -99,6 +99,7 @@ fn serve(laws: Option<&str>, factories: Factories) -> AgentsDoor {
         ready: ReadyInput::unwired(),
         metering: svc_agents::metering::Metering::unwired("USDC", 60),
         runtime,
+        advisors: svc_agents::advisors::Advisors::unwired(),
     })
     .unwrap()
     .with_factories(factories)

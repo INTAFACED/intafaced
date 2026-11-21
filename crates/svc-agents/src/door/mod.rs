@@ -33,6 +33,7 @@ use service_kit::server::{Door, Request, RequestIds, Response};
 use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
 
+use crate::advisors::Advisors;
 use crate::db::Store;
 use crate::factories::Factories;
 use crate::gateway::desk::GatewaySlice;
@@ -276,6 +277,8 @@ pub struct DoorConfig {
     pub metering: Metering,
     /// The runtime's own settings: the spend gate, the funds, the transcript and the grace (`runtime`).
     pub runtime: Runtime,
+    /// The advisors' curriculum, holdings, prices and switches (`advisors`).
+    pub advisors: Advisors,
 }
 
 pub struct AgentsDoor {
@@ -293,6 +296,7 @@ pub struct AgentsDoor {
     metering: Metering,
     runtime: Runtime,
     factories: Factories,
+    advisors: Advisors,
 }
 
 /// The system clock.
@@ -337,6 +341,7 @@ impl AgentsDoor {
             metering: config.metering,
             runtime: config.runtime,
             factories: Factories::unwired(),
+            advisors: config.advisors,
         })
     }
 
@@ -390,6 +395,17 @@ impl AgentsDoor {
                 &self.metering,
                 &self.runtime,
                 &self.factories,
+            ),
+            Slice::Advisors => crate::advisors::slice::handle(
+                ctx,
+                &crate::advisors::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    advisors: &self.advisors,
+                    jurisdiction: &self.jurisdiction,
+                },
             ),
             other => Err(not_ported(other)),
         }

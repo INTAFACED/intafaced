@@ -164,6 +164,7 @@ impl World {
             ready: ReadyInput::unwired(),
             metering: m,
             runtime: rt,
+            advisors: svc_agents::advisors::Advisors::unwired(),
         })
         .unwrap()
         .with_factories(factories)
