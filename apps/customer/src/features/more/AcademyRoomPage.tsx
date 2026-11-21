@@ -17,8 +17,6 @@ const pinnedLessonSchema = academyCurriculumSummarySchema;
 type PinnedLesson = z.infer<typeof pinnedLessonSchema>;
 type CalendarSession = { id: string; title: string; status: 'scheduled' | 'live' | 'ended' | 'cancelled'; startsAt: string };
 
-const ok = z.object({ ok: z.literal(true) });
-
 /** RC-academy-06: the lessons the room's host pinned, in the order pinned; the host pins and unpins here. */
 export function RoomPinnedLessons({
   roomId,

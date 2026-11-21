@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { z } from 'zod';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Panel } from '../../shared/ui';
@@ -10,8 +9,6 @@ import { academyPaths, lessonHrefFor, isAcademyPath } from './academy-lms';
 import { AcademyRefusal, pathLabel } from './AcademyLmsParts';
 import { AcademyVideoPlayer } from './AcademyVideoPlayer';
 import { ACADEMY_VIDEOS } from '@intafaced/contracts/academy-videos-procedures';
-
-const video = z.object({ slug: z.string(), title: z.string(), path: z.string() });
 
 /** Video library: recordings grouped by path, the player for the chosen one, and a way back to the matching lesson. */
 export function AcademyVideos() {

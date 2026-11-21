@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { useResource } from '../../shared/resource';
 import { useApi, useSession } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
@@ -94,7 +93,6 @@ export function ReaderPager({
   );
 }
 
-const videoList = z.array(z.object({ slug: z.string(), title: z.string(), path: z.string() }));
 /** Shown only when the video library lists a recording for this exact lesson. A library that cannot be read adds nothing here. */
 export function LessonVideoLink({ slug }: { slug: string }) {
   const api = useApi();

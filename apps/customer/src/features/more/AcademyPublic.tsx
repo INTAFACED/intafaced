@@ -1,10 +1,5 @@
 import { useState } from 'react';
-import {
-  ACADEMY_PUBLIC_CATALOGUE_SORTS,
-  academyCurriculumSummarySchema,
-  academyPublicItemSchema,
-  type AcademyPublicCatalogueSort,
-} from '@intafaced/contracts/academy-catalogue';
+import { ACADEMY_PUBLIC_CATALOGUE_SORTS, type AcademyPublicCatalogueSort } from '@intafaced/contracts/academy-catalogue';
 import { navigate } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
 import { useApi } from '../session';
@@ -30,8 +25,6 @@ import { ACADEMY_PUBLIC_VIDEOS } from '@intafaced/contracts/academy-public-video
  * say they need sign-in. Reads go to svc-academy's signed-out doors.
  */
 const PAGE = 50;
-const summary = academyCurriculumSummarySchema;
-const item = academyPublicItemSchema;
 const sorts = ACADEMY_PUBLIC_CATALOGUE_SORTS;
 type Sort = AcademyPublicCatalogueSort;
 

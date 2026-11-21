@@ -37,7 +37,6 @@ const badge = z.object({
   isAmbassador: z.boolean(),
   status: z.enum(['active', 'frozen']).nullable(),
 });
-const payQuote = z.object({ status: z.literal('refuse'), payable: z.literal(false), message: z.string(), code: z.string() });
 
 /** Programme depth from real answers: path enrolment, prerequisites, grants, ambassador status and residency pay state. */
 export function AcademyProgrammeOverview({ action }: { action: ProgrammeAction }) {
