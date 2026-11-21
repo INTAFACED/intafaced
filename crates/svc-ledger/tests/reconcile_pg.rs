@@ -946,7 +946,7 @@ fn an_incomplete_run_whose_row_cannot_be_written_is_still_returned() {
     ));
 }
 
-// `/metrics` is in no slice yet (PORT.md); the gauge half of the TypeScript case waits for it.
+// The gauge half of the TypeScript case is `store_pg.rs`, which reads them through `GET /metrics`.
 #[test]
 fn last_verified_and_health_follow_the_latest_ok_run() {
     let Some(b) = book() else { return };
