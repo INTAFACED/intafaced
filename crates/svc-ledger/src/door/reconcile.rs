@@ -68,12 +68,12 @@ impl LedgerDoor {
         };
         let consumed = match consume_ledger_approval(
             &*self.cfg.approvals,
-            text(input, "approvalId"),
-            text(input, "operationId"),
+            (text(input, "approvalId"), text(input, "operationId")),
             "ledger.reconcile",
             "posting_reconcile",
             &prior.changed_at_precise,
             &[],
+            None,
         ) {
             Ok(c) => c,
             Err(Refused::Coded { message, code }) => {

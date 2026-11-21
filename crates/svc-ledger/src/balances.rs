@@ -137,10 +137,13 @@ pub fn balances(
 /// One booked entry (`PostedEntry`), as `hydrate` reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
+    /// `ledger_entries.id` as text.
+    pub id: String,
     pub account_id: String,
     pub asset_id: String,
     pub direction: String,
     pub amount: Amount,
+    pub balance_after: Amount,
 }
 
 /// One booked transaction (`LedgerTx`), the fields the doors answer.
@@ -153,12 +156,13 @@ pub struct Tx {
     pub hash: String,
     /// `postedAt.toISOString()`.
     pub posted_at: String,
+    pub previous_hash: Option<String>,
     pub entries: Vec<Entry>,
 }
 
 /// The transaction's columns and whether its claim still matches it (`ClaimRow`).
 const TX_COLUMNS: &str = "t.id::text, t.idempotency_key, t.module, t.reason, t.hash,
-       to_char(t.posted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'),
+       to_char(t.posted_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), t.previous_hash,
        (k.idempotency_key IS NOT DISTINCT FROM t.idempotency_key
         AND k.posted_hash IS NOT DISTINCT FROM t.hash
         AND k.posted_meta IS NOT DISTINCT FROM t.meta) AS claim_matches";
@@ -168,7 +172,7 @@ fn claimed(c: &mut impl GenericClient, rows: &[postgres::Row]) -> Result<Option<
     let Some(row) = rows.first() else {
         return Ok(None);
     };
-    let matches: Option<bool> = row.try_get(6).map_err(fault)?;
+    let matches: Option<bool> = row.try_get(7).map_err(fault)?;
     if rows.len() != 1 || matches != Some(true) {
         return Err(Failure::ledger(
             POSTED_CLAIM_MISMATCH,
@@ -179,7 +183,7 @@ fn claimed(c: &mut impl GenericClient, rows: &[postgres::Row]) -> Result<Option<
     let id = get(0)?;
     let entries = c
         .query(
-            "SELECT account_id::text, asset_id, direction::text, amount::text, balance_after::text
+            "SELECT account_id::text, asset_id, direction::text, amount::text, balance_after::text, id::text
                FROM ledger_entries WHERE tx_id = $1::text::uuid ORDER BY id ASC",
             &[&id],
         )
@@ -189,8 +193,9 @@ fn claimed(c: &mut impl GenericClient, rows: &[postgres::Row]) -> Result<Option<
             let get =
                 |i: usize| -> Result<String, Failure> { e.try_get::<_, String>(i).map_err(fault) };
             // `hydrate` parses `balance_after` too; a malformed one fails the read.
-            stored(&get(4)?)?;
             Ok(Entry {
+                id: get(5)?,
+                balance_after: stored(&get(4)?)?,
                 account_id: get(0)?,
                 asset_id: get(1)?,
                 direction: get(2)?,
@@ -204,6 +209,7 @@ fn claimed(c: &mut impl GenericClient, rows: &[postgres::Row]) -> Result<Option<
         reason: get(3)?,
         hash: get(4)?,
         posted_at: get(5)?,
+        previous_hash: row.try_get(6).map_err(fault)?,
         id,
         entries,
     }))

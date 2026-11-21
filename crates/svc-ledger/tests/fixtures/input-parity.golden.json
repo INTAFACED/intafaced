@@ -224,6 +224,38 @@
     "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"uuid\",\"pattern\":\"/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/\",\"path\":[\"accountId\"],\"message\":\"Invalid UUID\"}]",
     "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received array\"}]",
     "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reason\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received undefined\"}]",
+    "ok {\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"TEST reason for the desk\",\"revision\":0}",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^[a-z][a-z0-9_.:-]{0,63}$/\",\"path\":[\"key\"],\"message\":\"a key is lower case: a letter, then letters, digits, _ . : or -, 64 at most\"}]",
+    "ok {\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"eleven chars\",\"revision\":0}",
+    "issues [{\"origin\":\"number\",\"code\":\"too_small\",\"minimum\":0,\"inclusive\":true,\"path\":[\"revision\"],\"message\":\"Too small: expected number to be >=0\"}]",
+    "issues [{\"expected\":\"int\",\"format\":\"safeint\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected int, received number\"}]",
+    "issues [{\"origin\":\"number\",\"code\":\"too_big\",\"maximum\":2147483646,\"inclusive\":true,\"path\":[\"revision\"],\"message\":\"Too big: expected number to be <=2147483646\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received string\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"value\"],\"message\":\"Too small: expected string to have >=1 characters\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":500,\"inclusive\":true,\"path\":[\"value\"],\"message\":\"Too big: expected string to have <=500 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received array\"},{\"origin\":\"array\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"value\"],\"message\":\"Too small: expected array to have >=1 items\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reason\"],\"message\":\"Invalid input: expected string, received array\"},{\"origin\":\"array\",\"code\":\"too_small\",\"minimum\":12,\"inclusive\":true,\"path\":[\"reason\"],\"message\":\"Too small: expected array to have >=12 items\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received undefined\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received null\"}]",
+    "ok {\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"TEST reason for the desk\",\"revision\":7}",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received boolean\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received array\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reason\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"code\":\"custom\",\"path\":[\"revision\"],\"message\":\"a key that was never set has nothing to delete\"}]",
+    "issues [{\"origin\":\"number\",\"code\":\"too_small\",\"minimum\":0,\"inclusive\":true,\"path\":[\"revision\"],\"message\":\"Too small: expected number to be >=0\"},{\"code\":\"custom\",\"path\":[\"revision\"],\"message\":\"a key that was never set has nothing to delete\"}]",
     "issues [{\"code\":\"invalid_value\",\"values\":[\"user\",\"subaccount\",\"module\",\"house\",\"treasury\"],\"path\":[\"ownerType\"],\"message\":\"Invalid option: expected one of \\\"user\\\"|\\\"subaccount\\\"|\\\"module\\\"|\\\"house\\\"|\\\"treasury\\\"\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"ownerId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingAssetId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
     "ok {\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
     "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingAssetId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
@@ -1764,12 +1796,535 @@
     ],
     ["metadataRead", "{\"accountId\":[]}", 222],
     ["metadataRead", "{\"accountId\":{}}", 223],
+    ["metadataSet", null, 0],
+    ["metadataSet", "null", 1],
+    ["metadataSet", "7", 2],
+    ["metadataSet", "\"x\"", 3],
+    ["metadataSet", "[]", 4],
+    ["metadataSet", "{}", 224],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      225
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0,\"extra\":1}",
+      113
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"Desk Label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      226
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"dkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      226
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\" eleven chars \",\"revision\":0}",
+      227
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":-1}",
+      228
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":1.5}",
+      229
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":2147483647}",
+      230
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":\"0\"}",
+      231
+    ],
+    ["metadataSet", "{\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}", 217],
+    [
+      "metadataSet",
+      "{\"accountId\":null,\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      218
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":7,\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      219
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":true,\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      220
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      221
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      221
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":[],\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      222
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":{},\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      223
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      232
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":null,\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      233
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":7,\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      234
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":true,\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      235
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      226
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      226
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":[],\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      236
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":{},\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      237
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      238
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":null,\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      239
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":7,\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      240
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":true,\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      241
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      242
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      243
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":[],\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      244
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":{},\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      245
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"revision\":0}",
+      27
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":null,\"revision\":0}",
+      28
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":7,\"revision\":0}",
+      29
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":true,\"revision\":0}",
+      30
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"\",\"revision\":0}",
+      144
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"revision\":0}",
+      148
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":[],\"revision\":0}",
+      246
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":{},\"revision\":0}",
+      33
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \"}",
+      247
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":null}",
+      248
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":7}",
+      249
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":true}",
+      250
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":\"\"}",
+      231
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      231
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":[]}",
+      251
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":{}}",
+      252
+    ],
+    ["metadataDelete", null, 0],
+    ["metadataDelete", "null", 1],
+    ["metadataDelete", "7", 2],
+    ["metadataDelete", "\"x\"", 3],
+    ["metadataDelete", "[]", 4],
+    ["metadataDelete", "{}", 253],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      6
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\",\"extra\":1}",
+      113
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":0,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      254
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":-1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      255
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"   \",\"operationId\":\"o1\"}",
+      149
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo\"}",
+      150
+    ],
+    [
+      "metadataDelete",
+      "{\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      217
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":null,\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      218
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":7,\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      219
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":true,\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      220
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      221
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      221
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":[],\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      222
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":{},\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      223
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      232
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":null,\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      233
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":7,\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      234
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":true,\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      235
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      226
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      226
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":[],\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      236
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":{},\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      237
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      27
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":null,\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      28
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":7,\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      29
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":true,\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      30
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      144
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      148
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":[],\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      246
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":{},\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      33
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      247
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":null,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      248
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":7,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      6
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":true,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      250
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":\"\",\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      231
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      231
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":[],\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      251
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":{},\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      252
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"operationId\":\"o1\"}",
+      153
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":null,\"operationId\":\"o1\"}",
+      154
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":7,\"operationId\":\"o1\"}",
+      155
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":true,\"operationId\":\"o1\"}",
+      156
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"\",\"operationId\":\"o1\"}",
+      149
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"operationId\":\"o1\"}",
+      157
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":[],\"operationId\":\"o1\"}",
+      158
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":{},\"operationId\":\"o1\"}",
+      159
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\"}",
+      160
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":null}",
+      161
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":7}",
+      162
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":true}",
+      163
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"\"}",
+      164
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      150
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":[]}",
+      165
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":{}}",
+      166
+    ],
     ["statementPnl", null, 0],
     ["statementPnl", "null", 1],
     ["statementPnl", "7", 2],
     ["statementPnl", "\"x\"", 3],
     ["statementPnl", "[]", 4],
-    ["statementPnl", "{}", 224],
+    ["statementPnl", "{}", 256],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
@@ -1778,7 +2333,7 @@
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"},\"extra\":1}",
-      225
+      257
     ],
     [
       "statementPnl",
@@ -1863,27 +2418,27 @@
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      226
+      258
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":null,\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      227
+      259
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":7,\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      228
+      260
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":true,\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      229
+      261
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      230
+      262
     ],
     [
       "statementPnl",
@@ -1893,12 +2448,12 @@
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":[],\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      231
+      263
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":{},\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      232
+      264
     ],
     [
       "statementPnl",
@@ -1908,37 +2463,37 @@
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":null,\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      233
+      265
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":7,\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      234
+      266
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":true,\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      235
+      267
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":\"\",\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      236
+      268
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      236
+      268
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":[],\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      237
+      269
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
-      238
+      270
     ],
     [
       "statementPnl",
@@ -1948,32 +2503,32 @@
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":null,\"navInputs\":{\"cashReporting\":\"10\"}}",
-      239
+      271
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":7,\"navInputs\":{\"cashReporting\":\"10\"}}",
-      240
+      272
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":true,\"navInputs\":{\"cashReporting\":\"10\"}}",
-      241
+      273
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":\"\",\"navInputs\":{\"cashReporting\":\"10\"}}",
-      242
+      274
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"navInputs\":{\"cashReporting\":\"10\"}}",
-      242
+      274
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":[],\"navInputs\":{\"cashReporting\":\"10\"}}",
-      243
+      275
     ],
     [
       "statementPnl",
@@ -1988,44 +2543,44 @@
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":null}",
-      244
+      276
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":7}",
-      245
+      277
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":true}",
-      246
+      278
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":\"\"}",
-      247
+      279
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
-      247
+      279
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":[]}",
-      248
+      280
     ],
     [
       "statementPnl",
       "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{}}",
-      249
+      281
     ],
     ["reportExport", null, 0],
     ["reportExport", "null", 1],
     ["reportExport", "7", 2],
     ["reportExport", "\"x\"", 3],
     ["reportExport", "[]", 4],
-    ["reportExport", "{}", 250],
+    ["reportExport", "{}", 282],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
@@ -2034,47 +2589,47 @@
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"],\"extra\":1}",
-      251
+      283
     ],
     [
       "reportExport",
       "{\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      250
+      282
     ],
     [
       "reportExport",
       "{\"kind\":null,\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      250
+      282
     ],
     [
       "reportExport",
       "{\"kind\":7,\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      250
+      282
     ],
     [
       "reportExport",
       "{\"kind\":true,\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      250
+      282
     ],
     [
       "reportExport",
       "{\"kind\":\"\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      250
+      282
     ],
     [
       "reportExport",
       "{\"kind\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      250
+      282
     ],
     [
       "reportExport",
       "{\"kind\":[],\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      250
+      282
     ],
     [
       "reportExport",
       "{\"kind\":{},\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      250
+      282
     ],
     [
       "reportExport",
@@ -2084,12 +2639,12 @@
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":null,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      252
+      284
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":7,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      253
+      285
     ],
     [
       "reportExport",
@@ -2099,22 +2654,22 @@
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":\"\",\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      254
+      286
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      254
+      286
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":[],\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      255
+      287
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":{},\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      256
+      288
     ],
     [
       "reportExport",
@@ -2204,17 +2759,17 @@
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":null,\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      257
+      289
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":7,\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      258
+      290
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":true,\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      259
+      291
     ],
     [
       "reportExport",
@@ -2229,12 +2784,12 @@
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":[],\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      260
+      292
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":{},\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      261
+      293
     ],
     [
       "reportExport",
@@ -2244,17 +2799,17 @@
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":null,\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      262
+      294
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":7,\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      263
+      295
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":true,\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      264
+      296
     ],
     [
       "reportExport",
@@ -2269,12 +2824,12 @@
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":[],\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      265
+      297
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":{},\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
-      266
+      298
     ],
     [
       "reportExport",
@@ -2284,17 +2839,17 @@
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":null,\"lotIds\":[\"l1\"]}",
-      267
+      299
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":7,\"lotIds\":[\"l1\"]}",
-      268
+      300
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":true,\"lotIds\":[\"l1\"]}",
-      269
+      301
     ],
     [
       "reportExport",
@@ -2309,12 +2864,12 @@
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":[],\"lotIds\":[\"l1\"]}",
-      270
+      302
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":{},\"lotIds\":[\"l1\"]}",
-      271
+      303
     ],
     [
       "reportExport",
@@ -2324,27 +2879,27 @@
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":null}",
-      272
+      304
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":7}",
-      273
+      305
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":true}",
-      274
+      306
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":\"\"}",
-      275
+      307
     ],
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
-      275
+      307
     ],
     [
       "reportExport",
@@ -2354,14 +2909,14 @@
     [
       "reportExport",
       "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":{}}",
-      276
+      308
     ],
     ["custody", null, 0],
     ["custody", "null", 1],
     ["custody", "7", 2],
     ["custody", "\"x\"", 3],
     ["custody", "[]", 4],
-    ["custody", "{}", 277],
+    ["custody", "{}", 309],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
@@ -2370,47 +2925,47 @@
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\",\"extra\":1}",
-      278
+      310
     ],
     [
       "custody",
       "{\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      277
+      309
     ],
     [
       "custody",
       "{\"kind\":null,\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      277
+      309
     ],
     [
       "custody",
       "{\"kind\":7,\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      277
+      309
     ],
     [
       "custody",
       "{\"kind\":true,\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      277
+      309
     ],
     [
       "custody",
       "{\"kind\":\"\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      277
+      309
     ],
     [
       "custody",
       "{\"kind\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      277
+      309
     ],
     [
       "custody",
       "{\"kind\":[],\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      277
+      309
     ],
     [
       "custody",
       "{\"kind\":{},\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      277
+      309
     ],
     [
       "custody",
@@ -2420,22 +2975,22 @@
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":null,\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      279
+      311
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":7,\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      280
+      312
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":true,\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      281
+      313
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      282
+      314
     ],
     [
       "custody",
@@ -2445,12 +3000,12 @@
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":[],\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      283
+      315
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":{},\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      284
+      316
     ],
     [
       "custody",
@@ -2460,22 +3015,22 @@
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":null,\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      285
+      317
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":7,\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      286
+      318
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":true,\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      287
+      319
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      288
+      320
     ],
     [
       "custody",
@@ -2485,12 +3040,12 @@
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":[],\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      289
+      321
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":{},\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      290
+      322
     ],
     [
       "custody",
@@ -2500,17 +3055,17 @@
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":null,\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      291
+      323
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":7,\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      292
+      324
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":true,\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      293
+      325
     ],
     [
       "custody",
@@ -2525,28 +3080,28 @@
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":[],\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      294
+      326
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":{},\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
-      295
+      327
     ],
     ["custody", "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"resolve\":\"operator\"}", 6],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":null,\"resolve\":\"operator\"}",
-      296
+      328
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":7,\"resolve\":\"operator\"}",
-      297
+      329
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":true,\"resolve\":\"operator\"}",
-      298
+      330
     ],
     [
       "custody",
@@ -2561,12 +3116,12 @@
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":[],\"resolve\":\"operator\"}",
-      299
+      331
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":{},\"resolve\":\"operator\"}",
-      300
+      332
     ],
     [
       "custody",
@@ -2576,44 +3131,44 @@
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":null}",
-      301
+      333
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":7}",
-      301
+      333
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":true}",
-      301
+      333
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"\"}",
-      301
+      333
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
-      301
+      333
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":[]}",
-      301
+      333
     ],
     [
       "custody",
       "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":{}}",
-      301
+      333
     ],
     ["financeClose", null, 0],
     ["financeClose", "null", 1],
     ["financeClose", "7", 2],
     ["financeClose", "\"x\"", 3],
     ["financeClose", "[]", 4],
-    ["financeClose", "{}", 302],
+    ["financeClose", "{}", 334],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
@@ -2622,47 +3177,47 @@
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"],\"extra\":1}",
-      303
+      335
     ],
     [
       "financeClose",
       "{\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      302
+      334
     ],
     [
       "financeClose",
       "{\"kind\":null,\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      302
+      334
     ],
     [
       "financeClose",
       "{\"kind\":7,\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      302
+      334
     ],
     [
       "financeClose",
       "{\"kind\":true,\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      302
+      334
     ],
     [
       "financeClose",
       "{\"kind\":\"\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      302
+      334
     ],
     [
       "financeClose",
       "{\"kind\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      302
+      334
     ],
     [
       "financeClose",
       "{\"kind\":[],\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      302
+      334
     ],
     [
       "financeClose",
       "{\"kind\":{},\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      302
+      334
     ],
     [
       "financeClose",
@@ -2672,12 +3227,12 @@
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":null,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      252
+      284
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":7,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      253
+      285
     ],
     [
       "financeClose",
@@ -2687,22 +3242,22 @@
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":\"\",\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      254
+      286
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      254
+      286
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":[],\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      255
+      287
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":{},\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      256
+      288
     ],
     [
       "financeClose",
@@ -2712,17 +3267,17 @@
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":null,\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      304
+      336
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":7,\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      305
+      337
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":true,\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      306
+      338
     ],
     [
       "financeClose",
@@ -2737,12 +3292,12 @@
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":[],\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      307
+      339
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":{},\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      308
+      340
     ],
     [
       "financeClose",
@@ -2752,17 +3307,17 @@
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":null,\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      309
+      341
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":7,\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      310
+      342
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":true,\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      311
+      343
     ],
     [
       "financeClose",
@@ -2777,12 +3332,12 @@
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":[],\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      312
+      344
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":{},\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      313
+      345
     ],
     [
       "financeClose",
@@ -2792,17 +3347,17 @@
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":null,\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      314
+      346
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":7,\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      315
+      347
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":true,\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      316
+      348
     ],
     [
       "financeClose",
@@ -2817,12 +3372,12 @@
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":[],\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      317
+      349
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":{},\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
-      318
+      350
     ],
     [
       "financeClose",
@@ -2832,27 +3387,27 @@
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":null}",
-      319
+      351
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":7}",
-      320
+      352
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":true}",
-      321
+      353
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":\"\"}",
-      322
+      354
     ],
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
-      322
+      354
     ],
     [
       "financeClose",
@@ -2862,183 +3417,183 @@
     [
       "financeClose",
       "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":{}}",
-      323
+      355
     ],
     ["resilience", null, 0],
     ["resilience", "null", 1],
     ["resilience", "7", 2],
     ["resilience", "\"x\"", 3],
     ["resilience", "[]", 4],
-    ["resilience", "{}", 324],
+    ["resilience", "{}", 356],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      325
+      357
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\",\"extra\":1}",
-      325
+      357
     ],
     [
       "resilience",
       "{\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      324
+      356
     ],
     [
       "resilience",
       "{\"kind\":null,\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      324
+      356
     ],
     [
       "resilience",
       "{\"kind\":7,\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      324
+      356
     ],
     [
       "resilience",
       "{\"kind\":true,\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      324
+      356
     ],
     [
       "resilience",
       "{\"kind\":\"\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      324
+      356
     ],
     [
       "resilience",
       "{\"kind\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      324
+      356
     ],
     [
       "resilience",
       "{\"kind\":[],\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      324
+      356
     ],
     [
       "resilience",
       "{\"kind\":{},\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      324
+      356
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      326
+      358
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":null,\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      327
+      359
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":7,\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      328
+      360
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":true,\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      329
+      361
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      330
+      362
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      331
+      363
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":[],\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      332
+      364
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":{},\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      333
+      365
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      334
+      366
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":null,\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      335
+      367
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":7,\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      335
+      367
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":true,\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      335
+      367
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      335
+      367
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      335
+      367
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":[],\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      335
+      367
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":{},\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      335
+      367
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      336
+      368
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":null,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      337
+      369
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":7,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      338
+      370
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      325
+      357
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":\"\",\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      339
+      371
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      339
+      371
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":[],\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      340
+      372
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":{},\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
-      341
+      373
     ],
     [
       "resilience",
@@ -3048,37 +3603,37 @@
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":null,\"observedLatencyMs\":\"12\"}",
-      342
+      374
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":7,\"observedLatencyMs\":\"12\"}",
-      343
+      375
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":true,\"observedLatencyMs\":\"12\"}",
-      344
+      376
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"\",\"observedLatencyMs\":\"12\"}",
-      345
+      377
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"observedLatencyMs\":\"12\"}",
-      346
+      378
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":[],\"observedLatencyMs\":\"12\"}",
-      347
+      379
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":{},\"observedLatencyMs\":\"12\"}",
-      348
+      380
     ],
     [
       "resilience",
@@ -3088,37 +3643,37 @@
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":null}",
-      349
+      381
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":7}",
-      350
+      382
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":true}",
-      351
+      383
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"\"}",
-      352
+      384
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
-      353
+      385
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":[]}",
-      354
+      386
     ],
     [
       "resilience",
       "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":{}}",
-      355
+      387
     ]
   ]
 }

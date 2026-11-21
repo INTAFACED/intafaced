@@ -1,6 +1,7 @@
 //! The ledger's own checks inside its input schemas, by the names `scripts/record-door.mjs` gives them in
 //! `door/schemas.json`: the account owner's identifier space (`accountRefSchema`'s `superRefine`, from
-//! `@intafaced/ledger-client`'s `isValidOwnerId`), and the operator desk's list query (`operator-desk.ts`).
+//! `@intafaced/ledger-client`'s `isValidOwnerId`), the operator desk's list query (`operator-desk.ts`), and an account metadata delete's revision
+//! (`operator-account-metadata.ts`).
 
 use service_kit::json::Json;
 use service_kit::schema::{Refiner, Value};
@@ -107,6 +108,8 @@ impl Refiner for LedgerRefines {
                 js_bigint_at_most(&text, INT8_MAX)
                     .ok_or_else(|| format!("Cannot convert {text} to a BigInt"))
             }
+            // `r >= 1` on an account metadata delete's revision: a key never set has nothing to delete.
+            "revision_set" => Ok(v.as_number().is_some_and(|r| r >= 1.0)),
             other => Err(format!("no refine named {other}")),
         }
     }

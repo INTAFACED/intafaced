@@ -133,12 +133,12 @@ impl LedgerDoor {
         let prior = self.freeze_state()?;
         let consumed = consume_ledger_approval(
             &*self.cfg.approvals,
-            text(input, "approvalId"),
-            text(input, "operationId"),
+            (text(input, "approvalId"), text(input, "operationId")),
             "ledger.freeze",
             "posting_freeze",
             &prior.changed_at_precise,
             &[("reason", reason)],
+            None,
         )?;
         let confirm = consumed.approver_id.unwrap_or(consumed.requester_id);
         self.cfg.log.warn(
@@ -168,12 +168,12 @@ impl LedgerDoor {
         let prior = self.freeze_state()?;
         let consumed = consume_ledger_approval(
             &*self.cfg.approvals,
-            text(input, "approvalId"),
-            text(input, "operationId"),
+            (text(input, "approvalId"), text(input, "operationId")),
             "ledger.unfreeze",
             "posting_unfreeze",
             &prior.changed_at_precise,
             &[],
+            None,
         )?;
         let confirm = consumed.approver_id.unwrap_or(consumed.requester_id);
         self.cfg.log.warn(
