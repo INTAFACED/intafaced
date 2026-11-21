@@ -502,7 +502,7 @@ function FillParts({ id, line, fill, t, hidden }: { id: string; line: SourceLine
             </tbody>
           </table>
           {got ? (
-            <Button variant="secondary" size={40} nativeButton={false} render={<a href={coinHref(line.asset, 'simple')} />}>
+            <Button variant="secondary" size={40} nativeButton={false} role="link" render={<a href={coinHref(line.asset, 'simple')} />}>
               {t('See {asset} history', { asset: line.asset })}
             </Button>
           ) : null}
