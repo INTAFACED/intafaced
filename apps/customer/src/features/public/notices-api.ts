@@ -1,8 +1,5 @@
-// hand-declared-ok: svc-notify has no browser-safe response schema in packages/contracts; this reuses the entry shape that mirrors its router output
 /** The public notice feed (module `notify`, tRPC through the edge). Both procedures are public, so they work signed out. */
-import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { entrySchema } from '../../shared/notify-reads';
 import { NOTIFY_NOTICES, NOTIFY_NOTICE, NOTIFY_NOTICE_STATUS } from '@intafaced/contracts/notify-notify-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 

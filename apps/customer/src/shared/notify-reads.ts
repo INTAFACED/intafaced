@@ -13,7 +13,6 @@ import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 const impact = z.enum(['none', 'minor', 'major', 'critical']);
 export const STATUS_COMPONENT_IDS = ['api', 'webhooks', 'console'] as const;
 const component = z.enum(STATUS_COMPONENT_IDS);
-const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 export const statusFeedSchema = z.object({
   asOf: z.string(),
