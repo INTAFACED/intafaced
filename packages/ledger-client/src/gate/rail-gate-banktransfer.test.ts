@@ -8,7 +8,7 @@ import {
   userAvailable,
   type AccountRef,
   type PostRequest,
-} from '@intafaced/ledger-client';
+} from '../index.js';
 import { assertKnownRecipePost, recipeCandidates } from './recipe-gate.js';
 
 /**

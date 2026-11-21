@@ -4,7 +4,7 @@ import Fastify from 'fastify';
 import { createServiceSigner, createServiceVerifier, type Keyring, type ServiceName } from '@intafaced/contracts';
 import { parseAmount as amt } from '@intafaced/ledger-client';
 import { serializeFeeRevenue } from './ledger/fee-revenue.js';
-import { LEDGER_DOOR_CALLERS } from './door-callers.js';
+import { LEDGER_DOOR_CALLERS } from '@intafaced/ledger-client/gate';
 import { registerS2sHttp } from './s2s-http.js';
 import type { LedgerService } from './service.js';
 

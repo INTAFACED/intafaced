@@ -14,7 +14,7 @@ import {
   subAccountAvailable,
   userAvailable,
   type PostRequest,
-} from '@intafaced/ledger-client';
+} from '../index.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost, recipeCandidates, recipeGateSamples, unsampledRecipeNames } from './recipe-gate.js';
 
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

@@ -1,4 +1,4 @@
-import type { RecipeName } from '@intafaced/ledger-client';
+import type { RecipeName } from '../index.js';
 
 /**
  * Which calling service may post which recipe, and which `module` that body

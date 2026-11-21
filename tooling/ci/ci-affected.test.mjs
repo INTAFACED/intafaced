@@ -121,6 +121,10 @@ test('classify: a change that reaches Rust runs the Rust job, and Rust files alo
     { files: ['packages/contracts/procedures/svc-tax.schema.json'], expected: { full: false, affected: true, rust: true } },
     { files: ['packages/contracts/procedures/svc-academy.schema.json'], expected: { full: false, affected: true, rust: true } },
     { files: ['packages/contracts/procedures/svc-market.schema.json'], expected: { full: false, affected: true, rust: false } },
+    // The Rust ledger's recorded gate tables come from ledger-client's sources (record-posting.mjs --check, Rust job).
+    { files: ['packages/ledger-client/src/gate/caller-allowlist.ts'], expected: { full: true, affected: false, rust: true } },
+    { files: ['packages/ledger-client/src/recipes/deposit.ts'], expected: { full: true, affected: false, rust: true } },
+    { files: ['packages/ledger-client/package.json'], expected: { full: true, affected: false, rust: false } },
     { files: ['packages/contracts/procedures/svc-taxes.schema.json'], expected: { full: false, affected: true, rust: false } },
     { files: ['tooling/ci/gates.mjs'], expected: { full: true, affected: false, rust: false } },
     { files: ['docs/x.md'], expected: { full: false, affected: false, rust: false } },
