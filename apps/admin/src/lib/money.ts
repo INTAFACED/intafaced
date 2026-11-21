@@ -1,5 +1,5 @@
 /**
- * Money display for the Merchants panel.
+ * Money display for the console: shared by the Merchants panel, the account limits and the founder ops screens.
  *
  * Amounts are unsigned decimal strings on the wire (at most 18 places). They are
  * never turned into a JS `number` here. Comparison and addition use scaled

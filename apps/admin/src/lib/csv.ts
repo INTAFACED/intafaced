@@ -1,5 +1,5 @@
 /**
- * CSV export of the visible merchant list. Amounts stay decimal strings.
+ * CSV export of a visible console list (merchants, founder ops, ledger reconciliation). Amounts stay decimal strings.
  * A cell that starts with = + - @ tab or CR is prefixed with an apostrophe, so
  * a spreadsheet never runs a merchant-supplied value as a formula.
  */

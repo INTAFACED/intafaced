@@ -1,7 +1,7 @@
 import { procedureCallers, type Context } from '@intafaced/contracts';
 import { describe, expect, it } from 'vitest';
 import { createOperatorOpsRouter } from '../../../../../services/svc-identity/src/ops/ops-router';
-import { readData } from '@/lib/ops-desk/model';
+import { readData } from '@/lib/ops-desk';
 import { accountSearchSpec, searchCursor, searchTerm } from './search';
 
 const USER = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';

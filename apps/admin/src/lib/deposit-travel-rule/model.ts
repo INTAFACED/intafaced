@@ -1,4 +1,4 @@
-import { REASON_MAX, REASON_MIN, UUID } from '@/lib/desk/approval-packet';
+import { REASON_MAX, REASON_MIN, UUID } from '@/lib/approval-fields';
 import { isRecord } from '@intafaced/contracts/guards';
 
 /**

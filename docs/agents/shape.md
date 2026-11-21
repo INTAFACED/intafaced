@@ -19,7 +19,7 @@ What fails the other way: `apps/customer/src/app/recorded-calls.test.ts` (a reco
 
 A screen goes in `apps/customer/src/screens/<id>/index.tsx` when its id is in `apps/customer/src/app/screens.ts`; every other room goes in `apps/customer/src/features/<area>/`, with its screens, calls and words together. Other code imports a feature only through its entry, `apps/customer/src/features/<area>/index.ts` (copy `apps/customer/src/features/pay/index.ts`), never a file inside it.
 
-What fails the other way: nothing yet for an import into another feature's inside.
+What fails the other way: `garden/no-cross-feature-import` (an import that reaches a file inside another feature, in the customer app or the console).
 
 ## 3. Each piece of state: one owner
 

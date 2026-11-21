@@ -47,8 +47,8 @@ const agents = {
   },
 };
 
-vi.mock('../protocol/wallet/WalletProvider', async (actual) => ({
-  ...(await actual<typeof import('../protocol/wallet/WalletProvider')>()),
+vi.mock('../protocol', async (actual) => ({
+  ...(await actual<typeof import('../protocol')>()),
   useWallet: () => wallet,
   WalletProvider: ({ children }: { children: React.ReactNode }) => children,
 }));

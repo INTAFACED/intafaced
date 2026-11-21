@@ -14,8 +14,8 @@ import {
   Amounts,
 } from '@/components/merchants';
 import { kybStatusChip, merchantStatusChip } from '@/lib/merchants/chips';
-import { buildCsv } from '@/lib/merchants/csv';
-import { sumByAsset } from '@/lib/merchants/money';
+import { buildCsv } from '@/lib/csv';
+import { sumByAsset } from '@/lib/money';
 import { formatUtc } from '@/lib/merchants/time';
 import type { OpsData } from '@/lib/founder-ops/loaders';
 import {
