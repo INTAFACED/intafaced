@@ -1,15 +1,22 @@
 //! The navigator slice (`PORT.md`): `router.ts`'s `navigator` router and `navigator/`. The pure Stage-1 and Stage-2
-//! tools (the declared toolset, the plane, the tier gate, tool selection, the data tools and their audit row), the
-//! metered answer run (`runSession`, through the runtime's `act`), and the on-chain session key with the orders the
-//! Navigator places through it (`onchain`).
+//! tools (`tools`: the declared toolset, the plane, the tier gate, tool selection, the data tools and their audit
+//! row), the live reads of svc-trade and svc-identity (`ports`), the metered answer run through the runtime's `act`
+//! (`run`), and the on-chain session key with the orders the Navigator places through it (`onchain`).
 
 pub mod onchain;
+pub mod ports;
+pub mod run;
 pub mod slice;
+pub mod tools;
 
 /// What the navigator calls are built from, once, at start-up (`router.ts`'s navigator deps).
 pub struct Navigator {
     /// `TRADE_URL`: unset coerces a caller's `live` plane to `dark` (`effectiveNavigatorTradePlane`).
     pub trade_url: Option<String>,
+    /// `navigatorTradeDataPort`: svc-trade's public REST while `TRADE_URL` is set.
+    pub trade_data: Option<Box<dyn ports::TradeData>>,
+    /// `navigatorIdentitySessionPort`: svc-identity's session read while `IDENTITY_URL` is set.
+    pub identity_session: Option<Box<dyn ports::IdentitySession>>,
     /// The on-chain key, the market and the reads the trading calls make.
     pub onchain: onchain::OnchainDeps,
 }
@@ -19,6 +26,8 @@ impl Navigator {
     pub fn unwired() -> Navigator {
         Navigator {
             trade_url: None,
+            trade_data: None,
+            identity_session: None,
             onchain: onchain::OnchainDeps::unwired(),
         }
     }
