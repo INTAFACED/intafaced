@@ -15,6 +15,7 @@
 //! `rulebook`). Nothing here reads or moves a book.
 
 pub mod book;
+pub mod liquidity;
 pub mod rulebook;
 pub mod spreads;
 
@@ -66,7 +67,7 @@ impl Slice {
     pub fn is_ported(self) -> bool {
         matches!(
             self,
-            Slice::Journal | Slice::Book | Slice::Triggers | Slice::Spreads
+            Slice::Journal | Slice::Book | Slice::Triggers | Slice::Liquidity | Slice::Spreads
         )
     }
 
@@ -766,20 +767,17 @@ impl MatchingDoor {
                 .find(|(n, _, _)| *n == name)
                 .map_or_else(String::new, |(_, _, v)| v.clone())
         };
+        let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
         match route.slice {
-            Slice::Book | Slice::Triggers => {
-                let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
-                book::serve(route, req, &param, &parsed, &mut engine)
-            }
+            Slice::Liquidity => liquidity::serve(route, &param, &parsed, &mut engine),
             Slice::Spreads => {
-                let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
                 let approvals = spreads::Approvals {
                     consumer: self.cfg.approvals.as_ref(),
                     operator_ids: &self.cfg.operator_ids,
                 };
                 spreads::serve(route, req, &param, &parsed, &mut engine, &approvals)
             }
-            other => Outcome::Owed(other),
+            _ => book::serve(route, req, &param, &parsed, &mut engine),
         }
     }
 

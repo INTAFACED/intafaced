@@ -2,16 +2,15 @@
 //! engine's call and writes the engine's answer as the TypeScript writes it.
 //!
 //! The `triggers` slice's parts ride the same doors: a stop, a stop-limit, an OCO, a trailing stop and a dated expiry
-//! are submits, and `POST /markets/:marketId/mark` walks the trailing stops; so do the `spreads` slice's options and
-//! combos. An order that names a part only a later slice serves (an iceberg, a peg, all-or-none, an auction) is that
-//! slice's: the door owes it and the engine never sees it.
+//! are submits, and `POST /markets/:marketId/mark` walks the trailing stops. The `liquidity` slice's parts (an iceberg,
+//! a peg, all-or-none, an auction) and the `spreads` slice's options and combos are submits too.
 
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::schema::Value;
 use service_kit::server::{Request, Response};
 
-use super::{Outcome, Route, Slice, published_limit, query};
+use super::{Outcome, Route, published_limit, query};
 use crate::book::QueueLevel;
 use crate::book::types::{
     CancelReason, ComboLeg, EngineAmend, EngineOrder, Opt, OrderType, Side, Tif,
@@ -61,32 +60,8 @@ fn opt_amount(v: &Value) -> Result<Opt<Amount>, String> {
     }
 }
 
-fn is_true(v: &Value) -> bool {
+pub(super) fn is_true(v: &Value) -> bool {
     matches!(v, Value::Bool(true))
-}
-
-/// The slice that owes a submit naming one of its parts, or none for an order this slice serves.
-pub fn submit_owed_by(body: &Value) -> Option<Slice> {
-    let present = |k: &str| !matches!(body.get(k), Value::Undefined);
-    let set = |k: &str| !matches!(body.get(k), Value::Undefined | Value::Null);
-    if is_true(body.get("iceberg"))
-        || set("displayQty")
-        || [
-            "aon",
-            "peg",
-            "midpoint",
-            "relative",
-            "reference",
-            "offset",
-            "auction",
-            "benchmark",
-        ]
-        .iter()
-        .any(|k| present(k))
-    {
-        return Some(Slice::Liquidity);
-    }
-    None
 }
 
 /// `toEngineOrder` for an order this slice serves.
@@ -143,6 +118,28 @@ fn to_engine_order(body: &Value) -> Result<EngineOrder, String> {
         Value::Undefined => Opt::Absent,
         v => Opt::Some(is_true(v)),
     };
+    // The liquidity parts, as `toEngineOrder` copies them: each present one, and an iceberg with or without its display.
+    if is_true(body.get("iceberg"))
+        || !matches!(body.get("displayQty"), Value::Undefined | Value::Null)
+    {
+        order.iceberg = true;
+        order.display_qty = match nullish_amount(body.get("displayQty"))? {
+            None => Opt::Null,
+            Some(d) => Opt::Some(d),
+        };
+    }
+    let flag = |k: &str| match body.get(k) {
+        Value::Undefined => Opt::Absent,
+        v => Opt::Some(is_true(v)),
+    };
+    order.aon = flag("aon");
+    order.peg = flag("peg");
+    order.midpoint = flag("midpoint");
+    order.relative = flag("relative");
+    order.reference = opt_amount(body.get("reference"))?;
+    order.offset = opt_amount(body.get("offset"))?;
+    order.auction = flag("auction");
+    order.benchmark = flag("benchmark");
     order.min = opt_amount(body.get("min"))?;
     order.max = opt_amount(body.get("max"))?;
     order.min_notional = opt_amount(body.get("minNotional"))?;
@@ -317,9 +314,6 @@ pub fn serve(
     let market = param("marketId");
     match (route.method, route.path) {
         ("POST", "/markets/:marketId/orders") => {
-            if let Some(slice) = submit_owed_by(body) {
-                return Outcome::Owed(slice);
-            }
             let order = match to_engine_order(body) {
                 Ok(o) => o,
                 Err(e) => return Outcome::Answer(errors::thrown(&e)),

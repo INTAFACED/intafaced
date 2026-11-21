@@ -389,6 +389,32 @@ pub struct EngineOrder {
     /// Carried and journalled; a spread order may name them.
     pub client_order_id: Option<String>,
     pub environment: Option<String>,
+    /// What a mass-quote side asks of market-maker protection (`mmp.ts`). The engine refuses any of it before the
+    /// journal, so it is never written.
+    pub mmp: MmpIntent,
+}
+
+/// The market-maker protection a quote asks for (`MmpTaggedOrder`): the flag, whether any owner magnitude
+/// (`mmpMaxQuote`, `mmpMaxPosition`, `mmpMaxLoss`, `mmpMaxDelta`, `mmpMaxVega`) was given, and a vendor or sidecar
+/// maker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MmpIntent {
+    pub flag: bool,
+    pub magnitude: bool,
+    pub vendor: bool,
+    pub sidecar: bool,
+}
+
+impl MmpIntent {
+    /// `wantsMmp`: the flag, or any magnitude present; a blank magnitude still asks.
+    pub fn wants_mmp(&self) -> bool {
+        self.flag || self.magnitude
+    }
+
+    /// `wantsSidecarMm`.
+    pub fn wants_sidecar(&self) -> bool {
+        self.vendor || self.sidecar
+    }
 }
 
 impl EngineOrder {
@@ -446,6 +472,7 @@ impl EngineOrder {
             spread: None,
             client_order_id: None,
             environment: None,
+            mmp: MmpIntent::default(),
         }
     }
 }

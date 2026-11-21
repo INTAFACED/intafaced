@@ -5,8 +5,8 @@
 //! \`think\`'s order is the TypeScript's: the route; a metered replay; Copy-Intel's returns board; the published rate;
 //! the guardrail; unpaid windows; a sealed window; the funds (only without a spend gate); the claim; the spend hold
 //! (caps, team limits and funds under the person's lock); the engine; then the meter, the audit row, the transcript
-//! and the hold's commit in one transaction. \`act\` (a guarded tool call) is the tool-running slices' to port: no call
-//! of this slice runs a tool.
+//! and the hold's commit in one transaction. `act` is a guarded tool call: the guardrail decides before the tool runs,
+//! and a place tool runs once per idempotency key (the navigator slice ported it with its first tool).
 //!
 //! - [\`guardrails\`]: the guardrail, parsed and evaluated.
 //! - [\`funds\`]: the funds a run is checked against.
@@ -90,6 +90,8 @@ pub struct Runtime {
     pub overage_grace: Option<Amount>,
     /// \`AGENTS_TIER_LAWS\`.
     pub tier_laws: TierLaws,
+    /// The navigator slice's outside reads and settings.
+    pub navigator: crate::navigator::Navigator,
     /// `selfFreeze`: identity's read of the owner's own freeze (J-wallet-13), wired while `IDENTITY_URL` is set. None
     /// refuses every gate that asks it, as an unread freeze counts as frozen.
     pub self_freeze: Option<Box<dyn crate::self_freeze::SelfFreezeRead>>,
@@ -104,6 +106,7 @@ impl Runtime {
             transcript_retention_days: 0,
             overage_grace: None,
             tier_laws: TierLaws::default(),
+            navigator: crate::navigator::Navigator::unwired(),
             self_freeze: None,
         }
     }
@@ -697,6 +700,240 @@ fn publish_completed(x: &Rt<'_>, a: &Action, usage: TokenUsage) -> Result<(), Ru
             ("outputTokens", Json::int(usage.output_tokens)),
         ]),
     )
+}
+
+/// `ActInput`, less its `execute`, which [`act`] takes on its own.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ActInput<'a> {
+    pub session_id: &'a str,
+    pub tool: &'a str,
+    pub approved: Option<bool>,
+    pub idempotency_key: Option<&'a str>,
+}
+
+/// `ActResult`: what the tool returned, its row, and whether it was a stored place answered again.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActResult {
+    pub result: Json,
+    pub action: Action,
+    pub replayed: bool,
+}
+
+/// `act`: a guarded tool call. The guardrail decides before `execute` runs, and every outcome writes its row: a
+/// refusal, a failure, or the executed call with the digest of what it returned. A place tool runs once per
+/// idempotency key in the session: a repeat with a stored result answers it again, and another tool or an unfinished
+/// claim on the key is a conflict.
+pub fn act(
+    x: &Rt<'_>,
+    input: &ActInput<'_>,
+    execute: impl FnOnce() -> Result<Json, RunError>,
+) -> Result<ActResult, RunError> {
+    let session = require_session(x.pool, input.session_id)?;
+    let key = input
+        .idempotency_key
+        .map(str::trim)
+        .filter(|k| !k.is_empty());
+    let place_key = key.filter(|_| guardrails::is_place_tool(input.tool));
+    let cx = Context {
+        kind: "tool_call",
+        tool: Some(input.tool),
+        task: None,
+    };
+    if let Some(pk) = place_key
+        && let Some((result, action)) = stored_place_intent(x.pool, &session.id, pk, input.tool)?
+    {
+        return Ok(ActResult {
+            result,
+            action,
+            replayed: true,
+        });
+    }
+    let state = state_of(x.pool, &session)?;
+    if let Err(refusal) =
+        guardrails::evaluate_tool_call(&session.guardrail, &state, input.tool, input.approved, key)
+    {
+        return Err(append_refusal(x, &session, refusal, cx));
+    }
+    let mut claimed = false;
+    if let Some(pk) = place_key {
+        match claim_place_intent(x.pool, &session.id, pk, input.tool)? {
+            Claim::Replay(result, action) => {
+                return Ok(ActResult {
+                    result,
+                    action: *action,
+                    replayed: true,
+                });
+            }
+            Claim::Conflict => {
+                let refusal = refuse(
+                    "agents.place_key_conflict",
+                    "agents.refused.place_key_conflict",
+                    vec![audit::param("tool", input.tool)],
+                );
+                return Err(append_refusal(x, &session, refusal, cx));
+            }
+            Claim::Claimed => claimed = true,
+        }
+    }
+    let result = match execute() {
+        Ok(r) => r,
+        Err(e) => {
+            if claimed && let Some(pk) = place_key {
+                release_place_claim(x.pool, &session.id, pk, input.tool)?;
+            }
+            return Err(append_failure(x, &session, cx, None, e));
+        }
+    };
+    let text = result.compact();
+    let digest = digest_of_text(&text);
+    let written = db::transaction_retrying(x.pool, IsolationLevel::ReadCommitted, 5, |tx| {
+        let row = audit::append(
+            tx,
+            &audit::Entry {
+                session_id: &session.id,
+                user_id: &session.user_id,
+                agent_id: &session.agent_id,
+                kind: "tool_call",
+                status: "executed",
+                tool: Some(input.tool),
+                user_message_key: "agents.action.executed",
+                user_message_params: vec![audit::param("tool", input.tool)],
+                output_digest: Some(&digest),
+                ..audit::Entry::default()
+            },
+            x.now,
+        )?;
+        if claimed && let Some(pk) = place_key {
+            let updated = tx.execute(
+                "UPDATE agents.agent_place_intents
+                    SET action_id = $1::text::uuid, result_json = $2::text
+                  WHERE session_id = $3::text::uuid AND idempotency_key = $4::text AND tool = $5::text
+                    AND result_json IS NULL",
+                &[&row.id, &text, &session.id, &pk, &input.tool],
+            )?;
+            if updated == 0 {
+                return Err(RunError::Other(format!(
+                    "place intent for session {} was not stored",
+                    session.id
+                )));
+            }
+        }
+        Ok(row)
+    });
+    let action = match written {
+        Ok(a) => a,
+        Err(e) if claimed => return Err(append_failure(x, &session, cx, None, e)),
+        Err(e) => return Err(e),
+    };
+    publish_completed(
+        x,
+        &action,
+        TokenUsage {
+            input_tokens: 0,
+            output_tokens: 0,
+        },
+    )?;
+    Ok(ActResult {
+        result,
+        action,
+        replayed: false,
+    })
+}
+
+enum Claim {
+    Claimed,
+    Conflict,
+    Replay(Json, Box<Action>),
+}
+
+fn parse_result(text: &str) -> Result<Json, RunError> {
+    json::parse(text).map_err(|e| RunError::Other(e.message))
+}
+
+/// `storedPlaceIntent`: the same tool and key, with a stored result. Another tool is not a replay.
+fn stored_place_intent(
+    pool: &Pool,
+    session_id: &str,
+    key: &str,
+    tool: &str,
+) -> Result<Option<(Json, Action)>, RunError> {
+    db::with_client(pool, |c| {
+        let rows = c.query(
+            "SELECT action_id::text, result_json FROM agents.agent_place_intents
+              WHERE session_id = $1::text::uuid AND idempotency_key = $2::text AND tool = $3::text
+                AND action_id IS NOT NULL AND result_json IS NOT NULL",
+            &[&session_id, &key, &tool],
+        )?;
+        let Some(r) = rows.first() else {
+            return Ok(None);
+        };
+        let action_id: String = r.try_get(0)?;
+        let text: String = r.try_get(1)?;
+        Ok(audit::by_id(c, &action_id)?.map(|a| (text, a)))
+    })?
+    .map(|(text, a)| Ok((parse_result(&text)?, a)))
+    .transpose()
+}
+
+/// `claimPlaceIntent`: the claim is inserted before `execute`; a row already there with this tool's stored result is a
+/// replay, anything else a conflict.
+fn claim_place_intent(
+    pool: &Pool,
+    session_id: &str,
+    key: &str,
+    tool: &str,
+) -> Result<Claim, RunError> {
+    let found = db::with_client(pool, |c| {
+        let inserted = c.execute(
+            "INSERT INTO agents.agent_place_intents (session_id, idempotency_key, tool, action_id, result_json)
+             VALUES ($1::text::uuid, $2::text, $3::text, NULL, NULL)
+             ON CONFLICT (session_id, idempotency_key) DO NOTHING",
+            &[&session_id, &key, &tool],
+        )?;
+        if inserted > 0 {
+            return Ok(None);
+        }
+        let rows = c.query(
+            "SELECT tool, action_id::text, result_json FROM agents.agent_place_intents
+              WHERE session_id = $1::text::uuid AND idempotency_key = $2::text",
+            &[&session_id, &key],
+        )?;
+        let Some(r) = rows.first() else {
+            return Ok(Some(None));
+        };
+        let (held, action_id, text): (String, Option<String>, Option<String>) =
+            (r.try_get(0)?, r.try_get(1)?, r.try_get(2)?);
+        if let (true, Some(id), Some(text)) = (held == tool, action_id, text)
+            && let Some(a) = audit::by_id(c, &id)?
+        {
+            return Ok(Some(Some((text, a))));
+        }
+        Ok(Some(None))
+    })?;
+    Ok(match found {
+        None => Claim::Claimed,
+        Some(None) => Claim::Conflict,
+        Some(Some((text, a))) => Claim::Replay(parse_result(&text)?, Box::new(a)),
+    })
+}
+
+/// `releasePlaceClaim`: a claim whose `execute` never returned is dropped; a stored place stays.
+fn release_place_claim(
+    pool: &Pool,
+    session_id: &str,
+    key: &str,
+    tool: &str,
+) -> Result<(), RunError> {
+    db::with_client(pool, |c| {
+        c.execute(
+            "DELETE FROM agents.agent_place_intents
+              WHERE session_id = $1::text::uuid AND idempotency_key = $2::text AND tool = $3::text
+                AND result_json IS NULL",
+            &[&session_id, &key, &tool],
+        )?;
+        Ok(())
+    })?;
+    Ok(())
 }
 
 /// \`publishPendingUsageAlerts\`: recorded alerts not yet published, one person's or everyone's; a row the bus refuses

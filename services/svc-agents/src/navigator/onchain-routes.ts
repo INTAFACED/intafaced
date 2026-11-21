@@ -165,6 +165,8 @@ export function navigatorOnchainRoutes(deps: NavigatorOnchainDeps) {
       .output(navigatorAskResultSchema)
       .mutation(({ ctx, input }) =>
         guard(async (): Promise<NavigatorAskResult> => {
+          // The store is asked for first: without one there is no session to read either.
+          const store = storeOf(deps.sql);
           const session = await navigatorSession(input.sessionId, ctx.principal.userId);
           if (session.status !== 'open') throw new TRPCError({ code: 'BAD_REQUEST', message: 'agents.refused.session_closed' });
           if (!navigatorAskIsTrade(input.text) && !navigatorAskMovesMoneyOut(input.text)) return { kind: 'none' };
@@ -172,7 +174,7 @@ export function navigatorOnchainRoutes(deps: NavigatorOnchainDeps) {
           await selfFreezeGate(ctx.principal.userId, deps.selfFreeze);
           const order = await navigatorTrade(
             {
-              store: storeOf(deps.sql),
+              store,
               signer: deps.signer,
               sender: deps.sender,
               market: deps.market,
@@ -191,8 +193,9 @@ export function navigatorOnchainRoutes(deps: NavigatorOnchainDeps) {
       .output(navigatorOrdersSchema)
       .query(({ ctx, input }) =>
         guard(async () => {
+          const store = storeOf(deps.sql);
           await navigatorSession(input.sessionId, ctx.principal.userId);
-          return { orders: await storeOf(deps.sql).orders(ctx.principal.userId, input.sessionId) };
+          return { orders: await store.orders(ctx.principal.userId, input.sessionId) };
         }),
       ),
 
