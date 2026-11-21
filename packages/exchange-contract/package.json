@@ -22,7 +22,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "node --input-type=module -e \"import {existsSync} from 'node:fs'; process.exit(['config','contracts','safe-regex'].some((n)=>!existsSync('../../packages/'+n+'/dist/index.d.ts'))?1:0)\" || pnpm --filter @intafaced/exchange-contract^... run --if-present build && node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
-    "test": "tsc -p tsconfig.json && vitest run",
+    "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo",
     "procedures:write": "node ../contracts/scripts/procedure-registry.mjs . EXCHANGE_PROCEDURES @intafaced/contracts/procedure && tsc -p tsconfig.json && node ../contracts/scripts/write-procedures.mjs ./dist/procedure-registry.js EXCHANGE_PROCEDURES && prettier --write procedures"
