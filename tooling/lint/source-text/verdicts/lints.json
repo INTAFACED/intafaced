@@ -1,0 +1,54 @@
+[
+  {
+    "file": "packages/ui/src/components/money-safety.test.ts",
+    "target": "..",
+    "verdict": "rewrite",
+    "asserts": "No file of the UI kit but its drawing code (charts, sparklines, lit/fx/), design values (theme/) and gallery turns a value into a float with parseFloat, Number(), toFixed() or unary +.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/ui/src/components/money-safety.test.ts#has no parseFloat, Number(), toFixed() or unary +value in any of its files"
+    },
+    "why": "garden/no-number-money now judges packages/ui/src strictly with the test's own exclusions; the test runs the rule over packages/ui/src and asserts no finding, and plants copies to show subfolders are judged and only drawing code and design values are left out."
+  },
+  {
+    "file": "apps/customer/src/screens/trade/desk/replace-key.test.ts",
+    "target": "./",
+    "verdict": "rewrite",
+    "asserts": "The desk's place (OrderForm.tsx) and replace (EditOrder.tsx) never mint a random client order id, so a retry cannot place a second order.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/screens/trade/desk/replace-key.test.ts#the desk no longer mints a random number for a place or a replace"
+    },
+    "why": "garden/no-random-request-key now judges clientOrderId; the test runs it over both files and asserts no finding, and shows a planted random id in each fires."
+  },
+  {
+    "file": "apps/customer/src/screens/trade/desk/desk-shape.test.ts",
+    "target": "./",
+    "verdict": "delete",
+    "asserts": "VenueSpotDesk.tsx stays at most 600 lines and defines one component, so parallel builds put their panels in their own files.",
+    "guard": { "kind": "lint", "ref": "react/no-multi-comp" },
+    "why": "An .oxlintrc.json override switches on oxlint's react/no-multi-comp and max-lines (max 600) for VenueSpotDesk.tsx, judged by the lint ratchet; tooling/lint/oxlint-plugin-garden/desk-shape-override.test.mjs shows both fire on planted copies."
+  },
+  {
+    "file": "apps/customer/src/features/money/contracts-compose.test.ts",
+    "target": "./contracts.ts",
+    "verdict": "rewrite",
+    "asserts": "contracts.ts declares nothing of its own beyond the composed reads and writes and the write review, and bankReads and bankWrites hold only spreads of the areas.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/features/money/contracts-compose.test.ts#declares nothing of its own beyond the composed reads and writes and the write review"
+    },
+    "why": "The new rule garden/compose-only, switched on for contracts.ts with its allowed names and spread-only objects; both blocks run it over the real file (no finding) and over planted copies (a shape, an inline procedure and a spread of something not imported each fire)."
+  },
+  {
+    "file": "apps/customer/src/screens/trade/copybots/refusals.test.ts",
+    "target": "./",
+    "verdict": "rewrite",
+    "asserts": "The copy bots room's screens never print a service's .residual, .residuals, .statusLine or a reply's .message.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/screens/trade/copybots/refusals.test.ts#has no .residual, .statusLine or .message rendered from a service reply"
+    },
+    "why": "The new rule garden/no-service-sentence, switched on for copybots/*.tsx; the block runs it over every screen in the folder (no finding) and shows planted copies fire."
+  }
+]

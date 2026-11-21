@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { countPlanted, countRule } from '../../../../../../tooling/lint/count-rule.mjs';
 import { replaceKey } from './replace-key';
 
 const ORDER = '11111111-1111-4111-8111-111111111111';
@@ -24,9 +24,15 @@ describe('the order number of a replacement', () => {
     expect(replaceKey(ORDER, '123456789012.123456789012345678', '1').length).toBeLessThanOrEqual(56);
   });
 
+  // Held by the lint rule garden/no-random-request-key, which judges a client order id like any request key.
   it('the desk no longer mints a random number for a place or a replace', () => {
-    for (const file of ['OrderForm.tsx', 'EditOrder.tsx']) {
-      expect(readFileSync(new URL(`./${file}`, import.meta.url), 'utf8')).not.toMatch(/randomUUID/);
-    }
-  });
+    const place = 'apps/customer/src/screens/trade/desk/OrderForm.tsx';
+    const replace = 'apps/customer/src/screens/trade/desk/EditOrder.tsx';
+    expect(countRule('garden/no-random-request-key', [place, replace]).files).toEqual({});
+    const planted = countPlanted('garden/no-random-request-key', {
+      [place]: 'export const draft = (m: string) => ({ symbol: m, clientOrderId: crypto.randomUUID() });\n',
+      [replace]: 'export const draft = (o: { id: string }) => ({ clientOrderId: `edit:${o.id}:${crypto.randomUUID()}` });\n',
+    });
+    expect(planted.files).toEqual({ [place]: 1, [replace]: 1 });
+  }, 60_000);
 });

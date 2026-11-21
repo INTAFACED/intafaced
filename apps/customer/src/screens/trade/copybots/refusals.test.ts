@@ -63,12 +63,22 @@ describe('roomRefusal', () => {
 });
 
 describe('screens never print a service sentence', () => {
-  it('has no .residual, .statusLine or .message rendered from a service reply', () => {
-    const dir = new URL('./', import.meta.url);
-    for (const file of readdirSync(dir).filter((name) => name.endsWith('.tsx'))) {
-      const text = readFileSync(new URL(file, dir), 'utf8');
-      expect(text, file).not.toMatch(/\.(residual|statusLine|residuals)\b/);
-      expect(text, file).not.toMatch(/failure\.message|result\.message|\.message\}/);
-    }
-  });
+  // Held by the lint rule garden/no-service-sentence, switched on for this folder's screens in .oxlintrc.json.
+  it('has no .residual, .statusLine or .message rendered from a service reply', async () => {
+    const { countPlanted, countRule } = await import('../../../../../../tooling/lint/count-rule.mjs');
+    const room = 'apps/customer/src/screens/trade/copybots';
+    const screens = readdirSync(new URL('./', import.meta.url)).filter((name) => name.endsWith('.tsx'));
+    expect(screens.length).toBeGreaterThan(10);
+    expect(
+      countRule(
+        'garden/no-service-sentence',
+        screens.map((name) => `${room}/${name}`),
+      ).files,
+    ).toEqual({});
+    const planted = countPlanted('garden/no-service-sentence', {
+      [`${room}/A.tsx`]: 'export const A = ({ r }) => <p>{r.residual}</p>;\n',
+      [`${room}/B.tsx`]: 'export const B = ({ failure }) => <p>{failure.message}</p>;\n',
+    });
+    expect(planted.files).toEqual({ [`${room}/A.tsx`]: 1, [`${room}/B.tsx`]: 1 });
+  }, 60_000);
 });

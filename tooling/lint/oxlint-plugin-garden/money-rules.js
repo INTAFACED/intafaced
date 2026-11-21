@@ -94,12 +94,31 @@ const noNumberMoney = {
 // whose name says money. In the folders whose old scanner tests this replaced (data/ but its chart and sparkline files, the
 // desk, the Options room): every Number(), parseFloat(), .toFixed() and unary +. A value drawn on a chart takes the one
 // exit, chartValue() in shared/chart-value.ts, whose result never becomes text, a body or money again.
-const CUSTOMER = /\/apps\/customer\/src\/(.+)$/u;
+// The UI kit (packages/ui/src) judges the same way in every file but its drawing code (charts, sparklines, lit/fx/), its
+// design values (theme/) and its gallery; the i18n formatter (packages/i18n/src/format.ts) has no Number(), parseFloat()
+// or parseInt() at all, whatever the value is called.
 const SOURCE = /\.tsx?$/u;
-const STRICT = [
-  (rel) => rel.startsWith('data/') && !rel.split('/').some((d) => d.startsWith('__')) && !/chart|sparkline/iu.test(rel.split('/').pop()),
-  (rel) => /^screens\/trade\/desk\/[^/]+$/u.test(rel),
-  (rel) => /^screens\/trade\/options\/[^/]+$/u.test(rel),
+const FOLDER_KINDS = new Set(['Number()', 'parseFloat()', 'new Number()', '.toFixed()', 'unary +']);
+const UI_LEFT_OUT = /sparkline|chart|__gallery__|\.test\.|(^|\/)theme\/|(^|\/)lit\/fx\//iu;
+/** Where the float check runs: the path under its root, whether money names are judged in every file, and, per file, the
+ * conversions judged whatever the value is called (null: none). */
+const SCOPES = [
+  {
+    at: /\/apps\/customer\/src\/(.+)$/u,
+    everyFile: true,
+    where: 'a money folder (data/, the desk, the Options room)',
+    kinds: (rel) =>
+      (rel.startsWith('data/') && !rel.split('/').some((d) => d.startsWith('__')) && !/chart|sparkline/iu.test(rel.split('/').pop())) ||
+      /^screens\/trade\/(desk|options)\/[^/]+$/u.test(rel)
+        ? FOLDER_KINDS
+        : null,
+  },
+  { at: /\/packages\/ui\/src\/(.+)$/u, where: 'the UI kit', kinds: (rel) => (UI_LEFT_OUT.test(rel) ? null : FOLDER_KINDS) },
+  {
+    at: /\/packages\/i18n\/src\/(format\.ts)$/u,
+    where: 'the i18n formatter',
+    kinds: () => new Set(['Number()', 'parseFloat()', 'parseInt()', 'new Number()']),
+  },
 ];
 const MONEY_WORDS = new Set(
   'amount balance fee price notional total minor cents units cost pnl margin collateral equity premium strike payout principal volume size qty quantity px sz mark bid ask mid last spot oracle high low'.split(
@@ -180,10 +199,11 @@ function floatCall(n) {
 
 function customerFloats(context, strictOnly = false) {
   const path = String(context.filename).split('\\').join('/');
-  const rel = CUSTOMER.exec(path)?.[1];
+  const scope = SCOPES.find((x) => x.at.test(path));
+  const rel = scope?.at.exec(path)[1];
   if (!rel || !SOURCE.test(rel)) return {};
-  const strict = STRICT.some((inFolder) => inFolder(rel));
-  if (strictOnly && !strict) return {};
+  const strict = scope.kinds(rel);
+  if ((strictOnly || !scope.everyFile) && !strict) return {};
   const exitFile = rel === EXIT_FILE;
   const exitValues = new Set(); // local consts that hold a chartValue() result
   const exitNames = new Set([EXIT]); // chartValue and the local names it is imported as
@@ -234,12 +254,11 @@ function customerFloats(context, strictOnly = false) {
   const leaveFn = (node) => {
     if (exitFile && functionName(node) === EXIT) inExit -= 1;
   };
-  const float = (node, kind, arg, byNameOnly = kind.includes('parseInt')) => {
+  const float = (node, kind, arg) => {
     if (inExit) return;
     const name = moneyName(arg);
     if (name) context.report({ node, message: `\`${name}\` is money and ${kind} makes it a float: ${FLOAT_FIX}` });
-    else if (strict && !byNameOnly)
-      context.report({ node, message: `${kind} in a money folder (data/, the desk, the Options room) makes a float: ${FLOAT_FIX}` });
+    else if (strict?.has(kind)) context.report({ node, message: `${kind} in ${scope.where} makes a float: ${FLOAT_FIX}` });
   };
   const leak = (node, what) => context.report({ node, message: `${what} of a chartValue() result: ${EXIT_FIX}` });
   return {
@@ -259,7 +278,7 @@ function customerFloats(context, strictOnly = false) {
       const method = c?.type === 'MemberExpression' && !c.computed ? c.property?.name : null;
       const array = ARRAY_METHODS.has(method) ? moneyName(c.object) : null;
       const fn = node.arguments[0];
-      if (array && floatFn(fn)) float(node, `.${method}(${floatFn(fn)})`, c.object, true);
+      if (array && floatFn(fn)) float(node, `.${method}(${floatFn(fn)})`, c.object);
       if (array && isFunction(fn)) {
         // The callback's element is the array's: `amounts.map((p) => { return Number(p); })` is judged as `Number(amount)`.
         const params = (method.startsWith('reduce') ? [fn.params[1]] : method === 'sort' ? fn.params.slice(0, 2) : [fn.params[0]])
@@ -270,7 +289,7 @@ function customerFloats(context, strictOnly = false) {
         held.push([node, params]);
       }
       if (c?.type === 'MemberExpression' && c.object?.name === 'Array' && c.property?.name === 'from' && floatFn(node.arguments[1]))
-        float(node, `Array.from(…, ${floatFn(node.arguments[1])})`, node.arguments[0], true);
+        float(node, `Array.from(…, ${floatFn(node.arguments[1])})`, node.arguments[0]);
       if (strict && c?.type === 'MemberExpression' && !c.computed && c.property?.name === 'toFixed') float(node, '.toFixed()', c.object);
       if (c?.type === 'Identifier' && TEXT_CALLS.has(c.name) && node.arguments.some(holdsExit)) leak(node, `${c.name}()`);
       if (c?.type === 'MemberExpression' && !c.computed && TEXT_METHODS.has(c.property?.name)) {
@@ -350,7 +369,7 @@ const functionName = (n) => (n?.type === 'FunctionDeclaration' ? n.id?.name : n?
 
 // ---------------------------------------------------------------------------------------------------------------------
 // garden/no-random-request-key: an idempotency or request key built from randomUUID(), Date.now() or Math.random().
-const KEY_NAME = /idempotenc|clientRequestId|requestKey|dedupe/iu;
+const KEY_NAME = /idempotenc|clientRequestId|clientOrderId|requestKey|dedupe/iu;
 const isRandomCall = (n) => {
   if (n.type !== 'CallExpression') return false;
   const c = n.callee;
