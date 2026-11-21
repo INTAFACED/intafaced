@@ -6,7 +6,8 @@ import {
   type KycLadderLevel,
   type KycLadderRung,
 } from '@intafaced/contracts/identity-kyc-levels';
-import { payWithdrawalTierLimitsOutputSchema, type PayWithdrawalTierLimits } from '@intafaced/contracts/pay-withdrawal-tier-limits';
+import type { PayWithdrawalTierLimits } from '@intafaced/contracts/pay-withdrawal-tier-limits';
+import { PAY_WITHDRAWAL_TIER_LIMITS } from '@intafaced/contracts/pay-withdrawal-procedures';
 import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
@@ -48,7 +49,7 @@ export function VerificationLadder({
   );
   // The owner's figures are the same for every customer, so one read serves every level (svc-pay, D-148).
   const { resource: limits, reload: reloadLimits } = useResource(
-    (signal) => api.query('pay', 'withdrawal.tierLimits', {}, payWithdrawalTierLimitsOutputSchema, { signal }),
+    (signal) => api.call(PAY_WITHDRAWAL_TIER_LIMITS, {}, { signal }),
     `verification-ladder-limits:${userId}`,
   );
   const limitsByTier = new Map<string, PayWithdrawalTierLimits['limits']>();

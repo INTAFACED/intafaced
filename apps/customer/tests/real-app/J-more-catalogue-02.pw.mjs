@@ -60,6 +60,12 @@ async function listingRead(who) {
   return res.body.result.data;
 }
 
+/** svc-market's rows newest first by the time it registered each (the Market's default sort, Newest). */
+const byNewest = (rows) => [...rows].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+
+/** Two rows by price as exact decimals, low first. */
+const byPrice = (a, b) => (toUnits(a.price) < toUnits(b.price) ? -1 : toUnits(a.price) > toUnits(b.price) ? 1 : 0);
+
 /** The typed code of a refused tRPC call, as svc-market sends it. */
 const codeOf = (reply) => reply.body?.error?.message ?? reply.body?.error?.json?.message;
 
@@ -240,7 +246,7 @@ test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's,
   page,
   browser,
 }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(420_000);
   const taxonomy = (await marketRead(null, 'listingCategories', {})).body.result.data.categories;
   expect(taxonomy).toEqual([
     'bots',
@@ -253,31 +259,37 @@ test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's,
     'partner_integrations',
   ]);
 
-  // A TEST seller files a one-time listing under Data through the seller form's category picker.
-  const title = `TEST data listing ${Date.now().toString(36)}`;
-  const sellerContext = await browser.newContext({ baseURL: ORIGIN });
-  try {
-    const sellerPage = await sellerContext.newPage();
-    const { seller, client } = await approvedSeller(sellerPage);
-    await signIn(sellerPage, seller);
-    await sellerPage.goto('/market/mine');
-    const form = sellerPage.locator('form').filter({ has: sellerPage.getByRole('textbox', { name: 'Listing title' }) });
-    await form.getByRole('textbox', { name: 'Listing title' }).fill(title);
-    await form.getByRole('textbox', { name: 'Listing description' }).fill('TEST data listing on the local test stack. Not real data.');
-    await form.getByRole('combobox', { name: 'Offer type' }).selectOption('one_time');
-    await form.getByRole('combobox', { name: 'Category' }).selectOption({ label: 'Data' });
-    await form.getByRole('textbox', { name: 'Price asset ID' }).fill('USDT');
-    await form.getByRole('textbox', { name: 'Price', exact: true }).fill('5');
-    await form.getByRole('button', { name: 'Review listing' }).click();
-    await sellerPage.getByRole('dialog').getByRole('button', { name: 'Publish listing' }).click();
-    await expect(sellerPage.getByRole('main').getByRole('status').filter({ hasText: 'Listing published' })).toBeVisible();
-    const filed = (await client.get(`/api/market/trpc/myListings?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`)).body.result
-      .data;
-    expect(filed.filter((row) => row.title === title)).toEqual([
-      expect.objectContaining({ offerType: 'one_time', price: '5', status: 'active' }),
-    ]);
-  } finally {
-    await sellerContext.close();
+  // Two TEST sellers (one listing slot each) file a one-time listing under Data through the seller form's category picker,
+  // one after the other. Their titles and prices are chosen so each sort puts a different one first: the first filed is
+  // the cheaper and the later in title order, so Newest and Title put the second above it and Price, low to high, the first.
+  const tag = Date.now().toString(36);
+  const first = { title: `TEST data listing b ${tag}`, price: '5' };
+  const second = { title: `TEST data listing a ${tag}`, price: '7' };
+  for (const listing of [first, second]) {
+    const sellerContext = await browser.newContext({ baseURL: ORIGIN });
+    try {
+      const sellerPage = await sellerContext.newPage();
+      const { seller, client } = await approvedSeller(sellerPage);
+      await signIn(sellerPage, seller);
+      await sellerPage.goto('/market/mine');
+      const form = sellerPage.locator('form').filter({ has: sellerPage.getByRole('textbox', { name: 'Listing title' }) });
+      await form.getByRole('textbox', { name: 'Listing title' }).fill(listing.title);
+      await form.getByRole('textbox', { name: 'Listing description' }).fill('TEST data listing on the local test stack. Not real data.');
+      await form.getByRole('combobox', { name: 'Offer type' }).selectOption('one_time');
+      await form.getByRole('combobox', { name: 'Category' }).selectOption({ label: 'Data' });
+      await form.getByRole('textbox', { name: 'Price asset ID' }).fill('USDT');
+      await form.getByRole('textbox', { name: 'Price', exact: true }).fill(listing.price);
+      await form.getByRole('button', { name: 'Review listing' }).click();
+      await sellerPage.getByRole('dialog').getByRole('button', { name: 'Publish listing' }).click();
+      await expect(sellerPage.getByRole('main').getByRole('status').filter({ hasText: 'Listing published' })).toBeVisible();
+      const filed = (await client.get(`/api/market/trpc/myListings?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`)).body.result
+        .data;
+      expect(filed.filter((row) => row.title === listing.title)).toEqual([
+        expect.objectContaining({ offerType: 'one_time', price: listing.price, status: 'active' }),
+      ]);
+    } finally {
+      await sellerContext.close();
+    }
   }
 
   // The buyer browses by category: the choices are the service's taxonomy, in its words, and each category shows exactly
@@ -305,15 +317,40 @@ test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's,
     const filedUnder = (await marketRead(null, 'listingsByCategory', { category: slug, limit: 50 })).body.result.data;
     expect(filedUnder.every((row) => row.category === slug && row.offerType === 'one_time')).toBe(true);
     await expect(cards).toHaveCount(filedUnder.length);
-    expect((await cards.getByRole('heading', { level: 3 }).allInnerTexts()).sort()).toEqual(filedUnder.map((row) => row.title).sort());
+    // In the Market's own order, Newest by default: newest first by the time svc-market registered each, nothing else.
+    await expect(cards.getByRole('heading', { level: 3 })).toHaveText(byNewest(filedUnder).map((row) => row.title));
     if (filedUnder.length === 0) {
       empty += 1;
       await expect(page.getByRole('main').getByText('No listing is filed under this category yet.')).toBeVisible();
     }
-    if (slug === 'data') expect(filedUnder.map((row) => row.title)).toContain(title);
+    if (slug === 'data') expect(filedUnder.map((row) => row.title)).toEqual(expect.arrayContaining([first.title, second.title]));
   }
   // On a stack where only this journey files listings, most categories are empty: both branches above ran.
   expect(empty).toBeGreaterThan(0);
+
+  // No listing is ranked or placed above another: in Data the cards' order is exactly the chosen sort over svc-market's
+  // rows, and the two TEST listings swap places as the sort changes, so neither holds a place of its own.
+  await select.selectOption({ label: 'Data' });
+  const data = (await marketRead(null, 'listingsByCategory', { category: 'data', limit: 50 })).body.result.data;
+  const sortBy = page.getByRole('combobox', { name: 'Sort by', exact: true });
+  const shown = async () => (await cards.getByRole('heading', { level: 3 }).allInnerTexts()).filter((t) => t.endsWith(tag));
+  const exact = async (rows) => {
+    await expect(cards).toHaveCount(data.length);
+    await expect(cards.getByRole('heading', { level: 3 })).toHaveText(rows.map((row) => row.title));
+  };
+  await sortBy.selectOption({ label: 'Newest' });
+  await exact(byNewest(data));
+  expect(await shown()).toEqual([second.title, first.title]);
+  await sortBy.selectOption({ label: 'Price, low to high' });
+  await exact([...data].sort((a, b) => byPrice(a, b) || a.title.localeCompare(b.title)));
+  expect(await shown()).toEqual([first.title, second.title]);
+  await sortBy.selectOption({ label: 'Price, high to low' });
+  await exact([...data].sort((a, b) => byPrice(b, a) || a.title.localeCompare(b.title)));
+  expect(await shown()).toEqual([second.title, first.title]);
+  await sortBy.selectOption({ label: 'Title' });
+  await exact([...data].sort((a, b) => a.title.localeCompare(b.title)));
+  expect(await shown()).toEqual([second.title, first.title]);
+  await sortBy.selectOption({ label: 'Newest' });
   await select.selectOption({ label: 'Every category' });
   await expect(cards.filter({ hasText: run.read().title })).toHaveCount(1);
 

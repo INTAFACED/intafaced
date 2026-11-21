@@ -458,6 +458,33 @@ test('judgeTouchedRun, planted: a missed touched file, a red step, an older head
   assert.equal((await touchedRun({ verdictOf: async () => Promise.reject(new Error('HTTP 403')) })).ok, false);
 });
 
+// #9253 on 4bf99e5d, 20 Nov 2026: dispatch 44785010056 started no job (its concurrency group passed 400 characters), and
+// the seal failed closed on its missing report while five other runs on the head had run every needed journey clean.
+test('judgeTouchedRun: a finished run that started no job is passed over and named; one with jobs and no report still fails closed', async () => {
+  const noJob = run(4, { conclusion: 'failure', jobCount: 0, run_started_at: '2026-11-08T09:00:00Z' });
+  const noReport = async (r) =>
+    r.id === 4 ? { error: 'no real-app-journeys artifact from its current attempt' } : rep(['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']);
+  const skipped = await touchedRun({ runs: [run(1, { jobCount: 3 }), noJob], reportOf: noReport });
+  assert.equal(skipped.ok, true, 'the other runs prove the journeys');
+  assert.equal(
+    skipped.lines.filter((l) => /run 4 \(attempt 1\) started no job/.test(l)).length,
+    1,
+    'one printed line names the run passed over',
+  );
+  // Planted, each still red: the same run with jobs that lost its report, a run whose jobs were never counted, and a
+  // no-job run alone, which proves nothing.
+  const lost = await touchedRun({ runs: [run(1), { ...noJob, jobCount: 2 }], reportOf: noReport });
+  assert.equal(lost.ok, false);
+  assert.match(lost.lines[0], /run 4 \(attempt 1\)'s report couldn't be read .*fails closed/);
+  assert.equal((await touchedRun({ runs: [run(1), { ...noJob, jobCount: undefined }], reportOf: noReport })).ok, false);
+  const alone = await touchedRun({ runs: [noJob], reportOf: noReport });
+  assert.equal(alone.ok, false);
+  assert.match(alone.lines.join('\n'), /no finished Real-app journeys run on this exact head ran J-bank-13\.pw\.mjs, J-bank-14\.pw\.mjs/);
+  // A run still going, with no job listed yet, holds the seal as before.
+  const going = await touchedRun({ runs: [run(1), { ...noJob, status: 'queued', conclusion: null }], reportOf: noReport });
+  assert.equal(going.state, 'wait');
+});
+
 // ---- The seal on a pull request: the four planted cases the gate must hold, and their passing twins ----
 
 const BANK13 = "const J = 'J-bank-13';\ntest(`${J} #1 x`, () => {});\ntest(`${J} #2 y`, () => {});\n";
