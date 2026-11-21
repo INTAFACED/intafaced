@@ -28,8 +28,8 @@ import { otherTraderKey, otherTraderRun, testVenue, venueAccount, venueForThisFi
 // - venue: that deposit, which the venue sees and credits after its confirmations; one TEST conversion of USDC to BTC
 //   (Convert on the person's own venue account, J-cex-spot-11: one venue order the wallet's key signs), filled against a
 //   sell another TEST trader rests, whose rest that trader then cancels; and one TEST limit buy of BTC the wallet's key
-//   signs, kept on the venue's book: half of it fills against a second sell that trader rests, and the venue holds the
-//   quote for the other half until #4 cancels it;
+//   signs, kept on the venue's book as its best bid: that trader sells half of it, and the venue holds the quote for the
+//   other half until #4 cancels it;
 // - partner: the person's bank money moved to the TEST partner bank (`testPartner.set({ custody: 'off' })`) and TEST
 //   USDT paid in there (`testPartner.fund`), then TEST USDT paid out to the person's own bank account
 //   (`testPartner.spend` kind payout), and a TEST fee the partner charges (`testPartner.spend` kind fee): a movement that
@@ -41,7 +41,10 @@ const PARTNER_BANK = 'TEST partner bank';
 /** The TEST chain's network as the app names it (features/protocol/blockers networkLabel). */
 const NETWORK = 'Base Sepolia test network';
 const DEPOSIT = '100';
-/** The TEST limit buy: `resting` asked for, `amount` of it filled at once, the rest kept on the venue's book until #4 cancels it. */
+/**
+ * The TEST limit buy: `resting` asked for and kept on the venue's book, `amount` of it filled by another TEST trader's sell,
+ * the rest held until #4 cancels it. `price` is the TEST sell the conversion meets.
+ */
 const BUY = { amount: '0.0005', resting: '0.001', price: '60100' };
 const PARTNER_IN = '25';
 /** A TEST payout from the partner account to the person's own bank account (`testPartner.spend` kind payout): a withdrawal. */
@@ -257,21 +260,18 @@ test.beforeAll(async ({ browser }) => {
       .poll(async () => (await venueRecord(otherTraderKey(seller).address, '/open-orders')).value.filter((o) => o.symbol === SYMBOL).length)
       .toBe(0);
 
-    // Venue: one TEST limit buy for twice BUY.amount, signed by the wallet's key and kept on the venue's book: it fills
-    // BUY.amount against a sell another TEST trader rests first, and the venue holds the quote for the rest (#4).
-    const rested = await otherTraderRun(seller, {
-      kind: 'place_order',
-      symbol: SYMBOL,
-      side: 'sell',
-      type: 'limit',
-      amount: BUY.amount,
-      price: BUY.price,
-      timeInForce: 'GTC',
-      reduceOnly: false,
-      clientOrderKey: `order:${seller}:pf3-ask-${randomBytes(4).toString('hex')}`,
-      builderFee: null,
-    });
-    expect(rested.definite && rested.accepted, JSON.stringify(rested)).toBe(true);
+    // Venue: one TEST limit buy for BUY.resting, signed by the wallet's key and kept on the venue's book (#4). It is priced
+    // one tick above the book's best bid and below its best ask, so it crosses nothing and is the best bid; another TEST
+    // trader then sells BUY.amount into it at its price, filling half, and the venue holds the quote for the rest.
+    const top = (await testVenue('/book', { symbol: SYMBOL, depth: 1 })).body.value;
+    const bestBid = top.bids[0] ? units(top.bids[0].price) : null;
+    const bestAsk = top.asks[0] ? units(top.asks[0].price) : null;
+    const tick = units('1');
+    const limit = bestBid !== null ? bestBid + tick : bestAsk !== null ? bestAsk - tick : units(BUY.price);
+    expect(bestAsk === null || limit < bestAsk, `the TEST book leaves no tick between its best bid and ask: ${JSON.stringify(top)}`).toBe(
+      true,
+    );
+    const buyPrice = decimal(limit);
     const buyKey = `order:${owner}:btc-usdc:pf3${randomBytes(4).toString('hex')}`;
     const bought = await signOnVenue(walletKey, {
       kind: 'place_order',
@@ -279,13 +279,26 @@ test.beforeAll(async ({ browser }) => {
       side: 'buy',
       type: 'limit',
       amount: BUY.resting,
-      price: BUY.price,
+      price: buyPrice,
       timeInForce: 'GTC',
       reduceOnly: false,
       clientOrderKey: buyKey,
       builderFee: null,
     });
     expect(bought.definite && bought.accepted, JSON.stringify(bought)).toBe(true);
+    const sold = await otherTraderRun(seller, {
+      kind: 'place_order',
+      symbol: SYMBOL,
+      side: 'sell',
+      type: 'limit',
+      amount: BUY.amount,
+      price: buyPrice,
+      timeInForce: 'IOC',
+      reduceOnly: false,
+      clientOrderKey: `order:${seller}:pf3-hit-${randomBytes(4).toString('hex')}`,
+      builderFee: null,
+    });
+    expect(sold.definite && sold.accepted, JSON.stringify(sold)).toBe(true);
     const buyFills = async () =>
       (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.filter((f) => f.venueClientOrderId !== convertOrder);
     await expect.poll(async () => (await buyFills()).length).toBe(1);
