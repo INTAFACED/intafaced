@@ -165,6 +165,7 @@ impl World {
             metering: m,
             runtime: rt,
             advisors: svc_agents::advisors::Advisors::unwired(),
+            background: svc_agents::background::Settings::default(),
         })
         .unwrap()
         .with_factories(factories)

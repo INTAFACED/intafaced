@@ -25,6 +25,7 @@ use service_kit::telemetry::{Logger, Telemetry};
 use svc_agents::advisors::Advisors;
 use svc_agents::advisors::grounding::AcademyCurriculum;
 use svc_agents::advisors::portfolio::{self, LedgerBalancesHttp, TradeTickerPrices};
+use svc_agents::background;
 use svc_agents::boot;
 use svc_agents::db::{self, Store};
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
@@ -46,9 +47,10 @@ use svc_agents::metering::ports::{
     AffiliatesHttp, JetStreamBus, LedgerHttp, LedgerOnly, UsagePayment, UsagePaymentHttp,
 };
 use svc_agents::migrate;
-use svc_agents::runtime::Runtime;
 use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
+use svc_agents::runtime::{Rt, Runtime};
+use svc_agents::self_freeze::IdentitySelfFreezeRead;
 use svc_agents::timers::{self, Timer};
 
 fn process_env() -> BTreeMap<String, String> {
@@ -84,15 +86,40 @@ type Job<'a> = Box<dyn Fn() -> Result<(), String> + Sync + 'a>;
 /// The work each timer runs. Each comes with its slice (`timers::timers` names it); until then the timer does not run,
 /// as it would not in a process without that work.
 fn jobs<'a>(door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job<'a>)> {
-    vec![(
-        "route table sync",
-        Box::new(move || {
-            door.gateway()
-                .refresh(door.store())
-                .map(|_| ())
-                .map_err(|e| e.to_string())
-        }),
-    )]
+    vec![
+        (
+            "route table sync",
+            Box::new(move || {
+                door.gateway()
+                    .refresh(door.store())
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }),
+        ),
+        // `advanceSessionRuns`, then `publishCompletedRuns` whether or not the advance failed; the timer runs only while
+        // both owner values are set (`timers::timers`).
+        (
+            "background ticker",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                let m = door.metering();
+                let x = Rt {
+                    rt: door.runtime(),
+                    pool,
+                    gateway: &door.gateway().gateway,
+                    m,
+                    now: system_now(),
+                };
+                let step_ms = door.background().step_ms.unwrap_or(0);
+                let advanced = background::advance(&x, step_ms, 50)
+                    .map(|_| ())
+                    .map_err(|e| format!("background session runs did not advance: {e:?}"));
+                background::publish_completed(pool, m.bus.as_ref(), &m.producer, system_now(), 100)
+                    .map_err(|e| format!("finished background runs not announced: {e:?}"))?;
+                advanced
+            }),
+        ),
+    ]
 }
 
 /// A record value of the environment (`AGENTS_UPSTREAM_HEADERS`, `AGENTS_UPSTREAM_MODELS`), in its order.
@@ -306,6 +333,17 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
         transcript_retention_days: env.int("AGENTS_TRANSCRIPT_RETENTION_DAYS").unwrap_or(0),
         overage_grace: grace,
         tier_laws: parse_tier_laws(env.str("AGENTS_TIER_LAWS"))?,
+        // `env.IDENTITY_URL ? createIdentitySelfFreezeRead(...) : null`.
+        self_freeze: env
+            .str("IDENTITY_URL")
+            .filter(|u| !u.is_empty())
+            .map(|url| {
+                Box::new(IdentitySelfFreezeRead::new(
+                    url,
+                    signer("svc-identity"),
+                    fetch.clone(),
+                )) as Box<dyn svc_agents::self_freeze::SelfFreezeRead>
+            }),
     })
 }
 
@@ -425,6 +463,10 @@ fn door(
         gateway,
         ready,
         runtime,
+        background: background::Settings {
+            max_steps: env.int("AGENTS_SESSION_RUN_MAX_STEPS"),
+            step_ms: env.int("AGENTS_BACKGROUND_STEP_MS"),
+        },
         advisors,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {

@@ -5,7 +5,7 @@ import { assertSelf } from '../assert-self.js';
 import { BankError } from '../errors.js';
 import { amountString, partnerFiguresOutput } from '../router/shared.js';
 import type { BankServices } from '../bank-service.js';
-import { NO_PARTNER_BANK_CODE, partnerPayoutsAccount } from './partner-bank.js';
+import { NO_PARTNER_BANK_CODE, partnerFeesAccount, partnerPayoutsAccount } from './partner-bank.js';
 import { businessPartnerAccount } from '../business/business-team.js';
 import { TEST_PARTNER_MERCHANT, partnerReserve, type TestPartnerDoors } from './test-partner.js';
 import { testPartnerSwitches, type TestPartnerSwitches } from './test-partner-switches.js';
@@ -139,8 +139,9 @@ export function createTestPartnerRouter(
       ),
     /**
      * TEST money leaving the person's main balance at the TEST partner bank (J-bank-16 Starts: "a month of TEST activity
-     * at the partner"), once per `spendId`: a TEST `payment` to a stand-in merchant, or a TEST `payout` to the partner's
-     * outbound-payments account. A real send to a person at the partner is not built, and this door is not that: it is
+     * at the partner"), once per `spendId`: a TEST `payment` to a stand-in merchant, a TEST `payout` to the partner's
+     * outbound-payments account, or a TEST `fee` the partner charges into its own fees account (J-portfolio-03 #1's
+     * "other" line). A real send to a person at the partner is not built, and this door is not that: it is
      * refused off the TEST stack (`bank.test_partner_off`), obeys the posting freeze and partner stops, and posts nothing.
      */
     spend: scopedProcedure('bank:write', { module: 'bank' })
@@ -150,7 +151,7 @@ export function createTestPartnerRouter(
             spendId: z.string().min(8).max(64),
             assetId: z.string().regex(/^[A-Z0-9]{2,16}$/),
             amount: amountString,
-            kind: z.enum(['payment', 'payout']),
+            kind: z.enum(['payment', 'payout', 'fee']),
           })
           .strict(),
       )
@@ -169,7 +170,9 @@ export function createTestPartnerRouter(
             to:
               input.kind === 'payout'
                 ? partnerPayoutsAccount(input.assetId)
-                : { userId: TEST_PARTNER_MERCHANT, assetId: input.assetId, spaceId: null },
+                : input.kind === 'fee'
+                  ? partnerFeesAccount(input.assetId)
+                  : { userId: TEST_PARTNER_MERCHANT, assetId: input.assetId, spaceId: null },
             amount: parseAmount(input.amount),
           });
           return { label: moved.label, moveId: moved.id, amount: formatAmount(moved.amount) };

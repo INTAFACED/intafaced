@@ -91,6 +91,9 @@ pub struct Runtime {
     pub overage_grace: Option<Amount>,
     /// \`AGENTS_TIER_LAWS\`.
     pub tier_laws: TierLaws,
+    /// `selfFreeze`: identity's read of the owner's own freeze (J-wallet-13), wired while `IDENTITY_URL` is set. None
+    /// refuses every gate that asks it, as an unread freeze counts as frozen.
+    pub self_freeze: Option<Box<dyn crate::self_freeze::SelfFreezeRead>>,
 }
 
 impl Runtime {
@@ -102,6 +105,7 @@ impl Runtime {
             transcript_retention_days: 0,
             overage_grace: None,
             tier_laws: TierLaws::default(),
+            self_freeze: None,
         }
     }
 }
