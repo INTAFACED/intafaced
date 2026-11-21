@@ -113,6 +113,8 @@ const CHAIN = {
   'protocol.chain_id_mismatch': 'SERVICE_UNAVAILABLE',
 } as const;
 const FACTORY_UNSET = { 'protocol.amm_factory_unset': 'PRECONDITION_FAILED' } as const;
+/** A route, path or swap naming a token on the blocklist (D-launch-listing-02): it is not routed. */
+const BLOCKED = { 'protocol.token_blocked': 'FORBIDDEN' } as const;
 const SLIPPAGE_UNSET = { 'protocol.swap_slippage_unset': 'PRECONDITION_FAILED' } as const;
 const MIN_OUT_BELOW_BOUND = { 'protocol.swap_min_out_below_bound': 'BAD_REQUEST' } as const;
 /** A quote from one pool's reserves (`amm/math.ts`, `amm/pool-quote.ts`). */
@@ -219,7 +221,7 @@ export const PROTOCOL_AMM_ROUTES = defineProcedure({
   name: 'protocol.amm.routes',
   kind: 'query',
   path: 'amm.routes',
-  refusals: refuse(FACTORY_UNSET, { 'protocol.route_same_token': 'BAD_REQUEST' }, POOL_QUOTE, CHAIN),
+  refusals: refuse(FACTORY_UNSET, { 'protocol.route_same_token': 'BAD_REQUEST' }, BLOCKED, POOL_QUOTE, CHAIN),
   input: z.object({
     tokenIn: evmAddress,
     tokenOut: evmAddress,
@@ -259,7 +261,7 @@ export const PROTOCOL_AMM_BUILD_SWAP_EXACT_IN = defineProcedure({
   name: 'protocol.amm.buildSwapExactIn',
   kind: 'query',
   path: 'amm.buildSwapExactIn',
-  refusals: refuse(SLIPPAGE_UNSET, MIN_OUT_BELOW_BOUND, POOL_QUOTE, CHAIN),
+  refusals: refuse(SLIPPAGE_UNSET, MIN_OUT_BELOW_BOUND, BLOCKED, POOL_QUOTE, CHAIN),
   input: z.object({ pool: evmAddress, tokenIn: evmAddress, amountIn: digits, minAmountOut: digits, to: evmAddress }),
   output: protocolUnsignedCallSchema,
   checks: evmAddressCheck(['input.pool', 'input.tokenIn', 'input.to']),
@@ -530,6 +532,7 @@ export const PROTOCOL_AMM_PATHS = defineProcedure({
       'protocol.route_same_token': 'BAD_REQUEST',
       [ROUTE_NO_PATH]: 'NOT_FOUND',
     },
+    BLOCKED,
     CHAIN,
   ),
   input: protocolPathsInputSchema,
@@ -567,6 +570,7 @@ export const PROTOCOL_AMM_BUILD_SWAP_V2 = defineProcedure({
       'protocol.swap.simulation_reverted': 'CONFLICT',
       'protocol.swap.price_moved': 'CONFLICT',
     },
+    BLOCKED,
     CHAIN,
   ),
   input: protocolBuildSwapV2InputSchema,
