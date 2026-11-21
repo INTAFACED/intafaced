@@ -172,6 +172,17 @@ fn serve(
             edge_secret: env.str("EDGE_PRINCIPAL_SECRET").map(str::to_owned),
             edge_key,
             clock: now_ms,
+            // `createIdentityApprovalClient(IDENTITY_URL, ...)`, or the unwired consumer, which refuses every spend.
+            approvals: match env.str("IDENTITY_URL") {
+                Some(url) => Box::new(svc_matching::approval::Identity::new(
+                    url,
+                    &str_of("INTERNAL_SERVICE_SECRET"),
+                    fetch.clone(),
+                    || now_ms().div_euclid(1000),
+                )),
+                None => Box::new(svc_matching::approval::Unwired),
+            },
+            operator_ids: env.operator_ids(),
         },
         engine,
     )?

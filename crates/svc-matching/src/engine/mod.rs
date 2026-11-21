@@ -20,6 +20,7 @@ use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::time::Instant;
 
+use crate::approval::dual_control_refuse;
 use crate::book::order_book::{OrderBook, QueueLevel};
 use crate::book::rules::{mass_cancel_session_refuse, read_session_id};
 use crate::book::triggers::mark_refuse;
@@ -36,6 +37,7 @@ use crate::journal::replay::{
     EngineSnapshot, ReplayBooks, ReplayCancel, SnapshotSink, js_sort_cmp, replay_journal,
     snapshot_due,
 };
+use crate::rulebook::{self, Draft, Version};
 
 /// Where the order events go (`EventBus`): the topic, the payload and its idempotency key.
 pub trait EventBus {
@@ -403,6 +405,8 @@ pub struct MatchingEngine {
     /// `auction-uncross.ts`'s auction state. Nothing in the service enters it: the uncrossing rules are unset, so
     /// entering refuses ([`enter_auction`](Self::enter_auction)). A submit on a market in it refuses.
     auction: HashSet<String>,
+    /// Owner rulebook versions in publish order, rebuilt from `rulebook_version` records. Empty is unpublished.
+    rulebook: Vec<Version>,
     /// Set for the whole book when the replay hold check cannot be asked (`admissionClosed`). Not journalled: the next
     /// boot asks again. While set, nothing matches.
     admission_closed: Option<String>,
@@ -429,6 +433,7 @@ impl MatchingEngine {
             in_flight: HashMap::new(),
             crash_unknown: HashSet::new(),
             auction: HashSet::new(),
+            rulebook: Vec::new(),
             admission_closed: None,
             hold_halted: BTreeMap::new(),
             announcing: false,
@@ -635,6 +640,77 @@ impl MatchingEngine {
         self.books
             .entry(market_id.to_owned())
             .or_insert_with(|| OrderBook::new(market_id))
+    }
+
+    /// `rulebookView()`: the public rulebook at the engine's clock.
+    pub fn rulebook_view(&self) -> Json {
+        rulebook::published_view(&self.rulebook, (self.clock)())
+    }
+
+    /// `rulebookHistory()`: every version, newest publish first.
+    pub fn rulebook_history(&self) -> Json {
+        rulebook::history_view(&self.rulebook, (self.clock)())
+    }
+
+    /// One version as the history writes it, or null.
+    pub fn rulebook_history_of(&self, version: &str) -> Json {
+        rulebook::history_of(&self.rulebook, version, (self.clock)())
+    }
+
+    /// `rulebookPrecheck(draft)`: whether a draft may be published, read before any approval is spent.
+    pub fn rulebook_precheck(&self, draft: &Draft) -> Precheck {
+        if let Some(existing) = self.rulebook.iter().find(|v| v.version == draft.version) {
+            return if existing.digest == draft.digest {
+                Precheck::Same
+            } else {
+                Precheck::Refused(rulebook::immutable_refuse(&draft.version))
+            };
+        }
+        match rulebook::effective_past(draft, (self.clock)()) {
+            Some(r) => Precheck::Refused(r),
+            None => Precheck::New,
+        }
+    }
+
+    /// `publishRulebook(draft, cmd)`: the door has spent the two-person approval; this journals the version with who
+    /// proposed and approved it, and only then serves it. The same draft again returns the first publish; other text
+    /// under a published id refuses.
+    pub fn publish_rulebook(
+        &mut self,
+        draft: &Draft,
+        operator_id: &str,
+        confirm_operator_id: &str,
+        approval_id: &str,
+    ) -> Result<RulebookPublish, EngineError> {
+        if let Some(rejected) = dual_control_refuse(Some(operator_id), Some(confirm_operator_id)) {
+            return Ok(RulebookPublish::Refused(rejected));
+        }
+        if let Some(existing) = self.rulebook.iter().find(|v| v.version == draft.version) {
+            return Ok(if existing.digest == draft.digest {
+                RulebookPublish::Published { already: true }
+            } else {
+                RulebookPublish::Refused(rulebook::immutable_refuse(&draft.version))
+            });
+        }
+        let now = (self.clock)();
+        if let Some(rejected) = rulebook::effective_past(draft, now) {
+            return Ok(RulebookPublish::Refused(rejected));
+        }
+        let at = Instant(now).iso();
+        let version = Version {
+            version: draft.version.clone(),
+            effective_at: draft.effective_at.clone().unwrap_or_else(|| at.clone()),
+            published_at: at,
+            supersedes: self.rulebook.last().map(|v| v.version.clone()),
+            digest: draft.digest.clone(),
+            sections: draft.sections.clone(),
+            operator_id: service_kit::schema::js_trim(operator_id).to_owned(),
+            confirm_operator_id: service_kit::schema::js_trim(confirm_operator_id).to_owned(),
+            approval_id: approval_id.to_owned(),
+        };
+        self.append(version.record())?;
+        self.rulebook.push(version);
+        Ok(RulebookPublish::Published { already: false })
     }
 
     fn drop_if_never_traded(&mut self, market_id: &str) {
@@ -1180,6 +1256,16 @@ impl MatchingEngine {
                 })
             })
             .collect();
+        self.rulebook.clear();
+        for r in records
+            .iter()
+            .filter(|r| r.kind() == Some("rulebook_version"))
+        {
+            let v = Version::from_record(r);
+            if !self.rulebook.iter().any(|p| p.version == v.version) {
+                self.rulebook.push(v);
+            }
+        }
         self.admission_closed = None;
         self.hold_halted.clear();
         self.announcing = true;
@@ -1200,6 +1286,27 @@ impl MatchingEngine {
             markets: self.books.len(),
         })
     }
+}
+
+/// `rulebookPrecheck`'s answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Precheck {
+    /// Not published yet, and its time has not gone by.
+    New,
+    /// This exact version is published: a retry returns the first.
+    Same,
+    /// Other text under a published id, or a time gone by.
+    Refused(Reject),
+}
+
+/// `publishRulebook`'s answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RulebookPublish {
+    /// Journalled now, or (`already`) the same draft published before.
+    Published {
+        already: bool,
+    },
+    Refused(Reject),
 }
 
 /// `/^\d+(\.\d{1,18})?$/`: the mark's text, before it is read.

@@ -66,6 +66,8 @@ fn door_on(engine: MatchingEngine, secret: &str) -> MatchingDoor {
             edge_secret: None,
             edge_key: None,
             clock: now_ms,
+            approvals: Box::new(svc_matching::approval::Unwired),
+            operator_ids: Vec::new(),
         },
         engine,
     )

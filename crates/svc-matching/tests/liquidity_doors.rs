@@ -159,6 +159,9 @@ fn door_over(engine: MatchingEngine) -> MatchingDoor {
             edge_secret: None,
             edge_key: None,
             clock: now_ms,
+            // These doors spend no approval: unwired, and nobody on the operator list, as the TypeScript mounts them.
+            approvals: Box::new(svc_matching::approval::Unwired),
+            operator_ids: Vec::new(),
         },
         engine,
     )
