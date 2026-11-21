@@ -49,6 +49,10 @@ use svc_agents::navigator::onchain::ports::{
 use svc_agents::navigator::ports::{IdentitySessionHttp, TradeHttp};
 use svc_agents::navigator::research::{Research, parse_uncertainty_scale, research_environment};
 use svc_agents::ops::{Ops, alerts, log as oplog};
+use svc_agents::own::Own;
+use svc_agents::own::catalog::parse_own_templates;
+use svc_agents::own::desk::{SupportDesk, SupportDeskHttp};
+use svc_agents::own::gates::parse_policy_baseline;
 use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
 use svc_agents::runtime::{Rt, Runtime};
@@ -141,6 +145,10 @@ fn jobs<'a>(door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job
                     .map_err(|e| format!("finished background runs not announced: {e:?}"))?;
                 advanced
             }),
+        ),
+        (
+            "unpublished sweep",
+            Box::new(move || svc_agents::own::notices::sweep_unpublished(door)),
         ),
     ]
 }
@@ -472,6 +480,48 @@ fn advisors(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Advisors, String>
     Ok(a)
 }
 
+/// The own agents' templates and owner values, as `index.ts` hands them to `createAgentsRouter`: the support desk
+/// when `SUPPORT_URL` is set (its account read through `IDENTITY_URL`); absent refuses as `index.ts` leaves it unwired.
+/// The owner's freeze is read through the runtime's one reader.
+fn own(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Own, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    let identity = env.str("IDENTITY_URL").filter(|u| !u.is_empty());
+    let support_desk: Option<Box<dyn SupportDesk>> = env
+        .str("SUPPORT_URL")
+        .filter(|u| !u.is_empty())
+        .map(|url| -> Box<dyn SupportDesk> {
+            Box::new(SupportDeskHttp {
+                support_url: url.to_owned(),
+                identity_url: identity.map(str::to_owned),
+                identity_signer: signer("svc-identity"),
+                fetch: fetch.clone(),
+            })
+        });
+    Ok(Own {
+        templates: parse_own_templates(env.str("AGENTS_OWN_TEMPLATES"))?,
+        assistant_model: env.str("AGENTS_OWN_ASSISTANT_MODEL").map(str::to_owned),
+        baseline: parse_policy_baseline(env.str("AGENTS_POLICY_BASELINE"))?,
+        reviewer_model: env.str("AGENTS_REVIEWER_MODEL").map(str::to_owned),
+        approval_ttl_seconds: env.int("AGENTS_APPROVAL_TTL_SECONDS"),
+        support_desk,
+    })
+}
+
 /// The team's read (`index.ts`): svc-bank's team membership while `BANK_URL` is set, else none, so every team call
 /// refuses `agents.membership_unavailable`.
 fn team(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Team, String> {
@@ -498,6 +548,10 @@ fn team(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Team, String> {
     Ok(team)
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the door is built once from each part the binary made, in index.ts's order"
+)]
 fn door(
     env: &AgentsEnv,
     store: Store,
@@ -506,6 +560,7 @@ fn door(
     ready: ReadyInput,
     runtime: Runtime,
     (advisors, team): (Advisors, Team),
+    fetch: &Arc<dyn Fetch>,
 ) -> Result<AgentsDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     // The operator desks' owner values; a malformed baseline stops the start.
@@ -532,6 +587,7 @@ fn door(
             step_ms: env.int("AGENTS_BACKGROUND_STEP_MS"),
         },
         advisors,
+        own: own(env, fetch)?,
         team,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
@@ -618,6 +674,7 @@ fn serve(
         ready,
         runtime,
         (advisors, team),
+        &fetch,
     )?;
 
     let app = App {

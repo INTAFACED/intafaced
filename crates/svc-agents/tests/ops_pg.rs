@@ -33,9 +33,10 @@ use svc_agents::gateway::desk::GatewaySlice;
 use svc_agents::gateway::readiness::ReadyInput;
 use svc_agents::metering::Metering;
 use svc_agents::metering::ports::Bus;
-use svc_agents::ops::alerts::{effective_requirement, publish_pending_agent_alerts};
+use svc_agents::ops::alerts::publish_pending_agent_alerts;
 use svc_agents::ops::fleet::{fleet_csv, own_agent_switch, product_kind_off, read_fleet};
-use svc_agents::ops::{Ops, parse_policy_baseline};
+use svc_agents::ops::{Ops, PolicyBaseline, parse_policy_baseline};
+use svc_agents::own::gates::effective_requirement;
 use svc_agents::runtime::Runtime;
 
 const SECRET: &str = "agents-ops-backend-edge-secret-32-chars";
@@ -128,6 +129,7 @@ impl World {
             background: svc_agents::background::Settings::default(),
             advisors: svc_agents::advisors::Advisors::unwired(),
             team: svc_agents::team::Team::unwired(),
+            own: svc_agents::own::Own::unwired(),
         })
         .unwrap()
     }
@@ -1013,7 +1015,7 @@ fn alerts_an_override_looser_than_the_baseline_is_refused_and_a_narrower_one_nar
     );
     // A blank baseline stays blank whatever the override says.
     assert_eq!(
-        effective_requirement(pool, &BTreeMap::new(), "own_data").unwrap(),
+        effective_requirement(pool, &PolicyBaseline::default(), "own_data").unwrap(),
         None
     );
 }

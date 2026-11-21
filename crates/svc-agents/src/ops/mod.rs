@@ -17,9 +17,7 @@ pub mod alerts;
 pub mod fleet;
 pub mod log;
 
-use std::collections::BTreeMap;
-
-use service_kit::json::{self, Json};
+use service_kit::json::Json;
 use service_kit::pg::Pool;
 use service_kit::trpc::TrpcError;
 
@@ -40,7 +38,7 @@ pub struct Ops {
     /// `AGENTS_REGISTRY_LIST_LIMIT`.
     pub registry_limit: Option<i64>,
     /// `AGENTS_POLICY_BASELINE` (`parsePolicyBaseline`): per class, the loosest choice allowed; a class absent is blank.
-    pub baseline: BTreeMap<String, String>,
+    pub baseline: PolicyBaseline,
 }
 
 impl Ops {
@@ -80,59 +78,10 @@ pub fn parse_reasons(raw: Option<&str>) -> Option<Vec<String>> {
     (!out.is_empty()).then_some(out)
 }
 
-/// `OWN_AGENT_DATA_CLASSES` (`packages/contracts/src/agents-own.ts`).
-pub const DATA_CLASSES: [&str; 4] = ["own_data", "market_data", "draft_write", "live_write"];
-/// `OWN_AGENT_RULE_CHOICES`, strictest first.
-pub const RULE_CHOICES: [&str; 4] = [
-    "hand_off",
-    "ask_before",
-    "act_on_request",
-    "act_without_asking",
-];
-
-/// A choice's place in [`RULE_CHOICES`]: the higher, the looser.
-pub fn looseness(choice: &str) -> usize {
-    RULE_CHOICES
-        .iter()
-        .position(|c| *c == choice)
-        .unwrap_or(usize::MAX)
-}
-
-/// `stricter`: the stricter of two choices.
-pub fn stricter<'a>(a: &'a str, b: &'a str) -> &'a str {
-    if looseness(a) <= looseness(b) { a } else { b }
-}
-
-/// `parsePolicyBaseline`: unset or blank is blank everywhere; anything not an object of class to choice is refused.
-pub fn parse_policy_baseline(raw: Option<&str>) -> Result<BTreeMap<String, String>, String> {
-    let text = service_kit::schema::js_trim(raw.unwrap_or(""));
-    let mut out = BTreeMap::new();
-    if text.is_empty() {
-        return Ok(out);
-    }
-    let parsed = json::parse(text).map_err(|_| "AGENTS_POLICY_BASELINE is not JSON".to_owned())?;
-    let Json::Object(fields) = parsed else {
-        return Err("AGENTS_POLICY_BASELINE must be an object".to_owned());
-    };
-    for (key, choice) in fields {
-        if !DATA_CLASSES.contains(&key.as_str()) {
-            return Err(format!(
-                "AGENTS_POLICY_BASELINE names an unknown class: {key}"
-            ));
-        }
-        match choice {
-            Json::String(c) if RULE_CHOICES.contains(&c.as_str()) => {
-                out.insert(key, c);
-            }
-            _ => {
-                return Err(format!(
-                    "AGENTS_POLICY_BASELINE has an unknown choice for {key}"
-                ));
-            }
-        }
-    }
-    Ok(out)
-}
+/// The data classes, rule choices and the owner's baseline are the own agent's (`own::gates`), read here as they are.
+pub use crate::own::gates::{
+    DATA_CLASSES, PolicyBaseline, RULE_CHOICES, looseness, parse_policy_baseline, stricter,
+};
 
 /// What a sub-router's handler fails with.
 #[derive(Debug, Clone, PartialEq)]
@@ -299,12 +248,14 @@ mod tests {
 
     #[test]
     fn the_baseline_is_an_object_of_known_classes_and_choices() {
-        assert!(parse_policy_baseline(Some("  ")).unwrap().is_empty());
+        assert_eq!(
+            parse_policy_baseline(Some("  ")).unwrap(),
+            PolicyBaseline::default()
+        );
         assert_eq!(
             parse_policy_baseline(Some(r#"{"own_data":"ask_before"}"#))
                 .unwrap()
-                .get("own_data")
-                .map(String::as_str),
+                .of("own_data"),
             Some("ask_before")
         );
         assert_eq!(

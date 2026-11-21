@@ -39,6 +39,7 @@ use crate::gateway::desk::GatewaySlice;
 use crate::gateway::readiness::{self, ReadyInput};
 use crate::metering::Metering;
 use crate::ops::Ops;
+use crate::own::Own;
 use crate::runtime::Runtime;
 use crate::team::Team;
 
@@ -197,6 +198,9 @@ pub struct Ctx<'a> {
     pub service: Option<&'a str>,
     pub region: &'a str,
     pub now: Instant,
+    /// `forwardedPrincipalHeaders(ctx)`: the edge-signed principal, byte for byte, its signature and its region, for a
+    /// call made while acting for this person; empty without a verified principal.
+    pub forwarded: Vec<(String, String)>,
 }
 
 /// The answer of a call whose slice is not ported yet: the door's checks passed, and nothing past them is served.
@@ -281,6 +285,8 @@ pub struct DoorConfig {
     pub background: crate::background::Settings,
     /// The advisors' curriculum, holdings, prices and switches (`advisors`).
     pub advisors: Advisors,
+    /// The own agents' templates and owner values (`own-builder`).
+    pub own: Own,
     pub team: Team,
 }
 
@@ -301,6 +307,7 @@ pub struct AgentsDoor {
     ops: Ops,
     background: crate::background::Settings,
     advisors: Advisors,
+    own: Own,
     team: Team,
 }
 
@@ -348,6 +355,7 @@ impl AgentsDoor {
             ops: config.ops,
             background: config.background,
             advisors: config.advisors,
+            own: config.own,
             team: config.team,
         })
     }
@@ -429,6 +437,16 @@ impl AgentsDoor {
                     rt: &self.runtime,
                     advisors: &self.advisors,
                     jurisdiction: &self.jurisdiction,
+                },
+            ),
+            Slice::OwnBuilder => crate::own::slice::handle(
+                ctx,
+                &crate::own::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    own: &self.own,
                 },
             ),
             Slice::Team => crate::team::slice::handle(
@@ -534,14 +552,24 @@ impl AgentsDoor {
 
         let now = (self.now)();
         let region = trpc::header(req, "x-intafaced-region").unwrap_or_else(|| "XX".to_owned());
+        let raw_principal = trpc::header(req, "x-intafaced-principal");
+        let principal_signature = trpc::header(req, "x-intafaced-principal-sig");
         let principal = edge::verify_with(
-            trpc::header(req, "x-intafaced-principal").as_deref(),
-            trpc::header(req, "x-intafaced-principal-sig").as_deref(),
+            raw_principal.as_deref(),
+            principal_signature.as_deref(),
             &self.secret,
             self.edge_key.as_ref(),
             now,
             &region,
         );
+        let forwarded = match (&principal, raw_principal, principal_signature) {
+            (Some(_), Some(raw), Some(sig)) if !raw.is_empty() && !sig.is_empty() => vec![
+                ("x-intafaced-principal".to_owned(), raw),
+                ("x-intafaced-principal-sig".to_owned(), sig),
+                ("x-intafaced-region".to_owned(), region.clone()),
+            ],
+            _ => Vec::new(),
+        };
         let service = self.services.service(req, now.0.div_euclid(1000));
         self.admit(call, principal.as_ref(), service.as_deref(), &region)?;
 
@@ -595,6 +623,7 @@ impl AgentsDoor {
             service: service.as_deref(),
             region: &region,
             now,
+            forwarded,
         })
     }
 }

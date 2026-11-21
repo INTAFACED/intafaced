@@ -10,8 +10,6 @@
 //! The managed baseline is the owner's (`AGENTS_POLICY_BASELINE`); this desk shows it and sets this environment's
 //! override per tool class, which may only narrow it. Nothing here moves value.
 
-use std::collections::BTreeMap;
-
 use service_kit::json::Json;
 use service_kit::pg::Pool;
 use service_kit::time::Instant;
@@ -19,7 +17,9 @@ use service_kit::time::Instant;
 use crate::db::{self, Store, StoreError};
 use crate::door::Ctx;
 use crate::metering::Metering;
-use crate::ops::{DATA_CLASSES, Ops, OpsError, iso, looseness, operator, pool, stricter};
+use crate::ops::{
+    DATA_CLASSES, Ops, OpsError, PolicyBaseline, iso, looseness, operator, pool, stricter,
+};
 use crate::runtime::{envelope, ms};
 
 /// `agentAlertFired`'s subject.
@@ -75,13 +75,9 @@ pub fn parse_threshold(measure: &str, raw: Option<&str>) -> Result<String, OpsEr
 }
 
 /// The baseline's requirement for one class: blank refuses.
-fn required<'a>(
-    baseline: &'a BTreeMap<String, String>,
-    data_class: &str,
-) -> Result<&'a str, OpsError> {
+fn required(baseline: &PolicyBaseline, data_class: &str) -> Result<&'static str, OpsError> {
     baseline
-        .get(data_class)
-        .map(String::as_str)
+        .of(data_class)
         .ok_or(OpsError::Refused("agents.baseline_value_unset"))
 }
 
@@ -90,7 +86,7 @@ fn required<'a>(
 pub fn check_choice(
     data_class: &str,
     choice: &str,
-    baseline: &BTreeMap<String, String>,
+    baseline: &PolicyBaseline,
     over: Option<&str>,
 ) -> Result<String, OpsError> {
     if data_class == "live_write" && choice == "act_without_asking" {
@@ -437,21 +433,6 @@ pub fn override_for(p: &Pool, data_class: &str) -> Result<Option<String>, StoreE
     })
 }
 
-/// `effectiveRequirement`: the baseline narrowed by this environment's override; a blank baseline is blank (none).
-pub fn effective_requirement(
-    p: &Pool,
-    baseline: &BTreeMap<String, String>,
-    data_class: &str,
-) -> Result<Option<String>, StoreError> {
-    let Some(req) = baseline.get(data_class) else {
-        return Ok(None);
-    };
-    Ok(Some(match override_for(p, data_class)? {
-        Some(o) => stricter(req, &o).to_owned(),
-        None => req.clone(),
-    }))
-}
-
 fn set_override(p: &Pool, data_class: &str, choice: &str, set_by: &str) -> Result<(), StoreError> {
     db::with_client(p, |c| {
         c.execute(
@@ -468,21 +449,21 @@ fn set_override(p: &Pool, data_class: &str, choice: &str, set_by: &str) -> Resul
 }
 
 /// `readPolicy`: per class, the baseline, the override and the stricter of the two.
-fn read_policy(p: &Pool, baseline: &BTreeMap<String, String>) -> Result<Json, StoreError> {
+fn read_policy(p: &Pool, baseline: &PolicyBaseline) -> Result<Json, StoreError> {
     let list = overrides(p)?;
     let classes = DATA_CLASSES
         .iter()
         .map(|dc| {
-            let base = baseline.get(*dc);
+            let base = baseline.of(dc);
             let o = list.iter().find(|o| o.data_class == *dc);
             let opt = |v: Option<&String>| v.map_or(Json::Null, |s| Json::str(s.clone()));
             let effective = match (base, o) {
                 (Some(b), Some(o)) => Json::str(stricter(b, &o.choice)),
-                (b, _) => opt(b),
+                (b, _) => b.map_or(Json::Null, Json::str),
             };
             Json::obj([
                 ("dataClass", Json::str(*dc)),
-                ("baseline", opt(base)),
+                ("baseline", base.map_or(Json::Null, Json::str)),
                 ("override", opt(o.map(|o| &o.choice))),
                 ("overrideSetBy", opt(o.map(|o| &o.set_by))),
                 ("overrideSetAt", o.map_or(Json::Null, |o| iso(o.set_at))),
@@ -610,16 +591,13 @@ mod tests {
         }
     }
 
-    fn baseline() -> BTreeMap<String, String> {
-        [
+    fn baseline() -> PolicyBaseline {
+        PolicyBaseline(vec![
             ("own_data", "act_on_request"),
             ("market_data", "act_on_request"),
             ("draft_write", "ask_before"),
             ("live_write", "act_on_request"),
-        ]
-        .iter()
-        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
-        .collect()
+        ])
     }
 
     /// alerts.db.test.ts: "a blank threshold is refused by name; 0 is a value; a rate stays within 0 to 100".
@@ -702,7 +680,12 @@ mod tests {
             "agents.rule_invalid"
         );
         assert_eq!(
-            refusal(check_choice("own_data", "hand_off", &BTreeMap::new(), None)),
+            refusal(check_choice(
+                "own_data",
+                "hand_off",
+                &PolicyBaseline::default(),
+                None
+            )),
             "agents.baseline_value_unset"
         );
     }
