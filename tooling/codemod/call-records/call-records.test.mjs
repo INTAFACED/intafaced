@@ -96,3 +96,16 @@ test("a test's API client double gets a call that sends the record to its own qu
     ['mutate', 'notify', 'notify.list', { id: 'x' }, 'schema', undefined],
   ]);
 });
+
+test("a schema the caller's own function builds is an answer check, so its call stays", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'f.ts');
+  writeFileSync(
+    file,
+    "import { z } from 'zod';\nexport function mine(id: string) { return z.object({ id: z.literal(id) }); }\nexport const a = mine('u1');\nexport const b = z.object({ id: z.string() });\n",
+  );
+  const p = load(file);
+  const init = (name) => p.program.body.find((s) => s.declaration?.declarations?.[0]?.id.name === name).declaration.declarations[0].init;
+  assert.match(answerChecks(p, init('a'))[0], /^mine\(\) builds the schema/);
+  assert.deepEqual(answerChecks(p, init('b')), []);
+});
