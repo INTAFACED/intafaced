@@ -1333,8 +1333,13 @@ function Runs({ rows, onSendAgain }: { rows: RunRow[]; onSendAgain: (row: RunRow
     <DataTable headers={[t('runRequest'), t('runTask'), t('runStatus'), t('runCost'), '']} label={t('runs')}>
       {rows.map((row) => (
         <tr key={row.requestId}>
-          <td lang="zxx">{row.requestId}</td>
-          <td lang="zxx">{row.task}</td>
+          {/* Long ids wrap, so the row fits the workspace column and its status and cost stay in view (J-agents-01 #5). */}
+          <td lang="zxx" className="break-all">
+            {row.requestId}
+          </td>
+          <td lang="zxx" className="break-all">
+            {row.task}
+          </td>
           <td>
             {t(`run_${row.status}`)}
             {row.code ? <small lang="zxx"> {row.code}</small> : null}

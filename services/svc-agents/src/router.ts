@@ -78,7 +78,7 @@ import { listSessions } from './ops/ops-sessions.js';
 import { engineForTasks, engineOfAdapter, resolveRoute, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
 import { spendRouter } from './spend/routes.js';
 import { OWN_RUN_TASK, ownRouter } from './own/routes.js';
-import type { OwnTemplate } from './own/catalog.js';
+import { declaredToolShape, type OwnTemplate } from './own/catalog.js';
 import type { PolicyBaseline } from './own/guardrails.js';
 import type { OwnSelfFreezeRead } from './own/self-freeze.js';
 import type { TeamMembershipPort } from './team/membership.js';
@@ -648,6 +648,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                   maxCallsPerSession: z.number().int().nullable(),
                   /** Every refusal the runtime can return for this tool under this guardrail, in check order. */
                   refusals: z.array(z.enum(REFUSAL_CODES)),
+                  /** The tool's declared input and output (own/catalog.ts `declaredToolShape`); null when it declares none. */
+                  shape: z.object({ input: z.record(z.string(), z.string()), output: z.record(z.string(), z.string()) }).nullable(),
                 }),
               ),
               /** The permission mode the agent runs under; null when the guardrail names none, which refuses live writes. */
@@ -701,6 +703,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 requiresApproval: t.requiresApproval,
                 maxCallsPerSession: t.maxCallsPerSession ?? null,
                 refusals: toolRefusalCodes(guardrail, t),
+                shape: declaredToolShape(t.name),
               })),
               capacityMode: guardrail.capacityMode ?? null,
               limits: {

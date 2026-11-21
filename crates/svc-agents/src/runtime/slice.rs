@@ -5,7 +5,7 @@
 //! A Navigator session's \`run.complete\` is research (\`prepareResearch\`): the navigator slice's to port, answered here
 //! as not ported rather than run without its sources.
 
-use service_kit::json::Json;
+use service_kit::json::{self, Json};
 use service_kit::pg::Pool;
 use service_kit::schema::Value;
 use service_kit::trpc::TrpcError;
@@ -40,6 +40,21 @@ pub fn handle(
     answer(ctx, store, gateway, m, rt)
         .map(Some)
         .map_err(to_trpc)
+}
+
+/// Every declared tool shape by tool name (`tool_shapes.json`, written by `scripts/record-door.mjs` from the
+/// TypeScript's `own/catalog.ts` `DECLARED_TOOL_SHAPES` and held to it by `own/tool-shapes-rust.test.ts`).
+const TOOL_SHAPES: &str = include_str!("../tool_shapes.json");
+
+static DECLARED_TOOL_SHAPES: std::sync::LazyLock<Json> =
+    std::sync::LazyLock::new(|| json::parse(TOOL_SHAPES).unwrap_or(Json::Null));
+
+/// A tool's declared input and output, as `agent.get` shows it; null when the tool declares none, never a guess.
+pub fn declared_tool_shape(name: &str) -> Json {
+    DECLARED_TOOL_SHAPES
+        .get(name)
+        .cloned()
+        .unwrap_or(Json::Null)
 }
 
 fn pool(store: &Store) -> Result<&Pool, RunError> {
@@ -112,6 +127,7 @@ fn answer(
                                                 .collect(),
                                         ),
                                     ),
+                                    ("shape", declared_tool_shape(&t.name)),
                                 ])
                             })
                             .collect(),
@@ -392,4 +408,20 @@ fn complete(ctx: &Ctx<'_>, x: &Rt<'_>, user: &str) -> Result<Json, RunError> {
         ("action", result.action.to_output()),
         ("provenance", Json::Null),
     ]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_declared_tool_shows_its_shape_and_an_undeclared_one_none() {
+        assert!(matches!(&*DECLARED_TOOL_SHAPES, Json::Object(rows) if !rows.is_empty()));
+        assert_eq!(
+            declared_tool_shape("trade.quote").compact(),
+            r#"{"input":{"marketId":"text, up to 64 characters"},"output":{"marketId":"text","last":"decimal string","asOf":"time"}}"#
+        );
+        assert_eq!(declared_tool_shape("identity.session.read"), Json::Null);
+        assert_eq!(declared_tool_shape("ledger.transfer"), Json::Null);
+    }
 }
