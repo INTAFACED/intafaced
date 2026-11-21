@@ -105,39 +105,77 @@ test('each attempt reaches the output sink, and cwd and env pass through', () =>
 });
 
 // #9531 (run 44953598502): Central answered "Could not find artifact" for exec-maven-plugin 3.5.0 past the -U retry.
-// The retry above only covers a blip; the fix that stops CI asking Central at all is the test-infra action's cache of
-// each package's Maven repository. These read the action and fail when a package's repository is left uncached, keyed
-// on anything but its pom.xml, or cached with Maven's records of a failed fetch, which would carry a miss into every run.
+// The retry above only covers a blip; the fix that stops CI asking Central at all is a cache of each package's Maven
+// repository: the test-infra action restores it, and the Tests job saves it only after that package's Maven tests ran
+// (a job that ran only `build:jar` lacks the test plugins: PR #9537's first run, shard 3). These read both files and
+// fail when a repository is left uncached, keyed on anything but its pom.xml, cached with Maven's records of a failed
+// fetch (which would carry a miss into every run), saved by a job that did not run its tests, or saved under another
+// path or key than the one restored.
 const ACTION = readFileSync(new URL('../../.github/actions/test-infra/action.yml', import.meta.url), 'utf8');
+const CI = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
 const MAVEN_PACKAGES = ['packages/sbe-codec', 'services/svc-fix'];
 
-/** The problems with the action's Maven repository cache for package `dir`, or [] when it is cached as #9531 needs. */
-function mavenRepoCacheProblems(action, dir) {
-  const steps = action.split(/\n(?=    - name: )/);
-  const step = steps.find((s) => /uses: actions\/cache@/.test(s) && new RegExp(`^\\s+${dir}/\\.tools/m2$`, 'm').test(s));
-  if (!step) return [`no actions/cache step caches ${dir}/.tools/m2`];
+/** The `uses: <action>` step in `yaml` whose path block names `dir`'s Maven repository, as { path, key, if } or null. */
+function cacheStep(yaml, action, dir) {
+  const step = yaml
+    .split(/\n(?=\s+- (?:name|uses|id): )/)
+    .find((s) => s.includes(`uses: ${action}@`) && new RegExp(`^\\s+${dir}/\\.tools/m2$`, 'm').test(s));
+  if (!step) return null;
+  const path = (step.match(/path: \|\n((?:\s+\S.*\n?)+?)(?=\s+key:)/)?.[1] ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return { path, key: step.match(/^\s+key: (.+)$/m)?.[1] ?? '', if: step.match(/^\s+if: (.+)$/m)?.[1] ?? '' };
+}
+
+/** The problems with `dir`'s Maven repository cache across the action and the Tests job, or [] when it holds. */
+function mavenRepoCacheProblems(action, ci, dir) {
+  const restore = cacheStep(action, 'actions/cache/restore', dir);
+  const save = cacheStep(ci, 'actions/cache/save', dir);
+  if (!restore) return [`test-infra restores no ${dir}/.tools/m2`];
+  if (!save) return [`the Tests job saves no ${dir}/.tools/m2`];
   const problems = [];
   for (const record of ['*.lastUpdated', 'resolver-status.properties'])
-    if (!step.includes(`!${dir}/.tools/m2/**/${record}`)) problems.push(`${dir}: Maven's failed-fetch record ${record} is not excluded`);
-  const key = step.match(/^\s+key: (.+)$/m)?.[1] ?? '';
-  if (!key.includes(`hashFiles('${dir}/pom.xml')`)) problems.push(`${dir}: the key is not its pom.xml's hash (${key})`);
+    if (!restore.path.includes(`!${dir}/.tools/m2/**/${record}`))
+      problems.push(`${dir}: Maven's failed-fetch record ${record} is not excluded`);
+  if (!restore.key.includes(`hashFiles('${dir}/pom.xml')`)) problems.push(`${dir}: the key is not its pom.xml's hash (${restore.key})`);
+  if (save.key !== restore.key || save.path.join('\n') !== restore.path.join('\n'))
+    problems.push(`${dir}: saved under another path or key than restored`);
+  if (!save.if.includes('success()') || !save.if.includes(`hashFiles('${dir}/target/surefire-reports/TEST-*.xml') != ''`))
+    problems.push(`${dir}: saved by a job that did not pass or did not run its Maven tests (${save.if})`);
   return problems;
 }
 
-test('#9531: every package Maven runs for restores its Maven repository from the cache, no failed fetch kept', () => {
+test('#9531: every package Maven runs for restores its Maven repository, saved only after its tests ran, no failed fetch kept', () => {
   for (const dir of MAVEN_PACKAGES) {
     // The repository the package's own toolchain points Maven at is the one cached.
     assert.match(
       readFileSync(new URL(`../../${dir}/scripts/ensure-toolchain.mjs`, import.meta.url), 'utf8'),
       /MAVEN_REPO: join\(\w+, 'm2'\)/,
     );
-    assert.deepEqual(mavenRepoCacheProblems(ACTION, dir), []);
+    assert.deepEqual(mavenRepoCacheProblems(ACTION, CI, dir), []);
   }
 });
 
-test('planted: an uncached repository, a kept failure record or a key off the pom is caught', () => {
+test('planted: an uncached repository, a kept failure record, a key off the pom or a save without its tests is caught', () => {
   const dir = 'packages/sbe-codec';
-  assert.match(mavenRepoCacheProblems(ACTION.replaceAll(`${dir}/.tools/m2\n`, `${dir}/.tools/other\n`), dir)[0], /no actions\/cache step/);
-  assert.match(mavenRepoCacheProblems(ACTION.replace(`!${dir}/.tools/m2/**/*.lastUpdated`, ''), dir).join(), /lastUpdated is not excluded/);
-  assert.match(mavenRepoCacheProblems(ACTION.replace(`hashFiles('${dir}/pom.xml')`, 'github.sha'), dir).join(), /not its pom.xml/);
+  const problems = (action, ci = CI) => mavenRepoCacheProblems(action, ci, dir).join('; ');
+  assert.match(problems(ACTION.replaceAll(`${dir}/.tools/m2\n`, `${dir}/.tools/other\n`)), /restores no/);
+  assert.match(problems(ACTION, CI.replaceAll(`${dir}/.tools/m2\n`, `${dir}/.tools/other\n`)), /saves no/);
+  assert.match(problems(ACTION.replace(`!${dir}/.tools/m2/**/*.lastUpdated`, `${dir}/.tools/m2/x`)), /lastUpdated is not excluded/);
+  assert.match(problems(ACTION.replace(`hashFiles('${dir}/pom.xml')`, 'github.sha')), /not its pom.xml/);
+  assert.match(problems(ACTION, CI.replace(`hashFiles('${dir}/pom.xml')`, 'github.sha')), /another path or key/);
+  assert.match(
+    problems(ACTION, CI.replace(`hashFiles('${dir}/target/surefire-reports/TEST-*.xml') != ''`, 'true')),
+    /did not run its Maven tests/,
+  );
+  assert.match(
+    problems(
+      ACTION.replace(
+        "Restore sbe-codec's Maven repository\n      uses: actions/cache/restore@",
+        "Restore sbe-codec's Maven repository\n      uses: actions/cache@",
+      ),
+    ),
+    /restores no/,
+  );
 });

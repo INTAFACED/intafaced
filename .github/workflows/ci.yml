@@ -713,6 +713,27 @@ jobs:
         if: always()
         run: node tooling/ci/infra-verdict.mjs
 
+      # Save each package's Maven repository that test-infra restored (#9531), only from a passing job that ran that
+      # package's Maven tests (its surefire reports exist), so the saved repository holds every plugin its tests need.
+      - name: Save sbe-codec's Maven repository
+        if: success() && hashFiles('packages/sbe-codec/target/surefire-reports/TEST-*.xml') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            packages/sbe-codec/.tools/m2
+            !packages/sbe-codec/.tools/m2/**/*.lastUpdated
+            !packages/sbe-codec/.tools/m2/**/resolver-status.properties
+          key: maven-repo-sbe-codec-${{ runner.os }}-${{ hashFiles('packages/sbe-codec/pom.xml') }}
+      - name: Save svc-fix's Maven repository
+        if: success() && hashFiles('services/svc-fix/target/surefire-reports/TEST-*.xml') != ''
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            services/svc-fix/.tools/m2
+            !services/svc-fix/.tools/m2/**/*.lastUpdated
+            !services/svc-fix/.tools/m2/**/resolver-status.properties
+          key: maven-repo-svc-fix-${{ runner.os }}-${{ hashFiles('services/svc-fix/pom.xml') }}
+
   # The look gate on the rooms a pull request changes (#9325; look-pr.yml): before and after pictures for the CI review,
   # and red when the head adds a finding on a new-look page. Only when the change draws a Customer room or the kit
   # (ci-affected.mjs reachesLook); the seal needs it green then.
