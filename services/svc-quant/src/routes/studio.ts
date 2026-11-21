@@ -4,7 +4,7 @@ import { buildSavedStrategy } from '../studio/save.js';
 import { compileSignalRules } from '../studio/modules.js';
 import { draftOf } from '../studio/repository.js';
 import { idempotencyConflict, requireClientStrategyId, requireIdempotencyKey } from '../studio/keys.js';
-import { publicJurisdictionProcedure, quantSignalRulesSchema, router } from '@intafaced/contracts';
+import { publicJurisdictionProcedure, router } from '@intafaced/contracts';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   QUANT_STUDIO_COMPILE,
@@ -26,13 +26,10 @@ import { withQuantSpan } from '../tracing.js';
 import { z } from 'zod';
 import {
   environmentInput,
-  decimal,
   runOutput,
   organisationOf,
   quantRefusal,
   toTrpc,
-  studioBlock,
-  strategyHead,
   strategyDetail,
   sandboxBody,
   strategyMetadata,

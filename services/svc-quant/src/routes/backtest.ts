@@ -1,5 +1,4 @@
 import {
-  BACKTEST_HISTORY_PAGE_MAX,
   BAR_BACKTEST_KEY_PREFIX,
   type StoredBacktest,
   isBarBacktest,
