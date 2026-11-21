@@ -300,7 +300,7 @@ const SAVED_ENV = vi.hoisted(() => {
 });
 
 /** svc-trade calls with no `.output()`: the call-records codemod can't make their record. Lower it as each gains one; never raise it. */
-const ANSWERLESS_AT_MOST = 180;
+const ANSWERLESS_AT_MOST = 176;
 const GOLDEN = new URL('./wire-replay.golden/', import.meta.url);
 /** One recorded JSON file in the recording folder. */
 const goldenJson = (name: string) => new URL(`./wire-replay.golden/${name}.json`, import.meta.url);

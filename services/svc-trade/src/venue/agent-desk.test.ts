@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
+import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import type { UserVenue } from '@intafaced/venue-contracts';
 import { AgentAccountError } from './agent-account.js';
@@ -7,6 +8,7 @@ import { InMemoryAgentAccountStore, NO_LIMITS } from './agent-account-store.js';
 import { InMemoryAgentConnectionStore } from './agent-connection-store.js';
 import { InMemoryAgentDeskAuditStore } from './agent-desk-store.js';
 import { AgentDesk } from './agent-desk.js';
+import { agentDeskAdminRouter } from './agent-desk-admin.js';
 import type { AgentKeyCallReader, AgentKeyReader } from './agent-key-read-client.js';
 
 // J-agents-21 #15: the founder's desk over every outside connection, and its quarantine.
@@ -165,5 +167,48 @@ describe('AgentDesk (J-agents-21 #15)', () => {
   it('reads a key identity has no record of as missing, apart from a revoked one', async () => {
     const { desk } = await setup({ keys: { read: async () => ({ state: 'none' }) } });
     expect((await desk.connections()).rows[0]?.keyState).toBe('missing');
+  });
+});
+
+const SECRET = 'an-agent-desk-answer-schema-test-edge-secret';
+const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-trade' });
+function founderContext() {
+  const raw = encodePrincipal({
+    sub: FOUNDER.userId,
+    userId: FOUNDER.userId,
+    sid: '66666666-6666-4666-8666-666666666666',
+    scopes: ['admin:read', 'admin:write'],
+    tier: 'full',
+    mfa: true,
+    expiresAt: new Date(Date.now() + 60_000),
+  } as unknown as Principal);
+  return edgeContext({
+    headers: {
+      'x-intafaced-principal': raw,
+      'x-intafaced-principal-sig': signPrincipalHeader(raw, SECRET, 'SG'),
+      'x-intafaced-region': 'SG',
+    },
+    id: 'req-agent-desk',
+  });
+}
+
+describe('admin.agentDesk.* answer schemas (weed project-state#3594)', () => {
+  it('send each answer exactly as the desk gave it: the schema strips and refuses nothing', async () => {
+    const { desk } = await setup();
+    const caller = agentDeskAdminRouter(desk).createCaller(founderContext());
+    const quarantine = { keyId: KEY, reason: 'outside assistant misbehaving', requestId: 'req-quarantine-1' };
+    expect(await caller.agentDesk.connections()).toStrictEqual(await desk.connections());
+    expect(await caller.agentDesk.connection({ keyId: KEY })).toStrictEqual(await desk.connection(KEY));
+    const sent = await caller.agentDesk.quarantine(quarantine);
+    expect(sent.replayed).toBe(false);
+    // The desk's own answer to the same call again is the replay of it: the same row, marked replayed.
+    expect({ ...sent, replayed: true }).toStrictEqual(await desk.quarantine(FOUNDER, quarantine));
+    expect(await caller.agentDesk.audit()).toStrictEqual(await desk.audit());
+    // Unknown values and a quarantined row still leave whole.
+    const unread = await setup({ keys: { read: async () => ({ state: 'unavailable' }) } as unknown as AgentKeyReader, venue: null });
+    await unread.desk.quarantine(FOUNDER, quarantine);
+    expect(await agentDeskAdminRouter(unread.desk).createCaller(founderContext()).agentDesk.connections()).toStrictEqual(
+      await unread.desk.connections(),
+    );
   });
 });
