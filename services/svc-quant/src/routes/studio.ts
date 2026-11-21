@@ -11,6 +11,8 @@ import {
   quantVersionDiffSchema,
   router,
 } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { QUANT_STUDIO_GET, QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
 import { requireStudioOperator } from '../studio/scope.js';
 import { runSandbox } from '../sandbox/run.js';
 import { trackRun } from '../runs/track.js';
@@ -22,12 +24,12 @@ import {
   decimal,
   runOutput,
   organisationOf,
+  quantRefusal,
   toTrpc,
   studioBlock,
   studioRisk,
   strategyHead,
   strategyDetail,
-  strategyDetailForLive,
   sandboxBody,
   strategyMetadata,
   accountField,
@@ -98,23 +100,14 @@ export function studioRoutes(core: QuantCore) {
       }),
 
     /**
-     * Saved strategies for the caller's account. `limit` is optional so omit
+     * Saved strategies for the caller's account (`quant.studio.list`, mounted from its record). `limit` is optional so omit
      * reaches `quant.studio_list_limit_unset` instead of a Zod "Required".
      * Blank is not 50; pass 50 explicitly when that is the page you want.
      * A body accountId does not select another account. Deleted rows are absent.
      */
-    list: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z
-          .object({
-            limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional(),
-            cursor: z.string().optional().nullable(),
-            ...accountField,
-          })
-          .optional(),
-      )
-      .output(z.object({ strategies: z.array(strategyHead), nextCursor: z.string().nullable() }))
-      .query(async ({ input, ctx }) => {
+    list: mountRecord(
+      QUANT_STUDIO_LIST,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input?.accountId);
           const limit = assertStudioListLimit(input?.limit);
@@ -123,12 +116,13 @@ export function studioRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
-    get: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ id: z.string().min(1), ...accountField }))
-      .output(strategyDetailForLive)
-      .query(async ({ input, ctx }) => {
+    get: mountRecord(
+      QUANT_STUDIO_GET,
+      async ({ input, ctx }) => {
         try {
           const found = await strategies.get({ accountId: accountOf(ctx, input.accountId), id: input.id });
           if (!found) missingStrategy();
@@ -140,7 +134,9 @@ export function studioRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     update: publicJurisdictionProcedure('quant', 'fiat')
       .input(
