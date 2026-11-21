@@ -989,8 +989,7 @@ import {
 import { WS_SBE_CONSUMERS } from './ws-procedures.js';
 import type { ProcedureRecord } from './procedure.js';
 
-/** Every call recorded in this package. `procedures/<service>.schema.json` is written from this list. */
-export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
+const part0: readonly ProcedureRecord[] = [
   ACADEMY_ABANDON_COURSE_PURCHASE,
   ACADEMY_ADMIN_COURSES,
   ACADEMY_ADMIN_COURSE,
@@ -1191,6 +1190,8 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   BANK_DEPOSITS_ASSETS,
   BANK_DEPOSITS_ADDRESS,
   BANK_DEPOSITS_ADDRESSES_LIST,
+];
+const part1: readonly ProcedureRecord[] = [
   BANK_DEPOSITS_ADDRESSES_CREATE,
   BANK_DEPOSITS_ADDRESSES_LABEL,
   BANK_DEPOSITS_PENDING,
@@ -1391,6 +1392,8 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   NOTIFY_NAV_METRICS_SEARCH_MISS,
   NOTIFY_CHANNEL_SETTINGS,
   NOTIFY_TEMPLATES,
+];
+const part2: readonly ProcedureRecord[] = [
   NOTIFY_OPERATOR_NOTICES,
   NOTIFY_DRAFT_NOTICE,
   NOTIFY_NOTICE_PROPOSAL,
@@ -1591,6 +1594,8 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_V2_SETTINGS,
   PROTOCOL_AMM_APPROVAL_ROUTE,
   PROTOCOL_AMM_BUILD_PERMIT,
+];
+const part3: readonly ProcedureRecord[] = [
   PROTOCOL_AMM_PATHS,
   PROTOCOL_AMM_BUILD_SWAP_V2,
   PROTOCOL_AMM_FEE_TIERS,
@@ -1791,6 +1796,8 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   SUPPORT_ATTACH,
   SUPPORT_TICKET_ATTACHMENTS,
   SUPPORT_ATTACHMENT_DOWNLOAD,
+];
+const part4: readonly ProcedureRecord[] = [
   SUPPORT_ATTACHMENT_LIMITS,
   SUPPORT_KB_FEEDBACK,
   SUPPORT_KB_RELATED,
@@ -1921,3 +1928,6 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   RECURRING_TERMINATE,
   WS_SBE_CONSUMERS,
 ];
+
+/** Every call recorded in this package. `procedures/<service>.schema.json` is written from this list. */
+export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [...part0, ...part1, ...part2, ...part3, ...part4];
