@@ -252,11 +252,12 @@ const leaveLine = (keys) =>
 
 /**
  * The verdict for one head. `runs`: every JOURNEYS_WORKFLOW run listed for this head (the caller lists by head_sha; this
- * filters again). `reportOf(run)`: { states } of the run's current-attempt report, or { error }. Pure but for reportOf.
+ * filters again). `reportOf(run)`: { states } of the run's current-attempt report, or { error }. `derived`: the steps of
+ * changed journey test files no name covers (judgeTouched), judged as if the title named them. Pure but for reportOf.
  * Returns { ok, state: 'none'|'pass'|'wait'|'fail', lines: [...] }.
  */
-export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitOnRunning = true }) {
-  const named = titleSteps(title);
+export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitOnRunning = true, derived = [] }) {
+  const named = [...new Set([...titleSteps(title), ...derived])];
   const unreadable = titleProblems(title);
   if (unreadable.length)
     return {
@@ -824,12 +825,15 @@ export function fileSteps(journey, text) {
 }
 
 /**
- * A pull request that changes a journey test file says which steps it touches: for each changed file, at least one of
- * the steps it holds is named in the title (then judged by judgeSteps) or on a strict `Left-or-replaced:` line. A
- * title naming another journey's steps, or none, fails; a line that only looks like an exemption names none. `touched`:
- * [{ file, journey, steps }], the steps each file holds at the head (or at the base, for a file the head removed).
- * (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so the seal
- * judged none of their steps; project-state #1249 comment 6681706701.)
+ * The steps a pull request that changes a journey test file is judged on: for each changed file, the steps the title
+ * names or a strict `Left-or-replaced:` line leaves, if any of them is the file's; otherwise every step the file holds,
+ * returned as `derived` for judgeSteps to judge exactly as title steps (passing in a finished Real-app journeys run on
+ * the exact head, or left on their own body line). A file with no readable `test(` titled `<journey> #n` fails closed.
+ * `touched`: [{ file, journey, steps }], the steps each file holds at the head (or at the base, for a file the head
+ * removed). (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so
+ * the seal judged none of their steps; project-state #1249 comment 6681706701. Until 21 Nov 2026 a file whose steps
+ * were not named failed the seal, which cost a push for a line the seal could compute; the owner's "yes" of 21 Nov
+ * 2026 made it derive them instead.)
  */
 export function judgeTouched({ title, body, touched, repo }) {
   if (!touched.length) return { ok: true, lines: [] };
@@ -840,24 +844,31 @@ export function judgeTouched({ title, body, touched, repo }) {
   const left = exemptions(body);
   const named = new Set([...titleSteps(title), ...left.steps]);
   const lines = [];
+  const derived = new Set();
+  let ok = true;
   for (const { file, journey, steps } of touched) {
-    const hit = steps.filter((k) => named.has(k));
-    if (hit.length) continue;
+    if (steps.some((k) => named.has(k))) continue;
+    if (!steps.length) {
+      ok = false;
+      lines.push(
+        `${file} changes a journey test, but no \`test(\` titled \`${journey} #n\` could be read in it, so the steps it touches can't be named; the seal fails closed`,
+      );
+      continue;
+    }
+    for (const k of steps) derived.add(k);
     lines.push(
-      steps.length
-        ? `${file} changes the tests of ${steps.map((k) => k.replace('#', ' #')).join(', ')}, and neither the title nor a Left-or-replaced line names any of them: name the steps it touches in the title (\`${journey} ${steps
-            .map((k) => `#${k.split('#')[1]}`)
-            .join(' ')}\`), or leave them on a body line: ${exemptionLine(steps)}`
-        : `${file} changes a journey test, but no \`test(\` titled \`${journey} #n\` could be read in it, so the steps it touches can't be named; the seal fails closed`,
+      `${file} changes the tests of ${steps.map((k) => k.replace('#', ' #')).join(', ')}, and neither the title nor a Left-or-replaced line names any of them, so the seal judges them all on this head`,
     );
   }
-  return { ok: lines.length === 0, lines };
+  return { ok, lines, derived: [...derived].sort(byStep) };
 }
 
 /**
  * judgeTouched before the push (`--before-push`, from .githooks/pre-push), with the title it needs: the seal judged it
- * only once every input had finished, so #8469 heard 42 minutes after its push and #8478 18. `title` null (no pull
- * request yet): `need` names the steps the title must name. Otherwise ok, or `fix`: the title with them added. Pure.
+ * only once every input had finished, so #8469 heard 42 minutes after its push and #8478 18. Since judgeTouched derives
+ * the steps no name covers, only an unreadable title range or a journey file with no readable step is refused. `title`
+ * null (no pull request yet): `need` names the steps the seal judges when the title names none. Otherwise ok, or `fix`:
+ * the title with them added. Pure.
  */
 export function titleBeforePush({ title, body, touched, repo }) {
   const runOf = ({ journey, steps }) => `${journey} ${steps.map((k) => `#${k.split('#')[1]}`).join(' ')}`;
@@ -1439,13 +1450,14 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
   // A stack file narrowed to the journeys using it (theo-01 part 2) no longer needs the full run as shared setup.
   const narrowed = new Set(reach.stack ?? []);
   const shared = paths.filter((p) => isSharedSetup(p) && !narrowed.has(p));
-  const runs = titleSteps(pull.title).length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
+  const derived = touched.derived ?? [];
+  const runs = titleSteps(pull.title).length || derived.length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
   const reports = new Map();
   const reportOf = (r) => {
     if (!reports.has(r.id)) reports.set(r.id, io.reportOf(r));
     return reports.get(r.id);
   };
-  const steps = await judgeSteps({ sha: head, repo, title: pull.title, body: pull.body, runs, reportOf, waitOnRunning });
+  const steps = await judgeSteps({ sha: head, repo, title: pull.title, body: pull.body, runs, reportOf, waitOnRunning, derived });
   const verdictOf = (rep, r) => io.verdictOf(rep, r);
   // The area of this pull request, for reds it inherited from main (splitInherited): the journeys it touches and its paths.
   const touches = {
@@ -2218,7 +2230,10 @@ async function beforePushStep() {
   if (pull?.state !== 'OPEN') pull = null;
   const repo = /github\.com\/([^/]+\/[^/]+)\/pull\//.exec(pull?.url ?? '')?.[1];
   const v = titleBeforePush({ title: pull?.title ?? null, body: pull?.body, touched, repo });
-  if (v.ok) return console.log(`journey seal: the pull request's title must name ${v.need.join(', ')}${pull ? ', and it does' : ''}`);
+  if (v.ok)
+    return console.log(
+      `journey seal: the changed journey tests hold ${v.need.join(', ')}; a file none of whose steps the title names or a line leaves is judged on all of them`,
+    );
   console.error([`✖ #${pull.number}'s title fails the merge seal's step rule — push refused.`, ...v.lines].join('\n  '));
   console.error(v.fix ? `  Fix: gh pr edit ${pull.number} --title '${v.fix.replace(/'/g, `'\\''`)}'` : `  Fix: name ${v.need.join(', ')}`);
   process.exit(1);
