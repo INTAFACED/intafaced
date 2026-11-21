@@ -117,14 +117,27 @@ const publicSearchable = new Set([
   '/developers',
   '/developers/hosts',
 ]);
+/** How many rows each group of the header search shows (Pages, Coins, Help...). */
+export const searchRowsPerGroup = 8;
 /**
  * Pages offered by search: every room you can open. Aliases, detail routes (flagged `hidden`) and the separate Team desk
  * never appear; Web3 rooms do, so a search finds them and shows their blockers. Business rooms wait for Business
- * mode, except the Merchant home, which is how a Personal account finds the merchant set-up.
+ * mode, except the Merchant home, which is how a Personal account finds the merchant set-up. A room whose title is the
+ * query comes first, then titles that start with it, then titles that hold it, then the rest in table order, so the room
+ * a customer names is always among the rows the search shows.
  */
 export function searchRooms(query: string, mode: 'Personal' | 'Business', locale: UiLocale = currentPreferences().language): Room[] {
-  const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  return rooms.filter(
+  const phrase = query.toLowerCase().trim().replace(/\s+/g, ' ');
+  const words = phrase.split(' ').filter(Boolean);
+  const rank = (room: Room) => {
+    const titles = [room.title, roomTitle(room, locale)].map((title) => title.toLowerCase());
+    if (!phrase) return 3;
+    if (titles.some((title) => title === phrase)) return 0;
+    if (titles.some((title) => title.startsWith(phrase))) return 1;
+    if (titles.some((title) => words.every((word) => title.includes(word)))) return 2;
+    return 3;
+  };
+  const found = rooms.filter(
     (room) =>
       !room.hidden &&
       !room.alias &&
@@ -139,6 +152,11 @@ export function searchRooms(query: string, mode: 'Personal' | 'Business', locale
           .includes(word),
       ),
   );
+  // Array sort is stable: rooms of one rank keep the route table's order.
+  return found
+    .map((room) => ({ room, rank: rank(room) }))
+    .sort((a, b) => a.rank - b.rank)
+    .map(({ room }) => room);
 }
 
 export const defaultDeskPair = 'BTC-USDT';
