@@ -685,11 +685,11 @@
   --lit-radius-control: 999px;
   --lit-legal-fg: #0d0d0c;
   --lit-refusal-border: rgba(13, 13, 12, 0.2);
-  --lit-warn-text: #7e5300;
-  --lit-error-text: #b3261e;
-  --lit-status-pending: #7e5300;
-  --lit-status-failed: #b3261e;
-  --lit-status-stale: #7e5300;
+  --lit-warn-text: #734000;
+  --lit-error-text: #8f1b17;
+  --lit-status-pending: #734000;
+  --lit-status-failed: #8f1b17;
+  --lit-status-stale: #734000;
 }
 
 /* Direction volt: today's names. */

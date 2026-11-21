@@ -366,6 +366,18 @@
   box-shadow: var(--lit-solid-lip), var(--lit-solid-shadow);
 }
 
+[data-direction='volt'] .vk-table-note {
+  display: none;
+  margin: 0;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+}
+@media (max-width: 767px) {
+  [data-direction='volt'] .vk-table-note {
+    display: block;
+  }
+}
+
 /* The tab bar, drawn on its own here: on a phone the live one floats at the foot of the screen */
 [data-direction='volt'] .vk-tabbar {
   max-inline-size: 26rem;

@@ -201,3 +201,8 @@
   outline: 2px solid var(--lit-focus);
   outline-offset: 0.1875rem;
 }
+
+/* Loading, on the black card: the skeleton is the card's own ink, faint, so its shape reads in both schemes. */
+.volt-card--front [data-slot='skeleton'] {
+  background: color-mix(in srgb, var(--lit-object-fg) 16%, transparent);
+}

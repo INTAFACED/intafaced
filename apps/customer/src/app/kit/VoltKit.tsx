@@ -439,6 +439,7 @@ export default function VoltKit() {
         <div className="vk-table">
           <Table label="TEST orders" columns={ORDER_COLUMNS} rows={TEST_ORDERS} getRowId={(r) => r.id} minWidth="36rem" />
         </div>
+        <p className="vk-table-note">On a phone the table scrolls sideways; the last columns sit past the edge.</p>
         <div className="vk-row">
           <Badge tone="neutral">TEST</Badge>
           <Badge tone="lime">New</Badge>

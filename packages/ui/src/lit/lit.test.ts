@@ -328,6 +328,18 @@ describe('Volt: the chartreuse spark (intafaced issue 9302)', () => {
     for (const stop of stops(light['primary-bg'])) expect(contrastRatio(light['primary-fg'], stop), stop).toBeGreaterThanOrEqual(4.5);
   });
 
+  it('a warning or a refusal stays readable on its badge (its own colour at 15%, as Badge draws it) over every light surface', () => {
+    const tint = (fg: string, bg: string) =>
+      '#' +
+      [1, 3, 5]
+        .map((i) => Math.round(parseInt(fg.slice(i, i + 2), 16) * 0.15 + parseInt(bg.slice(i, i + 2), 16) * 0.85))
+        .map((c) => c.toString(16).padStart(2, '0'))
+        .join('');
+    for (const t of ['warn-text', 'error-text'] as const)
+      for (const s of ['page', 'solid-bg', 'solid-bg-raised', 'solid-bg-sunken'] as const)
+        expect(contrastRatio(light[t], tint(light[t], light[s])), `${t} on its tint over ${s}`).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('as a ring it stands 3:1 off the page in both schemes; the focus ring itself stays white or ink, never the spark', () => {
     expect(contrastRatio(dark.accent, dark.page)).toBeGreaterThanOrEqual(3);
     expect(contrastRatio(light['accent-text'], light.page)).toBeGreaterThanOrEqual(3);

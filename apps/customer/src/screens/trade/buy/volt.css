@@ -19,14 +19,16 @@
   border-radius: var(--lit-radius-tile);
   background: var(--lit-solid-bg-sunken);
 }
-/* Two rows together read as one sunken well: only its outer corners round, a hairline between them. */
-[data-direction='volt'] .buy-row:has(+ .buy-row) {
-  border-end-start-radius: 0;
-  border-end-end-radius: 0;
+/* The rows read as one sunken well with a tile's corners (today's medium radius is Volt's pill, which rounded the two
+   rows into one capsule); the rows are square inside it, a hairline between them. */
+[data-direction='volt'] .buy-form__rows {
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-sunken);
+}
+[data-direction='volt'] .buy-form__rows .buy-row {
+  border-radius: 0;
 }
 [data-direction='volt'] .buy-row + .buy-row {
-  border-start-start-radius: 0;
-  border-start-end-radius: 0;
   border-block-start: 1px solid var(--lit-line);
 }
 [data-direction='volt'] .buy-card [data-slot='button'] {
