@@ -3,7 +3,7 @@ import { fastifyTRPCPlugin } from '@trpc/server/adapters/fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { NO_INPUT, type ProcedureSample, type RefusalStatus } from '@intafaced/contracts/procedure';
+import { NO_INPUT, REFUSAL_HTTP_STATUS, type ProcedureSample } from '@intafaced/contracts/procedure';
 import { SUPPORT_DESK_SETTINGS_PROCEDURES } from '@intafaced/contracts/support-desk-settings-procedures';
 import type { AttachmentSettingsBook } from './attachment-settings.js';
 import type { ContactBook } from './contact-channels.js';
@@ -219,18 +219,6 @@ type Mounted = { _def: { inputs: unknown[]; output?: unknown } };
 const mounted = (path: string): Mounted | undefined =>
   (Reflect.get(Reflect.get(supportRouter, '_def') as object, 'procedures') as Record<string, Mounted>)[path];
 
-const HTTP: Record<RefusalStatus, number> = {
-  BAD_REQUEST: 400,
-  UNAUTHORIZED: 401,
-  FORBIDDEN: 403,
-  NOT_FOUND: 404,
-  CONFLICT: 409,
-  PRECONDITION_FAILED: 412,
-  TOO_MANY_REQUESTS: 429,
-  SERVICE_UNAVAILABLE: 503,
-  TIMEOUT: 408,
-};
-
 const cases = SUPPORT_DESK_SETTINGS_PROCEDURES.flatMap((record) =>
   record.samples.map((sample: ProcedureSample, i) => ({
     record,
@@ -268,7 +256,7 @@ describe("svc-support's desk settings routes are mounted from their records", ()
       // A help article refusal is sent as its code; every other in its words (`userCopy`), which name it or not.
       const words = code.startsWith('support.kb_') ? code : userCopy(code);
       expect((JSON.parse(res.body) as { error: { message: string } }).error.message).toBe(words);
-      expect(res.statusCode, res.body).toBe(HTTP[status]);
+      expect(res.statusCode, res.body).toBe(REFUSAL_HTTP_STATUS[status]);
     } finally {
       next.clear();
     }

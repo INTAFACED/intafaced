@@ -1,126 +1,14 @@
 /**
- * What svc-bank answers the customer's money rooms (module `bank`): the deposit catalogue, addresses, pending deposits and
- * records (`deposits.*`), the supported asset list (`assets.list`), the money held in no named space (`spaces.unnamed`), a
- * transfer's reply (`transfers.create`, `transfers.toUser`) and the personal bank account's onboarding, requests, reviews,
+ * What svc-bank answers the customer's money rooms (module `bank`): the supported asset list (`assets.list`), the money held in no named space
+ * (`spaces.unnamed`), a transfer's reply (`transfers.create`, `transfers.toUser`) and the personal bank account's onboarding, requests, reviews,
  * closure and data requests (`bankAccount.*`). Browser-safe (zod only). A check against the caller's own request (the pair
  * asked for, the amount reviewed) stays in the app.
  */
 import { z } from 'zod';
 import { assetIdSchema } from './asset-id.js';
-import { PAY_CUSTODY_DEPOSIT_REASONS, PAY_CUSTODY_DEPOSIT_STATUSES } from './pay-custody-deposit.js';
 import { unsignedAmountSchema } from './wire-amount.js';
 
 const decimal = unsignedAmountSchema;
-
-// ── Deposits ────────────────────────────────────────────────────────────────────────────────────────────────────────────
-
-/** What custody says can be paid in. Every number is the service's own decimal or count. */
-export const bankDepositNetworkSchema = z.object({
-  id: z.string().min(1),
-  label: z.string().min(1),
-  minimumDeposit: decimal,
-  confirmationsRequired: z.number().int().nonnegative(),
-  estimatedArrivalMinutes: z.number().int().nonnegative(),
-  /**
-   * What the service says about this network, shown as it was written. Each list may be absent or empty: nothing is made up for a
-   * network that publishes none, and the standard wrong-network line is the only note then.
-   */
-  requirements: z.array(z.string().min(1)).optional(),
-  unsupported: z.array(z.string().min(1)).optional(),
-  warnings: z.array(z.string().min(1)).optional(),
-});
-
-/**
- * A pair switched off: listed so the person sees why, never given an address. `haltNote` is the owner's line, as written.
- * `blockedBy: 'registry'` is a pair the supported asset list does not allow, with the asset's state there (null: not listed).
- */
-export const bankDepositHaltedSchema = z.object({
-  assetId: assetIdSchema.min(1),
-  networkId: z.string().min(1),
-  label: z.string().min(1),
-  haltNote: z.string().min(1).nullable(),
-  blockedBy: z.literal('registry').optional(),
-  assetState: z.enum(['active', 'halted', 'retired']).nullable().optional(),
-});
-
-/** `deposits.assets`. */
-export const bankDepositCatalogueSchema = z.object({
-  assets: z.array(
-    z.object({
-      assetId: assetIdSchema.min(1),
-      /** The asset's decimal places in the supported asset list. Absent from an older bank: not shown. */
-      precision: z.number().int().nonnegative().optional(),
-      networks: z.array(bankDepositNetworkSchema),
-    }),
-  ),
-  /** Absent from an older bank: none are known to be switched off. */
-  halted: z.array(bankDepositHaltedSchema).optional(),
-});
-
-/** `deposits.address`: the person's own address for one asset on one network. */
-export const bankDepositAddressSchema = z.object({
-  assetId: assetIdSchema.min(1),
-  networkId: z.string().min(1),
-  address: z.string().min(1),
-  memo: z.string().nullable(),
-  qrPayload: z.string().nullable(),
-});
-
-/** One of the person's deposit addresses (`deposits.addresses.create`, `.label`): the first (number 0, never expires) or an extra one. */
-export const bankDepositAddressItemSchema = z.object({
-  assetId: assetIdSchema.min(1),
-  networkId: z.string().min(1),
-  addressIndex: z.number().int().nonnegative(),
-  address: z.string().min(1),
-  memo: z.string().nullable(),
-  qrPayload: z.string().nullable(),
-  label: z.string().min(1).nullable(),
-  createdAt: z.string(),
-  expiresAt: z.string().nullable(),
-  state: z.enum(['active', 'expired']),
-});
-
-/** `deposits.addresses.list`: the address list, with the founders' cap and expiry window, null while they are not set. */
-export const bankDepositAddressListSchema = z.object({
-  items: z.array(bankDepositAddressItemSchema),
-  cap: z.number().int().positive().nullable(),
-  expiryDays: z.number().int().positive().nullable(),
-});
-
-/** `deposits.pending`. */
-export const bankDepositPendingSchema = z.object({
-  items: z.array(
-    z.object({
-      id: z.string().min(1),
-      assetId: assetIdSchema.min(1),
-      networkId: z.string().min(1),
-      amount: decimal,
-      confirmations: z.number().int().nonnegative(),
-      confirmationsRequired: z.number().int().nonnegative().nullable(),
-    }),
-  ),
-});
-
-/** One row of `deposits.list`, in svc-pay's own states and reasons. */
-export const bankDepositRecordSchema = z.object({
-  id: z.string().min(1),
-  assetId: assetIdSchema.min(1),
-  networkId: z.string().min(1),
-  address: z.string().min(1),
-  txHash: z.string().min(1),
-  outputIndex: z.number().int().nonnegative(),
-  amount: decimal,
-  confirmations: z.number().int().nonnegative(),
-  confirmationsRequired: z.number().int().positive().nullable(),
-  status: z.enum(PAY_CUSTODY_DEPOSIT_STATUSES),
-  reason: z.enum(PAY_CUSTODY_DEPOSIT_REASONS).nullable(),
-  minimumDeposit: decimal.nullable(),
-  detectedAt: z.string(),
-  creditedAt: z.string().nullable(),
-});
-
-/** `deposits.list`: a page, with the true total. */
-export const bankDepositRecordsSchema = z.object({ items: z.array(bankDepositRecordSchema), total: z.number().int().nonnegative() });
 
 // ── Supported assets ────────────────────────────────────────────────────────────────────────────────────────────────────
 

@@ -45,15 +45,6 @@ export interface BulkPolicyView {
   readonly cap: number | null;
 }
 
-/** `bulkPolicy`: exactly `{ cap, missing }`, with `missing` named only while `cap` is blank. Anything else is null. */
-export function readBulkPolicy(raw: unknown): BulkPolicyView | null {
-  if (!isRecord(raw)) return null;
-  const { cap, missing } = raw;
-  if (cap === null) return missing === 'support.bulk_cap' ? { cap: null } : null;
-  if (typeof cap === 'number' && Number.isInteger(cap) && cap > 0 && missing === null) return { cap };
-  return null;
-}
-
 export type BulkOutcome = 'changed' | 'unchanged' | 'refused';
 
 export interface BulkRow {
