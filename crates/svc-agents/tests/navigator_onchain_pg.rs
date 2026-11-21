@@ -329,6 +329,7 @@ impl World {
             env,
             now: svc_agents::door::system_now,
             store: db::open(&self.db.url, "svc-agents", 4, false).unwrap(),
+            team: svc_agents::team::Team::unwired(),
             gateway: GatewaySlice {
                 gateway: Arc::new(Gateway::new(vec![], RoutingTable::default())),
                 fee_asset_id: "IFC".to_owned(),

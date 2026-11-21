@@ -238,6 +238,7 @@ impl World {
             env,
             now: system_now,
             store: db.store(),
+            team: svc_agents::team::Team::unwired(),
             gateway: GatewaySlice {
                 gateway,
                 fee_asset_id: "USDT".to_owned(),
