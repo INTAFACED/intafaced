@@ -232,7 +232,8 @@ fn limits_of(row: &postgres::Row) -> Result<Limits, SpendError> {
 
 const LIMIT_COLUMNS: &str = "asset_id, per_call::text, per_session::text, per_period::text, period";
 
-fn read_limit(
+/// The person's stored caps, read on the caller's client (a hold reads them under its lock).
+pub fn read_limit(
     c: &mut impl postgres::GenericClient,
     user_id: &str,
 ) -> Result<Option<Limits>, SpendError> {
