@@ -677,6 +677,7 @@ test(`${J} #10 opens Recent conversions: the conversion with paid and received a
 
 test(`${J} #11 converts a cash currency through a crypto leg: the screen says it is not offered, since no partner offers the cash leg`, async ({
   page,
+  stepPicture,
 }) => {
   test.setTimeout(180_000);
   const s = state();
@@ -690,9 +691,23 @@ test(`${J} #11 converts a cash currency through a crypto leg: the screen says it
     `EUR to ${s.marketA.base} needs a cash leg from a partner as two linked steps, and no partner offers one here.`,
   );
   await expect(card(page).getByRole('button', { name: 'Get a price', exact: true })).toBeDisabled();
-  const route = await (await api(s.account)).get(`/api/v1/venue/convert/route?from=EUR&to=${s.marketA.base}`);
-  expect(route.status, JSON.stringify(route.body).slice(0, 300)).toBe(422);
-  expect(JSON.stringify(route.body)).toContain('trade.convert_cash_not_offered');
+  await stepPicture();
+  const session = await api(s.account);
+  // The step's condition: no partner offers a cash leg on this stack, so no cash currency is convertible here at all,
+  // and the screen's answer is the step's "otherwise". Both ways round are refused by that name, and nothing is priced.
+  const pairs = (await session.get('/api/v1/venue/convert/pairs')).body;
+  for (const cash of ['EUR', 'USD', 'GBP']) expect(pairs.assets).not.toContain(cash);
+  for (const [from, to] of [
+    ['EUR', s.marketA.base],
+    [s.marketA.base, 'EUR'],
+  ]) {
+    const route = await session.get(`/api/v1/venue/convert/route?from=${from}&to=${to}`);
+    expect(route.status, JSON.stringify(route.body).slice(0, 300)).toBe(422);
+    expect(JSON.stringify(route.body)).toContain('trade.convert_cash_not_offered');
+  }
+  // Nothing was made of it: no conversion, linked or single, joins EUR in the person's history.
+  const history = (await session.get(`/api/v1/venue/convert/history?owner=${s.owner}`)).body;
+  expect(history.conversions.filter((c) => c.from === 'EUR' || c.to === 'EUR')).toEqual([]);
   expect(sent, 'nothing priced or sent').toEqual([]);
   expect(signatures(wallet)).toBe(0);
 });
@@ -751,7 +766,9 @@ test(`${J} #12 a developer asks for a quote through the convert API: a quote wit
 });
 
 test(`${J} #13 the developer accepts the same quote id twice through the convert API: the same quote id twice settles one convert`, async ({
+  page,
   browser,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const A = state().marketA;
@@ -816,6 +833,13 @@ test(`${J} #13 the developer accepts the same quote id twice through the convert
   const history = await withKey(dev.key, { path: `/api/v1/venue/convert/history?owner=${dev.owner}` });
   expect(history.status, JSON.stringify(history.body).slice(0, 400)).toBe(200);
   expect(history.body.conversions.filter((c) => c.quoteId === quote.body.quoteId)).toHaveLength(1);
+  // The developer's own Recent conversions shows that one convert once, filled.
+  await openRoom(page, { account: dev.who, walletKey: dev.walletKey });
+  const recent = page.getByTestId('cvt-recent');
+  const row = recent.locator(`[data-testid="cvt-recent-row"][data-client-id="${cloid}"]`);
+  await expect(row).toHaveCount(1, { timeout: 30_000 });
+  await expect(row).toHaveAttribute('data-state', 'filled');
+  await stepPicture();
 
   // Money: the sale's builder fee is posted once per fill, for the venue's own figure; nothing else for the swap.
   for (const f of fills) {
