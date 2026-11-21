@@ -8,7 +8,7 @@ use service_kit::trpc::TrpcError;
 
 use super::assistant::{assistant_engine, draft_agent};
 use super::catalog::{DraftInput, OWN_TEMPLATES, own_tools};
-use super::{Own, OwnError, OwnRefusal, guard, no_mapping, pool_of, store};
+use super::{Own, OwnError, OwnRefusal, gates, guard, no_mapping, pool_of, store};
 use crate::db::Store;
 use crate::door::{Ctx, Slice, not_ported};
 use crate::gateway::desk::GatewaySlice;
@@ -143,6 +143,23 @@ fn answer(ctx: &Ctx<'_>, d: &Deps<'_>) -> Result<Json, OwnError> {
             &format!("assistant:{}", text(input, "acceptKey")),
         )?
         .to_json()),
+        "own.rules.list" => {
+            let pool = pool_of(d.store)?;
+            let agent = store::get(pool, user, text(input, "id"))?;
+            Ok(Json::Array(
+                gates::list_rules(pool, user, &agent.id)?
+                    .iter()
+                    .map(gates::Rule::to_json)
+                    .collect(),
+            ))
+        }
+        "own.rules.save" => {
+            let pool = pool_of(d.store)?;
+            let agent = store::get(pool, user, text(input, "id"))?;
+            let (tool, choice) = (text(input, "tool"), text(input, "choice"));
+            gates::check_rule(&d.own.baseline, &agent.tools, tool, choice)?;
+            Ok(gates::save_rule(pool, user, &agent.id, tool, choice)?.to_json())
+        }
         _ => Err(OwnError::Trpc(not_ported(Slice::OwnBuilder))),
     }
 }

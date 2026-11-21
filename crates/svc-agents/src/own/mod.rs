@@ -3,6 +3,7 @@
 //! TypeScript answers them, and the unpublished sweep.
 //!
 //! - [`catalog`]: the templates, the tools a draft may be given, the validator and the findings.
+//! - [`gates`]: consent, the owner's baseline and the person's standing rules.
 //! - [`store`]: the person's own agents (`own_agents`).
 //! - [`assistant`]: drafting with the assistant.
 //! - [`slice`]: the calls.
@@ -12,6 +13,7 @@
 
 pub mod assistant;
 pub mod catalog;
+pub mod gates;
 pub mod slice;
 pub mod store;
 
@@ -127,6 +129,8 @@ pub struct Own {
     pub templates: Vec<&'static str>,
     /// `AGENTS_OWN_ASSISTANT_MODEL`: blank refuses drafting `owner.decision`.
     pub assistant_model: Option<String>,
+    /// `parsePolicyBaseline(AGENTS_POLICY_BASELINE)`: a blank class refuses its calls and any rule that loosens.
+    pub baseline: gates::PolicyBaseline,
 }
 
 impl Own {
@@ -135,6 +139,7 @@ impl Own {
         Own {
             templates: catalog::template_ids(),
             assistant_model: None,
+            baseline: gates::PolicyBaseline::default(),
         }
     }
 }

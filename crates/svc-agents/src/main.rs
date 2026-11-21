@@ -43,6 +43,7 @@ use svc_agents::metering::ports::{
 use svc_agents::migrate;
 use svc_agents::own::Own;
 use svc_agents::own::catalog::parse_own_templates;
+use svc_agents::own::gates::parse_policy_baseline;
 use svc_agents::runtime::Runtime;
 use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
@@ -361,6 +362,7 @@ fn own(env: &AgentsEnv) -> Result<Own, String> {
     Ok(Own {
         templates: parse_own_templates(env.str("AGENTS_OWN_TEMPLATES"))?,
         assistant_model: env.str("AGENTS_OWN_ASSISTANT_MODEL").map(str::to_owned),
+        baseline: parse_policy_baseline(env.str("AGENTS_POLICY_BASELINE"))?,
     })
 }
 
