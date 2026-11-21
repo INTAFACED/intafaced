@@ -22,46 +22,29 @@ import {
   supportCategoriesSchema,
   supportMyTicketPropertiesSchema,
   supportTicketCategorySchema,
-  escalateTicketInputSchema,
   getKbArticleInputSchema,
-  setKbAudienceInputSchema,
   kbAudienceChangesInputSchema,
   supportKbAudienceChangeListSchema,
   type SupportAttachment,
   publicProcedure,
   router,
   scopedProcedure,
-  supportAccountGroundingSchema,
   supportChartsLookupInputSchema,
   supportChartsLookupSchema,
   supportAttachmentDownloadSchema,
-  supportBulkInputSchema,
-  supportBulkPolicySchema,
-  supportBulkResultSchema,
-  supportMergeInputSchema,
-  supportMergePreviewInputSchema,
-  supportMergePreviewSchema,
-  supportMergeResultSchema,
   supportAttachmentIdInputSchema,
   supportAttachmentSchema,
-  supportCaseFileSchema,
   supportCommentSchema,
-  supportInternalNoteInputSchema,
   supportKbArticleSchema,
   supportTicketEventSchema,
   supportAwaitingMineSchema,
-  supportTicketLifecycleSchema,
-  supportTicketPropertiesSchema,
-  supportTicketPropertyChangeSchema,
   supportCreatedByRequestInputSchema,
   supportTicketSchema,
   supportTicketStatusSchema,
-  supportViewCountsSchema,
   supportViewDeleteInputSchema,
   supportViewListSchema,
   supportViewSaveInputSchema,
   supportViewSchema,
-  supportExpectedSequenceSchema,
 } from '@intafaced/contracts';
 import { MemoryContactBook, type ContactBook } from './contact-channels.js';
 import { contactProcedures } from './contact-router.js';
@@ -93,7 +76,43 @@ import { SupportError, SupportService, kbViewerOf, requireSupportOps } from './s
 import type { TicketKbLoopObserver } from './ticket-kb-loop-observation.js';
 import { ticketOrderReadSchema } from './ticket-order.js';
 import { userCopy } from './user-copy.js';
-import { supportTrpcError } from './record-refusal.js';
+import { supportRefusal, supportTrpcError } from './record-refusal.js';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import {
+  SUPPORT_DESK_ACCOUNT_STATE,
+  SUPPORT_DESK_ASSIGN,
+  SUPPORT_DESK_BULK_POLICY,
+  SUPPORT_DESK_BULK_UPDATE,
+  SUPPORT_DESK_CASE_FILE,
+  SUPPORT_DESK_CLAIM,
+  SUPPORT_DESK_CLAIM_NEXT,
+  SUPPORT_DESK_COMMENT,
+  SUPPORT_DESK_ESCALATE,
+  SUPPORT_DESK_GROUPS_ADD_MEMBER,
+  SUPPORT_DESK_GROUPS_LIST,
+  SUPPORT_DESK_GROUPS_REMOVE_MEMBER,
+  SUPPORT_DESK_GROUPS_SAVE,
+  SUPPORT_DESK_INTERNAL_NOTE,
+  SUPPORT_DESK_LIST_KB,
+  SUPPORT_DESK_MERGE,
+  SUPPORT_DESK_PREVIEW_MERGE,
+  SUPPORT_DESK_PROPERTY_CHANGES,
+  SUPPORT_DESK_PUBLISH_KB,
+  SUPPORT_DESK_RATING,
+  SUPPORT_DESK_RATING_SUMMARY,
+  SUPPORT_DESK_SCOPE,
+  SUPPORT_DESK_SET_KB_AUDIENCE,
+  SUPPORT_DESK_SET_PROPERTIES,
+  SUPPORT_DESK_SET_STATUS,
+  SUPPORT_DESK_STAFF_LIST,
+  SUPPORT_DESK_STAFF_POLICY,
+  SUPPORT_DESK_STAFF_SET_AVAILABILITY,
+  SUPPORT_DESK_TICKET_LIFECYCLE,
+  SUPPORT_DESK_TICKET_PROPERTIES,
+  SUPPORT_DESK_UNCLAIM,
+  SUPPORT_DESK_UNPUBLISH_KB,
+  SUPPORT_DESK_VIEWS_COUNTS,
+} from '@intafaced/contracts/support-desk-procedures';
 import { SLA_POLICY_STALE, SLA_TARGETS_UNSET } from './response-targets.js';
 
 const queueEntrySchema = z.object({
@@ -132,14 +151,6 @@ export function mapError(err: unknown): never {
   if (err instanceof SupportError) throw supportTrpcError(err);
   throw err;
 }
-
-const deskGroupSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  createdBy: z.string(),
-  createdAt: z.string(),
-  memberIds: z.array(z.string()),
-});
 
 /** Desk scope for the doors that page the whole queue. Left out, every operator sees the queue. */
 export type DeskScopeReader = Pick<SupportService, 'deskIsRestricted' | 'listAllTicketsInScope'>;
@@ -381,51 +392,36 @@ export function createSupportRouter(
         }
       }),
 
-    comment: scopedProcedure('support:write')
-      .input(
-        z.object({
-          ticketId: z.string().guid(),
-          body: z.string().min(1).max(10_000),
-          /** The caller's key: sent again after a lost reply it answers the first comment and writes no second one. */
-          clientRequestId: z.string().min(1).max(200).optional(),
-          /** The last trail row (`sequence`) the writer read: a newer row by someone else refuses `support.stale_ticket`. */
-          expectedSequence: supportExpectedSequenceSchema.optional(),
-        }),
-      )
-      .output(supportCommentSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          const asOperator = ctx.principal!.scopes.includes('support:ops');
-          return await support.comment({
-            userId: ctx.principal!.userId,
-            ticketId: input.ticketId,
-            body: input.body,
-            asOperator,
-            ...(input.clientRequestId !== undefined ? { clientRequestId: input.clientRequestId } : {}),
-            ...(input.expectedSequence !== undefined ? { expectedSequence: input.expectedSequence } : {}),
-          });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    comment: mountRecord(
+      SUPPORT_DESK_COMMENT,
+      ({ ctx, input }) => {
+        const asOperator = ctx.principal.scopes.includes('support:ops');
+        return support.comment({
+          userId: ctx.principal.userId,
+          ticketId: input.ticketId,
+          body: input.body,
+          asOperator,
+          ...(input.clientRequestId !== undefined ? { clientRequestId: input.clientRequestId } : {}),
+          ...(input.expectedSequence !== undefined ? { expectedSequence: input.expectedSequence } : {}),
+        });
+      },
+      supportRefusal,
+    ),
 
     /** A staff-only note (SP-tickets-05): never on the customer's thread, and it moves nothing the customer reads. */
-    addInternalNote: scopedProcedure('support:ops')
-      .input(supportInternalNoteInputSchema)
-      .output(supportCommentSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.addInternalNote({
-            userId: ctx.principal!.userId,
-            ticketId: input.ticketId,
-            body: input.body,
-            clientRequestId: input.clientRequestId,
-          });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    addInternalNote: mountRecord(
+      SUPPORT_DESK_INTERNAL_NOTE,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.addInternalNote({
+          userId: ctx.principal.userId,
+          ticketId: input.ticketId,
+          body: input.body,
+          clientRequestId: input.clientRequestId,
+        });
+      },
+      supportRefusal,
+    ),
 
     listComments: scopedProcedure('support:read')
       .input(
@@ -455,33 +451,20 @@ export function createSupportRouter(
         }
       }),
 
-    setStatus: scopedProcedure('support:ops')
-      .input(
-        z.object({
-          ticketId: z.string().guid(),
-          status: supportTicketStatusSchema,
-          /** Optional short reason, recorded on the trail row. Not required, so
-           *  no existing caller breaks; recorded when supplied. */
-          note: z.string().min(1).max(500).optional(),
-          /** The last trail row (`sequence`) the operator read: a newer row by someone else refuses `support.stale_ticket`. */
-          expectedSequence: supportExpectedSequenceSchema.optional(),
-        }),
-      )
-      .output(supportTicketSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.setStatus({
-            operatorId: ctx.principal!.userId,
-            ticketId: input.ticketId,
-            status: input.status,
-            note: input.note,
-            ...(input.expectedSequence !== undefined ? { expectedSequence: input.expectedSequence } : {}),
-          });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    setStatus: mountRecord(
+      SUPPORT_DESK_SET_STATUS,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.setStatus({
+          operatorId: ctx.principal.userId,
+          ticketId: input.ticketId,
+          status: input.status,
+          note: input.note,
+          ...(input.expectedSequence !== undefined ? { expectedSequence: input.expectedSequence } : {}),
+        });
+      },
+      supportRefusal,
+    ),
 
     /**
      * The audit trail. `support:read` — the ticket's OWNER can see what
@@ -543,28 +526,14 @@ export function createSupportRouter(
      * free-text user id would be a platform-wide account lookup, which is an
      * authority the scope does not grant.
      */
-    accountState: scopedProcedure('support:ops')
-      // `.strict()`, unlike every other input on this router, and the reason is
-      // this specific procedure. Zod's default is to STRIP unknown keys, so a
-      // caller sending `{ ticketId, userId }` would have the userId silently
-      // discarded and get the ticket owner's state back instead — the safe
-      // answer, returned to a caller who asked a different question and is not
-      // told so. Refusing says it out loud, and keeps "there is no way to ask
-      // this service about an arbitrary account" a property rather than an
-      // accident of zod's defaults.
-      .input(z.object({ ticketId: z.string().guid() }).strict())
-      .output(supportAccountGroundingSchema)
-      .query(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.readAccountState({
-            operatorId: ctx.principal!.userId,
-            ticketId: input.ticketId,
-          });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    accountState: mountRecord(
+      SUPPORT_DESK_ACCOUNT_STATE,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.readAccountState({ operatorId: ctx.principal.userId, ticketId: input.ticketId });
+      },
+      supportRefusal,
+    ),
 
     /**
      * A customer's price alerts, their trigger history and saved desk layouts, for a ticket the agent can see
@@ -586,57 +555,33 @@ export function createSupportRouter(
       }),
 
     /** Escalate with a case file. Refuses when nothing was read. No money. */
-    escalate: scopedProcedure('support:ops')
-      .input(escalateTicketInputSchema)
-      .output(supportCaseFileSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.escalate({ operatorId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    escalate: mountRecord(
+      SUPPORT_DESK_ESCALATE,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.escalate({ operatorId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
 
     /** The case file an escalation was made against. null = never escalated. */
-    caseFile: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().guid() }))
-      .output(supportCaseFileSchema.nullable())
-      .query(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.getCaseFile({
-            operatorId: ctx.principal!.userId,
-            ticketId: input.ticketId,
-          });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    caseFile: mountRecord(
+      SUPPORT_DESK_CASE_FILE,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.getCaseFile({ operatorId: ctx.principal.userId, ticketId: input.ticketId });
+      },
+      supportRefusal,
+    ),
 
-    listKb: publicProcedure
-      .input(
-        z
-          .object({
-            /**
-             * Page size. Optional here so omit reaches the service named
-             * refuse (`support.list_kb_limit_unset`) instead of a Zod
-             * "Required" that looks like a typo. Blank is not 100; pass 100
-             * explicitly when that is the page you want.
-             */
-            limit: z.number().int().positive().max(500).optional(),
-          })
-          .optional(),
-      )
-      .output(z.array(supportKbArticleSchema))
-      .query(async ({ ctx, input }) => {
-        try {
-          await helpCentreOpen(ctx.principal);
-          return await support.listKb({ limit: input?.limit, viewer: kbViewerOf(ctx.principal) });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    listKb: mountRecord(
+      SUPPORT_DESK_LIST_KB,
+      async ({ ctx, input }) => {
+        await helpCentreOpen(ctx.principal);
+        return support.listKb({ limit: input?.limit, viewer: kbViewerOf(ctx.principal) });
+      },
+      supportRefusal,
+    ),
 
     /** Search platform KB spine (i18n keys). Empty q → published list, then page. */
     searchKb: publicProcedure
@@ -682,43 +627,27 @@ export function createSupportRouter(
       }),
 
     /** Operator publish. Bumps revision. Stale baseRevision → CONFLICT. */
-    publishKb: scopedProcedure('support:ops')
-      .input(
-        z.object({
-          id: z.string().min(1).max(200),
-          titleKey: z.string().min(1).max(200),
-          bodyKey: z.string().min(1).max(200),
-          /** 0 creates a new published row at revision 1. */
-          baseRevision: z.number().int().nonnegative(),
-          category: z.string().min(1).max(200).nullable().optional(),
-          tags: z.array(z.string().min(1).max(200)).max(20).nullable().optional(),
-        }),
-      )
-      .output(supportKbArticleSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.publishKb(input);
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    publishKb: mountRecord(
+      SUPPORT_DESK_PUBLISH_KB,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.publishKb(input);
+      },
+      supportRefusal,
+    ),
 
     /**
      * Operator change of who may read an article (public, signed_in or staff). Stale `baseRevision` is a CONFLICT;
      * the same audience again is a no-op that writes no audit row.
      */
-    setKbAudience: scopedProcedure('support:ops')
-      .input(setKbAudienceInputSchema)
-      .output(supportKbArticleSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.setKbAudience({ operatorId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    setKbAudience: mountRecord(
+      SUPPORT_DESK_SET_KB_AUDIENCE,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.setKbAudience({ operatorId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
 
     /** The audience trail of one article, oldest first: old and new audience, revisions, who and when. */
     kbAudienceChanges: scopedProcedure('support:ops')
@@ -734,22 +663,14 @@ export function createSupportRouter(
       }),
 
     /** Operator unpublish. Hidden from public list/search/get. */
-    unpublishKb: scopedProcedure('support:ops')
-      .input(
-        z.object({
-          id: z.string().min(1).max(200),
-          baseRevision: z.number().int().positive(),
-        }),
-      )
-      .output(supportKbArticleSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.unpublishKb(input);
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    unpublishKb: mountRecord(
+      SUPPORT_DESK_UNPUBLISH_KB,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.unpublishKb(input);
+      },
+      supportRefusal,
+    ),
 
     /** Stage-2 — prioritised operator queue (open/pending only). */
     listQueue: scopedProcedure('support:ops')
@@ -930,55 +851,24 @@ export function createSupportRouter(
       }),
 
     /** Operator read of a rating. Requires support:ops. */
-    ratingOps: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().guid() }))
-      .output(
-        z
-          .object({
-            ticketId: z.string().guid(),
-            userId: z.string().guid(),
-            score: z.number().int(),
-            note: z.string().nullable(),
-            createdAt: z.string().datetime(),
-          })
-          .nullable(),
-      )
-      .query(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.rating({ userId: ctx.principal!.userId, ticketId: input.ticketId, asOperator: true });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    ratingOps: mountRecord(
+      SUPPORT_DESK_RATING,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.rating({ userId: ctx.principal.userId, ticketId: input.ticketId, asOperator: true });
+      },
+      supportRefusal,
+    ),
 
     /** Founder summary of ratings for requests solved in a stated window. Requires support:ops. */
-    ratingSummary: scopedProcedure('support:ops')
-      .input(z.object({ from: z.string().datetime(), to: z.string().datetime() }))
-      .output(
-        z.object({
-          from: z.string().datetime(),
-          to: z.string().datetime(),
-          solved: z.number().int(),
-          responses: z.number().int(),
-          perScore: z.object({
-            '1': z.number().int(),
-            '2': z.number().int(),
-            '3': z.number().int(),
-            '4': z.number().int(),
-            '5': z.number().int(),
-          }),
-          ratedShareBasisPoints: z.number().int().nullable(),
-        }),
-      )
-      .query(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.ratingSummary({ viewerId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    ratingSummary: mountRecord(
+      SUPPORT_DESK_RATING_SUMMARY,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.ratingSummary({ viewerId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
 
     /**
      * Owner attach. Unconfigured store, scanner, or limits refuse
@@ -1158,32 +1048,24 @@ export function createSupportRouter(
       }),
 
     /** Stage-2 — exclusive claim; refuse steal. No money. */
-    claim: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().guid() }))
-      .output(supportTicketSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.claimForOperator({
-            operatorId: ctx.principal!.userId,
-            ticketId: input.ticketId,
-          });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    claim: mountRecord(
+      SUPPORT_DESK_CLAIM,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.claimForOperator({ operatorId: ctx.principal.userId, ticketId: input.ticketId });
+      },
+      supportRefusal,
+    ),
 
     /** Claim the queue's next request; an empty queue refuses with `support.claim.queue_empty`. No money. */
-    claimNext: scopedProcedure('support:ops')
-      .output(supportTicketSchema)
-      .mutation(async ({ ctx }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.claimNext(ctx.principal!.userId);
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    claimNext: mountRecord(
+      SUPPORT_DESK_CLAIM_NEXT,
+      ({ ctx }) => {
+        requireSupportOps(ctx.principal);
+        return support.claimNext(ctx.principal.userId);
+      },
+      supportRefusal,
+    ),
 
     /** Counts across the whole queue, not one page. */
     queueMetrics: scopedProcedure('support:ops')
@@ -1205,58 +1087,40 @@ export function createSupportRouter(
         return support.queueMetrics(ctx.principal!.userId);
       }),
 
-    staffList: scopedProcedure('support:ops')
-      .output(
-        z.array(
-          z.object({
-            userId: z.string(),
-            role: z.enum(['agent', 'lead']),
-            appointedBy: z.string(),
-            appointedAt: z.string(),
-            availability: z.enum(['online', 'busy', 'offline']),
-            availabilitySetAt: z.string().nullable(),
-            lastHeartbeatAt: z.string().nullable(),
-            /** Desk groups (teams) this member belongs to, sorted by name. */
-            groups: z.array(z.object({ id: z.string(), name: z.string() })),
-          }),
-        ),
-      )
-      .query(async ({ ctx }) => {
-        requireSupportOps(ctx.principal!);
+    staffList: mountRecord(
+      SUPPORT_DESK_STAFF_LIST,
+      ({ ctx }) => {
+        requireSupportOps(ctx.principal);
         return support.listStaffDirectory();
-      }),
+      },
+      supportRefusal,
+    ),
 
     /** Says whether automatic offline is an owner value or still blank. */
-    staffAvailabilityPolicy: scopedProcedure('support:ops')
-      .output(z.object({ automaticOffline: z.enum(['set', 'not_set']), heartbeatWindowSeconds: z.number().int().positive().nullable() }))
-      .query(({ ctx }) => {
-        requireSupportOps(ctx.principal!);
+    staffAvailabilityPolicy: mountRecord(
+      SUPPORT_DESK_STAFF_POLICY,
+      ({ ctx }) => {
+        requireSupportOps(ctx.principal);
         return support.staffAvailabilityPolicy();
-      }),
+      },
+      supportRefusal,
+    ),
 
     /** An agent sets their own availability (omit userId); a lead may set anyone's. */
-    staffSetAvailability: scopedProcedure('support:ops')
-      .input(
-        z.object({
-          userId: z.string().guid().optional(),
-          availability: z.string().max(20),
-          reason: z.string().max(500).optional(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          const actorId = ctx.principal!.userId;
-          return await support.setStaffAvailability({
-            actorId,
-            userId: input.userId ?? actorId,
-            availability: input.availability as never,
-            reason: input.reason,
-          });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    staffSetAvailability: mountRecord(
+      SUPPORT_DESK_STAFF_SET_AVAILABILITY,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        const actorId = ctx.principal.userId;
+        return support.setStaffAvailability({
+          actorId,
+          userId: input.userId ?? actorId,
+          availability: input.availability as never,
+          reason: input.reason,
+        });
+      },
+      supportRefusal,
+    ),
 
     /** Own heartbeat; refused while the owner has not set the offline window. */
     staffHeartbeat: scopedProcedure('support:ops').mutation(async ({ ctx }) => {
@@ -1286,17 +1150,14 @@ export function createSupportRouter(
       }),
 
     /** Who the ticket waits on, when the first public reply went out, and the request it follows. */
-    ticketLifecycle: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().guid() }))
-      .output(supportTicketLifecycleSchema)
-      .query(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.getTicketLifecycle({ operatorId: ctx.principal!.userId, ticketId: input.ticketId });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    ticketLifecycle: mountRecord(
+      SUPPORT_DESK_TICKET_LIFECYCLE,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.getTicketLifecycle({ operatorId: ctx.principal.userId, ticketId: input.ticketId });
+      },
+      supportRefusal,
+    ),
 
     /** The priority and type the owner lets the caller read on their own request (SP-tickets-04). */
     myTicketProperties: scopedProcedure('support:read')
@@ -1311,125 +1172,88 @@ export function createSupportRouter(
       }),
 
     /** Priority, type and labels an agent set on a ticket. Null and no labels until set. */
-    ticketProperties: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().guid() }))
-      .output(supportTicketPropertiesSchema)
-      .query(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.getTicketProperties({ operatorId: ctx.principal!.userId, ticketId: input.ticketId });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    ticketProperties: mountRecord(
+      SUPPORT_DESK_TICKET_PROPERTIES,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.getTicketProperties({ operatorId: ctx.principal.userId, ticketId: input.ticketId });
+      },
+      supportRefusal,
+    ),
 
     /**
      * The log of priority, type and label changes on a ticket, oldest first, one entry per field changed. Staff only.
      * `limit` counts saves, newest kept: one save that changed three fields is three entries.
      */
-    propertyChanges: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().guid(), limit: z.number().int().positive().max(500) }))
-      .output(z.array(supportTicketPropertyChangeSchema))
-      .query(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.listTicketPropertyChanges({ operatorId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    propertyChanges: mountRecord(
+      SUPPORT_DESK_PROPERTY_CHANGES,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.listTicketPropertyChanges({ operatorId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
 
     /**
      * Set priority, type and labels. Values arrive as text so a bad one reaches
      * the service and is refused by name (`support.property_invalid`,
      * `support.label_invalid`) instead of a schema message.
      */
-    setProperties: scopedProcedure('support:ops')
-      .input(
-        z.object({
-          ticketId: z.string().guid(),
-          priority: z.string().max(40).nullable().optional(),
-          ticketType: z.string().max(40).nullable().optional(),
-          labels: z.array(z.string().max(200)).max(200).optional(),
-          reason: z.string().min(1).max(500).optional(),
-          clientRequestId: z.string().min(1).max(200),
-          /** The last trail row (`sequence`) the operator read: a newer row by someone else refuses `support.stale_ticket`. */
-          expectedSequence: supportExpectedSequenceSchema.optional(),
-        }),
-      )
-      .output(supportTicketPropertiesSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.setTicketProperties({ operatorId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    setProperties: mountRecord(
+      SUPPORT_DESK_SET_PROPERTIES,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.setTicketProperties({ operatorId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
 
     /** What the queue header says: whether scope is restricted, and the groups this caller sees. */
-    deskScope: scopedProcedure('support:ops')
-      .output(
-        z.object({
-          restricted: z.boolean(),
-          groups: z.array(z.object({ id: z.string(), name: z.string() })),
-          seesAllGroups: z.boolean(),
-        }),
-      )
-      .query(async ({ ctx }) => {
-        requireSupportOps(ctx.principal!);
-        return support.deskScopeSummary(ctx.principal!.userId);
-      }),
+    deskScope: mountRecord(
+      SUPPORT_DESK_SCOPE,
+      ({ ctx }) => {
+        requireSupportOps(ctx.principal);
+        return support.deskScopeSummary(ctx.principal.userId);
+      },
+      supportRefusal,
+    ),
 
-    groupsList: scopedProcedure('support:ops')
-      .output(deskGroupSchema.array())
-      .query(async ({ ctx }) => {
-        requireSupportOps(ctx.principal!);
+    groupsList: mountRecord(
+      SUPPORT_DESK_GROUPS_LIST,
+      ({ ctx }) => {
+        requireSupportOps(ctx.principal);
         return support.listGroups();
-      }),
+      },
+      supportRefusal,
+    ),
 
     /** A lead creates a group, or renames one when groupId is given. */
-    groupsSave: scopedProcedure('support:ops')
-      .input(
-        z.object({
-          groupId: z.string().guid().optional(),
-          name: z.string().trim().min(1).max(80),
-          idempotencyKey: z.string().min(8).max(200),
-        }),
-      )
-      .output(deskGroupSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.saveGroup({ actorId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    groupsSave: mountRecord(
+      SUPPORT_DESK_GROUPS_SAVE,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.saveGroup({ actorId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
 
-    groupsAddMember: scopedProcedure('support:ops')
-      .input(z.object({ groupId: z.string().guid(), userId: z.string().guid() }))
-      .output(deskGroupSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.addGroupMember({ actorId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    groupsAddMember: mountRecord(
+      SUPPORT_DESK_GROUPS_ADD_MEMBER,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.addGroupMember({ actorId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
 
-    groupsRemoveMember: scopedProcedure('support:ops')
-      .input(z.object({ groupId: z.string().guid(), userId: z.string().guid() }))
-      .output(deskGroupSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.removeGroupMember({ actorId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    groupsRemoveMember: mountRecord(
+      SUPPORT_DESK_GROUPS_REMOVE_MEMBER,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.removeGroupMember({ actorId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
 
     /** A lead places a ticket in a group, or takes it out with groupId null. */
     ticketSetGroup: scopedProcedure('support:ops')
@@ -1453,67 +1277,57 @@ export function createSupportRouter(
       }),
 
     /** The current assignee returns the ticket to the queue. */
-    unclaim: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().guid(), idempotencyKey: z.string().min(8).max(200) }))
-      .output(supportTicketSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.unclaim({ operatorId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    unclaim: mountRecord(
+      SUPPORT_DESK_UNCLAIM,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.unclaim({ operatorId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
 
     /** The batch size the owner allows for a bulk change, or `null` while it is not set. */
-    bulkPolicy: scopedProcedure('support:ops')
-      .output(supportBulkPolicySchema)
-      .query(({ ctx }) => {
-        requireSupportOps(ctx.principal!);
+    bulkPolicy: mountRecord(
+      SUPPORT_DESK_BULK_POLICY,
+      ({ ctx }) => {
+        requireSupportOps(ctx.principal);
         return support.bulkPolicy();
-      }),
+      },
+      supportRefusal,
+    ),
 
     /**
      * One change (an assignee, a status or a priority) for several requests under one batch key. Each request is changed
      * on its own and answers `changed`, `unchanged` or `refused` with its typed code; a blank cap refuses the whole batch.
      */
-    bulkUpdate: scopedProcedure('support:ops')
-      .input(supportBulkInputSchema)
-      .output(supportBulkResultSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.bulkUpdate({ operatorId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    bulkUpdate: mountRecord(
+      SUPPORT_DESK_BULK_UPDATE,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.bulkUpdate({ operatorId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
 
     /** What a merge would move and what stays on the source, read before the confirmation. Moves nothing. */
-    previewMerge: scopedProcedure('support:ops')
-      .input(supportMergePreviewInputSchema)
-      .output(supportMergePreviewSchema)
-      .query(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.previewMerge({ operatorId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    previewMerge: mountRecord(
+      SUPPORT_DESK_PREVIEW_MERGE,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.previewMerge({ operatorId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
 
     /** Fold a duplicate request into the one that stays. Irreversible; a replay of the same pair returns the stored result. */
-    mergeTickets: scopedProcedure('support:ops')
-      .input(supportMergeInputSchema)
-      .output(supportMergeResultSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.mergeTickets({ operatorId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    mergeTickets: mountRecord(
+      SUPPORT_DESK_MERGE,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.mergeTickets({ operatorId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
 
     /** Saved filters this operator may open, and whether the owner has set a cap. */
     viewsList: scopedProcedure('support:ops')
@@ -1553,35 +1367,24 @@ export function createSupportRouter(
       }),
 
     /** One count per visible view. It counts every match the caller may see, not the page. */
-    viewsCounts: scopedProcedure('support:ops')
-      .output(supportViewCountsSchema)
-      .query(async ({ ctx }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return { counts: await support.deskViewCounts(ctx.principal!.userId) };
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    viewsCounts: mountRecord(
+      SUPPORT_DESK_VIEWS_COUNTS,
+      async ({ ctx }) => {
+        requireSupportOps(ctx.principal);
+        return { counts: await support.deskViewCounts(ctx.principal.userId) };
+      },
+      supportRefusal,
+    ),
 
     /** A lead assigns or reassigns a ticket to another staff member. */
-    assign: scopedProcedure('support:ops')
-      .input(
-        z.object({
-          ticketId: z.string().guid(),
-          assigneeId: z.string().guid(),
-          idempotencyKey: z.string().min(8).max(200),
-        }),
-      )
-      .output(supportTicketSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.assignTo({ operatorId: ctx.principal!.userId, ...input });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    assign: mountRecord(
+      SUPPORT_DESK_ASSIGN,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.assignTo({ operatorId: ctx.principal.userId, ...input });
+      },
+      supportRefusal,
+    ),
   });
 }
 
