@@ -1,4 +1,9 @@
 import { ACADEMY_AMBASSADOR_PAY_PLANE } from '@intafaced/contracts/academy-ambassador-pay-plane-procedures';
+import { ACADEMY_AMBASSADORS } from '@intafaced/contracts/academy-ambassadors-procedures';
+import { ACADEMY_APPOINT_AMBASSADOR } from '@intafaced/contracts/academy-appoint-ambassador-procedures';
+import { ACADEMY_FREEZE_AMBASSADOR } from '@intafaced/contracts/academy-freeze-ambassador-procedures';
+import { ACADEMY_OPEN_RESIDENCIES } from '@intafaced/contracts/academy-open-residencies-procedures';
+import { ACADEMY_DECIDE_RESIDENCY } from '@intafaced/contracts/academy-decide-residency-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -452,9 +457,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'academy',
     label: 'List ambassadors',
     summary: 'Programme roster (status filter optional). No pay plane.',
-    edgeModule: 'academy',
-    procedure: 'ambassadors',
-    kind: 'query',
+    ...toolOf(ACADEMY_AMBASSADORS),
     authority: 'module',
     scope: 'admin:read',
     consequential: false,
@@ -473,9 +476,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'academy',
     label: 'Appoint ambassador',
     summary: 'Appoint a user to the ambassador programme. Operator id from token.',
-    edgeModule: 'academy',
-    procedure: 'appointAmbassador',
-    kind: 'mutation',
+    ...toolOf(ACADEMY_APPOINT_AMBASSADOR),
     authority: 'module',
     scope: 'admin:write',
     consequential: true,
@@ -486,9 +487,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'academy',
     label: 'Freeze ambassador',
     summary: 'Freeze an ambassador with a recorded reason.',
-    edgeModule: 'academy',
-    procedure: 'freezeAmbassador',
-    kind: 'mutation',
+    ...toolOf(ACADEMY_FREEZE_AMBASSADOR),
     authority: 'module',
     scope: 'admin:write',
     consequential: true,
@@ -502,9 +501,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'academy',
     label: 'Open residencies',
     summary: 'List open residency applications for operator decision.',
-    edgeModule: 'academy',
-    procedure: 'openResidencies',
-    kind: 'query',
+    ...toolOf(ACADEMY_OPEN_RESIDENCIES),
     authority: 'module',
     scope: 'admin:read',
     consequential: false,
@@ -515,9 +512,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'academy',
     label: 'Decide residency',
     summary: 'Accept or reject an open residency application.',
-    edgeModule: 'academy',
-    procedure: 'decideResidency',
-    kind: 'mutation',
+    ...toolOf(ACADEMY_DECIDE_RESIDENCY),
     authority: 'module',
     scope: 'admin:write',
     consequential: true,
