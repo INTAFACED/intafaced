@@ -121,7 +121,7 @@ fn door(
         store,
         service_name: str_of("SERVICE_NAME"),
         bus,
-        approvals: approvals(env, fetch),
+        approvals: approvals(env, fetch.clone()),
         clock_skew_bound_ms: env.clock_skew_bound_ms,
         now_ms: system_ms,
         log: log.clone(),
@@ -129,6 +129,10 @@ fn door(
         reconcile_statement_timeout_ms: env
             .int("LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS")
             .unwrap_or(reconcile::DEFAULT_STATEMENT_TIMEOUT_MS),
+        // `handleS2sPortfolio` reads `process.env.INDEXER_URL`; nothing in `env.ts` holds it.
+        indexer_url: std::env::var("INDEXER_URL").ok(),
+        // The same wire the approvals client uses.
+        fetch,
         posting,
     })
 }

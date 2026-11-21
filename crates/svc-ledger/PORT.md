@@ -44,6 +44,12 @@ Where the port cannot be the TypeScript's:
 - A connection failure's code is the server's SQLSTATE, else the socket's errno name as Node gives it (`ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `EPIPE`, `EHOSTUNREACH`, `ENETUNREACH`), else `unknown`. A TLS failure cannot happen yet: the pool has no TLS.
 - The custody switch is a type with two values, so the TypeScript's refusal of a missing or unknown one cannot be reached.
 
+The `balances` slice is ported. It added:
+
+- `src/balances.rs`: `balance`, `balances`, `portfolio`, `txByKey` and `txById`, answered by the door once their input parses. Each read runs `PostgresLedger`'s query: an untouched account reads as zero without a row being made, purpose is matched after its trim, and a booked transaction whose claim (`ledger_posted_keys`) no longer matches is refused with `ledger.posted_claim_mismatch`.
+- `portfolio`'s chain half: `INDEXER_URL` (read from the process, as `handleS2sPortfolio` reads it; `env.ts` does not hold it) and the indexer's `positions` record, through the door's one `Fetch`. Anything it cannot verify is named absent.
+- `tests/balances_pg.rs`: the TypeScript cases for these doors (`s2s-http.test.ts`, `s2s-tx-by-key.test.ts`, `s2s-tx-by-id.test.ts`, the claim check of `ledger/tx-hash-bind.test.ts`) through the door, on a real Postgres.
+
 The `posting` slice is ported, not served yet (the switch is its own item). It added:
 
 - `src/posting/`: the `post` door after its first input check, in the TypeScript's order. `gate.rs` is the caller binding and the recipe gate (`caller-binding.ts`, `recipe-gate.ts`); `bindings.rs` the four binding checks (`*-binding.ts`); `rules.rs` `assertValidPost`, the fingerprint and the balance rule (the chain hash is `chain.rs`'s); `engine.rs` `PostgresLedger.post` (idempotency, the freeze read, clock skew, balances, the chain tip, `ledger_tx_outbox`); `mod.rs` `LedgerService.post` (the custody switch, then this post's intent published) and the `ledgerTxPosted` relay, which the outbox recovery drains beside `ledgerFreezeUpdated`'s.

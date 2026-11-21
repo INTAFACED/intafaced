@@ -5,11 +5,13 @@
 //! schemas). The `store` slice adds the book: one pool (`db`), the migrations and their runner (`migrate`), `/health`
 //! and `/ready` (`status`), and what the binary does before it serves (`boot`). The `freeze` slice adds the posting
 //! switch (`freeze`, with `approval` and `clock`); the `reconcile` slice the proof of the book (`chain`, `reconcile`)
-//! and what runs and acts on it (`reconciler`); the `posting` slice books `post` (`posting`: the caller binding, the
-//! recipe gate, the binding checks, the custody switch, the engine and the `ledgerTxPosted` relay). Past the door a
-//! call is owed by its slice; `PORT.md` lists the slices and what each ports.
+//! and what runs and acts on it (`reconciler`); the `balances` slice the account and transaction reads (`balances`);
+//! the `posting` slice books `post` (`posting`: the caller binding, the recipe gate, the binding checks, the custody
+//! switch, the engine and the `ledgerTxPosted` relay). Past the door a call is owed by its slice; `PORT.md` lists the
+//! slices and what each ports.
 
 pub mod approval;
+pub mod balances;
 pub mod boot;
 pub mod chain;
 pub mod clock;
