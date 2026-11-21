@@ -98,7 +98,7 @@ export async function resendNotice(ctx: FounderCallContext, noticeId: string) {
 
 export async function importSubscribers(ctx: FounderCallContext, source: string, emails: readonly string[]) {
   return reply(
-    await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_IMPORT, { source, emails }, readImportResult),
+    await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_IMPORT, { source, emails: [...emails] }, readImportResult),
     'imported',
     (imported) => ({ imported }),
   );

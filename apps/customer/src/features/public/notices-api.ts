@@ -2,11 +2,12 @@
 /** The public notice feed (module `notify`, tRPC through the edge). Both procedures are public, so they work signed out. */
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { entrySchema, type ChangelogEntry } from '../../shared/notify-reads';
+import { entrySchema } from '../../shared/notify-reads';
 import { NOTIFY_NOTICES, NOTIFY_NOTICE, NOTIFY_NOTICE_STATUS } from '@intafaced/contracts/notify-notify-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
-export type Notice = ChangelogEntry;
+/** One public notice as svc-notify answers it (its record's reply). */
+export type Notice = ProcedureOutput<typeof NOTIFY_NOTICES>[number];
 
 export const NOTICE_LIST_LIMIT = 50;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

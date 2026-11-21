@@ -20,6 +20,7 @@ import {
   type IncidentDeskReply,
   type IncidentDeskView,
   type IncidentDraftInput,
+  type Impact,
   type OperatorNotice,
   type Postmortem,
   type PublishApproval,
@@ -180,7 +181,7 @@ export async function draftIncident(ctx: FounderCallContext, input: IncidentDraf
         title: input.title.trim(),
         body: input.body.trim(),
         impact: input.impact,
-        components: input.components.length > 0 ? input.components : null,
+        components: input.components.length > 0 ? [...input.components] : null,
         parentId: input.parentId,
         resolves: input.resolves,
         clientRequestId: draftKey(ctx.session.userId, input),
@@ -284,12 +285,15 @@ export interface TemplateInput {
   readonly group: string | null;
   readonly title: string;
   readonly body: string;
-  readonly impact: string | null;
+  readonly impact: Impact | null;
   readonly components: readonly string[];
 }
 
 export async function defineTemplate(ctx: FounderCallContext, input: TemplateInput) {
-  return reply(await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_TEMPLATES_DEFINE, input, anyData), 'template saved');
+  return reply(
+    await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_TEMPLATES_DEFINE, { ...input, components: [...input.components] }, anyData),
+    'template saved',
+  );
 }
 
 export async function retireTemplate(ctx: FounderCallContext, id: string) {

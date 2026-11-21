@@ -1,5 +1,3 @@
-import type { z } from 'zod';
-import { notifyFundingNoticeSchema } from '@intafaced/contracts/notify-public-notices';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { NOTIFY_FUNDING_NOTICES } from '@intafaced/contracts/notify-notify-procedures';
 import { type ProcedureOutput } from '@intafaced/contracts/procedure';
@@ -8,7 +6,7 @@ import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 export { NOTIFY_FUNDING_PHASES as FUNDING_PHASES } from '@intafaced/contracts/notify-public-notices';
 export type FundingPhase = NonNullable<FundingNotice['phase']>;
 /** The public notice entry, with the pair and stage a funding notice carries. */
-export type FundingNotice = z.infer<typeof notifyFundingNoticeSchema>;
+export type FundingNotice = FundingNotices['maintenance'][number];
 /** Each open incident on this pair: its first entry (what happened, when it started) and its newest (where it stands now). */
 export type FundingNotices = ProcedureOutput<typeof NOTIFY_FUNDING_NOTICES>;
 
