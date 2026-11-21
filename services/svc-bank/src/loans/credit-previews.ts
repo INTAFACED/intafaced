@@ -13,122 +13,40 @@
  * decimal strings; rates are decimal percent strings. The monthly payments are the standard annuity payment on the sample
  * amount at the sample rate, rounded half-up to cents, worked out once and fixed here.
  */
-import { z } from 'zod';
-import { PREVIEW_LABEL, router, scopedProcedure } from '@intafaced/contracts';
+import {
+  CREDIT_PREVIEW_CURRENCY,
+  CREDIT_PREVIEW_ENGINES,
+  CREDIT_PREVIEW_LABEL,
+  SAMPLE_UNSECURED_LOAN_ID,
+  type CreditPreviewActInput,
+  type CreditPreviewOverview,
+  type CreditPreviewRevolving,
+  type CreditPreviewSchedule,
+} from '@intafaced/contracts/bank-credit-preview-procedures';
+import { PREVIEW_REFUSAL_CODE, previewRefusalOf, router } from '@intafaced/contracts';
+import { mountRecord, TRPCError, type RefusalOf } from '@intafaced/contracts/procedure-mount';
+import {
+  BANK_CREDIT_PREVIEWS_ACT,
+  BANK_CREDIT_PREVIEWS_OVERVIEW,
+  BANK_CREDIT_PREVIEWS_REVOLVING,
+  BANK_CREDIT_PREVIEWS_SCHEDULE,
+} from '@intafaced/contracts/bank-credit-preview-procedures';
 import { throwPreviewRefusal } from './loan-servicing-preview.js';
 
-export const CREDIT_PREVIEW_LABEL = PREVIEW_LABEL;
-/** The sample currency every figure is written in. TEST, like the figures. */
-export const CREDIT_PREVIEW_CURRENCY = 'EUR' as const;
-
-/** Engine ids for the typed Preview refusal (`<module>.<engine>`), one per missing engine. */
-export const CREDIT_PREVIEW_ENGINES = {
-  overdraft: 'bank.overdraft',
-  personal_loan: 'bank.personal_loan',
-  business_term_loan: 'bank.business_term_loan',
-  credit_bureau: 'bank.credit_bureau',
-  revolving_credit: 'bank.revolving_credit',
-} as const;
-export type CreditPreviewProduct = keyof typeof CREDIT_PREVIEW_ENGINES;
-
-/** The engine actions each preview page offers. Every one refuses. */
-export const CREDIT_PREVIEW_ACTIONS = {
-  overdraft: ['check_eligibility', 'apply', 'change_limit', 'cancel'],
-  personal_loan: ['check_eligibility', 'apply'],
-  business_term_loan: ['check_eligibility', 'apply'],
-  credit_bureau: ['view_file'],
-  revolving_credit: ['apply', 'borrow', 'repay'],
-} as const satisfies Record<CreditPreviewProduct, readonly string[]>;
-
-const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/);
-const sampleRow = z
-  .object({ termMonths: z.number().int().positive(), monthly: decimal, totalInterest: decimal, test: z.literal(true) })
-  .strict();
-const shell = {
-  label: z.literal(CREDIT_PREVIEW_LABEL),
-  preview: z.literal(true),
-  blurred: z.literal(true),
-  currency: z.literal(CREDIT_PREVIEW_CURRENCY),
-};
-
-export const creditPreviewOverviewSchema = z
-  .object({
-    ...shell,
-    overdraft: z
-      .object({
-        engine: z.literal(CREDIT_PREVIEW_ENGINES.overdraft),
-        limits: z.array(decimal),
-        rate: decimal,
-        /** What a month at each sample limit, fully used, costs at the sample rate. */
-        monthlyCost: z.array(z.object({ limit: decimal, cost: decimal, test: z.literal(true) }).strict()),
-        repaymentWindowMonths: z.number().int().positive(),
-        test: z.literal(true),
-      })
-      .strict(),
-    personalLoan: z
-      .object({
-        engine: z.literal(CREDIT_PREVIEW_ENGINES.personal_loan),
-        amount: decimal,
-        rate: decimal,
-        terms: z.array(sampleRow),
-        test: z.literal(true),
-      })
-      .strict(),
-    businessTermLoan: z
-      .object({
-        engine: z.literal(CREDIT_PREVIEW_ENGINES.business_term_loan),
-        amount: decimal,
-        flatFee: decimal,
-        terms: z.array(z.object({ weeks: z.number().int().positive(), weekly: decimal, fee: decimal, test: z.literal(true) }).strict()),
-        test: z.literal(true),
-      })
-      .strict(),
-    bureau: z
-      .object({
-        engine: z.literal(CREDIT_PREVIEW_ENGINES.credit_bureau),
-        rows: z.array(
-          z.object({ item: z.enum(['account_history', 'repayment_history', 'how_it_appears']), test: z.literal(true) }).strict(),
-        ),
-      })
-      .strict(),
-  })
-  .strict();
-export type CreditPreviewOverview = z.infer<typeof creditPreviewOverviewSchema>;
-
-/** A fixed TEST id the schedule preview sends to the servicing preview doors; no loan with it exists or is looked up. */
-export const SAMPLE_UNSECURED_LOAN_ID = '00000000-0000-4000-8000-000000000012' as const;
-
-export const creditPreviewScheduleSchema = z
-  .object({
-    ...shell,
-    sampleLoanId: z.literal(SAMPLE_UNSECURED_LOAN_ID),
-    amount: decimal,
-    rate: decimal,
-    termMonths: z.number().int().positive(),
-    rows: z.array(z.object({ n: z.number().int().positive(), amount: decimal, test: z.literal(true) }).strict()),
-  })
-  .strict();
-
-export const REVOLVING_SECTIONS = [
-  'credit_limit',
-  'statements',
-  'interest_tiers',
-  'repayments',
-  'bureau_reporting',
-  'collections',
-] as const;
-export const creditPreviewRevolvingSchema = z
-  .object({
-    ...shell,
-    engine: z.literal(CREDIT_PREVIEW_ENGINES.revolving_credit),
-    rows: z
-      .array(
-        z.object({ section: z.enum(REVOLVING_SECTIONS), item: z.string(), figure: decimal.nullable(), test: z.literal(true) }).strict(),
-      )
-      .min(1),
-  })
-  .strict();
-
+export {
+  CREDIT_PREVIEW_ACTIONS,
+  REVOLVING_SECTIONS,
+  CREDIT_PREVIEW_CURRENCY,
+  CREDIT_PREVIEW_ENGINES,
+  CREDIT_PREVIEW_LABEL,
+  SAMPLE_UNSECURED_LOAN_ID,
+  creditPreviewActInputSchema,
+  creditPreviewOverviewSchema,
+  creditPreviewRevolvingSchema,
+  creditPreviewScheduleSchema,
+  type CreditPreviewActInput,
+  type CreditPreviewOverview,
+} from '@intafaced/contracts/bank-credit-preview-procedures';
 const freezeAll = <T extends object>(rows: readonly T[]): readonly T[] => Object.freeze(rows.map((r) => Object.freeze({ ...r })));
 const T = true as const;
 
@@ -218,17 +136,8 @@ const REVOLVING = Object.freeze({
 
 /** Copies so no caller can change the frozen fixtures. */
 export const creditPreviewOverview = (): CreditPreviewOverview => structuredClone(OVERVIEW);
-export const creditPreviewSchedule = () => structuredClone(SCHEDULE) as z.infer<typeof creditPreviewScheduleSchema>;
-export const creditPreviewRevolving = () => structuredClone(REVOLVING) as z.infer<typeof creditPreviewRevolvingSchema>;
-
-export const creditPreviewActInputSchema = z.discriminatedUnion('product', [
-  z.object({ product: z.literal('overdraft'), action: z.enum(CREDIT_PREVIEW_ACTIONS.overdraft) }).strict(),
-  z.object({ product: z.literal('personal_loan'), action: z.enum(CREDIT_PREVIEW_ACTIONS.personal_loan) }).strict(),
-  z.object({ product: z.literal('business_term_loan'), action: z.enum(CREDIT_PREVIEW_ACTIONS.business_term_loan) }).strict(),
-  z.object({ product: z.literal('credit_bureau'), action: z.enum(CREDIT_PREVIEW_ACTIONS.credit_bureau) }).strict(),
-  z.object({ product: z.literal('revolving_credit'), action: z.enum(CREDIT_PREVIEW_ACTIONS.revolving_credit) }).strict(),
-]);
-export type CreditPreviewActInput = z.infer<typeof creditPreviewActInputSchema>;
+export const creditPreviewSchedule = () => structuredClone(SCHEDULE) as CreditPreviewSchedule;
+export const creditPreviewRevolving = () => structuredClone(REVOLVING) as CreditPreviewRevolving;
 
 /** Always throws the typed Preview refusal (PRECONDITION_FAILED, `error.data.preview`). Nothing is read or written. */
 export function refuseCreditPreviewAct(input: CreditPreviewActInput): never {
@@ -236,15 +145,17 @@ export function refuseCreditPreviewAct(input: CreditPreviewActInput): never {
 }
 
 /** `bank.creditPreviews.*`: TEST reads and one refusing action door. The router takes no services, so it can touch none. */
+
+/** The credit previews' one refusal: the typed Preview refusal `throwPreviewRefusal` raises, read from its cause. */
+const previewRefusalOnly: RefusalOf = (err) =>
+  err instanceof TRPCError && previewRefusalOf(err.cause) ? { code: PREVIEW_REFUSAL_CODE, error: err } : undefined;
+
+/** `bank.creditPreviews.*`, mounted from its records: TEST reads and one refusing action door. It takes no services, so it can touch none. */
 export function createCreditPreviewsRouter() {
-  const read = scopedProcedure('bank:read', { module: 'bank' });
   return router({
-    overview: read.output(creditPreviewOverviewSchema).query(() => creditPreviewOverview()),
-    schedule: read.output(creditPreviewScheduleSchema).query(() => creditPreviewSchedule()),
-    revolving: read.output(creditPreviewRevolvingSchema).query(() => creditPreviewRevolving()),
-    act: scopedProcedure('bank:write', { module: 'bank' })
-      .input(creditPreviewActInputSchema)
-      .output(z.never())
-      .mutation(({ input }): never => refuseCreditPreviewAct(input)),
+    overview: mountRecord(BANK_CREDIT_PREVIEWS_OVERVIEW, () => creditPreviewOverview(), previewRefusalOnly),
+    schedule: mountRecord(BANK_CREDIT_PREVIEWS_SCHEDULE, () => creditPreviewSchedule(), previewRefusalOnly),
+    revolving: mountRecord(BANK_CREDIT_PREVIEWS_REVOLVING, () => creditPreviewRevolving(), previewRefusalOnly),
+    act: mountRecord(BANK_CREDIT_PREVIEWS_ACT, ({ input }) => refuseCreditPreviewAct(input), previewRefusalOnly),
   });
 }

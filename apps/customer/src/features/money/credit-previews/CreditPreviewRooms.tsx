@@ -1,19 +1,29 @@
 import { useState, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
-import { Button } from '@intafaced/ui';
+import { Button, Field } from '@intafaced/ui/lit';
 import { FlowTemplate, KeyValue, RefusalBox, Table, type KeyValueRow, type Notice, type RoomState } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session/session';
+import type { AppProcedure } from '../../../shared/api';
+import {
+  BANK_CREDIT_PREVIEWS_ACT,
+  BANK_CREDIT_PREVIEWS_OVERVIEW,
+  BANK_CREDIT_PREVIEWS_REVOLVING,
+  BANK_CREDIT_PREVIEWS_SCHEDULE,
+  type CreditPreviewActInput,
+  type CreditPreviewOverview,
+  type CreditPreviewRevolving,
+  type CreditPreviewSchedule,
+} from '@intafaced/contracts/bank-credit-preview-procedures';
 import { creditPreviewCopy } from './credit-preview-copy';
-import './credit-previews.css';
 
 /**
  * The credit previews (J-bank-12), each at its own route on the flow template:
  *   /bank/loans/overdraft and its credit bureau panel, /bank/loans/personal, /bank/business/loan (BK-loan-08),
  *   /bank/loans/schedule (BK-loan-09), /bank/cards/credit-card (BK-loan-10), /bank/cards/credit (BK-cops-09).
  * The kit's notice says "Preview · sample data" on every one. Every figure is a TEST fixture the bank serves
- * (`bank.creditPreviews.*`, `bank.creditCard.preview`), shown blurred with a text alternative, never a constant here.
+ * (`bank.creditPreviews.*`, `bank.creditCard.preview`), shown as marked sample data with a text alternative, never a constant here.
  * Local choices (a term, a name, a date) stay on the page; every engine action is sent to the bank, which refuses it
  * with the typed Preview refusal (`preview.engine_not_built`, HTTP 412). Nothing is stored and no money moves.
  */
@@ -26,48 +36,25 @@ const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/);
 /** Dynamic keys (an engine, an action, a section) read through one door. */
 const tk = (c: Copy, key: string, vars?: Record<string, string | number>) => (c.t as (k: string, v?: unknown) => string)(key, vars);
 
-const overviewSchema = z.object({
-  label: z.string(),
-  currency: z.string(),
-  overdraft: z.object({
-    limits: z.array(decimal),
-    rate: decimal,
-    monthlyCost: z.array(z.object({ limit: decimal, cost: decimal, test: z.literal(true) })),
-    repaymentWindowMonths: z.number().int(),
-  }),
-  personalLoan: z.object({
-    amount: decimal,
-    rate: decimal,
-    terms: z.array(z.object({ termMonths: z.number().int(), monthly: decimal, totalInterest: decimal, test: z.literal(true) })),
-  }),
-  businessTermLoan: z.object({
-    amount: decimal,
-    flatFee: decimal,
-    terms: z.array(z.object({ weeks: z.number().int(), weekly: decimal, fee: decimal, test: z.literal(true) })),
-  }),
-  bureau: z.object({ rows: z.array(z.object({ item: z.string(), test: z.literal(true) })) }),
-});
-const scheduleSchema = z.object({
-  currency: z.string(),
-  sampleLoanId: z.string(),
-  amount: decimal,
-  rate: decimal,
-  termMonths: z.number().int(),
-  rows: z.array(z.object({ n: z.number().int(), amount: decimal, test: z.literal(true) })),
-});
 const policySchema = z.union([
   z.object({ status: z.literal('not_set') }),
   z.object({ status: z.literal('set'), graceDays: z.number().int(), catchUpDays: z.number().int(), lateFee: decimal }),
 ]);
-const revolvingSchema = z.object({
-  currency: z.string(),
-  rows: z.array(z.object({ section: z.string(), item: z.string(), figure: decimal.nullable(), test: z.literal(true) })),
-});
 const cardSchema = z.object({
   tabs: z.array(z.string()),
   rows: z.array(z.object({ tab: z.string(), item: z.string(), test: z.literal(true) })),
 });
 
+/** One credit-preview read, by its record. */
+function useBankRecord<R extends AppProcedure>(record: R) {
+  const { api, userId } = useSession();
+  return useResource(async (signal) => {
+    if (!userId) return { ok: false as const, reason: 'unauthorized' as const, message: '' };
+    return api.call(record, undefined as never, { signal });
+  }, `${userId}:${record.name}`);
+}
+
+/** A read of a door with no record yet (`loans.*`, `creditCard.*`, written before records). */
 function useBankPreview<T>(procedure: string, schema: ZodType<T>, input?: unknown) {
   const { api, userId } = useSession();
   return useResource<T>(async (signal) => {
@@ -87,9 +74,13 @@ function useEngineAction() {
   const { api } = useSession();
   const [refused, setRefused] = useState<Refused | null>(null);
   const [busy, setBusy] = useState(false);
-  async function act(action: string, procedure: string, input: unknown) {
+  /** `procedure` is the record, or the name of a door with no record yet. */
+  async function act(action: string, procedure: typeof BANK_CREDIT_PREVIEWS_ACT | string, input: unknown) {
     setBusy(true);
-    const res = await api.mutate('bank', procedure, input, z.never());
+    const res =
+      typeof procedure === 'string'
+        ? await api.mutate('bank', procedure, input, z.never())
+        : await api.call(procedure, input as CreditPreviewActInput);
     setBusy(false);
     if (res.ok) return;
     // The refusal's message is `preview.engine_not_built — <engine>:<action>`; the engine names what is missing.
@@ -124,11 +115,14 @@ function PreviewRefusal({ refused }: { refused: Refused | null }) {
   );
 }
 
-/** A panel that would show an engine's output: blurred TEST figures, with a text alternative that says so. */
+/**
+ * A panel that would show an engine's output: TEST sample figures, named as sample data for a screen reader too. The kit
+ * draws no blur on the content layer, so the panel is marked as sample data, never drawn as a real figure.
+ */
 function EnginePanel({ name, children }: { name: string; children: ReactNode }) {
   const c = creditPreviewCopy.useCopy();
   return (
-    <div data-testid="preview-engine" data-blurred="true" aria-label={tk(c, 'blurred', { name })} className="credit-preview-engine">
+    <div data-testid="preview-engine" data-sample="true" role="group" aria-label={tk(c, 'sampleData', { name })}>
       {children}
     </div>
   );
@@ -137,9 +131,9 @@ function EnginePanel({ name, children }: { name: string; children: ReactNode }) 
 function ActionButtons({ actions, busy, onAct }: { actions: readonly string[]; busy: boolean; onAct: (action: string) => void }) {
   const c = creditPreviewCopy.useCopy();
   return (
-    <div className="credit-preview-actions">
+    <div>
       {actions.map((a, i) => (
-        <Button key={a} variant={i === actions.length - 1 ? 'primary' : 'secondary'} disabled={busy} onClick={() => onAct(a)}>
+        <Button key={a} tone={i === actions.length - 1 ? 'primary' : 'secondary'} disabled={busy} onClick={() => onAct(a)}>
           {tk(c, `action_${a}`)}
         </Button>
       ))}
@@ -185,14 +179,14 @@ function dataOf<T>(r: { status: string; data?: T }): T | null {
 
 export function OverdraftPreviewRoom() {
   const c = creditPreviewCopy.useCopy();
-  const { resource } = useBankPreview('creditPreviews.overview', overviewSchema);
+  const { resource } = useBankRecord(BANK_CREDIT_PREVIEWS_OVERVIEW);
   const engine = useEngineAction();
   const [limit, setLimit] = useState<string | null>(null);
-  const view = dataOf<z.infer<typeof overviewSchema>>(resource);
+  const view = dataOf<CreditPreviewOverview>(resource);
   const od = view?.overdraft;
   const chosen = limit ?? od?.limits[0] ?? '';
   const cost = od?.monthlyCost.find((r) => r.limit === chosen);
-  const act = (action: string, product = 'overdraft') => void engine.act(action, 'creditPreviews.act', { product, action });
+  const act = (action: string, product = 'overdraft') => void engine.act(action, BANK_CREDIT_PREVIEWS_ACT, { product, action });
   return (
     <FlowTemplate
       title={c.t('overdraftTitle')}
@@ -202,7 +196,7 @@ export function OverdraftPreviewRoom() {
       step={
         view && od ? (
           <div data-testid="credit-preview" data-room="overdraft">
-            <label className="field">
+            <label>
               <span>{c.t('overdraftLimit')}</span>
               <select name="limit" value={chosen} onChange={(e) => setLimit(e.target.value)}>
                 {od.limits.map((l) => (
@@ -218,7 +212,7 @@ export function OverdraftPreviewRoom() {
                 <ul>
                   {view.bureau.rows.map((r) => (
                     <li key={r.item}>
-                      {tk(c, `bureau_${r.item}`)} <span className="credit-preview-test">{c.t('test')}</span>
+                      {tk(c, `bureau_${r.item}`)} {c.t('test')}
                     </li>
                   ))}
                 </ul>
@@ -259,14 +253,14 @@ export function OverdraftPreviewRoom() {
 
 export function PersonalLoanPreviewRoom() {
   const c = creditPreviewCopy.useCopy();
-  const { resource } = useBankPreview('creditPreviews.overview', overviewSchema);
+  const { resource } = useBankRecord(BANK_CREDIT_PREVIEWS_OVERVIEW);
   const engine = useEngineAction();
   const [term, setTerm] = useState<number | null>(null);
   const [name, setName] = useState('');
-  const view = dataOf<z.infer<typeof overviewSchema>>(resource);
+  const view = dataOf<CreditPreviewOverview>(resource);
   const pl = view?.personalLoan;
   const chosen = pl?.terms.find((t) => t.termMonths === term) ?? pl?.terms[0];
-  const act = (action: string) => void engine.act(action, 'creditPreviews.act', { product: 'personal_loan', action });
+  const act = (action: string) => void engine.act(action, BANK_CREDIT_PREVIEWS_ACT, { product: 'personal_loan', action });
   return (
     <FlowTemplate
       title={c.t('personalTitle')}
@@ -276,18 +270,15 @@ export function PersonalLoanPreviewRoom() {
       step={
         view && pl && chosen ? (
           <div data-testid="credit-preview" data-room="personal_loan">
-            <label className="field">
-              <span>{c.t('loanName')}</span>
-              <input
-                name="loanName"
-                value={name}
-                maxLength={40}
-                onChange={(e) => setName(e.target.value)}
-                aria-describedby="loan-name-hint"
-              />
-              <small id="loan-name-hint">{c.t('loanNameHint')}</small>
-            </label>
-            <label className="field">
+            <Field
+              label={c.t('loanName')}
+              hint={c.t('loanNameHint')}
+              name="loanName"
+              value={name}
+              maxLength={40}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <label>
               <span>{c.t('term')}</span>
               <select name="term" value={chosen.termMonths} onChange={(e) => setTerm(Number(e.target.value))}>
                 {pl.terms.map((t) => (
@@ -332,13 +323,13 @@ export function PersonalLoanPreviewRoom() {
 
 export function BusinessLoanPreviewRoom() {
   const c = creditPreviewCopy.useCopy();
-  const { resource } = useBankPreview('creditPreviews.overview', overviewSchema);
+  const { resource } = useBankRecord(BANK_CREDIT_PREVIEWS_OVERVIEW);
   const engine = useEngineAction();
   const [weeks, setWeeks] = useState<number | null>(null);
-  const view = dataOf<z.infer<typeof overviewSchema>>(resource);
+  const view = dataOf<CreditPreviewOverview>(resource);
   const bl = view?.businessTermLoan;
   const chosen = bl?.terms.find((t) => t.weeks === weeks) ?? bl?.terms[0];
-  const act = (action: string) => void engine.act(action, 'creditPreviews.act', { product: 'business_term_loan', action });
+  const act = (action: string) => void engine.act(action, BANK_CREDIT_PREVIEWS_ACT, { product: 'business_term_loan', action });
   return (
     <FlowTemplate
       title={c.t('businessTitle')}
@@ -348,7 +339,7 @@ export function BusinessLoanPreviewRoom() {
       step={
         view && bl && chosen ? (
           <div data-testid="credit-preview" data-room="business_term_loan">
-            <label className="field">
+            <label>
               <span>{c.t('term')}</span>
               <select name="weeks" value={chosen.weeks} onChange={(e) => setWeeks(Number(e.target.value))}>
                 {bl.terms.map((t) => (
@@ -392,11 +383,11 @@ export function BusinessLoanPreviewRoom() {
 
 export function LoanSchedulePreviewRoom() {
   const c = creditPreviewCopy.useCopy();
-  const { resource } = useBankPreview('creditPreviews.schedule', scheduleSchema);
+  const { resource } = useBankRecord(BANK_CREDIT_PREVIEWS_SCHEDULE);
   const policy = useBankPreview('loans.missedPaymentPolicy', policySchema);
   const engine = useEngineAction();
   const [date, setDate] = useState('');
-  const view = dataOf<z.infer<typeof scheduleSchema>>(resource);
+  const view = dataOf<CreditPreviewSchedule>(resource);
   const p = dataOf<z.infer<typeof policySchema>>(policy.resource);
   const policyRows: KeyValueRow[] =
     p?.status === 'set'
@@ -430,10 +421,7 @@ export function LoanSchedulePreviewRoom() {
                 rowKey={(r) => String(r.n)}
               />
             </EnginePanel>
-            <label className="field">
-              <span>{c.t('newDate')}</span>
-              <input type="date" name="repaymentDate" value={date} onChange={(e) => setDate(e.target.value)} />
-            </label>
+            <Field label={c.t('newDate')} type="date" name="repaymentDate" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
         ) : null
       }
@@ -492,26 +480,23 @@ export function CreditCardPreviewRoom() {
               void engine.act('submit', 'creditCard.application', { variant });
             }}
           >
-            <label className="field">
+            <label>
               <span>{c.t('variant')}</span>
               <select name="variant" value={variant} onChange={(e) => setVariant(e.target.value as typeof variant)}>
                 <option value="credit_card">{c.t('variant_credit_card')}</option>
                 <option value="charge_card">{c.t('variant_charge_card')}</option>
               </select>
             </label>
-            <label className="field">
-              <span>{c.t('income')}</span>
-              <input
-                name="income"
-                inputMode="decimal"
-                value={income}
-                onChange={(e) => setIncome(e.target.value)}
-                aria-describedby="income-hint"
-              />
-              <small id="income-hint">{c.t('incomeHint')}</small>
-            </label>
+            <Field
+              label={c.t('income')}
+              hint={c.t('incomeHint')}
+              name="income"
+              inputMode="decimal"
+              value={income}
+              onChange={(e) => setIncome(e.target.value)}
+            />
             <PreviewRefusal refused={engine.refused} />
-            <Button type="submit" variant="primary" disabled={engine.busy}>
+            <Button type="submit" tone="primary" disabled={engine.busy}>
               {c.t('action_submit')}
             </Button>
           </form>
@@ -530,7 +515,7 @@ export function CreditCardPreviewRoom() {
                       .filter((r) => r.tab === tab)
                       .map((r) => (
                         <li key={r.item} data-testid="credit-card-row">
-                          {item(r.item)} <span className="credit-preview-test">{c.t('test')}</span>
+                          {item(r.item)} {c.t('test')}
                         </li>
                       ))}
                   </ul>
@@ -548,12 +533,12 @@ export function CreditCardPreviewRoom() {
 
 export function RevolvingCreditPreviewRoom() {
   const c = creditPreviewCopy.useCopy();
-  const { resource } = useBankPreview('creditPreviews.revolving', revolvingSchema);
+  const { resource } = useBankRecord(BANK_CREDIT_PREVIEWS_REVOLVING);
   const engine = useEngineAction();
   const [statementOpen, setStatementOpen] = useState(false);
-  const view = dataOf<z.infer<typeof revolvingSchema>>(resource);
+  const view = dataOf<CreditPreviewRevolving>(resource);
   const sections = view ? [...new Set(view.rows.map((r) => r.section))] : [];
-  const act = (action: string) => void engine.act(action, 'creditPreviews.act', { product: 'revolving_credit', action });
+  const act = (action: string) => void engine.act(action, BANK_CREDIT_PREVIEWS_ACT, { product: 'revolving_credit', action });
   return (
     <FlowTemplate
       title={c.t('revolvingTitle')}
@@ -570,7 +555,7 @@ export function RevolvingCreditPreviewRoom() {
                 <section key={section} aria-label={tk(c, `section_${section}`)} data-section={section}>
                   <h2>{tk(c, `section_${section}`)}</h2>
                   {section === 'statements' ? (
-                    <Button variant="secondary" aria-expanded={statementOpen} onClick={() => setStatementOpen((o) => !o)}>
+                    <Button tone="secondary" aria-expanded={statementOpen} onClick={() => setStatementOpen((o) => !o)}>
                       {statementOpen ? c.t('closeStatement') : c.t('openStatement')}
                     </Button>
                   ) : null}

@@ -6,7 +6,7 @@ const en = {
   label: 'Preview · sample data',
   noticeBody:
     'These credit products are not offered: the engine behind this page is not built and needs a licence we do not hold. Every figure is TEST sample data, not an offer.',
-  blurred: '{name}: sample data, not an offer',
+  sampleData: '{name}: sample data, not an offer',
   refusalTitle: '{action} is a preview in this build',
   refusalBody: 'The bank refused it: the {engine} is not built. Nothing was stored and no money moved.',
   refusalOther: 'The bank did not take this action. Nothing was stored.',

@@ -26,15 +26,18 @@ function context(scopes: string[]): Context {
   };
 }
 
-/** Every service throws on touch: no preview may read or write a store or the ledger. */
-const untouched = new Proxy(
-  {},
-  {
-    get(_t, name) {
-      throw new Error(`credit preview touched bank.${String(name)}`);
+/**
+ * Every service throws when called: no preview may read or write a store or the ledger. The bank router reads its services'
+ * members as it is built, so a member read answers another such service; only a call throws.
+ */
+const untouchedAt = (path: string): BankServices =>
+  new Proxy(function untouched() {}, {
+    get: (_t, name) => (typeof name === 'symbol' ? undefined : untouchedAt(`${path}.${name}`)),
+    apply: () => {
+      throw new Error(`credit preview touched ${path}`);
     },
-  },
-) as BankServices;
+  }) as unknown as BankServices;
+const untouched = untouchedAt('bank');
 
 const caller = (scopes: string[]) => createBankRouter(untouched).createCaller(context(scopes));
 

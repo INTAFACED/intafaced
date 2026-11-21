@@ -69,7 +69,8 @@ export const moneyCopy = areaCopy({
     'Personal loan': 'Personal loan',
     'Preview: loan calculator, eligibility and term': 'Preview: loan calculator, eligibility and term',
     'Unsecured loan schedule': 'Unsecured loan schedule',
-    'Preview: repayment schedule, date change and missed-payment policy': 'Preview: repayment schedule, date change and missed-payment policy',
+    'Preview: repayment schedule, date change and missed-payment policy':
+      'Preview: repayment schedule, date change and missed-payment policy',
     'Credit card': 'Credit card',
     'Preview: application with a soft check, rules and fees': 'Preview: application with a soft check, rules and fees',
     'Revolving credit': 'Revolving credit',
@@ -183,11 +184,13 @@ export const moneyCopy = areaCopy({
     'Money calendar': 'Calendario de dinero',
     'Everything dated, by day': 'Todo lo que tiene fecha, por día',
     Overdraft: 'Descubierto',
-    'Preview: overdraft limit, rate and credit bureau reporting': 'Vista previa: límite de descubierto, tipo de interés e informes a la central de riesgos',
+    'Preview: overdraft limit, rate and credit bureau reporting':
+      'Vista previa: límite de descubierto, tipo de interés e informes a la central de riesgos',
     'Personal loan': 'Préstamo personal',
     'Preview: loan calculator, eligibility and term': 'Vista previa: calculadora de préstamo, requisitos y plazo',
     'Unsecured loan schedule': 'Calendario del préstamo sin garantía',
-    'Preview: repayment schedule, date change and missed-payment policy': 'Vista previa: calendario de pagos, cambio de fecha y política de impagos',
+    'Preview: repayment schedule, date change and missed-payment policy':
+      'Vista previa: calendario de pagos, cambio de fecha y política de impagos',
     'Credit card': 'Tarjeta de crédito',
     'Preview: application with a soft check, rules and fees': 'Vista previa: solicitud con consulta suave, normas y comisiones',
     'Revolving credit': 'Crédito revolvente',
@@ -302,11 +305,13 @@ export const moneyCopy = areaCopy({
     'Money calendar': 'Calendrier de l’argent',
     'Everything dated, by day': 'Tout ce qui a une date, jour par jour',
     Overdraft: 'Découvert',
-    'Preview: overdraft limit, rate and credit bureau reporting': 'Aperçu : plafond de découvert, taux et déclaration aux bureaux de crédit',
+    'Preview: overdraft limit, rate and credit bureau reporting':
+      'Aperçu : plafond de découvert, taux et déclaration aux bureaux de crédit',
     'Personal loan': 'Prêt personnel',
     'Preview: loan calculator, eligibility and term': 'Aperçu : simulateur de prêt, éligibilité et durée',
     'Unsecured loan schedule': 'Échéancier du prêt non garanti',
-    'Preview: repayment schedule, date change and missed-payment policy': 'Aperçu : échéancier, changement de date et politique en cas d’impayé',
+    'Preview: repayment schedule, date change and missed-payment policy':
+      'Aperçu : échéancier, changement de date et politique en cas d’impayé',
     'Credit card': 'Carte de crédit',
     'Preview: application with a soft check, rules and fees': 'Aperçu : demande avec vérification douce, règles et frais',
     'Revolving credit': 'Crédit renouvelable',

@@ -1,6 +1,523 @@
 {
   "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
   "procedures": {
+    "bank.creditPreviews.act": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "creditPreviews.act",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {
+        "preview.engine_not_built": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "product": {
+                "type": "string",
+                "const": "overdraft"
+              },
+              "action": {
+                "type": "string",
+                "enum": ["check_eligibility", "apply", "change_limit", "cancel"]
+              }
+            },
+            "required": ["product", "action"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "product": {
+                "type": "string",
+                "const": "personal_loan"
+              },
+              "action": {
+                "type": "string",
+                "enum": ["check_eligibility", "apply"]
+              }
+            },
+            "required": ["product", "action"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "product": {
+                "type": "string",
+                "const": "business_term_loan"
+              },
+              "action": {
+                "type": "string",
+                "enum": ["check_eligibility", "apply"]
+              }
+            },
+            "required": ["product", "action"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "product": {
+                "type": "string",
+                "const": "credit_bureau"
+              },
+              "action": {
+                "type": "string",
+                "enum": ["view_file"]
+              }
+            },
+            "required": ["product", "action"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "product": {
+                "type": "string",
+                "const": "revolving_credit"
+              },
+              "action": {
+                "type": "string",
+                "enum": ["apply", "borrow", "repay"]
+              }
+            },
+            "required": ["product", "action"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "not": {}
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "product": "overdraft",
+            "action": "apply"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "product": "revolving_credit",
+            "action": "borrow"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "product": "overdraft",
+            "action": "borrow"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "product": "mortgage",
+            "action": "apply"
+          }
+        }
+      ]
+    },
+    "bank.creditPreviews.overview": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "creditPreviews.overview",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "const": "Preview · sample data"
+          },
+          "preview": {
+            "type": "boolean",
+            "const": true
+          },
+          "blurred": {
+            "type": "boolean",
+            "const": true
+          },
+          "currency": {
+            "type": "string",
+            "const": "EUR"
+          },
+          "overdraft": {
+            "type": "object",
+            "properties": {
+              "engine": {
+                "type": "string",
+                "const": "bank.overdraft"
+              },
+              "limits": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                }
+              },
+              "rate": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "monthlyCost": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "limit": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    "cost": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    "test": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": ["limit", "cost", "test"],
+                  "additionalProperties": false
+                }
+              },
+              "repaymentWindowMonths": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "test": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": ["engine", "limits", "rate", "monthlyCost", "repaymentWindowMonths", "test"],
+            "additionalProperties": false
+          },
+          "personalLoan": {
+            "type": "object",
+            "properties": {
+              "engine": {
+                "type": "string",
+                "const": "bank.personal_loan"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "rate": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "terms": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "termMonths": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "monthly": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    "totalInterest": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    "test": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": ["termMonths", "monthly", "totalInterest", "test"],
+                  "additionalProperties": false
+                }
+              },
+              "test": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": ["engine", "amount", "rate", "terms", "test"],
+            "additionalProperties": false
+          },
+          "businessTermLoan": {
+            "type": "object",
+            "properties": {
+              "engine": {
+                "type": "string",
+                "const": "bank.business_term_loan"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "flatFee": {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              "terms": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "weeks": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "weekly": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    "fee": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    "test": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": ["weeks", "weekly", "fee", "test"],
+                  "additionalProperties": false
+                }
+              },
+              "test": {
+                "type": "boolean",
+                "const": true
+              }
+            },
+            "required": ["engine", "amount", "flatFee", "terms", "test"],
+            "additionalProperties": false
+          },
+          "bureau": {
+            "type": "object",
+            "properties": {
+              "engine": {
+                "type": "string",
+                "const": "bank.credit_bureau"
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "item": {
+                      "type": "string",
+                      "enum": ["account_history", "repayment_history", "how_it_appears"]
+                    },
+                    "test": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": ["item", "test"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["engine", "rows"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["label", "preview", "blurred", "currency", "overdraft", "personalLoan", "businessTermLoan", "bureau"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "bank.creditPreviews.revolving": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "creditPreviews.revolving",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "const": "Preview · sample data"
+          },
+          "preview": {
+            "type": "boolean",
+            "const": true
+          },
+          "blurred": {
+            "type": "boolean",
+            "const": true
+          },
+          "currency": {
+            "type": "string",
+            "const": "EUR"
+          },
+          "engine": {
+            "type": "string",
+            "const": "bank.revolving_credit"
+          },
+          "rows": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "section": {
+                  "type": "string",
+                  "enum": ["credit_limit", "statements", "interest_tiers", "repayments", "bureau_reporting", "collections"]
+                },
+                "item": {
+                  "type": "string"
+                },
+                "figure": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "test": {
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": ["section", "item", "figure", "test"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["label", "preview", "blurred", "currency", "engine", "rows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "bank.creditPreviews.schedule": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "creditPreviews.schedule",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "const": "Preview · sample data"
+          },
+          "preview": {
+            "type": "boolean",
+            "const": true
+          },
+          "blurred": {
+            "type": "boolean",
+            "const": true
+          },
+          "currency": {
+            "type": "string",
+            "const": "EUR"
+          },
+          "sampleLoanId": {
+            "type": "string",
+            "const": "00000000-0000-4000-8000-000000000012"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "rate": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "termMonths": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "test": {
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": ["n", "amount", "test"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["label", "preview", "blurred", "currency", "sampleLoanId", "amount", "rate", "termMonths", "rows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "bank.deposits.address": {
       "service": "svc-bank",
       "module": "bank",

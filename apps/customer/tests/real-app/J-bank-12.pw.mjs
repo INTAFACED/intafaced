@@ -8,7 +8,7 @@ import { signIn, signUp, verify } from './desk.mjs';
 // (labelled previews). One test per step, titled "J-bank-12 #<n>", run in order on one fresh, verified TEST account that
 // holds TEST 10 USDT, so "no money moved" is read against a real ledger balance. None of these credit engines exists (each
 // needs a licence we do not hold): every page sits at its own route with the kit's "Preview · sample data" notice, its
-// engine panels blurred with a text alternative, and every figure is a TEST fixture svc-bank serves. Every engine action
+// engine panels marked as sample data with a text alternative, and every figure is a TEST fixture svc-bank serves. Every engine action
 // is refused by svc-bank with the platform's typed Preview refusal (packages/contracts/src/preview-refusal.ts: code
 // `preview.engine_not_built`, kind `preview`, HTTP 412). No application is stored and no money moves.
 const J = 'J-bank-12';
@@ -45,7 +45,7 @@ async function holdings() {
   return { balances: await session.balances(), loans: await bankRead(session, 'loans.list', { limit: 50 }) };
 }
 
-/** A preview room's shell: its title, the kit's preview notice, its blurred engine panels and its TEST figures. */
+/** A preview room's shell: its title, the kit's preview notice, its sample-data engine panels and its TEST figures. */
 async function previewRoom(page, path, title, room) {
   await page.goto(path);
   await expect(page.getByRole('heading', { name: title, level: 1 })).toBeVisible();
@@ -56,13 +56,13 @@ async function previewRoom(page, path, title, room) {
   const engines = page.getByTestId('preview-engine');
   expect(await engines.count(), `${room} has engine panels`).toBeGreaterThan(0);
   for (const panel of await engines.all()) {
-    await expect(panel).toHaveAttribute('data-blurred', 'true');
+    await expect(panel).toHaveAttribute('data-sample', 'true');
     await expect(panel).toHaveAttribute('aria-label', /sample data, not an offer/);
     await expect(panel).toContainText('TEST');
   }
 }
 
-/** Every figure in the blurred panels (an amount or a rate) is followed by its TEST label. */
+/** Every figure in the sample-data panels (an amount or a rate) is followed by its TEST label. */
 async function everyFigureTest(page) {
   for (const panel of await page.getByTestId('preview-engine').all()) {
     const text = (await panel.innerText()).replace(/\s+/g, ' ');
@@ -242,12 +242,12 @@ test(`${J} #5 opens the revolving credit page over test data: a labelled preview
   for (const name of ['Credit limit', 'Statements', 'Interest tiers', 'Repayments', 'Bureau reporting', 'Collections'])
     await expect(page.getByRole('region', { name, exact: true })).toBeVisible();
 
-  // The statement opens behind the preview: its figures blurred, each labelled TEST.
+  // The statement opens behind the preview: its figures sample data, each labelled TEST.
   const statements = page.getByRole('region', { name: 'Statements', exact: true });
   await expect(statements.getByTestId('preview-engine')).toHaveCount(0);
   await statements.getByRole('button', { name: 'Open the statement' }).click();
   const statement = statements.getByTestId('preview-engine');
-  await expect(statement).toHaveAttribute('data-blurred', 'true');
+  await expect(statement).toHaveAttribute('data-sample', 'true');
   const balance = view.rows.find((r) => r.item === 'statement_balance');
   await expect(statement).toContainText(`${balance.figure} EUR TEST`);
   await everyFigureTest(page);

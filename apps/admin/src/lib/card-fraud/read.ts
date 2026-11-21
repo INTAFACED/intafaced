@@ -1,6 +1,5 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
+import { founderCall, partFrom, type FounderCallContext, type Part } from '@/lib/desk';
 
 /**
  * The card fraud risk preview (BK-cops-09, J-bank-12 #5): svc-bank `ops.fraudPreview`, TEST rows only. No fraud engine
