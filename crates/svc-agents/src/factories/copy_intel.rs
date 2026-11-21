@@ -95,7 +95,8 @@ pub fn is_forbidden_returns_rank_key(rank_by: &str) -> bool {
 
 // ── The live plane ─────────────────────────────────────────────────────────
 
-/// The owner's live leader plane, as `live-leader-plane-refuse.ts` reads it from the process environment on each call:
+/// The owner's live leader plane, as `live-leader-plane-refuse.ts` reads it from the process environment (read once at
+/// start-up here, into `Factories`, as the environment does not change while the process runs):
 /// open only when `LIVE_TRADE_COPY_LEADER_PLANE_OPEN` trims to `true`, with the trimmed, non-blank ids of
 /// `LIVE_TRADE_COPY_LEADER_IDS`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -120,11 +121,6 @@ impl LivePlane {
             })
             .unwrap_or_default();
         LivePlane { open, ids }
-    }
-
-    /// The plane as this process's environment holds it now (`process.env`).
-    pub fn process() -> LivePlane {
-        LivePlane::from_lookup(|k| std::env::var(k).ok())
     }
 
     /// `isLiveLeaderPlaneAllowlisted(requested)`: the plane open, a sealed list, and the caller naming a non-empty subset
@@ -565,7 +561,7 @@ pub fn handle(cx: &Cx<'_>, call: &str) -> Result<Json, RunError> {
                 cx.now_of("now"),
                 input.get("copyPlane").as_str(),
                 list.as_deref(),
-                &LivePlane::process(),
+                &cx.ports.copy_leader_plane,
             );
             match stats {
                 Stats::Ok {
@@ -606,7 +602,7 @@ pub fn handle(cx: &Cx<'_>, call: &str) -> Result<Json, RunError> {
                 cx.fee_asset_id(),
                 &run,
                 cx.ports.copy_leaders.as_deref(),
-                &LivePlane::process(),
+                &cx.ports.copy_leader_plane,
             )
         }
         _ => Err(RunError::Trpc(crate::door::not_ported(cx.ctx.call.slice))),

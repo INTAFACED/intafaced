@@ -42,6 +42,8 @@ pub struct Factories {
     pub support_desk: Option<Box<dyn support::Desk>>,
     /// \`copyLeaderFixturesPort\`: svc-trade's copy leaders (\`TRADE_URL\`).
     pub copy_leaders: Option<Box<dyn copy_intel::LeaderFixtures>>,
+    /// The owner's live copy-leader plane (\`LIVE_TRADE_COPY_LEADER_PLANE_OPEN\`, \`LIVE_TRADE_COPY_LEADER_IDS\`).
+    pub copy_leader_plane: copy_intel::LivePlane,
     /// \`payMetricsPort\`: svc-pay's merchant metrics (\`PAY_URL\`).
     pub pay_metrics: Option<Box<dyn merchant::PayMetrics>>,
 }

@@ -27,6 +27,7 @@ use svc_agents::db::{self, Store};
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
 use svc_agents::env::{self, AgentsEnv, DEFAULT_PORT};
 use svc_agents::factories::Factories;
+use svc_agents::factories::copy_intel::{LeaderFixtures, LeaderFixturesHttp, LivePlane};
 use svc_agents::factories::merchant::{PayMetrics, PayMetricsHttp};
 use svc_agents::factories::scanner::{SpotTickers, SpotTickersHttp};
 use svc_agents::gateway::Gateway;
@@ -305,7 +306,7 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
 }
 
 /// The factories' live ports as \`index.ts\` builds them, each outside call signed as svc-agents (with its own key when
-/// S2S is on): svc-trade's tickers while \`TRADE_URL\` is set, svc-pay's merchant metrics while \`PAY_URL\` is.
+/// S2S is on): svc-trade's tickers and copy leaders while \`TRADE_URL\` is set (with the owner's live leader plane), svc-pay's merchant metrics while \`PAY_URL\` is.
 fn factories(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Factories, String> {
     let url = |k: &str| env.str(k).filter(|u| !u.is_empty());
     let s2s = s2s_from_env(
@@ -327,6 +328,14 @@ fn factories(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Factories, Strin
     Ok(Factories {
         spot_tickers: url("TRADE_URL")
             .map(|u| Box::new(SpotTickersHttp::new(u, fetch.clone())) as Box<dyn SpotTickers>),
+        copy_leaders: url("TRADE_URL").map(|u| {
+            Box::new(LeaderFixturesHttp::new(
+                u,
+                signer("svc-trade"),
+                fetch.clone(),
+            )) as Box<dyn LeaderFixtures>
+        }),
+        copy_leader_plane: LivePlane::from_lookup(|k| env.raw.get(k).cloned()),
         pay_metrics: url("PAY_URL").map(|u| {
             Box::new(PayMetricsHttp::new(u, signer("svc-pay"), fetch.clone()))
                 as Box<dyn PayMetrics>
