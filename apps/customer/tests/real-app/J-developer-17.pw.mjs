@@ -4,6 +4,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN } from './admin.mjs';
 import { userIdOf } from './copy.mjs';
 import { codeOf, holderAgain, keyHolder, makeKey, withKey } from './developer.mjs';
+import { contactChannels } from './help-centre.mjs';
 import { staffSignIn } from './staff.mjs';
 import { tool } from './stack.mjs';
 
@@ -77,7 +78,7 @@ async function customerWorld(browser) {
     keys: { open, fenced },
     calls: {
       ok: { requestId: requestIdOf(ok), body: ok.body },
-      outside: { requestId: requestIdOf(outside), code: outsideCode, status: outside.status },
+      outside: { requestId: requestIdOf(outside), code: outsideCode, status: outside.status, body: outside.body },
       stranger: requestIdOf(strangerCall),
     },
   };
@@ -138,10 +139,19 @@ test(`${J} #1 searches the request id: metadata and the typed error only, no sec
     await expect(row).toContainText(String(w.calls.outside.status));
     await expect(row).toContainText(w.calls.outside.code);
     await expect(calls.getByRole('row').filter({ hasText: w.calls.ok.requestId })).toHaveCount(0);
-    // No secret and no body: not the key, its hash or a signing secret, and not one value of the reply's body.
+    // No secret and no body, the row's detail open too: not the key, its hash or a signing secret, and none of the searched
+    // reply's own words (its message and every other text value but the code and request id, which the row shows by design).
+    await row.getByRole('button', { name: 'Open', exact: true }).click();
     await expectNoSecret(page, Object.values(w.keys));
+    const bodyWords = Object.entries(w.calls.outside.body ?? {})
+      .filter(([key, value]) => typeof value === 'string' && !/^(code|intafacedCode|requestId)$/.test(key) && value.length >= 12)
+      .map(([, value]) => value);
+    expect(
+      bodyWords.length,
+      `the refused reply carries words of its own: ${JSON.stringify(w.calls.outside.body).slice(0, 300)}`,
+    ).toBeGreaterThan(0);
     const html = await page.content();
-    expect(html).not.toContain(JSON.stringify(w.calls.ok.body).slice(0, 40));
+    for (const words of bodyWords) expect(html, 'the reply body is not shown').not.toContain(words);
 
     // Another account's request id: not found on this customer, said in words.
     await openDeveloperTab(page, w.userId, w.calls.stranger);
@@ -294,15 +304,22 @@ test(`${J} #5 points the customer to the catalogue and the support route: contac
 
     // The contacts: each one is the owner's value, or "contact not set". The stack sets none, so all three are blank.
     const contacts = main.getByTestId('developers-support-contacts');
-    for (const id of ['email', 'phone', 'chat-hours']) {
+    // Each row against what the support service publishes (the email falls back to the build's address, which CI's build
+    // does not carry): a published value is shown as it is, a blank one says "contact not set".
+    const owner = await contactChannels();
+    const expected = { email: owner.email ?? process.env.VITE_SUPPORT_EMAIL ?? null, phone: owner.phone, 'chat-hours': owner.chatHours };
+    expect(Object.values(expected), 'the TEST stack leaves at least one contact blank').toContain(null);
+    for (const [id, value] of Object.entries(expected)) {
       const row = contacts.getByTestId(`developers-support-contact-${id}`);
       await expect(row).toBeVisible({ timeout: 30_000 });
-      const state = await row.getAttribute('data-state');
-      if (state === 'unset') await expect(row).toContainText('contact not set');
-      else expect(state).toBe('set');
+      if (value === null) {
+        await expect(row).toHaveAttribute('data-state', 'unset');
+        await expect(row.getByRole('definition')).toHaveText('contact not set');
+      } else {
+        await expect(row).toHaveAttribute('data-state', 'set');
+        await expect(row.getByRole('definition')).toHaveText(value);
+      }
     }
-    const blank = contacts.locator('[data-state="unset"]');
-    await expect(blank.first(), 'the TEST stack leaves at least one contact blank').toBeVisible();
 
     // The request form still works with contacts blank: it opens from the page and a request is sent with the request id.
     await main.getByTestId('developers-support-ticket').getByRole('link', { name: 'Open a request form', exact: true }).click();
