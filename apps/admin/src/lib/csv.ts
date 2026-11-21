@@ -9,7 +9,7 @@ export function csvCell(value: string): string {
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
-export function csvRow(cells: readonly string[]): string {
+function csvRow(cells: readonly string[]): string {
   return cells.map(csvCell).join(',');
 }
 

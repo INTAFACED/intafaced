@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { format, resolveConfig } from 'prettier';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-export const RULE = 'garden/no-cross-feature-import';
+const RULE = 'garden/no-cross-feature-import';
 const PATHS = ['apps/admin/src', 'apps/customer/src'];
 const TEST = /\.(?:test|spec)\.[cm]?[jt]sx?$|\.test-util\.[jt]sx?$/u;
 const SERVER_ONLY = /^\s*import\s+['"]server-only['"];?\s*$/mu;

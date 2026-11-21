@@ -42,10 +42,6 @@ export function addDecimal(a: string, b: string): string {
   return fromScaled(toScaled(a) + toScaled(b));
 }
 
-export function isZeroDecimal(value: string): boolean {
-  return toScaled(value) === 0n;
-}
-
 /**
  * Whole-number permille (0 to 1000) of `value` against `max`, for bar heights only.
  * The division happens in bigint; the result is a layout ratio, not money.
