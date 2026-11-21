@@ -219,6 +219,8 @@ pub struct Issue {
     path: Vec<Json>,
     message: String,
     cont: Cont,
+    /// An `addIssue` that named no path: zod appends the path after the message.
+    path_last: bool,
 }
 
 impl Issue {
@@ -228,6 +230,7 @@ impl Issue {
             path: Vec::new(),
             message,
             cont,
+            path_last: false,
         }
     }
 
@@ -243,8 +246,13 @@ impl Issue {
             .iter()
             .map(|(k, v)| ((*k).to_owned(), v.clone()))
             .collect();
-        out.push(("path".to_owned(), Json::Array(self.path.clone())));
-        out.push(("message".to_owned(), Json::str(self.message.clone())));
+        let path = ("path".to_owned(), Json::Array(self.path.clone()));
+        let message = ("message".to_owned(), Json::str(self.message.clone()));
+        if self.path_last {
+            out.extend([message, path]);
+        } else {
+            out.extend([path, message]);
+        }
         Json::Object(out)
     }
 
@@ -284,7 +292,8 @@ pub fn issues_json(issues: &[Issue]) -> Json {
 pub trait Refiner {
     fn refine(&self, id: &str, value: &Value) -> Result<bool, String>;
     /// A `superRefine` named `id`: the issues its `ctx.addIssue` calls add, each a path and a message (code `custom`,
-    /// and the parse goes on, as zod 3's form of `addIssue` sets it). A service without one refuses the name.
+    /// and the parse goes on, as zod 3's form of `addIssue` sets it). An empty path is an `addIssue` that named none.
+    /// A service without one refuses the name.
     fn super_refine(&self, id: &str, value: &Value) -> Result<Vec<(Vec<Json>, String)>, String> {
         let _ = value;
         Err(format!("no superRefine named {id}"))
@@ -1066,10 +1075,13 @@ impl Schema {
             }
             Check::Super(id) => {
                 for (path, message) in refiner.super_refine(id, &p.value).map_err(Thrown)? {
-                    p.issues.push(
+                    // An issue with no path is one whose `addIssue` named none: zod writes its path last.
+                    let path_last = path.is_empty();
+                    let mut issue =
                         Issue::new(vec![("code", Json::str("custom"))], message, Cont::Yes)
-                            .at(path),
-                    );
+                            .at(path);
+                    issue.path_last = path_last;
+                    p.issues.push(issue);
                 }
             }
         }
