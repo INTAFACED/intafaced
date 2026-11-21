@@ -133,6 +133,15 @@ function plan(opts) {
       hand.push({ site: s, why: s.problem });
       continue;
     }
+    const arg = schemaArgOf(s);
+    const checks = arg ? answerChecks(load(s.file), arg) : [];
+    if (checks.length) {
+      hand.push({
+        site: s,
+        why: `its own schema checks the answer, ${checks.join(', ')}: move the check to the call's \`accept\` by hand`,
+      });
+      continue;
+    }
     if (!byPath.has(s.path)) byPath.set(s.path, []);
     byPath.get(s.path).push(s);
   }
@@ -293,13 +302,58 @@ function build(opts, planned) {
   return { changes, created, problems, done };
 }
 
+/** The schema a caller parses the answer with, or undefined. */
+function schemaArgOf(s) {
+  const a = s.node.arguments;
+  return s.shape === 'founderCall' ? (s.reader ? undefined : a[5]?.arguments?.[0]) : a[3];
+}
+
+// zod methods that check or change an answer beyond its shape: a record's `output` copies the router's shape, so a caller's
+// own check would be lost with its schema. Such a call stays as it is, for its check to move to `accept` by hand.
+const ANSWER_CHECKS = new Set(['refine', 'superRefine', 'transform', 'pipe', 'check', 'preprocess', 'catch', 'overwrite']);
+
+/** The checks a caller's schema makes on the answer: `name (file:line)`, following the app's own consts and imports. */
+export function answerChecks(p, node, seen = new Set()) {
+  const found = [];
+  const visit = (q, n) => {
+    if (!n || seen.has(`${q.file}:${n.start}`)) return;
+    seen.add(`${q.file}:${n.start}`);
+    walk(n, (m) => {
+      if (
+        m.type === 'CallExpression' &&
+        m.callee.type === 'MemberExpression' &&
+        !m.callee.computed &&
+        ANSWER_CHECKS.has(m.callee.property.name)
+      )
+        found.push(
+          `.${m.callee.property.name}() (${relative(REPO, q.file)}:${q.src.slice(0, m.callee.property.start).split('\n').length})`,
+        );
+      if (m.type !== 'Identifier') return;
+      const parent = q.parents.get(m);
+      if (parent?.type === 'MemberExpression' && parent.property === m && !parent.computed) return;
+      if (parent?.type === 'Property' && parent.key === m && !parent.computed && !parent.shorthand) return;
+      const b = bindingOf(q, m, m.name);
+      if (b.kind === 'var' && b.declarator.init) visit(q, b.declarator.init);
+      else if (b.kind === 'import' && b.from.startsWith('.')) {
+        const file = resolveRelative(q.file, b.from);
+        if (!file || !file.includes('/apps/')) return;
+        const r = load(file);
+        const d = bindingOf(r, r.program, b.imported);
+        if (d.kind === 'var' && d.declarator.init) visit(r, d.declarator.init);
+      }
+    });
+  };
+  visit(p, node);
+  return [...new Set(found)];
+}
+
 /** One caller, rewritten to its record. */
 function rewriteSite(changes, s, name, spec, takesNone) {
   const p = load(s.file);
   const n = s.node;
   const a = n.arguments;
   // The hand schema the caller parsed with: its types now come from the record (`retype`).
-  const schemaArg = s.shape === 'founderCall' ? (s.reader ? undefined : a[5]?.arguments?.[0]) : a[3];
+  const schemaArg = schemaArgOf(s);
   if (schemaArg?.type === 'Identifier') {
     const f = changes.of(s.file);
     f.schemas ??= new Map();

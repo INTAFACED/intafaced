@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { pruneImports, recordName } from './index.mjs';
+import { answerChecks, pruneImports, recordName } from './index.mjs';
 import { freeNames, load } from './ast.mjs';
 
 test('a record is named by its module and path, a leading segment that repeats the module dropped', () => {
@@ -50,4 +50,24 @@ test('the step scripts load without running', async () => {
   await import('./run.mjs');
   await import('./refusals.mjs');
   await import('./samples.mjs');
+});
+
+test("a caller's own check on the answer is found, through its consts, so the call is left for its check to move to `accept`", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'c.ts');
+  writeFileSync(
+    file,
+    [
+      'const row = z.object({ id: z.string() });',
+      'const mine = row.refine((r) => r.id === me);',
+      'export const a = api.mutate("notify", "notify.x", {}, z.object({ alert: mine }));',
+      'export const b = api.mutate("notify", "notify.y", {}, z.object({ alert: row }));',
+      '',
+    ].join('\n'),
+  );
+  const p = load(file);
+  const [a, b] = p.program.body.slice(2).map((s) => s.declaration.declarations[0].init.arguments[3]);
+  assert.equal(answerChecks(p, a).length, 1);
+  assert.match(answerChecks(p, a)[0], /^\.refine\(\) \(.*c\.ts:2\)$/);
+  assert.deepEqual(answerChecks(p, b), []);
 });
