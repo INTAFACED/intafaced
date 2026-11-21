@@ -363,3 +363,91 @@ fn rail_urls(
     }
     Ok(urls)
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "a test: a failure is the point")]
+    use super::*;
+
+    // `env-idempotency-conflict-mode.test.ts`, case for case: a production-posture process refuses a reused key with
+    // a different body whatever the setting says; dev and test keep the setting and its `detect` default.
+    fn mode(vars: &[(&str, &str)]) -> &'static str {
+        let secret = "s".repeat(32);
+        let mut source: BTreeMap<String, String> = [
+            ("NODE_ENV", "test"),
+            ("DATABASE_URL", "postgres://u:p@localhost:5432/db"),
+            ("DATABASE_POOL_MAX", "10"),
+            ("INTERNAL_SERVICE_SECRET", secret.as_str()),
+            ("INTERNAL_SERVICE_BODY_BIND", "require"),
+            ("JWT_ACCESS_SECRET", secret.as_str()),
+            ("RECONCILE_CRON_MINUTES", "60"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+        for (k, v) in vars {
+            source.insert((*k).to_owned(), (*v).to_owned());
+        }
+        match load(&source) {
+            Ok(env) => env.idempotency_conflict_mode,
+            Err(e) => panic!("{vars:?}: {}", e.message),
+        }
+    }
+
+    #[test]
+    fn app_env_prod_or_staging_resolves_refuse_for_the_default_and_for_an_explicit_detect() {
+        for app_env in ["prod", "staging"] {
+            assert_eq!(mode(&[("APP_ENV", app_env)]), "refuse", "{app_env} default");
+            assert_eq!(
+                mode(&[
+                    ("APP_ENV", app_env),
+                    ("LEDGER_IDEMPOTENCY_CONFLICT_MODE", "detect")
+                ]),
+                "refuse",
+                "{app_env} detect"
+            );
+            assert_eq!(
+                mode(&[
+                    ("APP_ENV", app_env),
+                    ("LEDGER_IDEMPOTENCY_CONFLICT_MODE", "refuse")
+                ]),
+                "refuse",
+                "{app_env} refuse"
+            );
+        }
+    }
+
+    #[test]
+    fn node_env_production_without_app_env_is_enforced_too() {
+        assert_eq!(
+            mode(&[
+                ("NODE_ENV", "production"),
+                ("LEDGER_IDEMPOTENCY_CONFLICT_MODE", "detect")
+            ]),
+            "refuse"
+        );
+    }
+
+    #[test]
+    fn app_env_dev_or_test_keeps_the_configured_value_and_the_detect_default() {
+        for app_env in ["dev", "test"] {
+            assert_eq!(mode(&[("APP_ENV", app_env)]), "detect", "{app_env} default");
+            assert_eq!(
+                mode(&[
+                    ("APP_ENV", app_env),
+                    ("LEDGER_IDEMPOTENCY_CONFLICT_MODE", "detect")
+                ]),
+                "detect",
+                "{app_env} detect"
+            );
+            assert_eq!(
+                mode(&[
+                    ("APP_ENV", app_env),
+                    ("LEDGER_IDEMPOTENCY_CONFLICT_MODE", "refuse")
+                ]),
+                "refuse",
+                "{app_env} refuse"
+            );
+        }
+    }
+}
