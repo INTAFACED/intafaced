@@ -3,7 +3,7 @@
 //! units, with backtracking (so a lookahead such as `(?=\d*[1-9])` works, which the `regex` crate refuses).
 //!
 //! Served: `^`, `$`, `.`, literals and escapes (`\d \D \w \W \s \S`, `\.` and other escaped punctuation, `\n \r \t
-//! \f \v \0`), character classes with ranges and negation, groups (capturing, `(?:...)`, `(?=...)`, `(?!...)`),
+//! \f \v \0`), the word boundaries `\b` and `\B` (over `\w`'s ASCII word characters, as JavaScript reads them), character classes with ranges and negation, groups (capturing, `(?:...)`, `(?=...)`, `(?!...)`),
 //! alternation, and the quantifiers `* + ? {n} {n,} {n,m}` (greedy, or lazy with `?`). No flags. A pattern using
 //! anything else is refused when it is read, never matched differently.
 
@@ -31,9 +31,14 @@ enum Node {
     Any,
     Class(Class),
     Group(Alt),
-    Look { alt: Alt, negative: bool },
+    Look {
+        alt: Alt,
+        negative: bool,
+    },
     Start,
     End,
+    /// `\b`, or `\B` when negated.
+    Boundary(bool),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -140,8 +145,10 @@ impl Reader<'_> {
             let node = self.atom()?;
             let (min, max) = self.quantifier()?;
             let greedy = !(self.peek().is_some() && (min, max) != (1, Some(1)) && self.eat('?'));
-            if matches!(node, Node::Start | Node::End | Node::Look { .. })
-                && (min, max) != (1, Some(1))
+            if matches!(
+                node,
+                Node::Start | Node::End | Node::Boundary(_) | Node::Look { .. }
+            ) && (min, max) != (1, Some(1))
             {
                 return Err("a quantified assertion".to_owned());
             }
@@ -251,6 +258,8 @@ impl Reader<'_> {
                 node
             }
             '[' => Node::Class(self.class()?),
+            '\\' if self.eat('b') => Node::Boundary(false),
+            '\\' if self.eat('B') => Node::Boundary(true),
             '\\' => match self.escape()? {
                 Ok(u) => Node::Unit(u),
                 Err(set) => Node::Class(Class {
@@ -413,6 +422,14 @@ impl Matcher<'_> {
         match &t.node {
             Node::Start => pos == 0 && self.resume(pos, next),
             Node::End => pos == self.text.len() && self.resume(pos, next),
+            Node::Boundary(negated) => {
+                let word = |p: Option<usize>| {
+                    p.and_then(|p| self.text.get(p))
+                        .is_some_and(|u| Set::Word(false).has(*u))
+                };
+                let at = word(pos.checked_sub(1)) != word(Some(pos));
+                at != *negated && self.resume(pos, next)
+            }
             Node::Look { alt, negative } => {
                 (self.alt(alt, pos, &Next::Done) != *negative) && self.resume(pos, next)
             }
@@ -463,6 +480,20 @@ mod tests {
 
     fn re(s: &str) -> Regex {
         Regex::new(s).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    #[test]
+    fn a_word_boundary_reads_as_javascript_reads_it() {
+        let b = re(r"/\bleader\s?board\b/");
+        assert!(b.test("show the leaderboard now"));
+        assert!(b.test("leader board"));
+        assert!(!b.test("leaderboards"));
+        assert!(!b.test("xleaderboard"));
+        // An accented letter is not a word character: the boundary falls on either side of it, as in JavaScript.
+        assert!(re(r"/\bl[ií]der\b/").test("el líder"));
+        assert!(re(r"/a\Bb/").test("ab"));
+        assert!(!re(r"/a\Bb/").test("a b"));
+        assert!(Regex::new(r"/\b+/").is_err());
     }
 
     #[test]

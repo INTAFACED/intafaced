@@ -37,6 +37,7 @@ use crate::db::Store;
 use crate::gateway::desk::GatewaySlice;
 use crate::gateway::readiness::{self, ReadyInput};
 use crate::metering::Metering;
+use crate::runtime::Runtime;
 
 /// A query answers GET, a mutation POST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -269,6 +270,8 @@ pub struct DoorConfig {
     pub ready: ReadyInput,
     /// The meter, its settings and what it asks outside the process (`metering`).
     pub metering: Metering,
+    /// The runtime's own settings: the spend gate, the funds, the transcript and the grace (`runtime`).
+    pub runtime: Runtime,
 }
 
 pub struct AgentsDoor {
@@ -284,6 +287,7 @@ pub struct AgentsDoor {
     gateway: GatewaySlice,
     ready: ReadyInput,
     metering: Metering,
+    runtime: Runtime,
 }
 
 /// The system clock.
@@ -326,6 +330,7 @@ impl AgentsDoor {
             gateway: config.gateway,
             ready: config.ready,
             metering: config.metering,
+            runtime: config.runtime,
         })
     }
 
@@ -359,6 +364,13 @@ impl AgentsDoor {
             ]))),
             Slice::Gateway => self.gateway.handle(&self.store, ctx),
             Slice::Metering => crate::metering::slice::handle(ctx, &self.store, &self.metering),
+            Slice::Runtime => crate::runtime::slice::handle(
+                ctx,
+                &self.store,
+                &self.gateway,
+                &self.metering,
+                &self.runtime,
+            ),
             other => Err(not_ported(other)),
         }
     }

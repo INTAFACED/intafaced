@@ -252,7 +252,7 @@ export function chainOf(proc) {
   return { kind, input, output, handler, guard, problems };
 }
 
-const ACCESS_OPTS = new Set(['module', 'plane', 'tier', 'person', 'ownSession']);
+const ACCESS_OPTS = new Set(['module', 'plane', 'tier', 'person', 'ownSession', 'check']);
 
 /**
  * Guards whose check no record field says, so their calls stay by name: each with the reason. Naming one here only ever
@@ -261,7 +261,6 @@ const ACCESS_OPTS = new Set(['module', 'plane', 'tier', 'person', 'ownSession'])
 const KEPT_GUARDS = new Map([
   ['coachRunProcedure', 'checks agents:execute with its own refusal codes before the person-only check; no record field says that'],
   ['opsProcedure', "adds svc-campaigns' ops second-factor check (requireOpsMfa); no record field says that"],
-  ['merchantApiProcedure', "reads an API key's live merchant standing (svc-p2p); no record field says that"],
   [
     'jobProcedure',
     "is a job twin's signed-service check (requireBankJobService, requireTokenJobService) with its own refusal message, not serviceProcedureFor's",
@@ -380,6 +379,11 @@ function guardOf(p, node, problems, depth = 0, env = undefined) {
     const parts = [];
     for (const prop of v.node.properties) {
       const k = prop.type === 'Property' ? keyOf(prop) : undefined;
+      // The service's own check (`GuardOptions.check`) is named on the record; the mount takes it from the service's parts.
+      if (k === 'check' && allowed.has(k) && prop.value.type === 'Identifier') {
+        parts.push(`check: '${prop.value.name}'`);
+        continue;
+      }
       const value = k && allowed.has(k) ? literalOf(v.p, prop.value, v.p === p ? env : undefined) : undefined;
       if (value === undefined) return null;
       parts.push(`${k}: ${typeof value === 'string' ? `'${value}'` : String(value)}`);

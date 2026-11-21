@@ -3,8 +3,8 @@ import { z } from 'zod';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from './index.js';
 import { defineProcedure, NO_INPUT, type Access } from './procedure.js';
-import { mountRecords } from './procedure-mount.js';
-import { router, scopedProcedure, TRPCError, type GuardOptions } from './trpc.js';
+import { mountRecords, type ServiceParts } from './procedure-mount.js';
+import { router, scopedProcedure, TRPCError, type GuardOptions, type ServiceCheck } from './trpc.js';
 
 /**
  * A guard a service wrote by hand, and the record the call-records codemod copies it onto, refuse exactly the same
@@ -50,7 +50,7 @@ async function contextOf(c: Caller) {
 const output = z.object({ ok: z.literal(true) });
 
 /** The record for `access`, mounted as `guarded`, and the hand guard's procedure at the same path. */
-function both(access: Access & { caller: 'scope' }, hand: ReturnType<typeof scopedProcedure>) {
+function both(access: Access & { caller: 'scope' }, hand: ReturnType<typeof scopedProcedure>, parts: ServiceParts = () => undefined) {
   const RECORD = defineProcedure({
     service: 'svc-quant',
     module: 'quant',
@@ -64,7 +64,7 @@ function both(access: Access & { caller: 'scope' }, hand: ReturnType<typeof scop
     output,
     samples: [{ verdict: 'accept' }],
   });
-  const fromRecord = mountRecords([RECORD] as const, { 'example.guarded': () => ({ ok: true as const }) }, () => undefined);
+  const fromRecord = mountRecords([RECORD] as const, { 'example.guarded': () => ({ ok: true as const }) }, parts);
   const byHand = router({ guarded: hand.output(output).query(() => ({ ok: true as const })) });
   type Ctx = Awaited<ReturnType<typeof contextOf>>;
   return {
@@ -173,5 +173,39 @@ describe('a guard copied onto its record refuses as the hand guard did', () => {
     // The option is live: at least one region is refused by it and one is served.
     expect(seen).toContainEqual({ ok: true });
     expect(seen.some((v) => typeof v === 'object' && v !== null && 'refused' in v)).toBe(true);
+  });
+
+  it("svc-p2p's merchantApiProcedure(scope): an API key without merchant standing is refused by the service's own check, through the record", async () => {
+    // The service reads standing live; here, a key's account stands when `standing` says so.
+    let standing = true;
+    const message = 'P2P API-key access requires current approved merchant standing. Use an interactive session to review or apply.';
+    const merchantApi: ServiceCheck = ({ principal }) => {
+      if (principal.kid && !standing) throw new TRPCError({ code: 'FORBIDDEN', message });
+    };
+    // svc-p2p router.ts before the record could say it (its module option is held as svc-ops' is, above).
+    const hand = scopedProcedure('p2p:read').use(({ ctx, next }) => {
+      if (ctx.principal.kid && !standing) throw new TRPCError({ code: 'FORBIDDEN', message });
+      return next();
+    });
+    const { fromRecord, byHand } = both({ caller: 'scope', scope: 'p2p:read', check: 'merchantApi' }, hand, {
+      refusalOf: () => undefined,
+      checks: { merchantApi },
+    });
+    const callers: Caller[] = [{ scopes: ['p2p:read'] }, { scopes: ['p2p:read'], kid: KEY }, { scopes: [], kid: KEY }];
+    for (const s of [true, false]) {
+      standing = s;
+      for (const c of callers) expect(await verdict(fromRecord, c), `${s} ${JSON.stringify(c)}`).toEqual(await verdict(byHand, c));
+    }
+    standing = false;
+    expect(await verdict(fromRecord, { scopes: ['p2p:read'] })).toEqual({ ok: true });
+    expect(await verdict(fromRecord, { scopes: ['p2p:read'], kid: KEY })).toEqual({ refused: 'FORBIDDEN', message });
+    standing = true;
+    expect(await verdict(fromRecord, { scopes: ['p2p:read'], kid: KEY })).toEqual({ ok: true });
+  });
+
+  it('a record naming a check its service did not hand over fails at mount, not at the first call', () => {
+    expect(() => both({ caller: 'scope', scope: 'p2p:read', check: 'merchantApi' }, scopedProcedure('p2p:read'))).toThrow(
+      "example.guarded names the check merchantApi: mount it with the service's checks",
+    );
   });
 });
