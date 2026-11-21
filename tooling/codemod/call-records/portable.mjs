@@ -350,7 +350,9 @@ function acceptsAnyJson(schema: unknown): boolean {
 export function withReplayJson(src) {
   if (src.includes('function acceptsAnyJson(')) return src;
   const m = /^function sample\([^)]*\)[^{]*\{\n/m.exec(src);
-  if (!m) return undefined;
+  // A replay that sends only its own written-out requests (svc-quant's) reads no schema, so there is nothing to teach;
+  // one that reads schemas through another sampler can't be taught here.
+  if (!m) return /schema\.json|toJSONSchema|anyOf/.test(src) ? undefined : src;
   const at = m.index + m[0].length;
   return `${src.slice(0, at)}${REPLAY_LINE}\n${src.slice(at).trimEnd()}\n${REPLAY_HELPER}`;
 }
