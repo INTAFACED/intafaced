@@ -296,7 +296,7 @@ test('portable: a refused z.unknown() is followed from the record to its source 
   const { edits, left } = plan({ views: why }, [record]);
   const f = edits.get(join(dir, 'views.ts'));
   assert.deepEqual([...f.edits.values()].map((e) => e.text).sort(), ['jsonValueSchema', 'jsonValueSchema.optional()']);
-  // A refinement has no JSON form: it stays, named.
+  // An answer's refinement with no words to quote stays, named.
   assert.deepEqual(
     left.map((l) => l.at),
     ['x.views.output.n'],
@@ -322,4 +322,35 @@ test('portable: a leading lookahead that bars one character of the class after i
   for (const s of new Set(all)) assert.equal(b.test(s), a.test(s), s);
   // A lookahead it has no plain form for stays.
   assert.equal(withoutLeadingLookahead('^(?=a)[a-z]+$'), undefined);
+});
+
+test('portable: an answer refinement with a message is named in the record, once for every place one schema sits', async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-portable-'));
+  writeFileSync(
+    join(dir, 'caps.ts'),
+    [
+      "import { z } from 'zod';",
+      "export const viewCapSchema = z.object({ cap: z.number().nullable() }).strict().refine((v) => v.cap !== 0, { message: 'a cap is never zero' });",
+      'export const listSchema = z.object({ personalCap: viewCapSchema, sharedCap: viewCapSchema });',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'caps-procedures.ts');
+  writeFileSync(
+    record,
+    [
+      "import { listSchema } from './caps.js';",
+      "export const R = defineProcedure({ name: 'x.caps', input: NO_INPUT, output: listSchema, samples: [] });",
+      '',
+    ].join('\n'),
+  );
+  const refine = '(.refine/.superRefine (a TypeScript predicate the export drops))';
+  const why = `x.caps.output cannot be exported without losing meaning: x.caps.output.personalCap ${refine}; x.caps.output.sharedCap ${refine}`;
+  const { edits, left } = plan({ caps: why }, [record]);
+  assert.deepEqual(left, []);
+  assert.deepEqual(
+    [...edits.get(record).edits.values()].map((e) => e.text),
+    [', outputChecks: { view_cap_holds: { at: ["output.personalCap", "output.sharedCap"], says: "a cap is never zero" } }'],
+  );
 });
