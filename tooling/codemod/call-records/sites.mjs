@@ -53,13 +53,17 @@ export function findSites(repo) {
         } else if (name === 'useBankRead') {
           Object.assign(site, { module: 'bank', path: literal(a[0]), problem: 'useBankRead has no record form yet' });
         }
+        if (name === 'founderCall' && a[2]?.type === 'MemberExpression' && !a[2].computed && a[2].property.name === 'procedure')
+          Object.assign(site, { shape: 'ops-dispatch', problem: 'sends the call its table entry names: it moves with the table' });
         if (!site.problem && (!site.module || !site.path)) site.problem = 'service or call named by a template';
         out.push(site);
       }
       if (n.type === 'Property') {
         const key = keyOf(n);
         const desk = key === 'procedure' ? deskRead(p, n) : undefined;
+        const entry = key === 'procedure' && !desk ? opsEntry(p, n) : undefined;
         if (desk) out.push({ file, line: line(n), node: n, shape: 'desk-read', ...desk });
+        else if (entry) out.push({ file, line: line(n), node: n, shape: 'ops-entry', ...entry });
         else if (key === 'procedure' && isString(n.value))
           out.push({
             file,
@@ -105,6 +109,114 @@ export function deskReadSite(p) {
   walk(p.program, (n) => {
     const desk = n.type === 'Property' && keyOf(n) === 'procedure' ? deskRead(p, n) : undefined;
     if (desk) out.push(desk);
+  });
+  return out;
+}
+
+/** The table an entry sits in: `const OPS = { op: { procedure: 'x.y', ... } }` (with or without `as const`), by name. */
+function tableOf(p, entry) {
+  const prop = p.parents.get(entry);
+  const table = prop?.type === 'Property' ? p.parents.get(prop) : undefined;
+  if (table?.type !== 'ObjectExpression') return undefined;
+  let up = p.parents.get(table);
+  while (up && (up.type === 'TSAsExpression' || up.type === 'TSSatisfiesExpression')) up = p.parents.get(up);
+  return up?.type === 'VariableDeclarator' && up.id.type === 'Identifier' ? { table, name: up.id.name } : undefined;
+}
+
+/**
+ * How many uses of the table could read an entry's `procedure` other than `sent` (the founderCall arguments): each
+ * use must read a named key (`OPS[op].schema`, `spec.what`), or be a type query (`keyof typeof OPS`).
+ */
+function tableLeaks(p, tableName, sent) {
+  let leaks = 0;
+  // One entry, as `OPS[op]`, `OPS.hide` or a name bound to either: only a named key other than `procedure` reads it safely.
+  const entryUse = (node) => {
+    const up = p.parents.get(node);
+    if (up?.type === 'MemberExpression' && up.object === node && !up.computed)
+      return up.property.name !== 'procedure' || sent.has(up) ? 0 : 1;
+    if (up?.type === 'VariableDeclarator' && up.init === node && up.id.type === 'Identifier') {
+      let n = 0;
+      walk(p.program, (r) => {
+        if (r.type !== 'Identifier' || r.name !== up.id.name || r === up.id) return;
+        const b = bindingOf(p, r, r.name);
+        if (b.kind === 'var' && b.declarator === up) n += entryUse(r);
+      });
+      return n;
+    }
+    return 1;
+  };
+  walk(p.program, (r) => {
+    if (r.type !== 'Identifier' || r.name !== tableName) return;
+    const up = p.parents.get(r);
+    if (up?.type === 'VariableDeclarator' && up.id === r) return;
+    if (up?.type === 'TSTypeQuery') return;
+    // Its keys only: `Object.hasOwn(OPS, op)`, `Object.keys(OPS)`, `op in OPS`.
+    if (up?.type === 'BinaryExpression' && up.operator === 'in' && up.right === r) return;
+    const callee =
+      up?.type === 'CallExpression' && up.callee.type === 'MemberExpression' ? p.src.slice(up.callee.start, up.callee.end) : '';
+    if (/^Object\.(hasOwn|keys)$/.test(callee) && up.arguments[0] === r) return;
+    if (up?.type === 'MemberExpression' && up.object === r) leaks += entryUse(up);
+    else leaks += 1;
+  });
+  return leaks;
+}
+
+/** `TABLE[op]` itself, or a name bound to it (`const spec = TABLE[op]`). */
+function readsTable(p, node, tableName) {
+  if (node.type === 'Identifier') {
+    const b = bindingOf(p, node, node.name);
+    node = b.kind === 'var' ? b.declarator.init : undefined;
+  }
+  return node?.type === 'MemberExpression' && node.object.type === 'Identifier' && node.object.name === tableName;
+}
+
+/**
+ * A table entry (`OPS = { save: { procedure: 'admin.saveLesson', ... } }`) that one or more calls in its file send as
+ * `founderCall(ctx, 'academy', spec.procedure, 'POST', input, read)`, where `spec` is `OPS[op]`. The entry names its
+ * record (`record: RECORD`) and those calls send it (`founderRecordRead(ctx, spec.record, input, read)`), the whole
+ * table or none of it.
+ */
+function opsEntry(p, n) {
+  if (!literal(n.value)) return undefined;
+  const entry = p.parents.get(n);
+  const t = entry?.type === 'ObjectExpression' ? tableOf(p, entry) : undefined;
+  if (!t) return undefined;
+  const dispatchers = [];
+  walk(p.program, (c) => {
+    if (c.type !== 'CallExpression' || calleeName(c) !== 'founderCall') return;
+    const a2 = c.arguments[2];
+    if (a2?.type === 'MemberExpression' && !a2.computed && a2.property.name === 'procedure' && readsTable(p, a2.object, t.name))
+      dispatchers.push(c);
+  });
+  const leaks = dispatchers.length ? tableLeaks(p, t.name, new Set(dispatchers.map((d) => d.arguments[2]))) : 0;
+  if (!dispatchers.length) return undefined;
+  const site = { path: literal(n.value), table: t.table, tableName: t.name, dispatchers };
+  if (leaks) site.problem = `${t.name}'s \`procedure\` is read by more than its founderCall (or the table is passed on whole)`;
+  const modules = new Set(dispatchers.map((d) => literal(d.arguments[1])));
+  const methods = new Set(dispatchers.map((d) => literal(d.arguments[3])));
+  const [module] = modules;
+  const [method] = methods;
+  site.module = module;
+  site.kind = method === 'GET' ? 'query' : method === 'POST' ? 'mutation' : undefined;
+  const b = dispatchers[0].callee.type === 'Identifier' ? bindingOf(p, dispatchers[0].callee, 'founderCall') : undefined;
+  if (b?.kind === 'import') site.founderCallFrom = b.from;
+  else site.problem ??= 'founderCall not imported by name';
+  if (site.problem) return site;
+  if (modules.size !== 1 || !module) site.problem = `${t.name}'s calls name more than one service, or none by a literal`;
+  else if (methods.size !== 1 || !site.kind) site.problem = `${t.name}'s calls send more than one method, or none by a literal`;
+  else if (dispatchers.some((d) => d.arguments.length < 6 || d.arguments.length > 7 || d.arguments.some((x) => x.type === 'SpreadElement')))
+    site.problem = `${t.name}'s calls have an argument list the codemod does not read`;
+  else if (dispatchers.some((d) => d.arguments[6] && /sendEmptyInput/.test(p.src.slice(d.arguments[6].start, d.arguments[6].end))))
+    site.problem = 'founderCall with sendEmptyInput';
+  return site;
+}
+
+/** The table entries in one parsed file that its own `founderCall(..., spec.procedure, ...)` sends. */
+export function opsEntrySites(p) {
+  const out = [];
+  walk(p.program, (n) => {
+    const entry = n.type === 'Property' && keyOf(n) === 'procedure' ? opsEntry(p, n) : undefined;
+    if (entry) out.push(entry);
   });
   return out;
 }
