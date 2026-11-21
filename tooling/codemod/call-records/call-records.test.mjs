@@ -591,9 +591,9 @@ test("a door record's accepted sample is the door's own accepted request, and no
   assert.match(samplesFor(record), /verdict: 'accept'/);
 });
 
-test('a schema const the moved call left unread goes, and the one it read after it; one still read, exported or impure stays', () => {
+test('a schema const the moved call left unread goes, and the one it read after it; one still read or impure stays, and an export no file imports loses its export', () => {
   const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
-  const file = join(dir, 'a.ts');
+  const file = join(dir, 'prune-schemas-fixture.ts');
   writeFileSync(
     file,
     [
@@ -603,7 +603,7 @@ test('a schema const the moved call left unread goes, and the one it read after 
       'const read = z.string();',
       'export const shared = z.number();',
       'const impure = makeSchema();',
-      'export const use = () => read.parse("x");',
+      'export const use = () => read.parse("x") + shared.parse(1);',
       '',
     ].join('\n'),
   );
@@ -611,6 +611,6 @@ test('a schema const the moved call left unread goes, and the one it read after 
   const out = readFileSync(file, 'utf8');
   assert.doesNotMatch(out, /const (inner|left) =/);
   assert.match(out, /const read = z\.string\(\);/);
-  assert.match(out, /export const shared/);
+  assert.match(out, /^const shared = z\.number\(\);$/m);
   assert.match(out, /const impure = makeSchema\(\);/);
 });

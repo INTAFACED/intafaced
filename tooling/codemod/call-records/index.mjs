@@ -775,7 +775,24 @@ function write(result) {
   }
   for (const [file, ch] of result.changes.files) if (ch.schemas) retype(file, ch.schemas);
   for (const file of touched) if (!file.startsWith(CONTRACTS)) pruneSchemas(file);
-  for (const file of touched) pruneImports(file);
+  // A schema a moved caller imported from another file of its app may now have no importer: that file is pruned too.
+  const sources = new Set();
+  for (const file of touched) {
+    if (file.startsWith(CONTRACTS)) continue;
+    const before = importedFrom(file);
+    pruneImports(file);
+    const after = importedFrom(file);
+    for (const [name, src] of before) if (!after.has(name) && src && !touched.includes(src)) sources.add(src);
+  }
+  for (const file of touched) if (file.startsWith(CONTRACTS)) pruneImports(file);
+  for (const src of sources) {
+    const was = readFileSync(src, 'utf8');
+    pruneSchemas(src);
+    if (readFileSync(src, 'utf8') !== was) {
+      pruneImports(src);
+      touched.push(src);
+    }
+  }
   if (touched.length)
     execFileSync(join(REPO, 'node_modules/.bin/prettier'), ['--write', '--log-level', 'warn', ...touched], {
       stdio: ['ignore', 'inherit', 'inherit'],
@@ -861,9 +878,11 @@ function retype(file, schemas) {
 
 /**
  * A schema value with nothing to run but zod: a name, a member of one, a literal, an object, array or function of such,
- * and calls on `z` or on such a value (`z.object({...}).nullable()`). Removing one nobody reads changes nothing.
+ * and calls on `z` or on a top-level const that is itself such a schema (`z.object({...})`, `ref.nullable()`).
+ * Removing one nobody reads changes nothing.
  */
-function pureSchema(n) {
+function pureSchema(n, schemas = new Set(['z'])) {
+  const pure = (x) => pureSchema(x, schemas);
   if (!n) return true;
   switch (n.type) {
     case 'Identifier':
@@ -873,26 +892,26 @@ function pureSchema(n) {
     case 'FunctionExpression':
       return true;
     case 'MemberExpression':
-      return !n.computed && pureSchema(n.object);
+      return !n.computed && pure(n.object);
     case 'ObjectExpression':
-      return n.properties.every((x) => (x.type === 'SpreadElement' ? pureSchema(x.argument) : !x.computed && pureSchema(x.value)));
+      return n.properties.every((x) => (x.type === 'SpreadElement' ? pure(x.argument) : !x.computed && pure(x.value)));
     case 'ArrayExpression':
-      return n.elements.every((x) => pureSchema(x?.type === 'SpreadElement' ? x.argument : x));
+      return n.elements.every((x) => pure(x?.type === 'SpreadElement' ? x.argument : x));
     case 'CallExpression': {
       let root = n.callee;
       while (root.type === 'MemberExpression' || root.type === 'CallExpression')
         root = root.type === 'MemberExpression' ? root.object : root.callee;
       return (
         root.type === 'Identifier' &&
-        root.name === 'z' &&
+        schemas.has(root.name) &&
         n.callee.type === 'MemberExpression' &&
-        pureSchema(n.callee.object) &&
-        n.arguments.every(pureSchema)
+        pure(n.callee.object) &&
+        n.arguments.every((x) => pure(x))
       );
     }
     case 'TSAsExpression':
     case 'TSSatisfiesExpression':
-      return pureSchema(n.expression);
+      return pure(n.expression);
     default:
       return false;
   }
@@ -900,24 +919,67 @@ function pureSchema(n) {
 
 /**
  * Removes the file's own top-level schema consts no one reads any more: a call that moved to its record no longer
- * passes the answer schema it was handed, and the const that held it is left behind. Only an unexported, single
- * declaration whose value is a pure schema goes, and again while removing one leaves another unread.
+ * passes the answer schema it was handed, and the const that held it is left behind. Only a single declaration whose
+ * value is a pure schema goes, and again while removing one leaves another unread; an exported one no other file
+ * imports loses its `export` while its own file still reads it.
  */
 export function pruneSchemas(file) {
   for (;;) {
     forget(file);
     const p = load(file);
     const edits = [];
-    for (const stmt of p.program.body) {
+    const decl = (top) => {
+      const stmt = top.type === 'ExportNamedDeclaration' && top.declaration ? top.declaration : top;
+      return stmt.type === 'VariableDeclaration' && stmt.kind === 'const' && stmt.declarations.length === 1
+        ? stmt.declarations[0]
+        : undefined;
+    };
+    // The file's own schema consts, to a fixpoint: a const built on another (`ref.nullable()`) is one too.
+    const schemas = new Set(['z']);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const top of p.program.body) {
+        const d = decl(top);
+        if (d?.id.type === 'Identifier' && !schemas.has(d.id.name) && d.init?.type === 'CallExpression' && pureSchema(d.init, schemas)) {
+          schemas.add(d.id.name);
+          grew = true;
+        }
+      }
+    }
+    for (const top of p.program.body) {
+      // An exported one counts only once no other file imports it: its importers were the calls that moved.
+      const exported = top.type === 'ExportNamedDeclaration' && top.declaration;
+      const stmt = exported ? top.declaration : top;
       if (stmt.type !== 'VariableDeclaration' || stmt.kind !== 'const' || stmt.declarations.length !== 1) continue;
       const d = stmt.declarations[0];
-      if (d.id.type !== 'Identifier' || !pureSchema(d.init)) continue;
-      if (usedOutside(p, d.id.name, [{ start: stmt.start, end: stmt.end }])) continue;
-      edits.push({ start: statementStart(p, stmt), end: statementEnd(p, stmt), text: '' });
+      // A zod call or an alias of a name, never a function or a literal: those may be an entry a framework reads.
+      const kind = d.init?.type;
+      if (d.id.type !== 'Identifier' || !/^(CallExpression|Identifier|MemberExpression)$/.test(kind ?? '') || !pureSchema(d.init, schemas))
+        continue;
+      if (exported && importersOf(file, d.id.name).length) continue;
+      const read = usedOutside(p, d.id.name, [{ start: top.start, end: top.end }]);
+      if (read && exported) edits.push({ start: top.start, end: stmt.start, text: '' });
+      else if (!read) edits.push({ start: statementStart(p, top), end: statementEnd(p, top), text: '' });
     }
     if (!edits.length) return;
     writeFileSync(file, applyEdits(p.src, edits));
   }
+}
+
+/** Each name a file imports from a file of its own app (`./x`, `@/x`), with that file. */
+function importedFrom(file) {
+  forget(file);
+  const p = load(file);
+  const app = file.match(/^(.*\/apps\/[^/]+)\//)?.[1];
+  const out = new Map();
+  for (const stmt of p.program.body) {
+    if (stmt.type !== 'ImportDeclaration') continue;
+    const spec = stmt.source.value;
+    const src =
+      spec.startsWith('@/') && app ? resolveRelative(join(app, 'src', 'x.ts'), `./${spec.slice(2)}`) : resolveRelative(file, spec);
+    for (const sp of stmt.specifiers ?? []) out.set(sp.local.name, src);
+  }
+  return out;
 }
 
 /** Removes named import specifiers a file no longer reads (only those: a side-effect import stays). */
