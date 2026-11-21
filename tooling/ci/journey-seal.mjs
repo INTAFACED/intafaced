@@ -55,16 +55,18 @@
  * blocked every product pull request, so on 8 Nov 2026 20 of 29 ready pull requests sat BLOCKED; project-state
  * research/factory-2026-11-08 R3 C1.) Fixing or reverting a main red within 2 hours stays the owners' job.
  *
- *   GH_TOKEN=... REPO=owner/name HEAD_SHA=... PR_NUMBER=... node tooling/ci/journey-seal.mjs
- *   GH_TOKEN=... REPO=... MERGE_GROUP_BASE_SHA=... MERGE_GROUP_HEAD_SHA=... MERGE_GROUP_HEAD_REF=... node tooling/ci/journey-seal.mjs
- *   GH_TOKEN=... REPO=... node tooling/ci/journey-seal.mjs --dry-run <pr> [<sha>]   (any pull request, closed too; read only)
- *   GH_TOKEN=... REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] [OLD_BODY=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
+ *   REPO=owner/name HEAD_SHA=... PR_NUMBER=... node tooling/ci/journey-seal.mjs
+ *   REPO=... MERGE_GROUP_BASE_SHA=... MERGE_GROUP_HEAD_SHA=... MERGE_GROUP_HEAD_REF=... node tooling/ci/journey-seal.mjs
+ *   REPO=... node tooling/ci/journey-seal.mjs --dry-run <pr> [<sha>]   (any pull request, closed too; read only)
+ *   REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] [OLD_BODY=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
+ * CI sets GH_TOKEN; run by hand, it reads through the logged-in gh (github-fetch.mjs).
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { githubFetch, githubToken } from './github-fetch.mjs';
 import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, manifestsAt, readReport, rootInputs } from './journey-verdict.mjs';
 import {
   DISPATCH_GROUP_MAX,
@@ -556,7 +558,7 @@ const TRANSIENT = new Set([502, 503, 504]);
 export async function getTried(
   url,
   init,
-  { fetchImpl = fetch, tries = 3, waitMs = 3000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {},
+  { fetchImpl = githubFetch, tries = 3, waitMs = 3000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {},
 ) {
   for (let n = 1; ; n++) {
     try {
@@ -2091,7 +2093,7 @@ async function waitInputsStep({ repo, token, sleep = (ms) => new Promise((r) => 
 
 /** A POST to the API that returns { status, message } and never throws on an HTTP error, so the caller decides. */
 const poster = (token) => async (path) => {
-  const res = await fetch(`https://api.github.com${path}`, {
+  const res = await githubFetch(`https://api.github.com${path}`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
   });
@@ -2226,9 +2228,10 @@ async function beforePushStep() {
 
 async function main() {
   if (process.argv.includes('--before-push')) return beforePushStep();
-  const { GH_TOKEN, REPO } = process.env;
-  if (!GH_TOKEN || !REPO) {
-    console.error('::error::journey-seal needs GH_TOKEN and REPO');
+  const { REPO } = process.env;
+  const GH_TOKEN = githubToken();
+  if (!REPO) {
+    console.error('::error::journey-seal needs REPO');
     process.exit(1);
   }
   if (process.argv.includes('--recheck')) return recheck({ repo: REPO, token: GH_TOKEN });

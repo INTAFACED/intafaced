@@ -20,8 +20,9 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { hasLocalTestMarker, isExplicitDevOrTest } from '@intafaced/config';
+import { PAY_QR_PAYLOAD_MAX, type PayQrCode } from '@intafaced/contracts/identity-handles';
 
-export type PayQrCode = 'identity.qr_key_unset' | 'identity.qr_invalid' | 'identity.qr_payee_unavailable' | 'identity.delegated_refused';
+export { PAY_QR_PAYLOAD_MAX, type PayQrCode };
 
 export class PayQrError extends Error {
   constructor(
@@ -41,8 +42,6 @@ const HANDLE_DOMAIN = 'intafaced.pay-qr.v1.handle\n';
 const SIGNATURE = /^[A-Za-z0-9_-]{43}$/;
 const TAG_LENGTH = 16;
 const TAG = /^[A-Za-z0-9_-]{16}$/;
-/** Longest payload accepted: `v1.` + 36 + `.` + 16 + `.` + 43. Anything longer is refused without parsing. */
-export const PAY_QR_PAYLOAD_MAX = 100;
 
 /**
  * The boot reading of `IDENTITY_PAY_QR_KEY`. Blank is null (every call refuses `identity.qr_key_unset`). A key shorter

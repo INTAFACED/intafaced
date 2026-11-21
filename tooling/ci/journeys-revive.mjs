@@ -41,7 +41,8 @@
  * a spent hourly budget (remaining 0, with its reset: refusal.mjs budgetSpentUntil) stops it too, with no issue, since the
  * next tick after the reset starts again from scratch.
  *
- *   node tooling/ci/journeys-revive.mjs        main runs, then pull requests (GITHUB_REPOSITORY, GH_TOKEN; DRY_RUN=1 writes nothing)
+ *   node tooling/ci/journeys-revive.mjs        main runs, then pull requests (GITHUB_REPOSITORY; DRY_RUN=1 writes nothing;
+ *                                              CI sets GH_TOKEN, by hand it reads through gh: github-fetch.mjs)
  *   node tooling/ci/journeys-revive.mjs prs    pull requests only
  *   node tooling/ci/journeys-revive.mjs main   main runs only (after each CI run on main: GitHub's cron here runs late or never)
  *   node tooling/ci/journeys-revive.mjs held   open armed pull requests held only by main's reds that main has since lost
@@ -51,6 +52,7 @@
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
 import { JOURNEY_TEST, journeyOf } from './journey-seal.mjs';
 import { budgetSpentUntil, refusalDetail } from './refusal.mjs';
+import { githubFetch, githubToken } from './github-fetch.mjs';
 
 export const MAX_ATTEMPT = 5;
 /** Minutes to wait after attempt n ended before asking for attempt n + 1. */
@@ -438,10 +440,10 @@ async function gh(method, path, body, raw = false) {
     console.log(`DRY_RUN ${method} ${path}`);
     return { status: 0, json: null };
   }
-  const res = await fetch(`https://api.github.com${path}`, {
+  const res = await githubFetch(`https://api.github.com${path}`, {
     method,
     headers: {
-      authorization: `Bearer ${process.env.GH_TOKEN}`,
+      authorization: `Bearer ${githubToken()}`,
       accept: 'application/vnd.github+json',
       'x-github-api-version': '2022-11-28',
       'content-type': 'application/json',
@@ -558,8 +560,8 @@ export async function nameRefusal(io, e) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const repo = process.env.GITHUB_REPOSITORY;
-  if (!repo || !process.env.GH_TOKEN) {
-    console.error('✖ journeys-revive: GITHUB_REPOSITORY and GH_TOKEN are required');
+  if (!repo) {
+    console.error('✖ journeys-revive: GITHUB_REPOSITORY is required');
     process.exit(1);
   }
   const io = githubIo(repo);

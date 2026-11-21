@@ -9,7 +9,8 @@
  */
 import { z } from 'zod';
 import type { ApiClient } from '../shared/api';
-import { resolveHandleSchema, type ResolveOutcome } from './identity';
+import { IDENTITY_USERS_SEARCH_PAYEES } from '@intafaced/contracts/identity-handles';
+import { handleNamed, type ResolveOutcome } from './identity';
 
 export const receiveContactListSchema = z.object({
   contacts: z.array(z.object({ id: z.string().guid(), channel: z.enum(['email', 'phone']), target: z.string(), verified: z.boolean() })),
@@ -74,15 +75,10 @@ export async function resolveContact(api: ApiClient, raw: string, signal?: Abort
   const kind = contactKind(raw);
   if (kind === null) return { kind: 'notFound' };
   const value = raw.trim();
-  const result = await api.query(
-    'identity',
-    'users.searchPayees',
-    kind === 'email' ? { email: value } : { phone: value },
-    resolveHandleSchema,
-    {
-      signal,
-    },
-  );
+  const result = await api.call(IDENTITY_USERS_SEARCH_PAYEES, kind === 'email' ? { email: value } : { phone: value }, {
+    signal,
+    accept: handleNamed,
+  });
   if (result.ok)
     return result.data.found
       ? { kind: 'found', userId: result.data.userId, handle: result.data.handle, self: result.data.self }
