@@ -7,11 +7,11 @@ import 'server-only';
  *
  * This entry is for server code: it holds the founder call, which never runs in the browser.
  */
-export { confirmPhrase, readDeskRequest, requestReason, type DeskRequest } from './approval-packet';
+export { confirmPhrase, readDeskRequest, requestReason, type DeskRequest, describeRequest, type VendorDecision } from './approval-packet';
 export { payloadHashFor, proposeInputFor } from './approval-hash';
 export type { ExecuteFn } from './approval-steps';
 export { readStepReply, type ExecuteReply } from '../approval-types';
-export { stepGate } from './desk-model';
+export { stepGate, type Gate } from './desk-model';
 export { failureRefusal } from './failure-refusal';
 export {
   edgeCall,
@@ -31,3 +31,4 @@ export { partFrom, type PartLabels } from './part';
 export { codeInText, explainRefusal, isKnownCode, type RefusalView } from '../refusal-copy';
 export { handleStep, refusalResponse, stepResponse } from './step-route';
 export { writeRefusalOf } from './write-refusal';
+export { killRefusalFor } from './module-kill-model';

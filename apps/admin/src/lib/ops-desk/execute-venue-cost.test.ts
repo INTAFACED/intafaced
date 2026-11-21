@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DeskRequest } from '@/lib/desk/approval-packet';
+import type { DeskRequest } from '@/lib/desk';
 import { opsExecute, readVenueCostAnswer } from './execute';
 
 const ctx = {
