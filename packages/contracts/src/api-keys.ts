@@ -59,10 +59,14 @@ export const AGENT_KEY_FORBIDDEN_SCOPES = [
   'pay:write',
 ] as const;
 
-const isoInstant = z.string().refine((value) => {
+/** True when `value` is exactly what `Date.toISOString` writes for a real instant (no 30 February, no other offset). */
+export function isExactInstant(value: string): boolean {
   const time = Date.parse(value);
   return Number.isFinite(time) && new Date(time).toISOString() === value;
-}, 'ISO instant');
+}
+const isoInstant = z.string().refine(isExactInstant, 'ISO instant');
+/** The shape of an exact instant, which the language-neutral export carries; `isExactInstant` adds the calendar. */
+const isoInstantShape = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 
 /** A business key the client derives from what it asked for and what it last read (`apiKeyCreateRequestId`). */
 export const apiKeyRequestIdSchema = z
@@ -112,7 +116,11 @@ export const API_KEY_REVOKE_REASON_MAX = 200;
 /** A string of at most `max` code points: an emoji counts once, as Postgres `char_length` counts it. */
 export const codePointsAtMost = (max: number) => z.string().refine((value) => [...value].length <= max, `at most ${max} characters`);
 
-export const apiKeyRecordSchema = z
+/**
+ * One key as the service answers it, in the form the language-neutral export carries. `apiKeyRecordExact` holds the two
+ * rules JSON Schema can't: each instant is a real one, and the reason is at most its limit in code points.
+ */
+export const apiKeyRecordShape = z
   .object({
     id: z.string().guid(),
     name: z.string(),
@@ -121,22 +129,32 @@ export const apiKeyRecordSchema = z
     scopes: z.array(z.string()),
     ipAllowlist: z.array(z.string()),
     requireSignature: z.boolean(),
-    createdAt: isoInstant,
-    expiresAt: isoInstant.nullable(),
-    lastUsedAt: isoInstant.nullable(),
+    createdAt: isoInstantShape,
+    expiresAt: isoInstantShape.nullable(),
+    lastUsedAt: isoInstantShape.nullable(),
     revoked: z.boolean(),
     /** When the key was revoked. Null while live, and on a key revoked before this was recorded. */
-    revokedAt: isoInstant.nullable(),
+    revokedAt: isoInstantShape.nullable(),
     revokedBy: z.enum(API_KEY_REVOKED_BY).nullable(),
     /** The reason the person typed when they revoked it themselves. An operator's own note is never shown here. */
-    revokeReason: codePointsAtMost(API_KEY_REVOKE_REASON_MAX).nullable(),
+    revokeReason: z.string().nullable(),
     /** The sub-account a portfolio-scoped key is bound to (it reaches only that account). Null on the account's own keys. */
     accountId: z.string().guid().nullable(),
     /** A person's own key, or an agent key (DV-keys-05), which the list tags. */
     kind: z.enum(API_KEY_KINDS),
   })
   .strict();
-export type ApiKeyRecord = z.infer<typeof apiKeyRecordSchema>;
+export type ApiKeyRecord = z.infer<typeof apiKeyRecordShape>;
+
+/** The rules over a key record its shape can't carry. */
+export function apiKeyRecordExact(record: ApiKeyRecord): boolean {
+  const instants = [record.createdAt, record.expiresAt, record.lastUsedAt, record.revokedAt];
+  return (
+    instants.every((at) => at === null || isExactInstant(at)) &&
+    (record.revokeReason === null || [...record.revokeReason].length <= API_KEY_REVOKE_REASON_MAX)
+  );
+}
+export const apiKeyRecordSchema = apiKeyRecordShape.refine(apiKeyRecordExact, 'an exact key record');
 
 export const apiKeyCreateOutputSchema = z
   .object({
@@ -161,10 +179,9 @@ export const apiKeyCapSchema = z.object({ limit: z.number().int().min(0).nullabl
 export type ApiKeyCap = z.infer<typeof apiKeyCapSchema>;
 
 export const apiKeyListInputSchema = z.object({ limit: z.number().int().min(1).max(200) }).strict();
-export const apiKeyListOutputSchema = z
-  .object({ keys: z.array(apiKeyRecordSchema).max(200), cap: apiKeyCapSchema })
-  .strict()
-  .refine((list) => new Set(list.keys.map((key) => key.id)).size === list.keys.length, 'each key once');
+export const apiKeyListOutputSchema = z.object({ keys: z.array(apiKeyRecordShape).max(200), cap: apiKeyCapSchema }).strict();
+/** Each key appears once in a list. */
+export const eachKeyOnce = (keys: readonly { id: string }[]): boolean => new Set(keys.map((key) => key.id)).size === keys.length;
 export type ApiKeyList = z.infer<typeof apiKeyListOutputSchema>;
 
 /** One key of the signed-in person, by id (`developerKeys.get`). */
@@ -176,7 +193,7 @@ export const apiKeyGetInputSchema = z.object({ keyId: z.string().guid() }).stric
  */
 export const apiKeyDetailSchema = z
   .object({
-    key: apiKeyRecordSchema,
+    key: apiKeyRecordShape,
     /** When true, an empty IP list refuses every call instead of leaving the key open to any address. */
     requireNonEmptyIpAllowlist: z.boolean(),
     idleExpirySeconds: z.number().int().positive().nullable(),
@@ -212,7 +229,7 @@ export const apiKeyRevokeInputSchema = z
   })
   .strict();
 export type ApiKeyRevokeInput = z.infer<typeof apiKeyRevokeInputSchema>;
-export const apiKeyRevokeOutputSchema = z.object({ record: apiKeyRecordSchema, changed: z.boolean() }).strict();
+export const apiKeyRevokeOutputSchema = z.object({ record: apiKeyRecordShape, changed: z.boolean() }).strict();
 export type ApiKeyRevokeOutput = z.infer<typeof apiKeyRevokeOutputSchema>;
 
 /**
@@ -410,7 +427,7 @@ export const developerTeamSchema = z
     manageRefusal: z.enum(DEVELOPER_TEAM_REFUSALS).nullable(),
     /** Every member with their developer role; listed to the owner only. */
     members: z.array(developerTeamMemberSchema),
-    keys: z.array(apiKeyRecordSchema),
+    keys: z.array(apiKeyRecordShape),
   })
   .strict();
 export type DeveloperTeam = z.infer<typeof developerTeamSchema>;
