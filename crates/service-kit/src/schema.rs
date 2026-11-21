@@ -353,6 +353,9 @@ enum Kind {
 struct Node {
     kind: Kind,
     checks: Vec<Check>,
+    /// The part's own `error` where it gives one message for any input but `undefined` (recorded as `definedMsg`):
+    /// that message on the type issue the part raises; an absent input keeps zod's own.
+    defined_msg: Option<String>,
 }
 
 /// zod's `optin` and `optout`: whether an absent key is allowed in, and whether `undefined` may come out.
@@ -584,7 +587,15 @@ fn read_node(n: &Json) -> Result<Node, String> {
     if matches!(kind, Kind::Pipe(..)) && !checks.is_empty() {
         return Err("a pipe with its own checks".to_owned());
     }
-    Ok(Node { kind, checks })
+    let defined_msg = field_str(n, "definedMsg").map(str::to_owned);
+    if defined_msg.is_some() && !(matches!(kind, Kind::String) && checks.is_empty()) {
+        return Err("an own error is recorded only on a string without checks".to_owned());
+    }
+    Ok(Node {
+        kind,
+        checks,
+        defined_msg,
+    })
 }
 
 /// The length a length check reads (`input.length`), and whether it has one at all (`_whenHasLength`).
@@ -1090,7 +1101,15 @@ impl Schema {
         match &node.kind {
             Kind::String => {
                 if !matches!(p.value, Value::String(_)) {
-                    p.issues.push(Self::invalid_type("string", &p.value));
+                    let mut issue = Self::invalid_type("string", &p.value);
+                    if let Some(msg) = node
+                        .defined_msg
+                        .as_ref()
+                        .filter(|_| p.value != Value::Undefined)
+                    {
+                        issue.message.clone_from(msg);
+                    }
+                    p.issues.push(issue);
                 }
             }
             Kind::Number => match p.value {
@@ -1603,6 +1622,25 @@ mod tests {
         assert_eq!(
             verdict(&s, "{}"),
             r#"[{"expected":"date","code":"invalid_type","received":"Invalid Date","path":[],"message":"Invalid input: expected date, received Date"}]"#
+        );
+    }
+
+    /// `z.string({ error: (i) => (i.input === undefined ? undefined : 'M') })`, as zod 4 answers it.
+    #[test]
+    fn a_string_with_its_own_error_names_it_for_any_input_but_an_absent_one() {
+        let s = schema(
+            r#"[{"t":"object","shape":[["a",1],["b",2]]},{"t":"nullable","in":2},{"t":"string","definedMsg":"M"}]"#,
+        );
+        assert_eq!(
+            verdict(&s, r#"{"a":7}"#),
+            r#"[{"expected":"string","code":"invalid_type","path":["a"],"message":"M"},{"expected":"string","code":"invalid_type","path":["b"],"message":"Invalid input: expected string, received undefined"}]"#
+        );
+        assert!(
+            Schema::from_json(
+                &json::parse(r#"{"nodes":[{"t":"number","definedMsg":"M"}]}"#)
+                    .unwrap_or(Json::Null)
+            )
+            .is_err()
         );
     }
 }
