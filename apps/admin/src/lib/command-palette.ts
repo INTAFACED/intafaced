@@ -45,6 +45,7 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/bank-ops/rails', label: 'Bank: rails desk', keywords: ['salary', 'direct deposit', 'payroll', 'reconciliation'] },
   { href: '/bank-ops/cards/disputes', label: 'Bank: card disputes', keywords: ['chargeback', 'dispute', 'provisional credit'] },
   { href: '/bank-ops/cards', label: 'Bank: card programme', keywords: ['cardholder', 'bin', 'authorisation rule', '3ds', 'bulk issue'] },
+  { href: '/bank-ops/cards/fraud', label: 'Bank: card fraud risk (preview)', keywords: ['fraud', 'risk score', 'preview'] },
   { href: '/more-ops/mining', label: 'Mining desk', keywords: ['pool', 'shares', 'workers'] },
   { href: '/more-ops/predict', label: 'Predict desk', keywords: ['prediction'] },
   { href: '/more-ops/agents', label: 'Agent fleet', keywords: ['agents', 'registry', 'quarantine', 'kill', 'owner'] },
