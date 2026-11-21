@@ -1,6 +1,7 @@
 // The call-records codemod's own pieces, on small inputs (the codemod itself is proven by its runs: run.mjs).
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -160,4 +161,108 @@ test('the router reader follows a builder member, an imported builder and both b
     unread.map((u) => `${u.path}: ${u.why}`),
     ['flagged.shared: two procedures under one path (a switch router)'],
   );
+});
+
+test('an ops-desk read beside readOf is a site the codemod moves to ...readOf(RECORD)', async () => {
+  const { deskReadSite } = await import('./sites.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'catalog.ts');
+  writeFileSync(
+    file,
+    [
+      'export const readOf = (r: { module: string; path: string }) => ({ module: r.module, procedure: r.path });',
+      "export const a = { id: 'bank.health', module: 'bank', procedure: 'health', shape: 'record' };",
+      "export const b = { id: 'x', procedure: 'health' };",
+      '',
+    ].join('\n'),
+  );
+  const found = deskReadSite(load(file));
+  assert.deepEqual(
+    found.map((s) => `${s.module} ${s.path} ${s.kind}`),
+    ['bank health query'],
+  );
+  // `module` and `procedure` with no `readOf` and no `ReadSpec` in reach: not a desk read.
+  const bare = join(dir, 'bare.ts');
+  writeFileSync(bare, "export const d = { module: 'bank', procedure: 'health' };\n");
+  assert.deepEqual(deskReadSite(load(bare)), []);
+  // `ReadSpec` imported, `readOf` not: a desk read that imports `readOf` from the same place.
+  const typed = join(dir, 'typed.ts');
+  writeFileSync(
+    typed,
+    "import type { ReadSpec } from '@/lib/ops-desk';\nexport const e: ReadSpec = { module: 'bank', procedure: 'health' };\n",
+  );
+  assert.deepEqual(
+    deskReadSite(load(typed)).map((s) => s.helperFrom),
+    ['@/lib/ops-desk'],
+  );
+  // An operator tool beside `toolOf`: its kind is its own, and `edgeModule` and `kind` are what the record replaces.
+  const tools = join(dir, 'tools.ts');
+  writeFileSync(
+    tools,
+    [
+      'export const toolOf = (r: { module: string; path: string; kind: string }) => ({ edgeModule: r.module, procedure: r.path, kind: r.kind });',
+      "export const t = { id: 'pay.set', edgeModule: 'pay', procedure: 'merchantState.set', kind: 'mutation', scope: 'admin:write' };",
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(
+    deskReadSite(load(tools)).map((s) => `${s.module} ${s.path} ${s.kind} ${s.helper} ${s.drop.map((d) => d.key.name).join('+')}`),
+    ['pay merchantState.set mutation toolOf edgeModule+kind'],
+  );
+});
+
+test('a table its own founderCall sends by `spec.procedure` is a site, the whole table or none of it', async () => {
+  const { opsEntrySites } = await import('./sites.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const write = (name, lines) => {
+    const file = join(dir, name);
+    writeFileSync(file, [...lines, ''].join('\n'));
+    return load(file);
+  };
+  const head = [
+    "import { founderCall } from '@/lib/desk';",
+    "const OPS = { hide: { procedure: 'ops.hide' }, show: { procedure: 'ops.show' } } as const;",
+  ];
+  const send =
+    "export const act = (ctx: never, op: 'hide' | 'show', i: unknown) => { const spec = OPS[op]; return founderCall(ctx, 'quant', spec.procedure, 'POST', i, (r) => r); };";
+  assert.deepEqual(
+    opsEntrySites(write('sent.ts', [...head, send])).map((s) => `${s.module} ${s.path} ${s.kind} ${s.problem ?? 'ok'}`),
+    ['quant ops.hide mutation ok', 'quant ops.show mutation ok'],
+  );
+  // Read anywhere else, the entry's name must stay: the table stays as it is, named.
+  const leaked = opsEntrySites(write('leaked.ts', [...head, send, 'export const name = OPS.hide.procedure;']));
+  assert.ok(leaked.every((s) => /read by more than its founderCall/.test(s.problem)));
+  const whole = opsEntrySites(write('whole.ts', [...head, send, 'export const all = OPS;']));
+  assert.ok(whole.every((s) => /passed on whole/.test(s.problem)));
+  // Its keys alone read no entry: still the shape.
+  const keys = opsEntrySites(write('keys.ts', [...head, send, 'export const has = (o: string) => Object.hasOwn(OPS, o);']));
+  assert.deepEqual(
+    keys.map((s) => s.problem ?? 'ok'),
+    ['ok', 'ok'],
+  );
+  // No call in the file sends the table: not this shape (the rule's plain `procedure:` finding).
+  assert.deepEqual(opsEntrySites(write('unsent.ts', head)), []);
+});
+
+test('a call naming one of two paths by `? :` is a site per branch, its input written out or none', async () => {
+  const { findSites } = await import('./sites.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-repo-'));
+  mkdirSync(join(repo, 'apps/customer/src'), { recursive: true });
+  writeFileSync(
+    join(repo, 'apps/customer/src/holds.ts'),
+    [
+      "export const a = (api: any, ok: boolean, id: string) => api.mutate('bank', ok ? 'holds.accept' : 'holds.deny', { id }, s);",
+      "export const b = (api: any, reg: boolean, body: object) => api.mutate('identity', reg ? 'auth.register' : 'auth.login', body, s);",
+      '',
+    ].join('\n'),
+  );
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const found = findSites(repo).map((s) => `${s.path} ${s.branch} ${s.problem ? 'stays' : 'moves'}`);
+  assert.deepEqual(found, [
+    'holds.accept consequent moves',
+    'holds.deny alternate moves',
+    'auth.register consequent stays',
+    'auth.login alternate stays',
+  ]);
 });

@@ -24,7 +24,13 @@ import {
   type VenueOrder,
   type VenueUp,
 } from '../../../features/trade/venue-api';
-import { venueConvertApi, type Conversion, type ConvertPair, type ConvertQuote } from '../../../features/trade/venue-convert-api';
+import {
+  venueConvertApi,
+  type CashOffer,
+  type Conversion,
+  type ConvertPair,
+  type ConvertQuote,
+} from '../../../features/trade/venue-convert-api';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import {
   BalancesPanel,
@@ -78,8 +84,30 @@ function pairOf(pairs: readonly ConvertPair[], from: string, to: string): { pair
   return sell ? { pair: sell, side: 'sell' } : null;
 }
 
-const reachable = (pairs: readonly ConvertPair[], from: string) =>
-  [...new Set(pairs.flatMap((p) => (p.quote === from ? [p.base] : p.base === from ? [p.quote] : [])))].sort();
+/**
+ * How `from` reaches `to`: the pair joining them, or, for a cash currency the partner converts through a coin (#11), the
+ * pair that buys `to` with that coin, as two linked steps.
+ */
+function joinOf(
+  pairs: readonly ConvertPair[],
+  cash: readonly CashOffer[],
+  from: string,
+  to: string,
+): { pair: ConvertPair; side: 'buy' | 'sell'; cash: CashOffer | null } | null {
+  const direct = pairOf(pairs, from, to);
+  if (direct) return { ...direct, cash: null };
+  for (const offer of cash.filter((c) => c.asset === from)) {
+    const pair = pairs.find((p) => p.quote === offer.via && p.base === to);
+    if (pair) return { pair, side: 'buy', cash: offer };
+  }
+  return null;
+}
+
+const reachable = (pairs: readonly ConvertPair[], from: string, cash: readonly CashOffer[] = []) => {
+  const via = cash.find((c) => c.asset === from)?.via;
+  if (via) return [...new Set(pairs.filter((p) => p.quote === via).map((p) => p.base))].sort();
+  return [...new Set(pairs.flatMap((p) => (p.quote === from ? [p.base] : p.base === from ? [p.quote] : [])))].sort();
+};
 
 /** The Convert room in venue mode: the card, its review, and Recent conversions. */
 type Unconfirmed = { actionKey: string; venueClientOrderId: string };
@@ -144,12 +172,12 @@ function VenueConvert({ status, asked }: { status: VenueUp; asked: { from: strin
       </section>
     );
   else {
-    const askedPair = asked.from && asked.to ? pairOf(pairs.pairs, asked.from, asked.to) : null;
+    const askedPair = asked.from && asked.to ? joinOf(pairs.pairs, pairs.cash, asked.from, asked.to) : null;
     card =
       asked.from && asked.to && !askedPair ? (
         <VenueRouteCard from={asked.from} to={asked.to} />
       ) : (
-        <VenueCard status={status} owner={owner} pairs={pairs.pairs} paused={pairs.paused} asked={asked} />
+        <VenueCard status={status} owner={owner} pairs={pairs.pairs} cash={pairs.cash} paused={pairs.paused} asked={asked} />
       );
   }
   return (
@@ -165,12 +193,15 @@ function VenueCard({
   status,
   owner,
   pairs,
+  cash,
   paused,
   asked,
 }: {
   status: VenueUp;
   owner: string;
   pairs: readonly ConvertPair[];
+  /** Cash currencies the partner converts through a coin for this person now (#11). */
+  cash: readonly CashOffer[];
   paused: boolean;
   asked: { from: string | null; to: string | null };
 }) {
@@ -180,11 +211,11 @@ function VenueCard({
   const wallet = useWallet();
   const account = useVenueAccount(owner);
   const initial = useMemo(() => {
-    const p = (asked.from && asked.to && pairOf(pairs, asked.from, asked.to)) || null;
+    const p = (asked.from && asked.to && joinOf(pairs, cash, asked.from, asked.to)) || null;
     if (p) return { from: asked.from!, to: asked.to! };
     const first = pairs[0];
     return first ? { from: first.quote, to: first.base } : null;
-  }, [pairs, asked]);
+  }, [pairs, cash, asked]);
   const [chosen, setChosen] = useState(initial);
   const [amount, setAmount] = useState('');
   const [target, setTarget] = useState('');
@@ -221,19 +252,21 @@ function VenueCard({
       </section>
     );
   const { from, to } = chosen;
-  const joined = pairOf(pairs, from, to);
+  const joined = joinOf(pairs, cash, from, to);
   const pair = joined?.pair ?? null;
   const side = joined?.side ?? 'buy';
-  const assets = [...new Set(pairs.flatMap((p) => [p.base, p.quote]))].sort();
+  // A cash currency is paid by the partner's step first (#11): its figure is the partner's, not the trading account's.
+  const cashLeg = joined?.cash ?? null;
+  const assets = [...new Set([...pairs.flatMap((p) => [p.base, p.quote]), ...cash.map((c) => c.asset)])].sort();
   const balances = account.balances.data;
-  const free = balances ? (balances.value.find((b) => b.asset === from)?.free ?? '0') : null;
+  const free = cashLeg ? cashLeg.available : balances ? (balances.value.find((b) => b.asset === from)?.free ?? '0') : null;
   const typed = units(amount);
   // Above the per-conversion limit (in the asset being spent) the instant card stops and points to the quote desk.
   const cap = pair?.maxPerConvert && pair.maxPerConvert.asset === from ? pair.maxPerConvert : null;
   const tooLarge = typed !== null && cap !== null && typed > parseAmount(cap.amount);
   const short = !tooLarge && typed !== null && typed > 0n && free !== null && typed > parseAmount(free);
   const min = pair?.minOrderNotional ?? null;
-  const tooSmall = !short && side === 'buy' && typed !== null && typed > 0n && min !== null && typed < parseAmount(min);
+  const tooSmall = !short && !cashLeg && side === 'buy' && typed !== null && typed > 0n && min !== null && typed < parseAmount(min);
   const ready = typed !== null && typed > 0n && !tooLarge && !short && !tooSmall && !paused && pair !== null;
   const shown = quote.state === 'ready' ? quote.quote : null;
   const stale = shown ? now > Date.parse(shown.freshUntil) : false;
@@ -265,7 +298,7 @@ function VenueCard({
     setAmount('');
     reset();
     if (which === 'from') {
-      const next = reachable(pairs, asset);
+      const next = reachable(pairs, asset, cash);
       setChosen({ from: asset, to: next.includes(to) ? to : (next[0] ?? to) });
     } else setChosen({ from, to: asset });
     setPicker(null);
@@ -414,7 +447,7 @@ function VenueCard({
             />
           </div>
           <p className="cvt-field__foot" data-testid="cvt-available">
-            {t('Available on venue', { value: free === null ? '—' : displayAmount(free), asset: from })}
+            {t(cashLeg ? 'Available at partner' : 'Available on venue', { value: free === null ? '—' : displayAmount(free), asset: from })}
           </p>
         </div>
         <div className="cvt-field" data-testid="to-field">
@@ -428,6 +461,14 @@ function VenueCard({
         </div>
       </div>
 
+      {cashLeg ? (
+        <div className="cvt-note" role="note" data-testid="cvt-linked" data-cash={cashLeg.asset} data-via={cashLeg.via}>
+          <p>
+            <strong>{t('Linked title')}.</strong> {t('Linked body', { label: cashLeg.label, via: cashLeg.via, from, to })}{' '}
+            <TestMark test={cashLeg.test} />
+          </p>
+        </div>
+      ) : null}
       {tooLarge && cap ? (
         <div className="cvt-note" role="note" data-testid="cvt-too-large">
           <p>
@@ -454,17 +495,19 @@ function VenueCard({
       ) : null}
       {short ? (
         <div className="cvt-note" role="alert" data-testid="cvt-short">
-          <p>{t('Not enough', { asset: from, value: displayAmount(free) })}</p>
-          <a
-            className="text-link"
-            href="#venue-deposit"
-            onClick={(event) => {
-              event.preventDefault();
-              setDeposit(true);
-            }}
-          >
-            {t('Deposit asset', { asset: from })}
-          </a>
+          <p>{t(cashLeg ? 'Not enough cash' : 'Not enough', { asset: from, value: displayAmount(free) })}</p>
+          {cashLeg ? null : (
+            <a
+              className="text-link"
+              href="#venue-deposit"
+              onClick={(event) => {
+                event.preventDefault();
+                setDeposit(true);
+              }}
+            >
+              {t('Deposit asset', { asset: from })}
+            </a>
+          )}
         </div>
       ) : null}
       {paused ? (
@@ -510,7 +553,18 @@ function VenueCard({
             placeholder="0"
           />
           {pair ? <p className="cvt-note">{t('Target rate hint', { base: pair.base, quote: pair.quote })}</p> : null}
-          <Button variant="primary" size={56} fullWidth disabled={!ready || busy || !units(target)} onClick={() => void placeLimit()}>
+          {cashLeg ? (
+            <p className="cvt-note" role="note" data-testid="cvt-limit-cash">
+              {t('Limit cash')}
+            </p>
+          ) : null}
+          <Button
+            variant="primary"
+            size={56}
+            fullWidth
+            disabled={!ready || busy || !units(target) || cashLeg !== null}
+            onClick={() => void placeLimit()}
+          >
             {busy ? t('Placing') : t('Place limit convert')}
           </Button>
           {limitDone && pair ? (
@@ -589,7 +643,7 @@ function VenueCard({
         title={ct('Choose asset')}
         searchLabel={ct('Search assets')}
         noMatch={(query) => ct('No asset matches', { query })}
-        items={picker === 'to' ? items(reachable(pairs, from), from) : items(assets, to)}
+        items={picker === 'to' ? items(reachable(pairs, from, cash), from) : items(assets, to)}
         selected={picker === 'to' ? to : from}
         onPick={(asset) => pick(picker === 'to' ? 'to' : 'from', asset)}
       />
@@ -601,12 +655,31 @@ function VenueCard({
 /** The price's lines, each the venue's figure or ours named as ours. */
 function QuoteFacts({ quote: q, t, testid }: { quote: ConvertQuote; t: T; testid: string }) {
   const time = useTimeText();
-  const [base, quoteAsset] = q.side === 'buy' ? [q.to, q.from] : [q.from, q.to];
+  // On a cash convert (#11) the venue order spends the coin the partner pays in, so its prices are in that coin.
+  const spent = q.cashLeg ? q.cashLeg.coin : q.from;
+  const [base, quoteAsset] = q.side === 'buy' ? [q.to, spent] : [q.from, q.to];
+  const legs: [string, string, string][] = q.cashLeg
+    ? [
+        [
+          'cash-leg',
+          t('Cash leg'),
+          t('Cash leg value', {
+            spend: displayAmount(q.spend),
+            cash: q.cashLeg.cash,
+            coin: displayAmount(q.cashLeg.coinSpend),
+            coinAsset: q.cashLeg.coin,
+            rate: displayAmount(q.cashLeg.rate),
+          }),
+        ],
+        ['coin-leg', t('Coin leg'), t('Coin leg value', { coin: displayAmount(q.cashLeg.coinSpend), coinAsset: q.cashLeg.coin, to: q.to })],
+      ]
+    : [];
   const rows: [string, string, string][] = [
+    ...legs,
     ['best-price', t('Best price'), t('Best price value', { base, price: displayAmount(q.bestPrice.price), quote: quoteAsset })],
     ['slippage', t('Slippage limit'), t('Slippage value', { price: displayAmount(q.limitPrice), quote: quoteAsset, bps: q.slippageBps })],
     q.side === 'buy'
-      ? ['max-cost', t('Most it costs'), `${displayAmount(q.maxCost)} ${q.from}`]
+      ? ['max-cost', t('Most it costs'), `${displayAmount(q.maxCost)} ${spent}`]
       : ['max-cost', t('You sell'), `${displayAmount(q.size)} ${q.from}`],
     [
       'get-about',
@@ -651,6 +724,37 @@ function QuoteFacts({ quote: q, t, testid }: { quote: ConvertQuote; t: T; testid
   );
 }
 
+/** A cash convert's two linked steps (#11), each as its own record says: the partner's, then the wallet's order. */
+function LinkedLegs({ legs, testid }: { legs: NonNullable<Conversion['legs']>; testid: string }) {
+  const { t } = venueConvertCopy.useCopy();
+  const cash = 'unread' in legs.cash ? null : legs.cash;
+  return (
+    <ol className="cvt-legs" data-testid={testid}>
+      <li data-leg="cash" data-state={cash?.state ?? 'unread'} data-key={cash?.legKey ?? ''}>
+        {cash
+          ? t(cash.state === 'delivered' ? 'Leg cash done' : 'Leg cash sending', {
+              paid: displayAmount(cash.paid),
+              cash: cash.cash,
+              delivered: displayAmount(cash.delivered),
+              coin: cash.coin,
+            })
+          : t('Leg cash unread')}{' '}
+        {cash ? <TestMark test={cash.test} /> : null}
+      </li>
+      <li data-leg="venue" data-state={legs.venue?.state ?? 'not_signed'}>
+        {legs.venue
+          ? t('Leg venue done', {
+              paid: displayAmount(legs.venue.paid.amount),
+              paidAsset: legs.venue.paid.asset,
+              received: displayAmount(legs.venue.received.amount),
+              receivedAsset: legs.venue.received.asset,
+            })
+          : t('Leg venue none', { coin: cash?.coin ?? '' })}
+      </li>
+    </ol>
+  );
+}
+
 /** The receipt of one conversion, read from the venue's own fills by its key. */
 function Receipt({
   owner,
@@ -683,6 +787,7 @@ function Receipt({
   return (
     <div role="status" data-testid="cvt-receipt" data-state={c.state} data-client-id={c.venueClientOrderId ?? ''}>
       <h3>{t('Receipt title', { from, to })}</h3>
+      {c.legs ? <LinkedLegs legs={c.legs} testid="cvt-receipt-legs" /> : null}
       <dl className="protocol-facts">
         <div>
           <dt>{t('Paid')}</dt>
@@ -798,7 +903,10 @@ function VenueRecent({ owner, test }: { owner: string; test: boolean }) {
                 data-client-id={c.venueClientOrderId ?? ''}
                 data-state={c.state}
               >
-                <td>{c.kind === 'limit' ? t('Limit') : t('Instant')}</td>
+                <td>
+                  {c.legs ? t('Linked kind') : c.kind === 'limit' ? t('Limit') : t('Instant')}
+                  {c.legs ? <LinkedLegs legs={c.legs} testid="cvt-recent-legs" /> : null}
+                </td>
                 <td className="numeric" data-cell="paid">
                   {displayAmount(c.paid.amount)} {c.paid.asset}
                 </td>
