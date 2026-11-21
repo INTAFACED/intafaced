@@ -36,7 +36,7 @@ import { agentHeldAction, holdAgentKeyAttempt } from './agent-key-hold.js';
 import { EXPLORER_LIVE_WRITE_REFUSED, explorerLiveWrite } from './explorer-guard.js';
 import { markProxied, registerReplyEnvelope, REQUEST_ID_HEADER, REQUEST_ID_OPTIONS } from './reply-envelope.js';
 import { exchangePrincipal } from './principal-exchange.js';
-import { keyCallReport, presentedKeyHash, replyErrorCode, reportKeyCall } from './key-call-log.js';
+import { keyCallReport, presentedKeyHash, reportKeyCall } from './key-call-log.js';
 import { normalizeIp } from './request-client-ip.js';
 import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
@@ -404,8 +404,7 @@ await app.register(async (api) => {
   });
 
   // A key's call log (J-developer-08): every reply to an API key's call is reported to identity once its status is
-  // final, with the typed error code an error reply names. A failed report is logged; the reply goes out as it would
-  // have (`key-call-log.ts`).
+  // final. A failed report is logged; the reply goes out as it would have (`key-call-log.ts`).
   api.addHook('onSend', async (req, reply, payload) => {
     const keyHash = presentedKeyHash(req.headers.authorization);
     if (!keyHash || !env.IDENTITY_OWNERSHIP_SECRET) return payload;
@@ -419,7 +418,6 @@ await app.register(async (api) => {
         method: req.method,
         url: req.url,
         status: reply.statusCode,
-        errorCode: replyErrorCode(reply.statusCode, payload),
         clientIp: normalizeIp(req.ip),
         at: new Date(),
       }),

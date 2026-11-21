@@ -9,7 +9,6 @@ import {
   INDICATOR_STRIP,
   RECORD_PERMISSION_DENIED,
   RECORD_SOURCE_UNWIRED,
-  REQUEST_ID_MAX,
   RISK_CARD,
   TAB_LABELS,
   TAB_STAFF_AREA,
@@ -27,15 +26,13 @@ export interface CustomerRecordProps {
   readonly unwired: readonly Unavailable[];
   /** The signed-in person may not read this tab's area: the tab says so and nothing was read for it. */
   readonly denied?: boolean;
-  /** Developer API tab: the request id the calls are narrowed to, as searched. */
-  readonly requestId?: string | undefined;
 }
 
 /**
  * One customer's record: a tab per area, the open tab read when the page opened. Each read answers or refuses on its own; a part
  * no service can read for one account says so with the reason. Nothing here changes the account.
  */
-export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwired, denied = false, requestId }: CustomerRecordProps) {
+export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwired, denied = false }: CustomerRecordProps) {
   const router = useRouter();
   const [openKey, setOpenKey] = useState<string | null>(null);
   const ctx = { userId: founderId, onChanged: () => router.refresh() };
@@ -96,7 +93,6 @@ export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwire
             <p className="dk-muted">Code: {RECORD_PERMISSION_DENIED}</p>
           </article>
         ) : null}
-        {tab === 'developer' && !denied ? <RequestIdSearch base={base} requestId={requestId} /> : null}
         {reads.map((spec) => (
           <ReadBlock key={spec.id} spec={spec} outcome={outcomes[spec.id]} ctx={ctx} openKey={openKey} onOpen={setOpenKey} />
         ))}
@@ -110,42 +106,6 @@ export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwire
         ))}
       </section>
     </div>
-  );
-}
-
-/** The Developer API tab's request id search: a plain GET form, so the search is the page's own address. */
-function RequestIdSearch({ base, requestId }: { base: string; requestId: string | undefined }) {
-  return (
-    <form
-      method="get"
-      action={base}
-      role="search"
-      aria-label="Find an API call by request id"
-      className="dk-row"
-      data-testid="request-id-search"
-    >
-      <input type="hidden" name="tab" value="developer" />
-      <label>
-        Request id
-        <input
-          type="search"
-          name="requestId"
-          defaultValue={requestId ?? ''}
-          maxLength={REQUEST_ID_MAX}
-          required
-          autoComplete="off"
-          spellCheck={false}
-        />
-      </label>
-      <button type="submit" className="adm-btn">
-        Find the call
-      </button>
-      {requestId === undefined ? null : (
-        <Link href={`${base}?tab=developer`} className="adm-btn" data-testid="request-id-clear">
-          Show every call
-        </Link>
-      )}
-    </form>
   );
 }
 

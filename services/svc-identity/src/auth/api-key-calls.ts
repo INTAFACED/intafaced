@@ -4,8 +4,8 @@
  * The edge reports each call it answered for an API key (`developerKeys.recordCall`). The key is found by its hash,
  * whether or not it is still live, so a revoked key's refused calls are on its log too. An unknown hash records
  * nothing. A row keeps the method, the path without its query, the status the edge answered and whether the caller's
- * address was outside the key's IP list at that moment, and the typed error code an error reply carried (DV-errors-02);
- * the address itself is never stored, and neither is any body, message or header value. The edge's request id is the business key: a report sent twice writes one row.
+ * address was outside the key's IP list at that moment; the address itself is never stored, and neither is any body or
+ * header value. The edge's request id is the business key: a report sent twice writes one row.
  *
  * Only the key's owner reads its log (`developerKeys.calls`); anyone else's key is not found.
  */
@@ -33,22 +33,14 @@ export async function recordApiKeyCall(sql: Sql, input: ApiKeyCallRecordInput): 
   const outside = allowlist.length > 0 && !apiKeyIpAllowed(allowlist, input.clientIp);
   const path = input.path.split('?')[0]!;
   await sql`
-    INSERT INTO api_key_calls (request_id, key_id, method, path, status, error_code, outside_ip_list, called_at)
-    VALUES (${input.requestId}, ${key.id}, ${input.method.toUpperCase()}, ${path}, ${input.status}, ${input.errorCode ?? null}, ${outside}, ${input.at})
+    INSERT INTO api_key_calls (request_id, key_id, method, path, status, outside_ip_list, called_at)
+    VALUES (${input.requestId}, ${key.id}, ${input.method.toUpperCase()}, ${path}, ${input.status}, ${outside}, ${input.at})
     ON CONFLICT (request_id) DO NOTHING
   `;
   return { recorded: true };
 }
 
-type CallRow = {
-  request_id: string;
-  method: string;
-  path: string;
-  status: number;
-  error_code: string | null;
-  outside_ip_list: boolean;
-  called_at: Date;
-};
+type CallRow = { request_id: string; method: string; path: string; status: number; outside_ip_list: boolean; called_at: Date };
 
 /** One UTC day as `[start, end)`; `to` is inclusive, so its end is the next day's start. */
 function dayStart(day: string): Date {
@@ -66,7 +58,7 @@ export async function listApiKeyCalls(
   const from = input.from ? dayStart(input.from) : null;
   const until = input.to ? new Date(dayStart(input.to).getTime() + 86_400_000) : null;
   const rows = await sql<CallRow[]>`
-    SELECT request_id, method, path, status, error_code, outside_ip_list, called_at
+    SELECT request_id, method, path, status, outside_ip_list, called_at
     FROM api_key_calls
     WHERE key_id = ${input.keyId}
       ${input.status === undefined ? sql`` : sql`AND status = ${input.status}`}
@@ -83,7 +75,6 @@ export async function listApiKeyCalls(
       method: row.method,
       path: row.path,
       status: row.status,
-      errorCode: row.error_code,
       outsideIpList: row.outside_ip_list,
       at: row.called_at.toISOString(),
     })),

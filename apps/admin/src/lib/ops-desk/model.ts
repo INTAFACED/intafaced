@@ -45,7 +45,6 @@ function cellOf(column: Column, source: Record<string, unknown>): Cell | null {
       if (!column.words) return make(value);
       return Object.hasOwn(column.words, value) ? { ...make(value), words: column.words[value]! } : null;
     case 'amount':
-    case 'code':
       return typeof value === 'string' ? make(value) : null;
     case 'int':
     case 'bps':

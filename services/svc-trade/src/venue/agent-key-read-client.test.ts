@@ -60,7 +60,6 @@ describe('createAgentKeyCallReader', () => {
           method: 'GET',
           path: '/api/v1/venue/balances',
           status: 403,
-          errorCode: null,
           outsideIpList: false,
           at: '2026-11-13T00:00:00.000Z',
         },

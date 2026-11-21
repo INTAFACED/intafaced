@@ -5,7 +5,7 @@ import { SUPPORT_DESK_ACCOUNT_STATE } from '@intafaced/contracts/support-desk-pr
 import { readData } from '@/lib/ops-desk';
 import { codeWords } from '@/lib/code-words';
 import { moduleForPage } from '@/lib/modules';
-import { CUSTOMER_TABS, INDICATOR_STRIP, RISK_CARD, customerId, customerTab, requestIdQuery, tabPlan } from './record';
+import { CUSTOMER_TABS, INDICATOR_STRIP, RISK_CARD, customerId, customerTab, tabPlan } from './record';
 
 const USER = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
 const service = (path: string) => readFileSync(fileURLToPath(new URL(`../../../../../services/${path}`, import.meta.url)), 'utf8');
@@ -234,33 +234,5 @@ describe('the KYC case detail reads its own case and only its verification’s d
       rowsWhere: { key: 'reviewRecordId', equals: 'r-1' },
     });
     expect(identityDocumentsRead(USER).rowsWhere).toBeUndefined();
-  });
-});
-
-describe('developer API tab (J-developer-17)', () => {
-  const USER = '00000000-0000-4000-8000-000000000017';
-
-  it('reads the account’s keys and calls by their records, and a request id narrows the calls to that one call', () => {
-    const all = tabPlan('developer', USER);
-    expect(all.reads.map((r) => [r.recordName, r.input])).toEqual([
-      ['identity.developerSupport.keys', { userId: USER, limit: 50 }],
-      ['identity.developerSupport.calls', { userId: USER, limit: 50 }],
-    ]);
-    const one = tabPlan('developer', USER, { requestId: 'req-1' });
-    expect(one.reads[1]!.input).toEqual({ userId: USER, limit: 50, requestId: 'req-1' });
-    expect(one.reads[1]!.refusals?.['identity.developer_request_not_found']).toMatch(/^Not found/);
-  });
-
-  it('shows metadata and the error code only: no column for a body, a secret or a hash', () => {
-    const keys = tabPlan('developer', USER).reads.flatMap((r) => r.columns.map((c) => c.key));
-    expect(keys).toEqual(expect.arrayContaining(['requestId', 'status', 'errorCode', 'outsideIpList', 'prefix']));
-    for (const key of keys) expect(key).not.toMatch(/body|secret|hash|header/i);
-  });
-
-  it('takes a request id from the address only when it is one', () => {
-    expect(requestIdQuery(' req-1 ')).toBe('req-1');
-    expect(requestIdQuery('')).toBeUndefined();
-    expect(requestIdQuery(['a', 'b'])).toBeUndefined();
-    expect(requestIdQuery('x'.repeat(129))).toBeUndefined();
   });
 });

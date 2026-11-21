@@ -456,10 +456,6 @@ export const API_KEY_CALL_LIMIT_MAX = 200;
 
 const callDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-/** A typed error code as a reply names it: dotted words, at most 64 characters. Anything else is not kept. */
-export const API_CALL_ERROR_CODE = /^[A-Za-z][A-Za-z0-9._-]{0,63}$/;
-export const apiCallErrorCodeSchema = z.string().regex(API_CALL_ERROR_CODE);
-
 /** The edge's report of one answered call. Only the edge may send it. */
 export const apiKeyCallRecordInputSchema = z
   .object({
@@ -471,11 +467,6 @@ export const apiKeyCallRecordInputSchema = z
     /** The path without its query. */
     path: z.string().min(1).max(512),
     status: z.number().int().min(100).max(599),
-    /**
-     * The typed error code the reply carried (`trade.account_restricted`, `edge.api_key_ip_denied`), read from an error
-     * reply's body by the edge; null on a success or an error with no code. Only the code: never the message or the body.
-     */
-    errorCode: apiCallErrorCodeSchema.nullable().optional(),
     /** The caller's address as the edge resolved it, used to set the outside-IP flag and never stored. */
     clientIp: z.string().max(64).nullable(),
     at: isoInstant,
@@ -503,8 +494,6 @@ export const apiKeyCallSchema = z
     method: z.string(),
     path: z.string(),
     status: z.number().int(),
-    /** The typed error code the reply carried; null on a success, an error with no code, or a call logged before codes were kept. */
-    errorCode: z.string().nullable(),
     outsideIpList: z.boolean(),
     at: z.string(),
   })
