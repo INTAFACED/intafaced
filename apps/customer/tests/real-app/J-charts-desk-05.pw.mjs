@@ -450,7 +450,8 @@ async function magnetSnapsToClose() {
   const x = await centred(page, await plot(page, 0.5, 0.3));
   const bar = await pointerAt(page, x);
   const host = page.getByTestId('cw').getByTestId('wc-host');
-  const box = await host.boundingBox();
+  // The bar's place across the chart, from the chart's own left edge, so a click is aimed at it wherever the chart is.
+  const barX = x.x - (await host.boundingBox()).x;
   const actions = page.getByRole('group', { name: 'Drawing actions' });
   // The bar's open, high, low and close from Edge's candles: its own candle's, or the previous close four times when the
   // bucket had no trade (a filled bar).
@@ -465,27 +466,45 @@ async function magnetSnapsToClose() {
   const closeYOf = (price) => host.evaluate((el, p) => el.readPriceY?.(p) ?? null, price);
   // The shared stack trades on this book while the step runs: a trade can move this bar's prices, or rescale the price
   // axis, between the read of the close's height and the click (run 42723613808 stored 65193.56, a price no snap from
-  // three pixels off a 64976.46 close can reach). A placement during which the bar or the axis moved is deleted and
-  // made again; the check below is only made on a placement both stayed still for.
+  // three pixels off a 64976.46 close can reach). The click can also land at another height than the one aimed at, when
+  // the chart moves on the page in between (run 44768193033 stored 65189.73, about 38 pixels above a 64956.96 close, far
+  // past the magnet's reach). So the chart's box is read just before the click, the click's own move reads the price
+  // under it, and a placement during which the bar, the axis or the chart moved, or whose click the chart read at
+  // another height, is deleted and made again; the check below is only made on a placement all stayed still for.
   for (let attempt = 1; ; attempt += 1) {
     const ohlc = await barPricesNow();
     const close = ohlc[3];
     const closeY = await closeYOf(close);
     expect(closeY, 'the close is drawn on the price pane').not.toBeNull();
-    // Three pixels off the close: the price there is not the close at the tick, so only the magnet can store the close.
-    const off = await pointerAt(page, { x: x.x, y: box.y + closeY + 3 });
-    expect(atTick(close.toFixed(2), off.price), 'three pixels off the close reads another price').toBe(false);
     await pick(page, 'Horizontal line');
-    await page.mouse.click(x.x, box.y + closeY + 3);
+    const box = await host.boundingBox();
+    // Three pixels off the close: the price there is not the close at the tick, so only the magnet can store the close.
+    const target = { x: box.x + barX, y: box.y + closeY + 3 };
+    const off = await pointerAt(page, target);
+    expect(atTick(close.toFixed(2), off.price), 'three pixels off the close reads another price').toBe(false);
+    const read = await clickAndRead(page, target);
     const placed = page.locator('[data-drawing-id][data-selected]');
     await expect(placed).toHaveAttribute('data-kind', 'horizontal');
     const placedText = await pointText(placed).textContent();
-    const still = JSON.stringify(await barPricesNow()) === JSON.stringify(ohlc) && Math.abs((await closeYOf(close)) - closeY) < 0.5;
+    const boxAfter = await host.boundingBox();
+    // The click was read where it was aimed: the price the chart read on the click's own move, and just after it, is drawn
+    // at the aimed height (three pixels below the close), with the chart where it was.
+    const readAtAim = async (r) => Math.abs((await closeYOf(r.price)) - (closeY + 3)) < 0.5;
+    const still =
+      JSON.stringify(await barPricesNow()) === JSON.stringify(ohlc) &&
+      Math.abs((await closeYOf(close)) - closeY) < 0.5 &&
+      boxAfter.x === box.x &&
+      boxAfter.y === box.y &&
+      (await readAtAim(read.atClick)) &&
+      (await readAtAim(read.after));
     if (!still && attempt < 3) {
       await actions.getByRole('button', { name: 'Delete', exact: true }).click();
       continue;
     }
-    expect(still, `the bar and the price axis stayed still for one of ${attempt} placements`).toBe(true);
+    expect(
+      still,
+      `the bar, the price axis and the chart stayed still, and the click was read where aimed, for one of ${attempt} placements`,
+    ).toBe(true);
     // Stored at one of the bar's four prices (the nearest within the magnet's reach), not at the pointer's own price.
     const [stored] = pricesOf(placedText);
     expect(timesOf(placedText)).toEqual([barTimeText(bar.time)]);
