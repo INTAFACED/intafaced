@@ -104,9 +104,9 @@ scrape_configs:
   # `docker-compose.apps.yml`, which `include:`s the compose file this config
   # belongs to. `HTTP_PORT: '4001'` is the CONTAINER port — not a published
   # host port. `/metrics` is `METRICS_PATH` in
-  # `services/svc-ledger/src/metrics.ts`.
+  # `crates/svc-ledger/src/metrics.rs`.
   #
-  # All three are asserted by `services/svc-ledger/src/observability-wiring.test.ts`
+  # All three are asserted by `crates/svc-ledger/tests/metrics.rs`
   # against THIS FILE and the real compose block. A scrape config pointing at
   # localhost would miss the container entirely.
   #

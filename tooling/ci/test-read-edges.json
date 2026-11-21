@@ -1,7 +1,7 @@
 {
   "_comment": "Tests in <reader> read files of each listed package. Checked by tooling/ci/cross-package-reads.mjs; the affected-test selection runs the reader whenever a listed package changes.",
   "edges": {
-    "apps/admin": ["services/svc-bank", "services/svc-edge", "services/svc-ledger", "services/svc-market", "services/svc-protocol"],
+    "apps/admin": ["services/svc-bank", "services/svc-edge", "services/svc-market", "services/svc-protocol"],
     "apps/customer": ["services/svc-pay", "services/svc-trade"],
     "apps/mobile": ["apps/customer"],
     "packages/contracts": ["apps/invitation"],
@@ -11,7 +11,6 @@
       "services/svc-edge",
       "services/svc-identity",
       "services/svc-indexer",
-      "services/svc-ledger",
       "services/svc-market",
       "services/svc-matching",
       "services/svc-notify",
@@ -21,7 +20,7 @@
       "services/svc-token",
       "services/svc-ws"
     ],
-    "packages/ledger-client": ["services/svc-ledger", "services/svc-pay"],
+    "packages/ledger-client": ["services/svc-pay"],
     "packages/sdk-ts": ["services/svc-edge"],
     "packages/ui": ["apps/customer"],
     "services/svc-agents": ["packages/i18n"],
@@ -29,7 +28,6 @@
     "services/svc-identity": ["services/svc-edge", "services/svc-trade"],
     "services/svc-indexer": ["services/svc-dex"],
     "services/svc-p2p": ["services/svc-identity"],
-    "services/svc-support": ["services/svc-edge"],
-    "services/svc-trade": ["services/svc-ledger"]
+    "services/svc-support": ["services/svc-edge"]
   }
 }
