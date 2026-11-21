@@ -36,8 +36,10 @@ const patternsOf = (records: readonly Named[]) =>
 
 /** Every place in `source` that names a recorded call by its module and path string. */
 function stringNamedCalls(source: string, patterns: ReturnType<typeof patternsOf>): string[] {
-  // Both shapes quote the path, so a source that never mentions it is skipped without running either pattern.
-  return patterns.flatMap((p) => (source.includes(p.path) && (p.byName.test(source) || p.handSchema.test(source)) ? [p.name] : []));
+  // Both shapes quote the path, and no path holds a quote, so a path either shape matches is exactly one of the runs of text
+  // between two quote marks: only those paths' patterns run, in place of a scan of the whole file per record.
+  const quoted = new Set(source.split(/['"`]/));
+  return patterns.flatMap((p) => (quoted.has(p.path) && (p.byName.test(source) || p.handSchema.test(source)) ? [p.name] : []));
 }
 
 const PATTERNS = patternsOf(CONTRACT_PROCEDURES);
@@ -49,6 +51,8 @@ describe('a recorded call is made only by its record', () => {
     ]);
     expect(stringNamedCalls(`export const spacesReads = { 'spaces.list': z.array(spaceSchema) }`, PATTERNS)).toEqual(['bank.spaces.list']);
     expect(stringNamedCalls(`api.call(BANK_SPACES_LIST, { limit: 200 })`, PATTERNS)).toEqual([]);
+    // The quoted-run shortcut above holds only while no record's path holds a quote mark.
+    expect(PATTERNS.filter((p) => /['"`]/.test(p.path)).map((p) => p.name)).toEqual([]);
   });
 
   it('no app source names one by its module and path: use api.call(<RECORD>, input) from its contracts subpath', () => {
