@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use service_kit::approvals::{
-    ACTION_APPROVAL_CONSUME_FAILED, ConsumeError, ConsumeInput, Consumed, IdentityClient,
+    ACTION_APPROVAL_CONSUME_FAILED, ConsumeError, ConsumeInput, Consumed, IdentityClient, Replay,
 };
 use service_kit::http::Fetch;
 use service_kit::json::Json;
@@ -139,19 +139,27 @@ pub fn founder_verdict(
     }
 }
 
-/// `consumeLedgerApproval(approvals, cmd, actionType, targetId, expectedVersion, fields)`, without a replay key (the
-/// freeze doors send none): the ids trimmed and required, the approval consumed for this action, then the founder
-/// attestation, fail closed.
+/// `consumeLedgerApproval(approvals, cmd, actionType, targetId, expectedVersion, fields, requestId, consumerPrincipalId)`:
+/// the ids trimmed and required, the approval consumed for this action (with the replay key when `replay` names a
+/// non-blank one: the freeze doors send none, a metadata delete sends its operation and operator), then the founder
+/// attestation, fail closed, on a replay too.
 pub fn consume_ledger_approval(
     approvals: &dyn Approvals,
-    approval_id: &str,
-    operation_id: &str,
+    (approval_id, operation_id): (&str, &str),
     action_type: &str,
     target_id: &str,
     expected_version: &str,
     fields: &[(&str, &str)],
+    replay: Option<(&str, &str)>,
 ) -> Result<Consumed, Refused> {
     let (approval_id, operation_id) = (js_trim(approval_id), js_trim(operation_id));
+    let (request_id, consumer) = replay.map_or(("", ""), |(r, c)| (js_trim(r), js_trim(c)));
+    if !request_id.is_empty() && consumer.is_empty() {
+        return Err(Refused::Coded {
+            message: "a replayable consume must name the operator who consumes it".to_owned(),
+            code: MISSING.to_owned(),
+        });
+    }
     if approval_id.is_empty() || operation_id.is_empty() {
         return Err(Refused::Coded {
             message:
@@ -168,6 +176,10 @@ pub fn consume_ledger_approval(
         target_service: TARGET_SERVICE,
         target_id,
         expected_version,
+        replay: (!request_id.is_empty()).then_some(Replay {
+            request_id,
+            consumer_principal_id: consumer,
+        }),
     })?;
     match founder_verdict(&consumed, action_type, TARGET_SERVICE, target_id) {
         None => Ok(consumed),
@@ -240,12 +252,12 @@ mod tests {
         assert!(
             consume_ledger_approval(
                 &none,
-                " a1 ",
-                "o1",
+                (" a1 ", "o1"),
                 "ledger.freeze",
                 "posting_freeze",
                 "v",
-                &[]
+                &[],
+                None,
             )
             .is_ok()
         );
@@ -253,12 +265,12 @@ mod tests {
         let refused = |s: &Stub| {
             consume_ledger_approval(
                 s,
-                "a1",
-                "o1",
+                ("a1", "o1"),
                 "ledger.unfreeze",
                 "posting_unfreeze",
                 "v",
                 &[],
+                None,
             )
             .unwrap_err()
         };
@@ -286,12 +298,12 @@ mod tests {
         assert!(
             consume_ledger_approval(
                 &stub((Some(true), Some(true)), "requester"),
-                "a1",
-                "o1",
+                ("a1", "o1"),
                 "ledger.unfreeze",
                 "posting_unfreeze",
                 "v",
-                &[]
+                &[],
+                None,
             )
             .is_ok()
         );
@@ -301,7 +313,9 @@ mod tests {
     fn blank_ids_are_not_an_approval_and_unwired_refuses() {
         let none = stub((None, None), "r");
         assert_eq!(
-            consume_ledger_approval(&none, "a1", "  ", "ledger.freeze", "posting_freeze", "v", &[]),
+            consume_ledger_approval(
+                &none,
+                ("a1", "  "), "ledger.freeze", "posting_freeze", "v", &[], None),
             Err(Refused::Coded {
                 message: "approvalId and operationId are required; a typed-in second name is not approval".to_owned(),
                 code: MISSING.to_owned(),
@@ -309,7 +323,9 @@ mod tests {
         );
         assert!(none.seen.lock().unwrap().is_empty());
         assert!(matches!(
-            consume_ledger_approval(&Unwired, "a1", "o1", "ledger.freeze", "posting_freeze", "v", &[]),
+            consume_ledger_approval(
+                &Unwired,
+                ("a1", "o1"), "ledger.freeze", "posting_freeze", "v", &[], None),
             Err(Refused::Coded { code, .. }) if code == UNWIRED
         ));
     }

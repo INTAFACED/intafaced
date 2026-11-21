@@ -94,6 +94,30 @@ impl Store {
         }
     }
 
+    /// `sql.begin(...)`: `f` in one transaction at `isolation`, read only when asked. The replay's stubbed `sql`
+    /// refuses a transaction with its own name (`<message>.begin`), as `sql.begin` does there.
+    pub fn begin<T>(
+        &self,
+        isolation: IsolationLevel,
+        read_only: bool,
+        f: impl FnOnce(&mut Transaction<'_>) -> Result<T, StoreError>,
+    ) -> Result<T, StoreError> {
+        let pool = match self {
+            Store::Pool(p) => p,
+            Store::Down(message) => return Err(StoreError::new(format!("{message}.begin"), None)),
+        };
+        let mut conn = pool.get()?;
+        let client: &mut Client = conn.client()?;
+        let mut tx = client
+            .build_transaction()
+            .isolation_level(isolation)
+            .read_only(read_only)
+            .start()?;
+        let out = f(&mut tx)?;
+        tx.commit()?;
+        Ok(out)
+    }
+
     /// `sql.end()`.
     pub fn end(&self) {
         if let Store::Pool(p) = self {
