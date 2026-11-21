@@ -150,7 +150,6 @@ import {
 } from '@intafaced/contracts/quant-wire';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { z } from 'zod';
-import { strategyMetadata } from '@intafaced/contracts/quant-call-schemas';
 
 export { simulatedStamp, environmentInput, decimal, runOutput, strategyDetail, accountField, writeKeyField, clientIdField };
 
@@ -888,4 +887,3 @@ export function createQuantCore(deps: QuantRouterDeps) {
 }
 
 export type QuantCore = ReturnType<typeof createQuantCore>;
-export { strategyMetadata };
