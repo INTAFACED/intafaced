@@ -47,6 +47,7 @@ export function procedures(serviceDir, fnName) {
   const root = rootOf(serviceDir, fnName);
   const out = new Map();
   const unread = [];
+  const twice = new Set();
   const seen = new Set();
   const visit = (p, node, prefix, depth) => {
     if (!node || depth > 40) return;
@@ -79,6 +80,7 @@ export function procedures(serviceDir, fnName) {
       const name = calleeName(node);
       if (name && LEAF.has(name) && node.callee.type === 'MemberExpression') {
         const path = prefix.slice(0, -1);
+        if (out.has(path) && out.get(path).node !== node) twice.add(path);
         out.set(path, { path, p, node, prop: p.parents.get(node) });
         return;
       }
@@ -98,6 +100,11 @@ export function procedures(serviceDir, fnName) {
       if (node.callee.type === 'Identifier') {
         const target = functionOf(p, node.callee, node.callee.name);
         if (target) return visit(target.p, returned(target.p, target.fn), prefix, depth + 1);
+        const b = bindingOf(p, node.callee, node.callee.name);
+        const file = b.kind === 'import' ? resolveRelative(p.file, b.from) : undefined;
+        const q = file ? load(file) : undefined;
+        const fn = q ? exportedFunction(q, b.imported) : undefined;
+        if (fn) return visit(q, returned(q, fn), prefix, depth + 1);
       }
       unread.push({ path: `${prefix}*`, why: `call ${name ?? '?'}() not followed`, file: p.file, at: node.start });
       return;
@@ -116,13 +123,32 @@ export function procedures(serviceDir, fnName) {
       unread.push({ path: `${prefix}*`, why: `name ${node.name} not followed (${b.kind})`, file: p.file, at: node.start });
       return;
     }
-    if (node.type === 'ConditionalExpression' || node.type === 'LogicalExpression') {
-      unread.push({ path: `${prefix}*`, why: `${node.type} router`, file: p.file, at: node.start });
+    // A router behind a switch (`flag ? live : empty`, `a ?? b`): every branch's procedures. A record is the same call
+    // whether or not its branch is mounted; unmounted, it is refused exactly as the call by name was.
+    if (node.type === 'ConditionalExpression') {
+      visit(p, node.consequent, prefix, depth + 1);
+      visit(p, node.alternate, prefix, depth + 1);
       return;
+    }
+    if (node.type === 'LogicalExpression') {
+      visit(p, node.left, prefix, depth + 1);
+      visit(p, node.right, prefix, depth + 1);
+      return;
+    }
+    if (node.type === 'MemberExpression' && !node.computed && node.property.type === 'Identifier') {
+      // `...campaigns.customer`: the property of an object a local, an import or a route builder's return gives.
+      const obj = objectValue(p, node.object);
+      const prop = obj?.node.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === node.property.name);
+      if (prop) return visit(obj.p, prop.value, prefix, depth + 1);
     }
     unread.push({ path: `${prefix}*`, why: `${node.type} not followed`, file: p.file, at: node.start });
   };
   visit(root.p, root.node, '', 0);
+  // Two procedures under one path (a switch's live and stand-in branches): neither is the record, so both are named.
+  for (const path of twice) {
+    unread.push({ path, why: 'two procedures under one path (a switch router)', file: out.get(path).p.file });
+    out.delete(path);
+  }
   return { procedures: out, unread };
 }
 
@@ -148,6 +174,38 @@ function exportedFunction(q, name) {
     if (d.type === 'FunctionDeclaration' && d.id?.name === name) return d;
     if (d.type === 'VariableDeclaration')
       for (const v of d.declarations) if (v.id.name === name && /Function/.test(v.init?.type ?? '')) return v.init;
+  }
+  return undefined;
+}
+
+/** The object literal an expression stands for: through locals, imports, parentheses and a function's return. */
+function objectValue(p, node, depth = 0) {
+  if (!node || depth > 12) return undefined;
+  if (node.type === 'ObjectExpression') return { p, node };
+  if (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression' || node.type === 'ParenthesizedExpression')
+    return objectValue(p, node.expression, depth + 1);
+  if (node.type === 'Identifier') {
+    const b = bindingOf(p, node, node.name);
+    if (b.kind === 'var' && b.declarator.init) return objectValue(p, b.declarator.init, depth + 1);
+    if (b.kind === 'import') {
+      const file = resolveRelative(p.file, b.from);
+      if (!file) return undefined;
+      const q = load(file);
+      const d = exported(q, b.imported);
+      return d ? objectValue(q, d, depth + 1) : undefined;
+    }
+    return undefined;
+  }
+  if (node.type === 'CallExpression' && node.callee.type === 'Identifier') {
+    const local = functionOf(p, node.callee, node.callee.name);
+    if (local) return objectValue(local.p, returned(local.p, local.fn), depth + 1);
+    const b = bindingOf(p, node.callee, node.callee.name);
+    if (b.kind !== 'import') return undefined;
+    const file = resolveRelative(p.file, b.from);
+    if (!file) return undefined;
+    const q = load(file);
+    const fn = exportedFunction(q, b.imported);
+    return fn ? objectValue(q, returned(q, fn), depth + 1) : undefined;
   }
   return undefined;
 }
