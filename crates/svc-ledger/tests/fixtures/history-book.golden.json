@@ -1,0 +1,2515 @@
+{
+  "history": [
+    {
+      "idempotencyKey": "hist-deposit-1",
+      "module": "bank",
+      "reason": "bank.transfer.in",
+      "meta": {},
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "100.123456789012345678"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "100.123456789012345678"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "hist-spend-1",
+      "module": "trade",
+      "reason": "trade.fill",
+      "meta": {},
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "25.5"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "25.5"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "hist-refund-1",
+      "module": "bank",
+      "reason": "bank.transfer.in",
+      "meta": {},
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "11111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.000000000000000001"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "0.000000000000000001"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "hist-stranger-1",
+      "module": "bank",
+      "reason": "bank.transfer.in",
+      "meta": {},
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "22222222-2222-4222-8222-222222222222",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "999"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "999"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "hist-stranger-2",
+      "module": "trade",
+      "reason": "trade.fill",
+      "meta": {},
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "22222222-2222-4222-8222-222222222222",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "9"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "9"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "hist-quiet-open",
+      "module": "bank",
+      "reason": "bank.transfer.in",
+      "meta": {},
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "33333333-3333-4333-8333-333333333333",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        }
+      ]
+    }
+  ],
+  "page": [
+    {
+      "idempotencyKey": "pg-usdt-1",
+      "module": "bank",
+      "reason": "bank.transfer.in",
+      "meta": {},
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "71111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "pg-usd-1",
+      "module": "bank",
+      "reason": "bank.transfer.in",
+      "meta": {},
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "71111111-1111-4111-8111-111111111111",
+          "assetId": "USD",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "2"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USD",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "2"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "pg-usdt-2",
+      "module": "bank",
+      "reason": "bank.transfer.in",
+      "meta": {},
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "71111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "3"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "3"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "pg-other-1",
+      "module": "bank",
+      "reason": "bank.transfer.in",
+      "meta": {},
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "72222222-2222-4222-8222-222222222222",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "999"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "999"
+        }
+      ]
+    }
+  ],
+  "rails": [
+    {
+      "idempotencyKey": "deposit:crypto-native:r1",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "r1" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "74444444-4444-4444-8444-444444444444",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:bank-crypto-ledger:r2",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "bank-crypto-ledger", "railRef": "r2" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:bank-crypto-ledger",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "74444444-4444-4444-8444-444444444444",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:local-test:r2b",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "local-test", "railRef": "r2b" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:local-test",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "74444444-4444-4444-8444-444444444444",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:not-a-known-rail:r3",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "not-a-known-rail", "railRef": "r3" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:not-a-known-rail",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "74444444-4444-4444-8444-444444444444",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "rail-nonstring",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": { "x": 1 }, "secret": "must-not-leak" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "74444444-4444-4444-8444-444444444444",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "rail-none",
+      "module": "bank",
+      "reason": "bank.transfer.in",
+      "meta": {},
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "74444444-4444-4444-8444-444444444444",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        }
+      ]
+    }
+  ],
+  "products": [
+    {
+      "idempotencyKey": "mm.seed.fund:product-btc:BTC",
+      "module": "trade",
+      "reason": "mm.seed.funded",
+      "meta": { "seedId": "product-btc", "rail": "mm-seed" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:mm-seed",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "10"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "10"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:crypto-native:product-u",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "product-u" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "100"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "100"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:product-taker-desk",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "product-taker-desk" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "10"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:product-taker-desk",
+          "direction": "debit",
+          "amount": "10"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold.mm:product-maker-desk",
+      "module": "trade",
+      "reason": "order.hold.mm",
+      "meta": { "orderId": "product-maker-desk", "house": "market-maker" },
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "0.001"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:product-maker-desk",
+          "direction": "debit",
+          "amount": "0.001"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "trade.fill.mm-maker:product-fill-desk",
+      "module": "trade",
+      "reason": "trade.fill.mm_maker",
+      "meta": {
+        "fillId": "product-fill-desk",
+        "takerSide": "buy",
+        "makerFeeBps": 0,
+        "takerFeeBps": 0,
+        "makerOrderId": "product-maker-desk",
+        "takerOrderId": "product-taker-desk",
+        "house": "market-maker"
+      },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:product-taker-desk",
+          "direction": "credit",
+          "amount": "10"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "10"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:product-maker-desk",
+          "direction": "credit",
+          "amount": "0.001"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.001"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:product-taker-convert",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "product-taker-convert" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "10"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:product-taker-convert",
+          "direction": "debit",
+          "amount": "10"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold.mm:product-maker-convert",
+      "module": "trade",
+      "reason": "order.hold.mm",
+      "meta": { "orderId": "product-maker-convert", "house": "market-maker" },
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "0.001"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:product-maker-convert",
+          "direction": "debit",
+          "amount": "0.001"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "trade.fill.mm-maker:product-fill-convert",
+      "module": "trade",
+      "reason": "trade.fill.mm_maker",
+      "meta": {
+        "fillId": "product-fill-convert",
+        "takerSide": "buy",
+        "makerFeeBps": 0,
+        "takerFeeBps": 0,
+        "makerOrderId": "product-maker-convert",
+        "takerOrderId": "product-taker-convert",
+        "house": "market-maker",
+        "product": "convert"
+      },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:product-taker-convert",
+          "direction": "credit",
+          "amount": "10"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "10"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:product-maker-convert",
+          "direction": "credit",
+          "amount": "0.001"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.001"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:product-taker-odd",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "product-taker-odd" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "10"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:product-taker-odd",
+          "direction": "debit",
+          "amount": "10"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold.mm:product-maker-odd",
+      "module": "trade",
+      "reason": "order.hold.mm",
+      "meta": { "orderId": "product-maker-odd", "house": "market-maker" },
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "0.001"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:product-maker-odd",
+          "direction": "debit",
+          "amount": "0.001"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "trade.fill.mm-maker:product-fill-odd",
+      "module": "trade",
+      "reason": "trade.fill.mm_maker",
+      "meta": {
+        "fillId": "product-fill-odd",
+        "takerSide": "buy",
+        "makerFeeBps": 0,
+        "takerFeeBps": 0,
+        "makerOrderId": "product-maker-odd",
+        "takerOrderId": "product-taker-odd",
+        "house": "market-maker",
+        "product": "not-a-known-product"
+      },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:product-taker-odd",
+          "direction": "credit",
+          "amount": "10"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "10"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:product-maker-odd",
+          "direction": "credit",
+          "amount": "0.001"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "75555555-5555-4555-8555-555555555555",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.001"
+        }
+      ]
+    }
+  ],
+  "withdrawals": [
+    {
+      "idempotencyKey": "deposit:crypto-native:wd-dep",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "wd-dep" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "50"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "76666666-6666-4666-8666-666666666666",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "50"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "withdraw.hold:7a7a7a7a-0000-4000-8000-000000000001:0",
+      "module": "ledger",
+      "reason": "withdraw.held",
+      "meta": { "rail": "crypto-native", "withdrawalId": "7a7a7a7a-0000-4000-8000-000000000001:0" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "76666666-6666-4666-8666-666666666666",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "5"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "76666666-6666-4666-8666-666666666666",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "withdraw:7a7a7a7a-0000-4000-8000-000000000001:0",
+          "direction": "debit",
+          "amount": "5"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "withdraw.reverse:7a7a7a7a-0000-4000-8000-000000000001:0",
+      "module": "ledger",
+      "reason": "withdraw.reversed",
+      "meta": { "rail": "crypto-native", "withdrawalId": "7a7a7a7a-0000-4000-8000-000000000001:0" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "76666666-6666-4666-8666-666666666666",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "withdraw:7a7a7a7a-0000-4000-8000-000000000001:0",
+          "direction": "credit",
+          "amount": "5"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "76666666-6666-4666-8666-666666666666",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "5"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "withdraw.hold:7a7a7a7a-0000-4000-8000-000000000001:1",
+      "module": "ledger",
+      "reason": "withdraw.held",
+      "meta": { "rail": "crypto-native", "withdrawalId": "7a7a7a7a-0000-4000-8000-000000000001:1" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "76666666-6666-4666-8666-666666666666",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "5"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "76666666-6666-4666-8666-666666666666",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "withdraw:7a7a7a7a-0000-4000-8000-000000000001:1",
+          "direction": "debit",
+          "amount": "5"
+        }
+      ]
+    }
+  ],
+  "orderIds": [
+    {
+      "idempotencyKey": "deposit:crypto-native:oid-taker-usdt",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "oid-taker-usdt" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "5000"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "5000"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:crypto-native:oid-maker-btc",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "oid-maker-btc" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "5"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "82222222-2222-4222-8222-222222222222",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "5"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:crypto-native:oid-self-usdt",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "oid-self-usdt" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "2000"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "83333333-3333-4333-8333-333333333333",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "2000"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:crypto-native:oid-self-btc",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "oid-self-btc" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "2"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "83333333-3333-4333-8333-333333333333",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "2"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:d1111111-1111-4111-8111-d11111111111",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "d1111111-1111-4111-8111-d11111111111" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1000"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:d1111111-1111-4111-8111-d11111111111",
+          "direction": "debit",
+          "amount": "1000"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold.amend:d1111111-1111-4111-8111-d11111111111:1",
+      "module": "trade",
+      "reason": "order.hold.amend",
+      "meta": { "orderId": "d1111111-1111-4111-8111-d11111111111", "sequence": 1 },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "500"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:d1111111-1111-4111-8111-d11111111111",
+          "direction": "debit",
+          "amount": "500"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:d2222222-2222-4222-8222-d22222222222",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "d2222222-2222-4222-8222-d22222222222" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "82222222-2222-4222-8222-222222222222",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "82222222-2222-4222-8222-222222222222",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:d2222222-2222-4222-8222-d22222222222",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:d3333333-3333-4333-8333-d33333333333",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "d3333333-3333-4333-8333-d33333333333" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "82222222-2222-4222-8222-222222222222",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "82222222-2222-4222-8222-222222222222",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:d3333333-3333-4333-8333-d33333333333",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "trade.fill:oid-fill-1",
+      "module": "trade",
+      "reason": "trade.fill",
+      "meta": {
+        "fillId": "oid-fill-1",
+        "takerSide": "buy",
+        "makerFeeBps": 10,
+        "takerFeeBps": 20,
+        "makerOrderId": "d2222222-2222-4222-8222-d22222222222",
+        "takerOrderId": "d1111111-1111-4111-8111-d11111111111"
+      },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:d1111111-1111-4111-8111-d11111111111",
+          "direction": "credit",
+          "amount": "600"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "82222222-2222-4222-8222-222222222222",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "599.4"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.6"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "82222222-2222-4222-8222-222222222222",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:d2222222-2222-4222-8222-d22222222222",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.998"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.002"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "trade.fill:oid-fill-2",
+      "module": "trade",
+      "reason": "trade.fill",
+      "meta": {
+        "fillId": "oid-fill-2",
+        "takerSide": "buy",
+        "makerFeeBps": 10,
+        "takerFeeBps": 20,
+        "makerOrderId": "d3333333-3333-4333-8333-d33333333333",
+        "takerOrderId": "d1111111-1111-4111-8111-d11111111111"
+      },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:d1111111-1111-4111-8111-d11111111111",
+          "direction": "credit",
+          "amount": "620"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "82222222-2222-4222-8222-222222222222",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "619.38"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.62"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "82222222-2222-4222-8222-222222222222",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:d3333333-3333-4333-8333-d33333333333",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.998"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.002"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.release:d1111111-1111-4111-8111-d11111111111:0",
+      "module": "trade",
+      "reason": "order.hold.released",
+      "meta": { "orderId": "d1111111-1111-4111-8111-d11111111111" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:d1111111-1111-4111-8111-d11111111111",
+          "direction": "credit",
+          "amount": "280"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "280"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "mm.seed.fund:oid-seed-btc:BTC",
+      "module": "trade",
+      "reason": "mm.seed.funded",
+      "meta": { "seedId": "oid-seed-btc", "rail": "mm-seed" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:mm-seed",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "3"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "3"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:d4444444-4444-4444-8444-d44444444444",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "d4444444-4444-4444-8444-d44444444444" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "700"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:d4444444-4444-4444-8444-d44444444444",
+          "direction": "debit",
+          "amount": "700"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold.mm:mm-side-1",
+      "module": "trade",
+      "reason": "order.hold.mm",
+      "meta": { "orderId": "mm-side-1", "house": "market-maker" },
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:mm-side-1",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "trade.fill.mm-maker:oid-mm-fill",
+      "module": "trade",
+      "reason": "trade.fill.mm_maker",
+      "meta": {
+        "fillId": "oid-mm-fill",
+        "takerSide": "buy",
+        "makerFeeBps": 10,
+        "takerFeeBps": 20,
+        "makerOrderId": "mm-side-1",
+        "takerOrderId": "d4444444-4444-4444-8444-d44444444444",
+        "house": "market-maker"
+      },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:d4444444-4444-4444-8444-d44444444444",
+          "direction": "credit",
+          "amount": "700"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "699.3"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.7"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "market-maker",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:mm-side-1",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "81111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.998"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.002"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:d5555555-5555-4555-8555-d55555555555",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "d5555555-5555-4555-8555-d55555555555" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "83333333-3333-4333-8333-333333333333",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "900"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "83333333-3333-4333-8333-333333333333",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:d5555555-5555-4555-8555-d55555555555",
+          "direction": "debit",
+          "amount": "900"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:d6666666-6666-4666-8666-d66666666666",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "d6666666-6666-4666-8666-d66666666666" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "83333333-3333-4333-8333-333333333333",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "83333333-3333-4333-8333-333333333333",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:d6666666-6666-4666-8666-d66666666666",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "trade.fill:oid-self-fill",
+      "module": "trade",
+      "reason": "trade.fill",
+      "meta": {
+        "fillId": "oid-self-fill",
+        "takerSide": "buy",
+        "makerFeeBps": 10,
+        "takerFeeBps": 20,
+        "makerOrderId": "d6666666-6666-4666-8666-d66666666666",
+        "takerOrderId": "d5555555-5555-4555-8555-d55555555555"
+      },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "83333333-3333-4333-8333-333333333333",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:d5555555-5555-4555-8555-d55555555555",
+          "direction": "credit",
+          "amount": "900"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "83333333-3333-4333-8333-333333333333",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "899.1"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.9"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "83333333-3333-4333-8333-333333333333",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:d6666666-6666-4666-8666-d66666666666",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "83333333-3333-4333-8333-333333333333",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.998"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.002"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:crypto-native:oid-free-usdt",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "oid-free-usdt" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "500"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "84444444-4444-4444-8444-444444444444",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "500"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:crypto-native:oid-free-maker-btc",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "oid-free-maker-btc" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "85555555-5555-4555-8555-555555555555",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:d7777777-7777-4777-8777-d77777777777",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "d7777777-7777-4777-8777-d77777777777" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "84444444-4444-4444-8444-444444444444",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "400"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "84444444-4444-4444-8444-444444444444",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:d7777777-7777-4777-8777-d77777777777",
+          "direction": "debit",
+          "amount": "400"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:d8888888-8888-4888-8888-d88888888888",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "d8888888-8888-4888-8888-d88888888888" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "85555555-5555-4555-8555-555555555555",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "85555555-5555-4555-8555-555555555555",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:d8888888-8888-4888-8888-d88888888888",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "trade.fill:oid-free-fill",
+      "module": "trade",
+      "reason": "trade.fill",
+      "meta": {
+        "fillId": "oid-free-fill",
+        "takerSide": "buy",
+        "makerFeeBps": 0,
+        "takerFeeBps": 0,
+        "makerOrderId": "d8888888-8888-4888-8888-d88888888888",
+        "takerOrderId": "d7777777-7777-4777-8777-d77777777777"
+      },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "84444444-4444-4444-8444-444444444444",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:d7777777-7777-4777-8777-d77777777777",
+          "direction": "credit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "85555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "85555555-5555-4555-8555-555555555555",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:d8888888-8888-4888-8888-d88888888888",
+          "direction": "credit",
+          "amount": "0.5"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "84444444-4444-4444-8444-444444444444",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.5"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:crypto-native:oid-bb-fee",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "oid-bb-fee" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "87777777-7777-4777-8777-777777777777",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "300"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "fee:trade:oid-bb-fee",
+      "module": "trade",
+      "reason": "fee.charged",
+      "meta": { "mode": "asset" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "87777777-7777-4777-8777-777777777777",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "300"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "token.fee.sweep:buyback:oid-bb:trade:USDT",
+      "module": "token",
+      "reason": "token.fee.swept",
+      "meta": { "windowId": "buyback:oid-bb", "sourceModule": "trade" },
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "rewards-engine",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "300"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold.buyback:oid-bb-order",
+      "module": "trade",
+      "reason": "order.hold.buyback",
+      "meta": { "orderId": "oid-bb-order", "house": "buyback" },
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "rewards-engine",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "rewards-engine",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:oid-bb-order",
+          "direction": "debit",
+          "amount": "300"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:crypto-native:oid-bb-maker-btc",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "oid-bb-maker-btc" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "86666666-6666-4666-8666-666666666666",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:d9999999-9999-4999-8999-d99999999999",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "d9999999-9999-4999-8999-d99999999999" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "86666666-6666-4666-8666-666666666666",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "86666666-6666-4666-8666-666666666666",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:d9999999-9999-4999-8999-d99999999999",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "trade.fill.buyback:oid-bb-fill",
+      "module": "trade",
+      "reason": "trade.fill.buyback",
+      "meta": {
+        "fillId": "oid-bb-fill",
+        "takerSide": "buy",
+        "makerFeeBps": 10,
+        "takerFeeBps": 0,
+        "makerOrderId": "d9999999-9999-4999-8999-d99999999999",
+        "takerOrderId": "oid-bb-order",
+        "house": "buyback"
+      },
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "rewards-engine",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:oid-bb-order",
+          "direction": "credit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "86666666-6666-4666-8666-666666666666",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "299.7"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.3"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "86666666-6666-4666-8666-666666666666",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:d9999999-9999-4999-8999-d99999999999",
+          "direction": "credit",
+          "amount": "0.5"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "rewards-engine",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.5"
+        }
+      ]
+    }
+  ],
+  "holdings": [
+    {
+      "idempotencyKey": "deposit:crypto-native:hh-usdt",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "hh-usdt" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1000"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1000"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:crypto-native:hh-btc",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "hh-btc" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "92222222-2222-4222-8222-222222222222",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:e1111111-1111-4111-8111-e11111111111",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "e1111111-1111-4111-8111-e11111111111" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "700"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:e1111111-1111-4111-8111-e11111111111",
+          "direction": "debit",
+          "amount": "700"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:e2222222-2222-4222-8222-e22222222222",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "e2222222-2222-4222-8222-e22222222222" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "92222222-2222-4222-8222-222222222222",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "0.01"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "92222222-2222-4222-8222-222222222222",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:e2222222-2222-4222-8222-e22222222222",
+          "direction": "debit",
+          "amount": "0.01"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "trade.fill:hh-fill-1",
+      "module": "trade",
+      "reason": "trade.fill",
+      "meta": {
+        "fillId": "hh-fill-1",
+        "takerSide": "buy",
+        "makerFeeBps": 10,
+        "takerFeeBps": 20,
+        "makerOrderId": "e2222222-2222-4222-8222-e22222222222",
+        "takerOrderId": "e1111111-1111-4111-8111-e11111111111"
+      },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:e1111111-1111-4111-8111-e11111111111",
+          "direction": "credit",
+          "amount": "600"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "92222222-2222-4222-8222-222222222222",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "599.4"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.6"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "92222222-2222-4222-8222-222222222222",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:e2222222-2222-4222-8222-e22222222222",
+          "direction": "credit",
+          "amount": "0.01"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.00998"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.00002"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.release:e1111111-1111-4111-8111-e11111111111:0",
+      "module": "trade",
+      "reason": "order.hold.released",
+      "meta": { "orderId": "e1111111-1111-4111-8111-e11111111111" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:e1111111-1111-4111-8111-e11111111111",
+          "direction": "credit",
+          "amount": "100"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "100"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "withdraw.hold:hh-w-settled",
+      "module": "ledger",
+      "reason": "withdraw.held",
+      "meta": { "rail": "crypto-native", "withdrawalId": "hh-w-settled" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "0.003"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "withdraw:hh-w-settled",
+          "direction": "debit",
+          "amount": "0.003"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "withdraw.settle:hh-w-settled",
+      "module": "ledger",
+      "reason": "withdraw.settled",
+      "meta": { "rail": "crypto-native", "withdrawalId": "hh-w-settled" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "withdraw:hh-w-settled",
+          "direction": "credit",
+          "amount": "0.003"
+        },
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.003"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "withdraw.hold:hh-w-reversed",
+      "module": "ledger",
+      "reason": "withdraw.held",
+      "meta": { "rail": "crypto-native", "withdrawalId": "hh-w-reversed" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "0.002"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "withdraw:hh-w-reversed",
+          "direction": "debit",
+          "amount": "0.002"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "withdraw.reverse:hh-w-reversed",
+      "module": "ledger",
+      "reason": "withdraw.reversed",
+      "meta": { "rail": "crypto-native", "withdrawalId": "hh-w-reversed" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "withdraw:hh-w-reversed",
+          "direction": "credit",
+          "amount": "0.002"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.002"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "withdraw.hold:hh-w-open",
+      "module": "ledger",
+      "reason": "withdraw.held",
+      "meta": { "rail": "crypto-native", "withdrawalId": "hh-w-open" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "0.001"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "withdraw:hh-w-open",
+          "direction": "debit",
+          "amount": "0.001"
+        }
+      ]
+    }
+  ],
+  "holdingsMinute": [
+    {
+      "idempotencyKey": "bank.transfer.p2p:hh-t-in:0",
+      "module": "bank",
+      "reason": "bank.transfer.manual",
+      "meta": { "transferId": "hh-t-in", "occurrence": 0 },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "92222222-2222-4222-8222-222222222222",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "50"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "50"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "bank.transfer.p2p:hh-t-back:0",
+      "module": "bank",
+      "reason": "bank.transfer.manual",
+      "meta": { "transferId": "hh-t-back", "occurrence": 0 },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "91111111-1111-4111-8111-111111111111",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "50"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "92222222-2222-4222-8222-222222222222",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "50"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:crypto-native:hh-bb-fee",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "hh-bb-fee" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "95555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "300"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "fee:trade:hh-bb-fee",
+      "module": "trade",
+      "reason": "fee.charged",
+      "meta": { "mode": "asset" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "95555555-5555-4555-8555-555555555555",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "300"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "token.fee.sweep:buyback:hh-bb:trade:USDT",
+      "module": "token",
+      "reason": "token.fee.swept",
+      "meta": { "windowId": "buyback:hh-bb", "sourceModule": "trade" },
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "rewards-engine",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "300"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold.buyback:hh-bb-order",
+      "module": "trade",
+      "reason": "order.hold.buyback",
+      "meta": { "orderId": "hh-bb-order", "house": "buyback" },
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "rewards-engine",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "rewards-engine",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:hh-bb-order",
+          "direction": "debit",
+          "amount": "300"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "deposit:crypto-native:hh-bb-btc",
+      "module": "ledger",
+      "reason": "deposit.credited",
+      "meta": { "rail": "crypto-native", "railRef": "hh-bb-btc" },
+      "entries": [
+        {
+          "ownerType": "treasury",
+          "ownerId": "rail:crypto-native",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "1"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "94444444-4444-4444-8444-444444444444",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "1"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "order.hold:e3333333-3333-4333-8333-e33333333333",
+      "module": "trade",
+      "reason": "order.hold",
+      "meta": { "orderId": "e3333333-3333-4333-8333-e33333333333" },
+      "entries": [
+        {
+          "ownerType": "user",
+          "ownerId": "94444444-4444-4444-8444-444444444444",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "credit",
+          "amount": "0.5"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "94444444-4444-4444-8444-444444444444",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:e3333333-3333-4333-8333-e33333333333",
+          "direction": "debit",
+          "amount": "0.5"
+        }
+      ]
+    },
+    {
+      "idempotencyKey": "trade.fill.buyback:hh-bb-fill",
+      "module": "trade",
+      "reason": "trade.fill.buyback",
+      "meta": {
+        "fillId": "hh-bb-fill",
+        "takerSide": "buy",
+        "makerFeeBps": 10,
+        "takerFeeBps": 0,
+        "makerOrderId": "e3333333-3333-4333-8333-e33333333333",
+        "takerOrderId": "hh-bb-order",
+        "house": "buyback"
+      },
+      "entries": [
+        {
+          "ownerType": "house",
+          "ownerId": "rewards-engine",
+          "assetId": "USDT",
+          "kind": "hold",
+          "purpose": "order:hh-bb-order",
+          "direction": "credit",
+          "amount": "300"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "94444444-4444-4444-8444-444444444444",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "299.7"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "fees:trade",
+          "assetId": "USDT",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.3"
+        },
+        {
+          "ownerType": "user",
+          "ownerId": "94444444-4444-4444-8444-444444444444",
+          "assetId": "BTC",
+          "kind": "hold",
+          "purpose": "order:e3333333-3333-4333-8333-e33333333333",
+          "direction": "credit",
+          "amount": "0.5"
+        },
+        {
+          "ownerType": "house",
+          "ownerId": "rewards-engine",
+          "assetId": "BTC",
+          "kind": "available",
+          "purpose": "",
+          "direction": "debit",
+          "amount": "0.5"
+        }
+      ]
+    }
+  ]
+}
