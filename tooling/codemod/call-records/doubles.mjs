@@ -35,12 +35,12 @@ const tracked = (pattern) =>
 const isTest = (f) => /\.test\.tsx?$/.test(f);
 
 /** The app files that call by record: `api.call(SOME_RECORD, ...)`. */
-export function recordCallers(files) {
+function recordCallers(files) {
   return new Set(files.filter((f) => !isTest(f) && /\.call\(\s*[A-Z][A-Z0-9_]+\b/.test(readFileSync(f, 'utf8'))));
 }
 
 /** Whether `file`, following its relative imports (and the modules its `vi.mock` calls name), reaches one of `targets`. */
-export function reaches(file, targets, memo = new Map()) {
+function reaches(file, targets, memo = new Map()) {
   const seen = new Set();
   const stack = [file];
   while (stack.length) {
@@ -98,7 +98,7 @@ function addCall(p, node) {
   return { start: at, end: at, text: `${after ? '' : ','}\n${body}` };
 }
 
-export function run({ write = false } = {}) {
+function run({ write = false } = {}) {
   const files = tracked('apps').filter((f) => /^apps\/[^/]+\/(src|tests)\/.*\.tsx?$/.test(relative(REPO, f)));
   const targets = recordCallers(files);
   const memo = new Map();
