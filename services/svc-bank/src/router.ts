@@ -60,6 +60,9 @@ import { createBusinessPayoutsRouter } from './router/business-payouts.router.js
 import { createBusinessCardsRouter } from './router/business-cards.router.js';
 import { createBusinessBooksRouter } from './router/business-books.router.js';
 import { createBankApiRouter } from './router/bank-api.router.js';
+import { BANK_CASH_LEG_CARRY, BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_READ } from '@intafaced/contracts/bank-cash-leg-procedures';
+import { presentCashLeg, presentCashLegOffers } from './partner/cash-leg.js';
+import { parseAmount as parseCashAmount } from '@intafaced/ledger-client';
 
 /**
  * svc-bank's API.
@@ -192,6 +195,40 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           }),
         )
         .query(() => guard(async () => ({ assets: await bank.supportedAssets.list() }))),
+    }),
+    // The partner's cash leg of a cash-through-a-coin convert (J-cex-spot-11 #11), asked by svc-trade as the person.
+    convertCash: router({
+      offers: mountRecord(
+        BANK_CASH_LEG_OFFERS,
+        ({ ctx }) => guard(async () => presentCashLegOffers(await bank.cashLegs.offers(ctx.principal.userId))),
+        bankRefusal,
+      ),
+      carry: mountRecord(
+        BANK_CASH_LEG_CARRY,
+        ({ ctx, input }) =>
+          guard(async () =>
+            presentCashLeg(
+              await bank.cashLegs.carry(ctx.principal.userId, {
+                key: input.legKey,
+                cash: input.cash,
+                coin: input.coin,
+                spend: parseCashAmount(input.spend),
+                least: parseCashAmount(input.least),
+                venue: { venueId: input.venue.venueId, owner: input.venue.owner.toLowerCase() },
+              }),
+            ),
+          ),
+        bankRefusal,
+      ),
+      leg: mountRecord(
+        BANK_CASH_LEG_READ,
+        ({ ctx, input }) =>
+          guard(async () => {
+            const leg = await bank.cashLegs.leg(ctx.principal.userId, input.legKey);
+            return { leg: leg ? presentCashLeg(leg) : null };
+          }),
+        bankRefusal,
+      ),
     }),
     deposits: router({
       assets: mountRecord(BANK_DEPOSITS_ASSETS, () => guard(async () => bank.deposits.assets()), bankRefusal),

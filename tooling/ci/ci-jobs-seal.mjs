@@ -209,26 +209,63 @@ export const lintTakenAt = (run, jobs) => {
  * Doctrine gates job started (lintTakenAt), and is cleared by re-running that job; a gate-list change counts after the
  * same moment, and is cleared the same way, when that newest job judged on main afresh (judgedOnFreshMain); else it
  * counts after the run was created, and is cleared by merging origin/main and pushing. With no CI run judgeCiJobs
- * already holds the merge. Returns { ok, lines }. Pure.
+ * already holds the merge. Returns { ok, lines, rerun }: `rerun` ({ runId, jobId }) when every late change is cleared by
+ * re-running the newest Doctrine gates job, which the seal then does itself (staleRulesRerun, project-state#3599); else
+ * null. Pure.
  */
 export function rulesVerdict({ run, jobs, changes }) {
-  if (!run) return { ok: true, lines: [] };
+  if (!run) return { ok: true, lines: [], rerun: null };
   const gatesJob = newestGates(jobs);
   const fresh = judgedOnFreshMain(gatesJob);
   const lintAt = lintTakenAt(run, jobs);
   const gateAt = fresh ? lintAt : rulesTakenAt(run);
   const late = (changes ?? []).filter((c) => Date.parse(c.date) > Date.parse(LINT_PATHS.includes(c.path) ? lintAt : gateAt));
-  if (!late.length) return { ok: true, lines: [`main's rules: unchanged since CI run ${run.id} judged this head by them`] };
+  if (!late.length) return { ok: true, lines: [`main's rules: unchanged since CI run ${run.id} judged this head by them`], rerun: null };
   const seen = new Map();
   for (const c of late) seen.set(c.sha, { ...c, paths: [...(seen.get(c.sha)?.paths ?? []), c.path] });
+  const needsPush = (c) => !fresh && c.paths.some((p) => GATE_PATHS.includes(p));
   return {
     ok: false,
+    rerun: gatesJob?.id && ![...seen.values()].some(needsPush) ? { runId: run.id, jobId: gatesJob.id } : null,
     lines: [...seen.values()].map((c) =>
-      !fresh && c.paths.some((p) => GATE_PATHS.includes(p))
+      needsPush(c)
         ? `main changed ${c.paths.join(', ')} in ${c.sha.slice(0, 10)} at ${c.date} ("${c.title}"), after CI run ${run.id} took main's gate list (${gateAt}): merge origin/main and push, so CI runs the gates main has now (a re-run keeps the old list)`
         : `main changed ${c.paths.join(', ')} in ${c.sha.slice(0, 10)} at ${c.date} ("${c.title}"), after the Doctrine gates job read main's ${fresh ? 'rules' : 'lint rules'} (${lintAt}): re-run it (gh run rerun ${run.id} --job ${gatesJob?.id ?? '<its id>'}); it reads main's rules afresh and starts the seal again`,
     ),
   };
+}
+
+/**
+ * The one Doctrine gates job the seal re-runs itself (project-state#3599: 17 of the 25 newest failed seals on 21 Nov were
+ * only this verdict, each waiting for a hand re-run). Only when every other verdict passed and the rules verdict asks for
+ * a re-run alone; any other failure stays red as it is. At most once per change on main: the re-run job starts after
+ * every change the verdict saw, so the next seal finds them cleared. Returns { runId, jobId } or null. Pure.
+ */
+export function staleRulesRerun({ ci, money, model, rules }) {
+  return ci?.ok && money?.ok && model?.ok && rules && !rules.ok ? (rules.rerun ?? null) : null;
+}
+
+/** How long the seal waits for CI's run to finish before re-running a job of it (its last job, START_JOB, may still be
+ *  ending while the seal reads; GitHub re-runs a job only in a finished run). */
+export const RERUN_POLLS = 18;
+export const RERUN_POLL_MS = 10_000;
+
+/**
+ * Re-runs `step`'s Doctrine gates job once its CI run has finished: `get` reads the run, `post` returns { status, message }.
+ * Its dependents, START_JOB among them, run again after it, and START_JOB starts the seal again. Returns the line to print.
+ */
+export async function rerunStaleGates({ repo, step, get, post, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  for (let i = 0; i < RERUN_POLLS; i++) {
+    const r = await get(`/repos/${repo}/actions/runs/${step.runId}`);
+    if (r?.status === 'completed') {
+      const { status, message = '' } = await post(`/repos/${repo}/actions/jobs/${step.jobId}/rerun`);
+      if (status >= 200 && status < 300)
+        return `re-ran Doctrine gates job ${step.jobId} of CI run ${step.runId} on main's rules now; the seal starts again when it ends`;
+      return `could not re-run Doctrine gates job ${step.jobId} of CI run ${step.runId} (${status} ${message}); re-run it by hand`;
+    }
+    await sleep(RERUN_POLL_MS);
+  }
+  return `CI run ${step.runId} had not finished after ${(RERUN_POLLS * RERUN_POLL_MS) / 1000} s; re-run Doctrine gates job ${step.jobId} by hand`;
 }
 
 /** main's commits on RULE_PATHS after `since` (and up to `until`, for a replay), one listing per path. */
@@ -250,6 +287,20 @@ async function api(path, token) {
   });
   if (!res.ok) throw new Error(httpMessage(path, res, (await res.text()).slice(0, 200)));
   return res.json();
+}
+
+/** A POST with no body; never throws on an HTTP refusal: { status, message }. */
+async function apiPost(path, token) {
+  const res = await githubFetch(`https://api.github.com${path}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
+  });
+  const text = await res.text();
+  let message = text.slice(0, 200);
+  try {
+    message = JSON.parse(text)?.message ?? message;
+  } catch {}
+  return { status: res.status, message };
 }
 
 /** The pull request's changed paths (journey-seal.mjs pullFiles: a renamed file counts by both names), or null when
@@ -317,6 +368,8 @@ async function main() {
   if (ci.ok && money.ok && model.ok && rules.ok) return;
   for (const v of [ci, money, model, rules])
     if (!v.ok) for (const l of v.lines) console.error(`::error title=${v.down ? 'judge down: Model check' : 'CI merge seal'}::${l}`);
+  const step = staleRulesRerun({ ci, money, model, rules });
+  if (step) console.log(await rerunStaleGates({ repo: REPO, step, get, post: (p) => apiPost(p, GH_TOKEN) }));
   process.exit(1);
 }
 

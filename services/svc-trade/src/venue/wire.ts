@@ -3,6 +3,7 @@
  * internal deposits read. index.ts calls `wireUserVenue` once and `startAtBoot` where the door used to connect, so a
  * journey that adds to the door edits this file, not the service's wiring file.
  */
+import { createCashLegClient } from '../convert/cash-leg-client.js';
 import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
 import type { EventBus } from '@intafaced/events';
@@ -156,6 +157,8 @@ export function wireUserVenue(deps: {
         enabled: env.TRADE_CONVERT_ENABLED,
         windowMs: env.TRADE_CONVERT_ACCEPT_WINDOW_MS,
         slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+        // The partner's cash leg of a cash convert (#11), asked as the person through svc-bank; blank BANK_URL offers none.
+        cashLeg: createCashLegClient(env.BANK_URL),
       })
     : null;
 
