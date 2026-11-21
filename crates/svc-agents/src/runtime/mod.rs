@@ -751,7 +751,7 @@ pub fn act(
             Claim::Replay(result, action) => {
                 return Ok(ActResult {
                     result,
-                    action,
+                    action: *action,
                     replayed: true,
                 });
             }
@@ -834,7 +834,7 @@ pub fn act(
 enum Claim {
     Claimed,
     Conflict,
-    Replay(Json, Action),
+    Replay(Json, Box<Action>),
 }
 
 fn parse_result(text: &str) -> Result<Json, RunError> {
@@ -899,7 +899,7 @@ fn claim_place_intent(pool: &Pool, session_id: &str, key: &str, tool: &str) -> R
     Ok(match found {
         None => Claim::Claimed,
         Some(None) => Claim::Conflict,
-        Some(Some((text, a))) => Claim::Replay(parse_result(&text)?, a),
+        Some(Some((text, a))) => Claim::Replay(parse_result(&text)?, Box::new(a)),
     })
 }
 

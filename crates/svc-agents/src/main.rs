@@ -38,6 +38,9 @@ use svc_agents::metering::ports::{
     AffiliatesHttp, JetStreamBus, LedgerHttp, LedgerOnly, UsagePayment, UsagePaymentHttp,
 };
 use svc_agents::migrate;
+use svc_agents::navigator::Navigator;
+use svc_agents::navigator::onchain::ports::{HttpSender, LinkedWalletsHttp, RpcChain, SelfFreezeHttp, parse_market};
+use svc_agents::navigator::ports::{IdentitySessionHttp, TradeHttp};
 use svc_agents::runtime::Runtime;
 use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
@@ -298,8 +301,41 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
         transcript_retention_days: env.int("AGENTS_TRANSCRIPT_RETENTION_DAYS").unwrap_or(0),
         overage_grace: grace,
         tier_laws: parse_tier_laws(env.str("AGENTS_TIER_LAWS"))?,
-        navigator: svc_agents::navigator::Navigator::unwired(),
+        navigator: navigator(env, fetch, &signer)?,
     })
+}
+
+/// The navigator as `index.ts` builds it: svc-trade's public REST while `TRADE_URL` is set, svc-identity's session
+/// read, linked wallets and freeze while `IDENTITY_URL` is set, and the on-chain signer, its sender, the chain and the
+/// market from `AGENTS_NAVIGATOR_ONCHAIN_*`. A malformed market stops the boot.
+fn navigator(
+    env: &AgentsEnv,
+    fetch: &Arc<dyn Fetch>,
+    signer: &dyn Fn(&str) -> CallSigner,
+) -> Result<Navigator, String> {
+    let set = |k: &str| env.str(k).map(str::trim).filter(|v| !v.is_empty());
+    let mut nav = Navigator::unwired();
+    if let Some(url) = set("TRADE_URL") {
+        nav.trade_url = Some(url.to_owned());
+        nav.trade_data = Some(Box::new(TradeHttp::new(url, fetch.clone())));
+    }
+    if let Some(url) = set("IDENTITY_URL") {
+        nav.identity_session = Some(Box::new(IdentitySessionHttp::new(url, signer("svc-identity"), fetch.clone())));
+        nav.onchain.linked_wallets = Some(Box::new(LinkedWalletsHttp::new(url, signer("svc-identity"), fetch.clone())));
+        nav.onchain.self_freeze = Some(Box::new(SelfFreezeHttp::new(url, signer("svc-identity"), fetch.clone())));
+    }
+    nav.onchain.signer = set("AGENTS_NAVIGATOR_ONCHAIN_SIGNER").map(str::to_owned);
+    if let Some(url) = set("AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL") {
+        nav.onchain.sender = Some(Box::new(HttpSender {
+            url: url.to_owned(),
+            fetch: fetch.clone(),
+        }));
+    }
+    nav.onchain.market = set("AGENTS_NAVIGATOR_ONCHAIN_MARKET").map(parse_market).transpose()?;
+    if let Some(url) = set("AGENTS_NAVIGATOR_ONCHAIN_RPC_URL") {
+        nav.onchain.chain = Some(Box::new(RpcChain::new(url, fetch.clone())));
+    }
+    Ok(nav)
 }
 
 /// The door, built once from the environment, with the store, the meter, the gateway and what `/ready` reports.
