@@ -1,13 +1,13 @@
 import 'server-only';
 import { SUPPORT_DESK_ATTACH_OPS, SUPPORT_DESK_ATTACHMENT_DOWNLOAD_OPS } from '@intafaced/contracts/support-desk-settings-procedures';
 import {
-  founderCall,
   founderRecordCall,
   type FounderCallContext,
   type FounderCallResult,
   partFrom,
   type Part,
   type PartLabels,
+  founderRecordRead,
 } from '@/lib/desk';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
 import { heldTo } from './reply-check';
@@ -20,6 +20,7 @@ import {
   type TicketFile,
   type UploadParams,
 } from './files';
+import { SUPPORT_TICKET_ATTACHMENTS } from '@intafaced/contracts/support-customer-procedures';
 
 export interface TicketFilesView {
   readonly asOf: string;
@@ -32,7 +33,7 @@ const LABELS: PartLabels = {
 };
 
 export async function loadTicketFiles(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<TicketFilesView> {
-  const result = await founderCall(ctx, 'support', 'ticketAttachments', 'GET', { ticketId, limit: FILES_PAGE }, (raw) => {
+  const result = await founderRecordRead(ctx, SUPPORT_TICKET_ATTACHMENTS, { ticketId, limit: FILES_PAGE }, (raw) => {
     const rows = readTicketFiles(raw);
     // Every row must be on the ticket that was asked for.
     return rows && rows.every((row) => row.ticketId === ticketId) ? rows : null;

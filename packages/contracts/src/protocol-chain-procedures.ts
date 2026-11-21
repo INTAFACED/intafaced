@@ -1,9 +1,22 @@
 import { defineProcedure, NO_INPUT, type Refusals, type RefusalStatus } from './procedure.js';
 import {
+  BRIDGE_AMOUNT_INVALID,
+  BRIDGE_BURN_MISMATCH,
+  BRIDGE_KEY_CONFLICT,
+  BRIDGE_PROVIDER_UNSET,
   BRIDGE_ROUTE_KIND_FORBIDDEN,
+  BRIDGE_ROUTE_UNKNOWN,
   BRIDGE_ROUTES_INVALID,
   BRIDGE_ROUTES_UNSET,
+  BRIDGE_TOO_MANY_WAITING,
+  BRIDGE_TRANSFER_NOT_FOUND,
+  BRIDGE_UNREACHABLE,
   bridgeRoutesListOutputSchema,
+  bridgeTransferBurnInputSchema,
+  bridgeTransferSchema,
+  bridgeTransferStartInputSchema,
+  bridgeTransfersListInputSchema,
+  bridgeTransfersListOutputSchema,
 } from './protocol-bridge.js';
 import {
   CONTRACT_ANSWER_UNREADABLE,
@@ -319,6 +332,77 @@ export const PROTOCOL_BRIDGE_ROUTES_LIST = defineProcedure({
   samples: [{ verdict: 'accept' }],
 });
 
+/** Every transfer call: no provider or table, an unreachable chain or attester. */
+const BRIDGE_TRANSFER = [
+  [[BRIDGE_ROUTES_UNSET, BRIDGE_PROVIDER_UNSET], 'PRECONDITION_FAILED'],
+  [[BRIDGE_ROUTES_INVALID, BRIDGE_ROUTE_KIND_FORBIDDEN, BRIDGE_UNREACHABLE], 'SERVICE_UNAVAILABLE'],
+] as const;
+const WALLET = '0x00000000000000000000000000000000000a11ce';
+const TRANSFER_ID = '00000000-0000-4000-8000-000000000001';
+
+/**
+ * Starts one transfer on a listed route: the intent is stored before anything is signed, and the burn to sign comes
+ * back. The same key answers the same transfer. Non-custodial: the wallet signs the burn; nothing posts to the ledger.
+ */
+export const PROTOCOL_BRIDGE_TRANSFERS_START = defineProcedure({
+  ...base,
+  kind: 'mutation',
+  name: 'protocol.bridge.transfers.start',
+  path: 'bridge.transfers.start',
+  access: PROTOCOL,
+  refusals: refusals(
+    ...BRIDGE_TRANSFER,
+    [[BRIDGE_ROUTE_UNKNOWN, BRIDGE_AMOUNT_INVALID], 'BAD_REQUEST'],
+    [[BRIDGE_KEY_CONFLICT, BRIDGE_TOO_MANY_WAITING], 'CONFLICT'],
+  ),
+  input: bridgeTransferStartInputSchema,
+  output: bridgeTransferSchema,
+  samples: [
+    {
+      verdict: 'accept',
+      input: { wallet: WALLET, fromChainId: 84532, toChainId: 31337, asset: 'TUSDC', amount: '1', clientKey: 'bridge-sample-0001' },
+    },
+    {
+      verdict: 'refuse',
+      input: { wallet: WALLET, fromChainId: 84532, toChainId: 31337, asset: 'TUSDC', amount: '1', clientKey: 'short' },
+    },
+  ],
+});
+
+/** The burn's hash, once the wallet sent it: checked on the source chain against the transfer's intent before it is kept. */
+export const PROTOCOL_BRIDGE_TRANSFERS_BURN_SUBMITTED = defineProcedure({
+  ...base,
+  kind: 'mutation',
+  name: 'protocol.bridge.transfers.burnSubmitted',
+  path: 'bridge.transfers.burnSubmitted',
+  access: PROTOCOL,
+  refusals: refusals(...BRIDGE_TRANSFER, [[BRIDGE_TRANSFER_NOT_FOUND], 'NOT_FOUND'], [[BRIDGE_BURN_MISMATCH], 'BAD_REQUEST']),
+  input: bridgeTransferBurnInputSchema,
+  output: bridgeTransferSchema,
+  samples: [
+    { verdict: 'accept', input: { wallet: WALLET, id: TRANSFER_ID, txHash: `0x${'ab'.repeat(32)}` } },
+    { verdict: 'refuse', input: { wallet: WALLET, id: TRANSFER_ID, txHash: '0x1234' } },
+  ],
+});
+
+/**
+ * A wallet's transfers, each brought up to date from the chains and the provider: a stored intent whose burn is on chain
+ * resumes as burn submitted, never a second burn; an attested burn offers its mint; a mint on chain reads minted.
+ */
+export const PROTOCOL_BRIDGE_TRANSFERS_LIST = defineProcedure({
+  ...base,
+  name: 'protocol.bridge.transfers.list',
+  path: 'bridge.transfers.list',
+  access: PROTOCOL,
+  refusals: refusals(...BRIDGE_TRANSFER),
+  input: bridgeTransfersListInputSchema,
+  output: bridgeTransfersListOutputSchema,
+  samples: [
+    { verdict: 'accept', input: { wallet: WALLET } },
+    { verdict: 'refuse', input: { wallet: '0x1234' } },
+  ],
+});
+
 // ── tokens ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Every tokens read: the factory and the quote token are owner settings, and the read is bounded. */
@@ -478,6 +562,9 @@ export const PROTOCOL_CHAIN_PROCEDURES = [
   PROTOCOL_CONTRACT_READ,
   PROTOCOL_CONTRACT_BUILD_WRITE,
   PROTOCOL_BRIDGE_ROUTES_LIST,
+  PROTOCOL_BRIDGE_TRANSFERS_START,
+  PROTOCOL_BRIDGE_TRANSFERS_BURN_SUBMITTED,
+  PROTOCOL_BRIDGE_TRANSFERS_LIST,
   PROTOCOL_TOKENS_LIST,
   PROTOCOL_TOKENS_PAGE,
   PROTOCOL_TOKENS_LEADERBOARD,

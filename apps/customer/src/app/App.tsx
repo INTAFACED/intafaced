@@ -21,7 +21,6 @@ import { rememberShellRoute } from '../features/protocol/shell-state';
 import { TeamDesk, teamConsoleHref } from './TeamDesk';
 import { SessionRetryPanel, SignInPanel } from './SignInPanel';
 import { matchMoreRoute } from '../features/more/more-room-routes';
-import { lookDirection } from './look';
 
 // Rooms outside the customer doors load on demand, so a first visit to Home does not download them.
 const loadPublic = () => import('../features/public/PublicRoutes').then((m) => ({ default: m.PublicRoutes }));
@@ -34,7 +33,7 @@ const ProtocolRoutes = lazy(loadProtocol);
 const Web3Shell = lazy(loadWeb3Shell);
 const DevFeatures = lazy(() => import('./DevFeatures').then((m) => ({ default: m.DevFeatures })));
 // The Volt kit (intafaced issue 9302): every building block in the chosen look, for the owner's one approval. It opens only
-// under the look's preview switch with Volt drawn (`/kit?look=lit&direction=volt`); otherwise `/kit` is "Page not found".
+// at `/kit`, which no room or menu links to.
 const VoltKit = lazy(() => import('./kit/VoltKit'));
 
 class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -101,7 +100,7 @@ export function App() {
   const { session, restoring, restoreFailed, retryRestore } = useSession();
   const dev = isDevBuild();
   const devFeatures = dev && path === '/dev/features';
-  const voltKit = !room && path === '/kit' && lookDirection() === 'volt';
+  const voltKit = !room && path === '/kit';
   const hidden = hiddenFeatureFor(path, search);
   // One redirect rule per render, in this order: an alias row, signed-in `/`. No path is redirected for being hidden, in any
   // build, so the Docker image opens exactly what `vite dev` opens.

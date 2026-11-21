@@ -338,6 +338,15 @@ export const SUITES = [
     sources: ['escrow/ClaimLinkEscrow.sol'],
   },
   {
+    name: 'test-bridge',
+    expect: 'compiles',
+    /**
+     * D-bridge-chain-03 — the local stack's TEST burn-and-mint bridge token, on both TEST chains: burn once per intent,
+     * mint once per intent on the TEST attester's signature. Not a product contract. Own suite so it stales nothing else.
+     */
+    sources: ['test/TestBridgeToken.sol'],
+  },
+  {
     name: 'rwa',
     expect: 'compiles',
     /**
