@@ -184,7 +184,7 @@ export async function handleS2sPost(ledger: LedgerService, body: unknown, caller
 }
 
 /** Who sent a post, as the door proved it, and how its binding is judged. Omitted on direct unit calls. */
-interface PostSender {
+export interface PostSender {
   readonly caller?: PostCaller;
   readonly binding?: CallerBindingOptions;
 }
@@ -225,7 +225,7 @@ async function postChecked(ledger: LedgerService, input: z.output<typeof postReq
  * for some recipe with the same legs. A claimed name under the shared secret is counted by `applyCallerBinding`, as on
  * `post`; `keypair` mode refuses it at the door.
  */
-async function handleS2sPostRecipe(ledger: LedgerService, body: unknown, { caller, binding }: PostSender) {
+export async function handleS2sPostRecipe(ledger: LedgerService, body: unknown, { caller, binding }: PostSender) {
   const named = isRecord(body) ? body.recipe : undefined;
   if (!isPostRecipeName(named)) throw new LedgerError(`postRecipe does not post ${JSON.stringify(named ?? null)}.`, POST_RECIPE_UNKNOWN);
   // Before the inputs are even read: a caller learns nothing about a recipe it may not post.

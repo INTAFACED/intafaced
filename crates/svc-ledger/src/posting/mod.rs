@@ -8,6 +8,7 @@
 pub mod bindings;
 pub mod engine;
 pub mod gate;
+pub mod recipe_door;
 pub mod recorded;
 pub mod rules;
 
