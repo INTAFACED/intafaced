@@ -1,3 +1,5 @@
+import { ACADEMY_ADMIN_COURSES } from '@intafaced/contracts/academy-admin-procedures';
+import { ACADEMY_CERT_DEFINITIONS } from '@intafaced/contracts/academy-learner-procedures';
 import { DEX_HEALTH } from '@intafaced/contracts/dex-procedures';
 import {
   MARKET_COMMERCE_PROGRAMME,
@@ -1542,8 +1544,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.courses',
         title: 'Courses',
         note: 'Courses staff created on the course desk, counted by state. The four shipped courses (the curriculum paths) are counted under Curriculum inventory, not here.',
-        module: 'academy',
-        procedure: 'admin.courses',
+        ...readOf(ACADEMY_ADMIN_COURSES),
         input: { limit: 1 },
         shape: 'record',
         columns: [
@@ -1656,8 +1657,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.cert-defs',
         title: 'Certificate definitions',
         note: 'What each certificate requires. Definitions, not grants.',
-        module: 'academy',
-        procedure: 'certDefinitions',
+        ...readOf(ACADEMY_CERT_DEFINITIONS),
         shape: 'list',
         idKey: 'id',
         columns: [text('id', 'Certificate'), text('title', 'Title'), list('requiredItemSlugs', 'Required items', { detail: true })],
