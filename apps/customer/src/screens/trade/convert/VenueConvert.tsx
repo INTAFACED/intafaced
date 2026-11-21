@@ -3,6 +3,8 @@
  * We hold none of the person's money: a price is the venue's best price bounded by the owner's slippage limit and holds
  * nothing; Convert now signs one venue order in the person's wallet; Recent conversions reads the venue's own fills. The
  * room keeps the Convert layout (card, pickers, review, recent list); every figure is the venue's, with its TEST label.
+ * From a cash currency a partner offers (#11), the same card prices two linked legs, the partner's cash leg into its
+ * stablecoin and the venue order buying the coin with it, and the receipt and Recent conversions show them as one record.
  */
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Tabs, TabsList, TabsTab } from '@intafaced/ui';
@@ -23,7 +25,13 @@ import {
   type VenueOrder,
   type VenueUp,
 } from '../../../features/trade/venue-api';
-import { venueConvertApi, type Conversion, type ConvertPair, type ConvertQuote } from '../../../features/trade/venue-convert-api';
+import {
+  venueConvertApi,
+  type Conversion,
+  type ConvertPair,
+  type ConvertQuote,
+  type ConvertRoute,
+} from '../../../features/trade/venue-convert-api';
 import type { VenueMode } from '../../../features/trade/use-venue-mode';
 import {
   BalancesPanel,
@@ -128,7 +136,7 @@ function VenueConvert({ status, asked }: { status: VenueUp; asked: { from: strin
     const askedPair = asked.from && asked.to ? pairOf(pairs.pairs, asked.from, asked.to) : null;
     card =
       asked.from && asked.to && !askedPair ? (
-        <VenueRouteCard from={asked.from} to={asked.to} />
+        <VenueRouteCard status={status} owner={owner} pairs={pairs.pairs} paused={pairs.paused} from={asked.from} to={asked.to} />
       ) : (
         <VenueCard status={status} owner={owner} pairs={pairs.pairs} paused={pairs.paused} asked={asked} />
       );
@@ -142,18 +150,23 @@ function VenueConvert({ status, asked }: { status: VenueUp; asked: { from: strin
   );
 }
 
+type CashRoute = Extract<ConvertRoute, { kind: 'cash' }>;
+
 function VenueCard({
   status,
   owner,
   pairs,
   paused,
   asked,
+  cash = null,
 }: {
   status: VenueUp;
   owner: string;
   pairs: readonly ConvertPair[];
   paused: boolean;
   asked: { from: string | null; to: string | null };
+  /** From a cash currency the partner offers: its cash leg, then a buy on `cash.symbol`. */
+  cash?: CashRoute | null;
 }) {
   const { t } = venueConvertCopy.useCopy();
   const { t: ct } = convertCopy.useCopy();
@@ -162,7 +175,7 @@ function VenueCard({
   const account = useVenueAccount(owner);
   const initial = useMemo(() => {
     const p = (asked.from && asked.to && pairOf(pairs, asked.from, asked.to)) || null;
-    if (p) return { from: asked.from!, to: asked.to! };
+    if (p || cash) return { from: asked.from!, to: asked.to! };
     const first = pairs[0];
     return first ? { from: first.quote, to: first.base } : null;
   }, [pairs, asked]);
@@ -201,19 +214,22 @@ function VenueCard({
       </section>
     );
   const { from, to } = chosen;
-  const joined = pairOf(pairs, from, to);
+  // From cash the person pays the partner, not the venue account: no venue balance or venue minimum applies to the typed amount.
+  const cashNow = cash !== null && from === cash.currency;
+  const cashPair = cashNow ? (pairs.find((p) => p.symbol === cash.symbol) ?? null) : null;
+  const joined = cashPair ? { pair: cashPair, side: 'buy' as const } : pairOf(pairs, from, to);
   const pair = joined?.pair ?? null;
   const side = joined?.side ?? 'buy';
   const assets = [...new Set(pairs.flatMap((p) => [p.base, p.quote]))].sort();
   const balances = account.balances.data;
-  const free = balances ? (balances.value.find((b) => b.asset === from)?.free ?? '0') : null;
+  const free = balances && !cashNow ? (balances.value.find((b) => b.asset === from)?.free ?? '0') : null;
   const typed = units(amount);
   // Above the per-conversion limit (in the asset being spent) the instant card stops and points to the quote desk.
   const cap = pair?.maxPerConvert && pair.maxPerConvert.asset === from ? pair.maxPerConvert : null;
   const tooLarge = typed !== null && cap !== null && typed > parseAmount(cap.amount);
   const short = !tooLarge && typed !== null && typed > 0n && free !== null && typed > parseAmount(free);
   const min = pair?.minOrderNotional ?? null;
-  const tooSmall = !short && side === 'buy' && typed !== null && typed > 0n && min !== null && typed < parseAmount(min);
+  const tooSmall = !cashNow && !short && side === 'buy' && typed !== null && typed > 0n && min !== null && typed < parseAmount(min);
   const ready = typed !== null && typed > 0n && !tooLarge && !short && !tooSmall && !paused && pair !== null;
   const shown = quote.state === 'ready' ? quote.quote : null;
   const stale = shown ? now > Date.parse(shown.freshUntil) : false;
@@ -393,9 +409,15 @@ function VenueCard({
               className="cvt-amount"
             />
           </div>
-          <p className="cvt-field__foot" data-testid="cvt-available">
-            {t('Available on venue', { value: free === null ? '—' : displayAmount(free), asset: from })}
-          </p>
+          {cashNow ? (
+            <p className="cvt-field__foot" data-testid="cvt-cash-route">
+              {t('Cash route', { currency: from, stable: cash.stable, to })}
+            </p>
+          ) : (
+            <p className="cvt-field__foot" data-testid="cvt-available">
+              {t('Available on venue', { value: free === null ? '—' : displayAmount(free), asset: from })}
+            </p>
+          )}
         </div>
         <div className="cvt-field" data-testid="to-field">
           <span className="cvt-field__label">{ct('To')}</span>
@@ -581,12 +603,37 @@ function VenueCard({
 /** The price's lines, each the venue's figure or ours named as ours. */
 function QuoteFacts({ quote: q, t, testid }: { quote: ConvertQuote; t: T; testid: string }) {
   const time = useTimeText();
-  const [base, quoteAsset] = q.side === 'buy' ? [q.to, q.from] : [q.from, q.to];
+  // From cash the venue leg buys with the partner's stablecoin, so the market's quote asset is that, not `from`.
+  const [base, quoteAsset] = q.side === 'buy' ? [q.to, q.cash?.stable ?? q.from] : [q.from, q.to];
   const rows: [string, string, string][] = [
+    ...(q.cash
+      ? ([
+          [
+            'cash-leg',
+            t('Cash leg'),
+            t('Cash leg value', {
+              cash: displayAmount(q.cash.cash),
+              currency: q.cash.currency,
+              stableAmount: displayAmount(q.cash.stableAmount),
+              stable: q.cash.stable,
+            }),
+          ],
+          [
+            'cash-rate',
+            t('Cash rate'),
+            t('Cash rate value', {
+              currency: q.cash.currency,
+              rate: displayAmount(q.cash.rate),
+              stable: q.cash.stable,
+              fee: displayAmount(q.cash.fee),
+            }),
+          ],
+        ] as [string, string, string][])
+      : []),
     ['best-price', t('Best price'), t('Best price value', { base, price: displayAmount(q.bestPrice.price), quote: quoteAsset })],
     ['slippage', t('Slippage limit'), t('Slippage value', { price: displayAmount(q.limitPrice), quote: quoteAsset, bps: q.slippageBps })],
     q.side === 'buy'
-      ? ['max-cost', t('Most it costs'), `${displayAmount(q.maxCost)} ${q.from}`]
+      ? ['max-cost', t('Most it costs'), `${displayAmount(q.maxCost)} ${quoteAsset}`]
       : ['max-cost', t('You sell'), `${displayAmount(q.size)} ${q.from}`],
     [
       'get-about',
@@ -656,10 +703,12 @@ function Receipt({
     );
   if (c.fills === 0)
     return (
-      <p role="alert" data-testid="cvt-receipt" data-state={c.state}>
-        {t('Not filled')}
-      </p>
+      <div role="alert" data-testid="cvt-receipt" data-state={c.state}>
+        <p>{t('Not filled')}</p>
+        <Legs c={c} t={t} />
+      </div>
     );
+  const paid = paidOf(c);
   return (
     <div role="status" data-testid="cvt-receipt" data-state={c.state} data-client-id={c.venueClientOrderId ?? ''}>
       <h3>{t('Receipt title', { from, to })}</h3>
@@ -667,7 +716,7 @@ function Receipt({
         <div>
           <dt>{t('Paid')}</dt>
           <dd className="numeric" data-line="paid">
-            {displayAmount(c.paid.amount)} {c.paid.asset}
+            {displayAmount(paid.amount)} {paid.asset}
           </dd>
         </div>
         <div>
@@ -693,17 +742,68 @@ function Receipt({
           </dd>
         </div>
       </dl>
+      <Legs c={c} t={t} />
     </div>
   );
 }
 
-/** A pair no venue market joins: a cash currency needs a partner's cash leg, which no partner offers here (#11). */
-function VenueRouteCard({ from, to }: { from: string; to: string }) {
+/** What the person paid for the whole conversion: from cash, the partner's cash leg; else the venue order's fills. */
+const paidOf = (c: Conversion) => (c.cashLeg ? { asset: c.cashLeg.currency, amount: c.cashLeg.cash } : c.paid);
+
+/** A conversion from cash, as its two linked legs: the partner's cash leg and the venue order. Nothing for any other. */
+function Legs({ c, t }: { c: Conversion; t: T }) {
+  const leg = c.cashLeg;
+  if (!leg) return null;
+  return (
+    <ol className="cvt-note" data-testid="cvt-legs">
+      <li data-leg="cash" data-leg-id={leg.legId ?? ''} data-state={leg.state}>
+        {t('Leg cash', {
+          cash: displayAmount(leg.cash),
+          currency: leg.currency,
+          stableAmount: displayAmount(leg.stableAmount),
+          stable: leg.stable,
+          ref: leg.legId ?? '—',
+          state: t(`leg_${leg.state}` as 'leg_settled'),
+        })}
+      </li>
+      <li data-leg="venue" data-client-id={c.venueClientOrderId ?? ''} data-state={c.state}>
+        {t('Leg venue', {
+          paid: `${displayAmount(c.paid.amount)} ${c.paid.asset}`,
+          received: `${displayAmount(c.received.amount)} ${c.received.asset}`,
+          cloid: c.venueClientOrderId ?? '—',
+          state: t(`state_${c.state}` as 'state_filled'),
+        })}
+      </li>
+    </ol>
+  );
+}
+
+/**
+ * A pair no venue market joins (#11): from a cash currency a partner offers, the card for its two linked legs; otherwise
+ * the reason none is offered.
+ */
+function VenueRouteCard({
+  status,
+  owner,
+  pairs,
+  paused,
+  from,
+  to,
+}: {
+  status: VenueUp;
+  owner: string;
+  pairs: readonly ConvertPair[];
+  paused: boolean;
+  from: string;
+  to: string;
+}) {
   const { t } = venueConvertCopy.useCopy();
   const { t: ct } = convertCopy.useCopy();
   const convert = useConvertApi();
   const read = usePolled((signal) => convert.route(from, to, signal), `cvt-route:${from}:${to}`, 60_000);
   const code = read.failure?.code ?? null;
+  if (read.data?.kind === 'cash')
+    return <VenueCard status={status} owner={owner} pairs={pairs} paused={paused} asked={{ from, to }} cash={read.data} />;
   return (
     <section data-testid="cvt-card" className="cvt-card" data-mode="venue" aria-label={ct('Convert')}>
       <div className="cvt-fields">
@@ -777,10 +877,14 @@ function VenueRecent({ owner, test }: { owner: string; test: boolean }) {
                 data-key={c.actionKey}
                 data-client-id={c.venueClientOrderId ?? ''}
                 data-state={c.state}
+                data-legs={c.cashLeg ? 2 : 1}
               >
-                <td>{c.kind === 'limit' ? t('Limit') : t('Instant')}</td>
+                <td>
+                  {c.cashLeg ? t('Two legs') : c.kind === 'limit' ? t('Limit') : t('Instant')}
+                  <Legs c={c} t={t} />
+                </td>
                 <td className="numeric" data-cell="paid">
-                  {displayAmount(c.paid.amount)} {c.paid.asset}
+                  {displayAmount(paidOf(c).amount)} {paidOf(c).asset}
                 </td>
                 <td className="numeric" data-cell="received">
                   {displayAmount(c.received.amount)} {c.received.asset}

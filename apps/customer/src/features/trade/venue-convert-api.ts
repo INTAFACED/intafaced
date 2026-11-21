@@ -33,6 +33,16 @@ const convertPairsSchema = z.object({
 export type ConvertPairs = z.infer<typeof convertPairsSchema>;
 export type ConvertPair = ConvertPairs['pairs'][number];
 
+/** The partner's figure for a cash leg: `cash` of `currency` in, its fee inside it, `stableAmount` of `stable` delivered. */
+const cashPriceSchema = z.object({
+  currency: z.string(),
+  cash: decimalSchema,
+  fee: decimalSchema,
+  rate: decimalSchema,
+  stable: z.string(),
+  stableAmount: decimalSchema,
+});
+
 const convertQuoteSchema = z.object({
   quoteId: z.string(),
   venueId: z.string(),
@@ -67,6 +77,7 @@ const convertQuoteSchema = z.object({
   held: z.literal(false),
   freshUntil: isoTime,
   createdAt: isoTime,
+  cash: cashPriceSchema.nullable(),
 });
 export type ConvertQuote = z.infer<typeof convertQuoteSchema>;
 
@@ -88,8 +99,24 @@ const conversionSchema = z.object({
   fills: z.number().int(),
   filledAt: isoTime.nullable(),
   acceptedAt: isoTime,
+  /** From a cash currency: the linked cash leg as the partner records it; the fields above are the venue leg's. */
+  cashLeg: cashPriceSchema
+    .extend({
+      key: z.string(),
+      legId: z.string().nullable(),
+      state: z.enum(['pending', 'settled', 'refused', 'unknown']),
+      settledAt: isoTime.nullable(),
+    })
+    .nullable(),
 });
 export type Conversion = z.infer<typeof conversionSchema>;
+
+/** One venue market, or from a cash currency the partner's cash leg into `stable` and then a buy on `symbol`. */
+const convertRouteSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('direct'), symbol: z.string(), side: z.enum(['buy', 'sell']) }),
+  z.object({ kind: z.literal('cash'), symbol: z.string(), side: z.literal('buy'), currency: z.string(), stable: z.string() }),
+]);
+export type ConvertRoute = z.infer<typeof convertRouteSchema>;
 
 export function venueConvertApi(api: ApiClient) {
   const post = <T>(path: string, schema: z.ZodType<T>, body: unknown) =>
@@ -97,10 +124,7 @@ export function venueConvertApi(api: ApiClient) {
   return {
     pairs: (signal?: AbortSignal) => api.rest('/venue/convert/pairs', convertPairsSchema, { signal }),
     route: (from: string, to: string, signal?: AbortSignal) =>
-      api.rest('/venue/convert/route', z.object({ kind: z.literal('direct'), symbol: z.string(), side: z.enum(['buy', 'sell']) }), {
-        query: { from, to },
-        signal,
-      }),
+      api.rest('/venue/convert/route', convertRouteSchema, { query: { from, to }, signal }),
     quote: (body: { owner: string; from: string; to: string; amount: string; quoteKey: string }) =>
       post('/quote', convertQuoteSchema, body),
     accept: (body: { owner: string; quoteId: string }) => post('/accept', preparedAnswerSchema, body),
