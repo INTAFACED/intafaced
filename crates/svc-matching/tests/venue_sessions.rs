@@ -38,6 +38,7 @@ use std::sync::{Arc, Mutex};
 
 use service_kit::json::{self, Json};
 use service_kit::money::{Amount, format_amount, parse_amount};
+use service_kit::s2s_verify::BodyBind;
 use service_kit::schema::Value;
 use service_kit::server::Request;
 use svc_matching::approval::Unwired;
@@ -47,7 +48,8 @@ use svc_matching::book::types::{
     CancelReason, EngineOrder, OrderType, Side, SurveillanceCase, Tif,
 };
 use svc_matching::book::wire::{from_wire, to_wire};
-use svc_matching::door::venue::{VenueConfig, serve};
+use svc_matching::door::DoorConfig;
+use svc_matching::door::venue::serve;
 use svc_matching::door::{Outcome, ROUTES};
 use svc_matching::engine::venue::{Switch, SwitchCmd, open_surveillance_case};
 use svc_matching::engine::{EngineParts, EventBus, MatchingEngine, MemoryEventBus, Published};
@@ -342,7 +344,13 @@ fn replay(records: &[JournalRecord]) -> Books {
 
 /// What a `/surveillance/*` door answers, past the caller check.
 fn surveillance_door(engine: &mut MatchingEngine, method: &str, path: &str) -> Json {
-    let venue = VenueConfig {
+    let cfg = DoorConfig {
+        internal_secret: String::new(),
+        body_bind: BodyBind::Require,
+        keys: None,
+        edge_secret: None,
+        edge_key: None,
+        clock: || 0,
         approvals: Box::new(Unwired),
         operator_ids: Vec::new(),
     };
@@ -358,7 +366,7 @@ fn surveillance_door(engine: &mut MatchingEngine, method: &str, path: &str) -> J
         body: "",
     };
     match serve(
-        &venue,
+        &cfg,
         route,
         &req,
         &|_| String::new(),

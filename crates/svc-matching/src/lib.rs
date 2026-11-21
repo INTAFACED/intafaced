@@ -28,4 +28,5 @@ pub mod errors_table;
 pub mod holds;
 pub mod journal;
 pub mod refines;
+pub mod rulebook;
 pub mod status;

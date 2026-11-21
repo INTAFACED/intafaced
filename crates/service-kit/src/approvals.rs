@@ -12,9 +12,10 @@ use std::sync::Arc;
 use crate::http::{Fetch, HttpRequest};
 use crate::json::{self, Json};
 use crate::s2s::{self, js_length};
-use crate::schema::js_trim;
 use crate::time::zod_datetime;
 use sha2::{Digest, Sha256};
+
+use crate::schema::js_trim;
 
 /// `IDENTITY_CONSUME_TIMEOUT_MS`.
 pub const IDENTITY_CONSUME_TIMEOUT_MS: u64 = 5000;
@@ -140,7 +141,7 @@ pub fn refusal_detail(text: &str) -> String {
         Some(Json::String(s)) => s
             .split('\n')
             .next()
-            .map(|l| crate::schema::js_trim(l).to_owned())
+            .map(|l| js_trim(l).to_owned())
             .unwrap_or_default(),
         _ => String::new(),
     };
@@ -306,7 +307,7 @@ impl IdentityClient {
         if !res.ok() {
             let detail = refusal_detail(&res.body);
             return Err(ConsumeError::Refused(
-                crate::schema::js_trim(&format!(
+                js_trim(&format!(
                     "identity refused consume ({}) {detail}",
                     res.status
                 ))

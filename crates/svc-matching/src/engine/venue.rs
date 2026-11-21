@@ -15,16 +15,13 @@ use service_kit::json::Json;
 use service_kit::schema::js_trim;
 
 use super::{EngineError, MatchingEngine, cancelled_event};
+use crate::approval::{dual_control_refuse, operator_refuse, read_operator_id};
 use crate::book::rules::read_session_id;
 use crate::book::types::{CancelledRef, Reject, SurveillanceCase};
 use crate::journal::record::JournalRecord;
+use crate::rulebook::refuse;
 
-/// `missing_operator`.
-pub const MISSING_OPERATOR: &str = "missing_operator";
-/// `missing_evidence`.
-pub const MISSING_EVIDENCE: &str = "missing_evidence";
-/// `delist_policy_missing`.
-pub const DELIST_POLICY_MISSING: &str = "delist_policy_missing";
+pub use crate::rulebook::refuse::{DELIST_POLICY_MISSING, MISSING_EVIDENCE};
 
 /// One switch a venue door makes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -111,54 +108,6 @@ pub struct SwitchResult {
     /// `None` where the TypeScript result has no `confirmOperatorId` (the rulebook gate's refusal).
     pub confirm_operator_id: Option<Option<String>>,
     pub rejected: Option<Reject>,
-}
-
-/// `readOperatorId`: trimmed, and blank is none.
-pub fn read_operator_id(raw: Option<&str>) -> Option<String> {
-    raw.map(js_trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-}
-
-fn missing_operator() -> Reject {
-    Reject::new(
-        MISSING_OPERATOR,
-        "operator identity is required; the engine does not invent a caller",
-    )
-}
-
-/// `operatorRefuse`.
-pub fn operator_refuse(operator_id: Option<&str>) -> Option<Reject> {
-    operator_id.is_none().then(missing_operator)
-}
-
-/// `dualControlRefuse`: two distinct operator identities.
-pub fn dual_control_refuse(operator_id: Option<&str>, confirm: Option<&str>) -> Option<Reject> {
-    let actor = read_operator_id(operator_id);
-    let confirm = read_operator_id(confirm);
-    if let Some(r) = operator_refuse(actor.as_deref()) {
-        return Some(r);
-    }
-    match confirm {
-        None => Some(Reject::new(
-            MISSING_OPERATOR,
-            "confirming operator identity is required; the engine does not invent a second caller",
-        )),
-        Some(c) if Some(&c) == actor.as_ref() => Some(Reject::new(
-            MISSING_OPERATOR,
-            "confirming operator must be a distinct identity; the engine does not invent a second caller",
-        )),
-        Some(_) => None,
-    }
-}
-
-fn non_blank(raw: Option<&str>) -> bool {
-    raw.is_some_and(|s| !js_trim(s).is_empty())
-}
-
-/// `hasEvidence`: a non-blank `evidence`, or a non-blank entry of `evidenceRefs`.
-fn has_evidence(cmd: &SwitchCmd) -> bool {
-    non_blank(cmd.evidence.as_deref()) || cmd.evidence_refs.iter().any(|r| non_blank(Some(r)))
 }
 
 /// The surveillance reasons a case may name (`SURVEILLANCE_REASONS`).
@@ -343,27 +292,20 @@ impl MatchingEngine {
         }
         // rulebook-refuse.ts: the operator, then the evidence or the delisting's policy.
         if switch.emergency() || switch == Switch::Delist {
-            if let Some(r) = operator_refuse(operator.as_deref()) {
-                return Ok(self.refused_switch(switch, market_id, None, None, r));
-            }
-            let missing = if switch == Switch::Delist {
-                (!non_blank(cmd.policy_id.as_deref()) && !non_blank(cmd.policy_version.as_deref()))
-                    .then(|| {
-                        Reject::new(
-                            DELIST_POLICY_MISSING,
-                            "delist requires an owner policy; the engine does not invent a corporate action",
-                        )
-                    })
-            } else {
-                (!has_evidence(cmd)).then(|| {
-                    Reject::new(
-                        MISSING_EVIDENCE,
-                        "emergency action requires authority and evidence; the engine does not invent evidence",
-                    )
-                })
+            let gate_cmd = refuse::Cmd {
+                operator_id: cmd.operator_id.clone(),
+                evidence: cmd.evidence.clone(),
+                evidence_refs: Some(cmd.evidence_refs.iter().map(Json::str).collect()),
+                policy_id: cmd.policy_id.clone(),
+                policy_version: cmd.policy_version.clone(),
             };
-            if let Some(r) = missing {
-                return Ok(self.refused_switch(switch, market_id, operator, None, r));
+            let gated = if switch == Switch::Delist {
+                refuse::delist_gate(&gate_cmd)
+            } else {
+                refuse::emergency_gate(&gate_cmd)
+            };
+            if let Err(g) = gated {
+                return Ok(self.refused_switch(switch, market_id, g.operator_id, None, g.rejected));
             }
         }
         // The base engine: two distinct operators on every market switch (the venue halt's base asks one, but
@@ -378,7 +320,7 @@ impl MatchingEngine {
                 market_id,
                 None,
                 Some(confirm),
-                missing_operator(),
+                operator_refuse(),
             ));
         };
         let at = self.now_iso((self.clock)());

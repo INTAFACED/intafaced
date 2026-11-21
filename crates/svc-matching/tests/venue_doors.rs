@@ -52,10 +52,9 @@ use service_kit::s2s::{self, SERVICE_HEADER};
 use service_kit::s2s_verify::BodyBind;
 use service_kit::server::Request;
 use sha2::{Digest, Sha256};
+use svc_matching::approval::MISSING_OPERATOR;
 use svc_matching::approval::{Approvals, Identity, Refused, Stub, UNWIRED, Unwired};
-use svc_matching::door::venue::VenueConfig;
 use svc_matching::door::{DoorConfig, MatchingDoor, Outcome};
-use svc_matching::engine::venue::MISSING_OPERATOR;
 use svc_matching::engine::{EngineParts, Flags, MatchingEngine, MemoryEventBus};
 use svc_matching::env::parse_operator_ids;
 use svc_matching::journal::io::{EngineJournal, FileJournal, MemoryJournal};
@@ -100,6 +99,15 @@ fn engine_on(journal: Box<dyn EngineJournal + Send>) -> MatchingEngine {
 }
 
 fn bare_door(engine: MatchingEngine) -> MatchingDoor {
+    venue_door(engine, Box::new(Unwired), Vec::new())
+}
+
+/// The door with this approval consumer and operator list.
+fn venue_door(
+    engine: MatchingEngine,
+    approvals: Box<dyn Approvals>,
+    operator_ids: Vec<String>,
+) -> MatchingDoor {
     MatchingDoor::new(
         DoorConfig {
             internal_secret: SECRET.to_owned(),
@@ -108,6 +116,8 @@ fn bare_door(engine: MatchingEngine) -> MatchingDoor {
             edge_secret: None,
             edge_key: None,
             clock: now_ms,
+            approvals,
+            operator_ids,
         },
         engine,
     )
@@ -116,10 +126,11 @@ fn bare_door(engine: MatchingEngine) -> MatchingDoor {
 
 /// `registerRoutes(app, engine, SECRET, { bodyBind: 'require', approvals, operatorIds })`.
 fn door_with(approvals: Box<dyn Approvals>, operators: &str) -> MatchingDoor {
-    bare_door(engine_on(Box::new(MemoryJournal::new()))).with_venue(VenueConfig {
+    venue_door(
+        engine_on(Box::new(MemoryJournal::new())),
         approvals,
-        operator_ids: parse_operator_ids(Some(operators)),
-    })
+        parse_operator_ids(Some(operators)),
+    )
 }
 
 fn stub() -> Box<dyn Approvals> {
@@ -2407,10 +2418,11 @@ fn temp_journal() -> PathBuf {
 fn file_door(path: &PathBuf) -> MatchingDoor {
     let mut engine = engine_on(Box::new(FileJournal::open(path).unwrap()));
     engine.recover().unwrap();
-    bare_door(engine).with_venue(VenueConfig {
-        approvals: stub(),
-        operator_ids: parse_operator_ids(Some("ops-1, ops-confirm")),
-    })
+    venue_door(
+        engine,
+        stub(),
+        parse_operator_ids(Some("ops-1, ops-confirm")),
+    )
 }
 
 #[test]

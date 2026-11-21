@@ -48,14 +48,14 @@ use service_kit::money::parse_amount;
 use service_kit::schema::Value;
 use service_kit::server::Request;
 use service_kit::time::zod_datetime;
+use svc_matching::approval::{MISSING_OPERATOR, dual_control_refuse, read_operator_id};
 use svc_matching::book::types::{
     AmendResult, CancelReason, EngineAmend, EngineOrder, OrderType, Side, SubmitResult, Tif,
 };
 use svc_matching::door::book::serve;
 use svc_matching::door::{Outcome, ROUTES};
 use svc_matching::engine::venue::{
-    DELIST_POLICY_MISSING, MISSING_EVIDENCE, MISSING_OPERATOR, Switch, SwitchCmd, SwitchResult,
-    dual_control_refuse, read_operator_id,
+    DELIST_POLICY_MISSING, MISSING_EVIDENCE, Switch, SwitchCmd, SwitchResult,
 };
 use svc_matching::engine::{EngineParts, MatchingEngine, MemoryEventBus};
 use svc_matching::journal::io::{EngineJournal as _, MemoryJournal};

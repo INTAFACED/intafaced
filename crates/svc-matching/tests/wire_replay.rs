@@ -37,13 +37,11 @@ use service_kit::s2s_verify::BodyBind;
 use service_kit::server::Request;
 use service_kit::time::Instant;
 use sha2::Sha256;
-use svc_matching::approval::Stub;
+use svc_matching::approval::{Stub, Unwired};
 use svc_matching::book::types::{EngineOrder, OrderType, Side, Tif};
 use svc_matching::book::wire::to_wire;
-use svc_matching::door::venue::VenueConfig;
 use svc_matching::door::{DoorConfig, MatchingDoor, Outcome, ROUTES, Slice};
 use svc_matching::engine::{EngineParts, MatchingEngine, MemoryEventBus};
-use svc_matching::env::parse_operator_ids;
 use svc_matching::journal::io::{EngineJournal as _, MemoryJournal};
 use svc_matching::journal::record::JournalCommand;
 use svc_matching::journal::replay::MemorySnapshotSink;
@@ -249,7 +247,7 @@ fn engine(setup: &str) -> MatchingEngine {
 }
 
 fn door(setup: &str) -> MatchingDoor {
-    let door = MatchingDoor::new(
+    MatchingDoor::new(
         DoorConfig {
             internal_secret: SECRET.to_owned(),
             body_bind: BodyBind::Require,
@@ -257,21 +255,25 @@ fn door(setup: &str) -> MatchingDoor {
             edge_secret: (setup == "set").then(|| EDGE_SECRET.to_owned()),
             edge_key: None,
             clock: now_ms,
+            // `blank`: approvals unwired and nobody on the operator list; `set`: an approval that always consumes,
+            // asked by the operator and approved by the second, both listed.
+            approvals: if setup == "set" {
+                Box::new(Stub {
+                    approver_id: CONFIRM.to_owned(),
+                    requester_id: OPERATOR.to_owned(),
+                })
+            } else {
+                Box::new(Unwired)
+            },
+            operator_ids: if setup == "set" {
+                vec![OPERATOR.to_owned(), CONFIRM.to_owned()]
+            } else {
+                Vec::new()
+            },
         },
         engine(setup),
     )
-    .unwrap();
-    if setup != "set" {
-        return door;
-    }
-    // `stubApprovalConsumer(CONFIRM, OPERATOR)` and both operators listed.
-    door.with_venue(VenueConfig {
-        approvals: Box::new(Stub {
-            approver_id: CONFIRM.to_owned(),
-            requester_id: OPERATOR.to_owned(),
-        }),
-        operator_ids: parse_operator_ids(Some(&format!("{OPERATOR}, {CONFIRM}"))),
-    })
+    .unwrap()
 }
 
 /// A recorded answer that moved state: a write the TypeScript took (not refused, and not a mark that moved nothing).

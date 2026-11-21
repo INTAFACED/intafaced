@@ -76,8 +76,8 @@ impl Approvals for Identity {
     }
 }
 
-/// `ledgerActionPayloadHash`, `isProtectiveOperatorApproval` and `founderAttestationVerdict` are the contracts'
-/// own, shared by every service that spends an approval.
+/// `ledgerActionPayloadHash`, `isProtectiveOperatorApproval` and `founderAttestationVerdict`: the kit's, shared with
+/// every service that consumes an approval.
 pub use service_kit::approvals::{founder_verdict, is_protective, payload_hash};
 
 /// `consumeLedgerApproval(approvals, cmd, actionType, targetId, expectedVersion, fields, requestId, consumerPrincipalId)`:

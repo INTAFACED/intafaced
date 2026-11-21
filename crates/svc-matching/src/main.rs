@@ -20,9 +20,7 @@ use service_kit::s2s_verify::{BodyBind, ServiceVerifier};
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
-use svc_matching::approval::{Identity, Unwired};
 use svc_matching::bus::{JetStreamEvents, STREAM_SERVICE};
-use svc_matching::door::venue::VenueConfig;
 use svc_matching::door::{DoorConfig, Keys, MatchingDoor};
 use svc_matching::engine::admission::EXPIRY_SWEEP_EVERY_MS;
 use svc_matching::engine::{EngineParts, MatchingEngine};
@@ -174,25 +172,21 @@ fn serve(
             edge_secret: env.str("EDGE_PRINCIPAL_SECRET").map(str::to_owned),
             edge_key,
             clock: now_ms,
+            // `createIdentityApprovalClient(IDENTITY_URL, ...)`, or the unwired consumer, which refuses every spend.
+            approvals: match env.str("IDENTITY_URL") {
+                Some(url) => Box::new(svc_matching::approval::Identity::new(
+                    url,
+                    &str_of("INTERNAL_SERVICE_SECRET"),
+                    fetch.clone(),
+                    || now_ms().div_euclid(1000),
+                )),
+                None => Box::new(svc_matching::approval::Unwired),
+            },
+            operator_ids: env.operator_ids(),
         },
         engine,
     )?
-    .with_service_name(&service)
-    // `approvals: actionApprovals, operatorIds: parseOperatorIds(env.MATCHING_OPERATOR_IDS)`. Identity is called with
-    // the shared secret, as svc-ledger's boot calls it; the TypeScript also signs with the service's key when one is
-    // set, which `service_kit::approvals` cannot do yet.
-    .with_venue(VenueConfig {
-        approvals: match env.str("IDENTITY_URL").filter(|u| !u.is_empty()) {
-            Some(url) => Box::new(Identity::new(
-                url,
-                &str_of("INTERNAL_SERVICE_SECRET"),
-                fetch.clone(),
-                system_seconds,
-            )),
-            None => Box::new(Unwired),
-        },
-        operator_ids: env.operator_ids(),
-    });
+    .with_service_name(&service);
 
     let mut holds: Box<dyn ReplayHoldLookup> = match env.str("LEDGER_URL") {
         Some(url) => Box::new(LedgerHolds::new(LedgerHttp {
