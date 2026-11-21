@@ -18,7 +18,7 @@ Each slice of svc-matching's move to Rust starts here, in a fresh thread. `servi
     - every 400 of a door's input checks.
   - Any other answer must be one the door names as its slice's (`Outcome::Owed`).
   - `WIRE_REPLAY_SLICE=<name>` prints what a slice owes. `WIRE_REPLAY_STRICT=<name>` fails while it owes any.
-- **`tests/input_parity.rs`**: 724 inputs over the 15 door schemas, against zod's own verdicts. The lifecycle proof's `superRefine` hashes the parsed snapshot as `snapshotIdOfParsed` does.
+- **`tests/input_parity.rs`**: 724 inputs over the 15 door schemas, against zod's own verdicts. The lifecycle proof's `superRefine` hashes the parsed snapshot as `snapshotIdOfParsed` does. It also holds 20 list windows against `parsePublicL2QueryLimit`, the 1-to-500 edges included.
 - **`tests/env_parity.rs`**: 43 environments, against `env.ts`.
 
 The TypeScript replay runs its doors in a fixed order on one engine. A valid submit rests, a halt halts, and later doors read what earlier ones left. So a slice's owed answers reach 0 only once the slices that build that state are ported. The engine slices (`journal`, `book`, `triggers`, `liquidity`) also prove themselves with the TypeScript engine tests under `services/svc-matching/src/engine/`, run against the Rust engine.

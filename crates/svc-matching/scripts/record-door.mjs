@@ -7,7 +7,8 @@
 //   catalogue codes the doors answer with.
 // - `tests/fixtures/requests.json`: every request the TypeScript wire replay sends (`wire-replay-matrix.ts`): its
 //   method, URL, input name and body, so the Rust replay sends the same bytes.
-// - `tests/fixtures/input-parity.golden.json`: zod's own verdict on inputs made from each schema.
+// - `tests/fixtures/input-parity.golden.json`: zod's own verdict on inputs made from each schema, and
+//   `parsePublicL2QueryLimit`'s on list windows.
 // - `tests/fixtures/env-parity.golden.json`: what `env.ts` answers for a set of environments.
 //
 // Run from the repository root:
@@ -42,6 +43,7 @@ const exchange = await import(pathToFileURL(createRequire(`${SVC}index.ts`).reso
 const { MATCHING_SUBMIT_ORDER, marketStateSnapshotSchema, marketLifecycleAdmissionProofSchema } = exchange;
 const { userCopy } = await import(`${SVC}user-copy.ts`);
 const matrix = await import(`${SVC}wire-replay-matrix.ts`);
+const { parsePublicL2QueryLimit } = await import(`${SVC}l2-limit.ts`);
 
 // ── The inputs the door checks ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -327,6 +329,33 @@ for (const [door, schema] of Object.entries(INPUTS)) {
   }
 }
 
+// ── The list windows ───────────────────────────────────────────────────────────────────────────────────────────────
+
+/** `parsePublicL2QueryLimit`'s verdict on each query value: the window, or null when it is unpublished. */
+const LIMITS = [
+  '1',
+  '10',
+  '500',
+  '501',
+  '0',
+  '00',
+  '007',
+  '0500',
+  ' 42 ',
+  '\t3\n',
+  '',
+  '   ',
+  '-1',
+  '+5',
+  '1.0',
+  '1e2',
+  '0x10',
+  'ten',
+  '9'.repeat(20),
+  '\u00a012',
+];
+const limits = LIMITS.map((raw) => [raw, parsePublicL2QueryLimit(raw) ?? null]);
+
 // ── The environment ────────────────────────────────────────────────────────────────────────────────────────────────
 
 const A = '11111111-1111-4111-8111-111111111111';
@@ -427,7 +456,7 @@ const outputs = [
   [`${CRATE}src/errors_table.rs`, errorsRs],
   [`${CRATE}src/door/schemas.json`, `${JSON.stringify({ nodes, inputs })}\n`],
   [`${CRATE}tests/fixtures/requests.json`, `${JSON.stringify({ requests }, null, 1)}\n`],
-  [`${CRATE}tests/fixtures/input-parity.golden.json`, `${JSON.stringify({ verdicts, cases })}\n`],
+  [`${CRATE}tests/fixtures/input-parity.golden.json`, `${JSON.stringify({ verdicts, cases, limits })}\n`],
   [`${CRATE}tests/fixtures/env-parity.golden.json`, `${JSON.stringify({ cases: envCases }, null, 1)}\n`],
 ];
 
@@ -454,6 +483,6 @@ for (const [file, raw] of outputs) {
   } else writeFileSync(file, text);
 }
 console.log(
-  `${Object.keys(inputs).length} door inputs, ${nodes.length} schema parts, ${requests.length} requests, ${cases.length} input cases, ${envCases.length} environments, ${copy.length} codes`,
+  `${Object.keys(inputs).length} door inputs, ${nodes.length} schema parts, ${requests.length} requests, ${cases.length} input cases, ${limits.length} list windows, ${envCases.length} environments, ${copy.length} codes`,
 );
 if (stale) process.exit(1);

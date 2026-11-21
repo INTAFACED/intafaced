@@ -80,3 +80,30 @@ fn every_door_input_answers_as_zod() {
         differ.join("\n")
     );
 }
+
+#[test]
+fn every_list_window_reads_as_parse_public_l2_query_limit() {
+    let golden = json::parse(GOLDEN).unwrap();
+    let Some(Json::Array(limits)) = golden.get("limits") else {
+        panic!("no limits")
+    };
+    let mut differ = Vec::new();
+    for case in limits {
+        let Json::Array(c) = case else {
+            panic!("a window is [raw, window]")
+        };
+        let Json::String(raw) = &c[0] else {
+            panic!("a raw window is text")
+        };
+        let want = match &c[1] {
+            Json::Number(n) => Some(format!("{n}")),
+            _ => None,
+        };
+        let got = door::published_limit(raw).map(|n| n.to_string());
+        if got != want {
+            differ.push(format!("{raw:?}: want {want:?}, got {got:?}"));
+        }
+    }
+    println!("{} list windows; {} differ", limits.len(), differ.len());
+    assert!(differ.is_empty(), "{}", differ.join("\n"));
+}
