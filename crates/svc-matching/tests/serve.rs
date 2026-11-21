@@ -202,6 +202,8 @@ fn door_over(engine: MatchingEngine, clock: fn() -> i64) -> MatchingDoor {
             edge_secret: None,
             edge_key: None,
             clock,
+            approvals: Box::new(svc_matching::approval::Unwired),
+            operator_ids: Vec::new(),
         },
         engine,
     )

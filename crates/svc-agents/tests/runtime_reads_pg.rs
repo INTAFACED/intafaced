@@ -250,6 +250,7 @@ impl World {
             metering: metering(&ledger, &bus),
             runtime: runtime_settings(),
             ops: svc_agents::ops::Ops::unwired(),
+            background: svc_agents::background::Settings::default(),
             advisors: svc_agents::advisors::Advisors::unwired(),
         })
         .unwrap();

@@ -276,6 +276,8 @@ pub struct DoorConfig {
     pub runtime: Runtime,
     /// The operator desks' owner values: the log's reasons, limit and retention, the registry's page, the baseline.
     pub ops: Ops,
+    /// The owner's values for a session's background runs (`background`).
+    pub background: crate::background::Settings,
     /// The advisors' curriculum, holdings, prices and switches (`advisors`).
     pub advisors: Advisors,
 }
@@ -295,6 +297,7 @@ pub struct AgentsDoor {
     metering: Metering,
     runtime: Runtime,
     ops: Ops,
+    background: crate::background::Settings,
     advisors: Advisors,
 }
 
@@ -340,6 +343,7 @@ impl AgentsDoor {
             metering: config.metering,
             runtime: config.runtime,
             ops: config.ops,
+            background: config.background,
             advisors: config.advisors,
         })
     }
@@ -370,6 +374,16 @@ impl AgentsDoor {
         &self.ops
     }
 
+    /// The runtime's own settings.
+    pub fn runtime(&self) -> &Runtime {
+        &self.runtime
+    }
+
+    /// The owner's values for background runs.
+    pub fn background(&self) -> crate::background::Settings {
+        self.background
+    }
+
     /// The slices' answers: the door's own call, the ported slices, and "not ported" for the rest.
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
@@ -387,6 +401,14 @@ impl AgentsDoor {
                 &self.runtime,
             ),
             Slice::Ops => crate::ops::handle(ctx, &self.store, &self.metering, &self.ops),
+            Slice::Background => crate::background::slice::handle(
+                ctx,
+                &self.store,
+                &self.gateway,
+                &self.metering,
+                &self.runtime,
+                self.background,
+            ),
             Slice::Advisors => crate::advisors::slice::handle(
                 ctx,
                 &crate::advisors::slice::Deps {
