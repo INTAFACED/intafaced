@@ -55,6 +55,25 @@ export function findSites(repo) {
         }
         if (name === 'founderCall' && a[2]?.type === 'MemberExpression' && !a[2].computed && a[2].property.name === 'procedure')
           Object.assign(site, { shape: 'ops-dispatch', problem: 'sends the call its table entry names: it moves with the table' });
+        // `cond ? 'a.x' : 'a.y'`: one site per branch, both moved or neither (`pairs` in index.mjs).
+        const pathArg = name === 'founderCall' ? a[2] : name === 'query' || name === 'mutate' ? a[1] : undefined;
+        const unparen = (x) => (x?.type === 'ParenthesizedExpression' ? x.expression : x);
+        const cond = unparen(pathArg);
+        if (
+          !site.problem &&
+          site.module &&
+          cond?.type === 'ConditionalExpression' &&
+          literal(unparen(cond.consequent)) &&
+          literal(unparen(cond.alternate))
+        ) {
+          // Each branch's input is typed by its own record: only an input written out here (or none) can be.
+          const input = a[name === 'founderCall' ? 4 : 2];
+          const typed = !input || input.type === 'ObjectExpression' || (input.type === 'Identifier' && input.name === 'undefined');
+          const why = "its `? :` sends one input value to two records: each branch's input type can't be kept";
+          for (const branch of ['consequent', 'alternate'])
+            out.push({ ...site, path: literal(unparen(cond[branch])), branch, cond, ...(typed ? {} : { problem: why }) });
+          return;
+        }
         if (!site.problem && (!site.module || !site.path)) site.problem = 'service or call named by a template';
         out.push(site);
       }
@@ -97,7 +116,8 @@ function isSchemaParse(n) {
  * the keys the record now gives are dropped.
  */
 const SPREADS = [
-  { helper: 'readOf', moduleKey: 'module', kindKey: undefined },
+  // A desk read in a file that has `ReadSpec` but not `readOf` imports `readOf` from where `ReadSpec` comes from.
+  { helper: 'readOf', moduleKey: 'module', kindKey: undefined, typeName: 'ReadSpec' },
   { helper: 'toolOf', moduleKey: 'edgeModule', kindKey: 'kind' },
 ];
 function deskRead(p, n) {
@@ -105,10 +125,15 @@ function deskRead(p, n) {
   const obj = p.parents.get(n);
   if (obj?.type !== 'ObjectExpression') return undefined;
   const prop = (k) => obj.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === k && literal(pr.value));
-  for (const { helper, moduleKey, kindKey } of SPREADS) {
+  for (const { helper, moduleKey, kindKey, typeName } of SPREADS) {
     const moduleProp = prop(moduleKey);
     const kindProp = kindKey ? prop(kindKey) : undefined;
-    if (!moduleProp || (kindKey && !kindProp) || bindingOf(p, n, helper).kind === 'none') continue;
+    if (!moduleProp || (kindKey && !kindProp)) continue;
+    // `bindingOf` names an unbound name `global`.
+    const bound = bindingOf(p, n, helper).kind !== 'global';
+    const type = typeName ? bindingOf(p, n, typeName) : undefined;
+    const helperFrom = !bound && type?.kind === 'import' ? type.from : undefined;
+    if (!bound && !helperFrom) continue;
     const kind = kindProp ? literal(kindProp.value) : 'query';
     if (kind !== 'query' && kind !== 'mutation') continue;
     const inputProp = obj.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'input');
@@ -117,6 +142,7 @@ function deskRead(p, n) {
       path: literal(n.value),
       kind,
       helper,
+      helperFrom,
       drop: [moduleProp, kindProp].filter(Boolean),
       inputProp,
       obj,
