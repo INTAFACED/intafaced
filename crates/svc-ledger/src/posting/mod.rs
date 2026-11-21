@@ -145,6 +145,19 @@ impl Posting {
             .unwrap_or(0)
     }
 
+    /// `callerBindingCounts()`: every violation count this process holds, as `(reason, service, count)`, the service
+    /// blank when none was named.
+    pub fn binding_counts(&self) -> Vec<(&'static str, String, u64)> {
+        let c = self
+            .counts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        c.counts
+            .iter()
+            .map(|((why, service), n)| (*why, service.clone(), *n))
+            .collect()
+    }
+
     /// `addCallerBindingCount` and the door's `onViolation` warning: every violation counted; an unbound one warned
     /// first for a claimed service, then at most once a minute; the others every time.
     fn observe(&self, seen: &[Violation], mode: &str) {

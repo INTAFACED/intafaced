@@ -1,0 +1,472 @@
+//! `/trpc/postRecipe` on a real Postgres, through the Rust door, each case in its own throwaway database (`support`).
+//! Without a URL it skips; with `REQUIRE_POSTGRES=1` it fails.
+//!
+//! The door runs as the TypeScript tests mount it: per-service keys in `keypair` mode, the body bound, `svc-academy`'s
+//! own key, the conflict mode `refuse`, and the custody layer off (as at launch). Case for case:
+//! - `post-recipe-door.pg.test.ts`, all 8 cases (`pg_*`), which ran on the Rust binary only through
+//!   `tests/conformance` (project `post-recipe-pg`);
+//! - `post-recipe-door.test.ts`, its booking cases (`books_*`: under its key, a retry, a different body's 409, a refund
+//!   over revenue, the refund after the purchase), there over an in-memory book and here over the real one, and its
+//!   property "postRecipe books exactly what post(recipes[name](input)) books" (`property_*`), its runs the ones
+//!   fast-check draws for the test's own seed (3343, 60 runs), recorded with the post `recipes[name](input)` builds.
+//!   Its who-may-call and body refusals are `post_recipe_parity.rs` and `wire_replay.rs`.
+//!
+//! The calls and posts are the TypeScript's own, recorded by `scripts/record-door-books.mjs`.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    reason = "a test: a failure is the point"
+)]
+
+mod support;
+
+use service_kit::json::Json;
+use service_kit::money::{format_amount, parse_amount};
+use service_kit::s2s::Mode;
+use support::TestDb;
+use support::door::{Kit, Setup, fx, fx_list, migrated};
+use svc_ledger::errors::{
+    FROZEN, IDEMPOTENCY_CONFLICT, INSUFFICIENT_FUNDS, POST_RECIPE_INPUT_INVALID,
+};
+use svc_ledger::freeze;
+
+const USER: &str = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const OPERATOR: &str = "11111111-1111-4111-8111-111111111111";
+const CHECKER: &str = "22222222-2222-4222-8222-222222222222";
+
+fn key() -> String {
+    format!("academy:purchase:perps-101:{USER}:1")
+}
+
+fn refund_key() -> String {
+    format!("academy:refund:perps-101:{USER}:1")
+}
+
+fn s(v: &Json, k: &str) -> String {
+    match v.get(k) {
+        Some(Json::String(t)) => t.clone(),
+        other => panic!("{k}: {other:?} in {}", v.compact()),
+    }
+}
+
+fn list(v: &Json, k: &str) -> Vec<Json> {
+    match v.get(k) {
+        Some(Json::Array(items)) => items.clone(),
+        other => panic!("{k}: {other:?} in {}", v.compact()),
+    }
+}
+
+fn code(v: &Json) -> Option<String> {
+    match v.get("code") {
+        Some(Json::String(c)) => Some(c.clone()),
+        _ => None,
+    }
+}
+
+fn pr(name: &str) -> Json {
+    fx(&["postRecipe", name])
+}
+
+/// The door as the tests mount it (above), over a fresh book.
+fn door() -> Option<(TestDb, Kit)> {
+    let db = migrated()?;
+    let k = Kit::new(
+        &db,
+        &Setup {
+            mode: Some(Mode::Keypair),
+            services: &["svc-academy"],
+            custody_on: false,
+        },
+    );
+    Some((db, k))
+}
+
+/// `poster().postRecipe(call)`: signed by svc-academy's key, a fresh signature each attempt.
+fn post_recipe(k: &Kit, call: &Json) -> (u16, Json) {
+    k.keyed("svc-academy", "/trpc/postRecipe", call)
+}
+
+fn booked((status, body): (u16, Json)) -> Json {
+    assert_eq!(status, 200, "{}", body.compact());
+    body
+}
+
+/// `[direction, amount]` of each booked entry.
+fn legs(reply: &Json) -> Vec<(String, String)> {
+    list(reply, "entries")
+        .iter()
+        .map(|e| (s(e, "direction"), s(e, "amount")))
+        .collect()
+}
+
+/// `ledger.balance(houseFees('academy', 'USDC')).amount`.
+fn revenue(k: &Kit) -> String {
+    k.bal(&pr("revenue"))
+}
+
+// ── post-recipe-door.pg.test.ts ──────────────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn pg_books_the_purchase_once_with_custody_off_under_the_business_key_the_receipt_is_the_booked_entries()
+ {
+    let Some((_db, k)) = door() else { return };
+    let tx = booked(post_recipe(&k, &pr("purchase")));
+    assert_eq!(s(&tx, "idempotencyKey"), key());
+    assert_eq!(s(&tx, "module"), "academy");
+    assert_eq!(
+        legs(&tx),
+        [
+            ("debit".to_owned(), "2.5".to_owned()),
+            ("credit".to_owned(), "2.5".to_owned())
+        ]
+    );
+    assert_eq!(k.rows(&key()), 1);
+    assert_eq!(k.tx(&key()).unwrap().0, s(&tx, "txId"));
+}
+
+#[test]
+fn pg_crash_after_the_ledger_committed_but_before_the_caller_heard_the_retry_is_the_same_key_and_books_nothing_twice()
+ {
+    let Some((_db, k)) = door() else { return };
+    // The first attempt commits and its answer is lost on the way back; the client retries the same bytes, signed anew.
+    let lost = booked(post_recipe(&k, &pr("purchase")));
+    let tx = booked(post_recipe(&k, &pr("purchase")));
+    assert_eq!(s(&tx, "txId"), s(&lost, "txId"));
+    assert_eq!(k.rows(&key()), 1);
+    assert_eq!(k.tx(&key()).unwrap().0, s(&tx, "txId"));
+    // And the caller asking again later (a restart) still gets the same transaction.
+    assert_eq!(
+        s(&booked(post_recipe(&k, &pr("purchase"))), "txId"),
+        s(&tx, "txId")
+    );
+    assert_eq!(k.rows(&key()), 1);
+    assert_eq!(revenue(&k), "2.5");
+}
+
+#[test]
+fn pg_post_recipe_and_post_land_on_the_same_key_one_booking_whichever_door_the_retry_takes() {
+    let Some((_db, k)) = door() else { return };
+    let tx = booked(post_recipe(&k, &pr("purchase")));
+    let via_post = booked(k.keyed("svc-academy", "/trpc/post", &pr("viaPost")));
+    assert_eq!(s(&via_post, "txId"), s(&tx, "txId"));
+    let triple = |r: &Json| {
+        list(r, "entries")
+            .iter()
+            .map(|e| (s(e, "accountId"), s(e, "direction"), s(e, "amount")))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(triple(&via_post), triple(&tx));
+    assert_eq!(s(&pr("viaPost"), "idempotencyKey"), key());
+    assert_eq!(k.rows(&key()), 1);
+}
+
+#[test]
+fn pg_the_same_key_with_a_different_body_is_refused_409_idempotency_conflict_the_first_booking_stands()
+ {
+    let Some((_db, k)) = door() else { return };
+    let tx = booked(post_recipe(&k, &pr("purchase")));
+    let (status, err) = post_recipe(&k, &pr("purchaseOther"));
+    assert_eq!(code(&err).as_deref(), Some(IDEMPOTENCY_CONFLICT));
+    // Never read as a refusal: `classifyPostOutcome` reads a 409 as 'unknown' (the key is taken).
+    assert_eq!(status, 409);
+    assert_eq!(k.rows(&key()), 1);
+    assert_eq!(k.tx(&key()).unwrap().0, s(&tx, "txId"));
+    assert_eq!(revenue(&k), "2.5");
+}
+
+#[test]
+fn pg_frozen_refused_412_a_definite_refusal_nothing_booked_after_the_thaw_the_same_call_books_once()
+{
+    let Some((_db, k)) = door() else { return };
+    freeze::write(
+        &k.store,
+        freeze::Command::Freeze {
+            reason: "postRecipe freeze test",
+            actor: OPERATOR,
+        },
+    )
+    .unwrap();
+    let (status, err) = post_recipe(&k, &pr("purchase"));
+    assert_eq!(code(&err).as_deref(), Some(FROZEN));
+    // `classifyPostOutcome` reads a 412 as 'refused'.
+    assert_eq!(status, 412);
+    assert_eq!(k.rows(&key()), 0);
+
+    freeze::write(
+        &k.store,
+        freeze::Command::Thaw {
+            actor: OPERATOR,
+            confirm_operator_id: Some(CHECKER),
+        },
+    )
+    .unwrap();
+    let tx = booked(post_recipe(&k, &pr("purchase")));
+    assert_eq!(s(&tx, "idempotencyKey"), key());
+    assert_eq!(k.rows(&key()), 1);
+}
+
+#[test]
+fn pg_frozen_after_it_booked_the_retry_of_a_committed_post_still_answers_the_original_transaction()
+{
+    let Some((_db, k)) = door() else { return };
+    let tx = booked(post_recipe(&k, &pr("purchase")));
+    freeze::write(
+        &k.store,
+        freeze::Command::Freeze {
+            reason: "postRecipe freeze after commit",
+            actor: OPERATOR,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        s(&booked(post_recipe(&k, &pr("purchase"))), "txId"),
+        s(&tx, "txId")
+    );
+    assert_eq!(k.rows(&key()), 1);
+}
+
+#[test]
+fn pg_the_refund_reverses_the_purchase_on_the_book_and_cannot_be_booked_twice() {
+    let Some((_db, k)) = door() else { return };
+    booked(post_recipe(&k, &pr("purchase")));
+    let tx = booked(post_recipe(&k, &pr("refund")));
+    assert_eq!(s(&tx, "idempotencyKey"), refund_key());
+    assert_eq!(
+        s(&booked(post_recipe(&k, &pr("refund"))), "txId"),
+        s(&tx, "txId")
+    );
+    assert_eq!(revenue(&k), "0");
+}
+
+#[test]
+fn pg_a_body_the_door_refuses_never_reaches_the_book_sent_raw_over_the_port() {
+    let Some((_db, k)) = door() else { return };
+    let (status, err) = post_recipe(&k, &pr("purchaseNumber"));
+    assert_eq!(status, 400);
+    assert_eq!(code(&err).as_deref(), Some(POST_RECIPE_INPUT_INVALID));
+    assert_eq!(k.rows(&key()), 0);
+}
+
+// ── post-recipe-door.test.ts: what it books ──────────────────────────────────────────────────────────────────────
+
+#[test]
+fn books_the_purchase_under_its_business_key_and_answers_the_booked_entries_as_decimal_strings() {
+    let Some((_db, k)) = door() else { return };
+    // The door itself checks its reply against the record's output (`postRecipeReply`) before it answers.
+    let reply = booked(post_recipe(&k, &pr("purchase")));
+    assert_eq!(s(&reply, "idempotencyKey"), key());
+    assert_eq!(s(&reply, "module"), "academy");
+    assert_eq!(s(&reply, "reason"), "academy.purchase.posted");
+    assert_eq!(
+        legs(&reply),
+        [
+            ("debit".to_owned(), "2.5".to_owned()),
+            ("credit".to_owned(), "2.5".to_owned())
+        ]
+    );
+    assert_eq!(
+        k.tx(&s(&reply, "idempotencyKey")).unwrap().0,
+        s(&reply, "txId")
+    );
+}
+
+#[test]
+fn books_a_retry_of_the_same_call_the_first_answer_was_lost_returns_the_same_transaction_and_books_nothing_twice()
+ {
+    let Some((_db, k)) = door() else { return };
+    let first = booked(post_recipe(&k, &pr("purchase")));
+    let again = booked(post_recipe(&k, &pr("purchase")));
+    assert_eq!(s(&again, "txId"), s(&first, "txId"));
+    assert_eq!(s(&again, "hash"), s(&first, "hash"));
+    // Both calls reached the book under the one key, which holds one transaction.
+    assert_eq!(k.rows(&s(&first, "idempotencyKey")), 1);
+    assert_eq!(revenue(&k), "2.5");
+}
+
+#[test]
+fn books_the_same_key_with_a_different_body_is_refused_409_and_the_first_booking_stands() {
+    let Some((_db, k)) = door() else { return };
+    let first = booked(post_recipe(&k, &pr("purchase")));
+    let (status, other) = post_recipe(&k, &pr("purchaseOther"));
+    assert_eq!(status, 409);
+    assert_eq!(code(&other).as_deref(), Some(IDEMPOTENCY_CONFLICT));
+    assert_eq!(
+        k.tx(&s(&first, "idempotencyKey")).unwrap().0,
+        s(&first, "txId")
+    );
+    assert_eq!(revenue(&k), "2.5");
+}
+
+#[test]
+fn books_a_refund_above_the_revenue_on_the_book_is_refused_by_the_ledger_400_insufficient_funds_nothing_booked()
+ {
+    let Some((_db, k)) = door() else { return };
+    let (status, res) = post_recipe(&k, &pr("refund"));
+    assert_eq!(status, 400, "{}", res.compact());
+    assert_eq!(code(&res).as_deref(), Some(INSUFFICIENT_FUNDS));
+    assert!(k.tx(&refund_key()).is_none());
+}
+
+#[test]
+fn books_the_refund_after_the_purchase_revenue_back_to_zero_the_wallet_back_to_zero() {
+    let Some((_db, k)) = door() else { return };
+    booked(post_recipe(&k, &pr("purchase")));
+    let res = booked(post_recipe(&k, &pr("refund")));
+    assert_eq!(s(&res, "idempotencyKey"), refund_key());
+    assert_eq!(s(&res, "reason"), "academy.purchase.refunded");
+    assert_eq!(revenue(&k), "0");
+}
+
+// ── post-recipe-door.test.ts: the property ───────────────────────────────────────────────────────────────────────
+
+/// What a book holds under a key, with the per-book ids taken out (the test's `shape`).
+fn shape(k: &Kit, key: &str) -> Option<String> {
+    let (_, meta) = k.tx(key)?;
+    let mut c = postgres::Client::connect(&k_url(k), postgres::NoTls).unwrap();
+    let head = c
+        .query_one(
+            "SELECT module, reason FROM ledger.ledger_tx WHERE idempotency_key = $1",
+            &[&key],
+        )
+        .unwrap();
+    let entries: Vec<String> = c
+        .query(
+            "SELECT e.asset_id, e.direction::text, e.amount::text, e.balance_after::text
+               FROM ledger.ledger_entries e JOIN ledger.ledger_tx t ON t.id = e.tx_id
+              WHERE t.idempotency_key = $1 ORDER BY e.id",
+            &[&key],
+        )
+        .unwrap()
+        .iter()
+        .map(|r| {
+            let n = |i: usize| format_amount(parse_amount(&r.get::<_, String>(i)).unwrap());
+            format!(
+                "{} {} {} {}",
+                r.get::<_, String>(0),
+                r.get::<_, String>(1),
+                n(2),
+                n(3)
+            )
+        })
+        .collect();
+    Some(format!(
+        "{key} {} {} {} [{}]",
+        head.get::<_, String>(0),
+        head.get::<_, String>(1),
+        meta.compact(),
+        entries.join(", ")
+    ))
+}
+
+fn k_url(k: &Kit) -> String {
+    k.url()
+}
+
+/// A reply's `[assetId, direction, amount, balanceAfter]` per entry (the test's `strip`).
+fn strip(reply: &Json) -> Vec<[String; 4]> {
+    list(reply, "entries")
+        .iter()
+        .map(|e| {
+            [
+                s(e, "assetId"),
+                s(e, "direction"),
+                s(e, "amount"),
+                s(e, "balanceAfter"),
+            ]
+        })
+        .collect()
+}
+
+/// One run: its purchase and refund through `postRecipe` on one book, and the posts `recipes[name](input)` builds
+/// through `post` on another; whether the purchase booked.
+fn run(n: usize, call: &Json) -> bool {
+    let (Some((_a, via_recipe)), Some((_b, via_post))) = (door(), door()) else {
+        panic!("run {n}: no book")
+    };
+    let get = |k: &str| call.get(k).unwrap().clone();
+    let a1 = post_recipe(&via_recipe, &get("purchase"));
+    let a2 = post_recipe(&via_recipe, &get("refund"));
+    let (p1, p2) = (get("purchasePost"), get("refundPost"));
+    let b1 = via_post.keyed("svc-academy", "/trpc/post", &p1);
+    let b2 = via_post.keyed("svc-academy", "/trpc/post", &p2);
+    // The same answer on both doors, refusals included (a purchase into a partner reserve is refused by the book on
+    // both: a reserve never shows less than nothing of ours).
+    assert_eq!(
+        [a1.0, a2.0],
+        [b1.0, b2.0],
+        "run {n}: {} / {}",
+        a1.1.compact(),
+        b1.1.compact()
+    );
+    assert_eq!(
+        [code(&a1.1), code(&a2.1)],
+        [code(&b1.1), code(&b2.1)],
+        "run {n}"
+    );
+    for p in [&p1, &p2] {
+        let key = s(p, "idempotencyKey");
+        assert_eq!(
+            shape(&via_recipe, &key),
+            shape(&via_post, &key),
+            "run {n}: {key}"
+        );
+    }
+    if a1.0 != 200 {
+        return false;
+    }
+    assert_eq!(
+        s(&a1.1, "idempotencyKey"),
+        s(&p1, "idempotencyKey"),
+        "run {n}"
+    );
+    assert_eq!(a2.0, 200, "run {n}: {}", a2.1.compact());
+    assert_eq!(
+        s(&a2.1, "idempotencyKey"),
+        s(&p2, "idempotencyKey"),
+        "run {n}"
+    );
+    // Same reply on both doors, ids aside.
+    assert_eq!(strip(&a1.1), strip(&b1.1), "run {n}");
+    assert_eq!(strip(&a2.1), strip(&b2.1), "run {n}");
+    assert_eq!(
+        s(&list(&a1.1, "entries")[0], "amount"),
+        s(call, "amount"),
+        "run {n}"
+    );
+    true
+}
+
+#[test]
+fn property_for_random_valid_purchases_and_their_refunds_the_two_doors_leave_the_same_book() {
+    if support::admin_url().is_none() {
+        return;
+    }
+    let calls = fx_list(&["property"]);
+    assert_eq!(calls.len(), 60, "the test's own 60 runs");
+    let workers = std::env::var("INTAFACED_LOCAL_JOBS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(4)
+        .clamp(1, 8);
+    let booked: usize = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..workers)
+            .map(|w| {
+                let calls = &calls;
+                scope.spawn(move || {
+                    calls
+                        .iter()
+                        .enumerate()
+                        .filter(|(n, _)| n % workers == w)
+                        .filter(|(n, c)| run(*n, c))
+                        .count()
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).sum()
+    });
+    // Most runs book (a treasury wallet may go below zero): the property is not only refusals agreeing.
+    assert!(booked > 20, "only {booked} of 60 runs booked");
+    println!("postRecipe property: 60 runs, {booked} booked on both doors");
+}
