@@ -84,6 +84,7 @@ import { subscribesVia, builtMap, headWanted, loadMap, newerMap, readHead, runsB
 import { groupPulls, isJudgeDown, mergedNothingToSeal, requiredChecks, reviewRan } from './review-marker.mjs';
 import { DEFER_MARK, TOUCH_JOB } from './main-first.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
+import { redRunOf, spentWhy } from './journeys-revert.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -971,6 +972,36 @@ export async function readAutoRevertScope({ io, repo, pull, number, paths }) {
   return autoRevertScope({ pull, repo, paths, commits, culprit, culpritTitle, journeyFiles });
 }
 
+/**
+ * Why an automatic revert may no longer merge, or null: main's newest finished journeys run passed every step its body
+ * names outright, on a head that holds the culprit and is past the red run's (journeys-revert.mjs spentWhy, the rule
+ * `spent` closes it by). A fix forward landed, and the revert would undo a change that is no longer the cause (intafaced
+ * #9482: its auto-merge stayed armed after #9483 fixed J-identity-10 #1 forward, until a person turned it off;
+ * project-state#3637). Anything unread (no finished run, no report, a compare that can't say) leaves it to merge, as
+ * `spent` leaves it open. `io`: mainRuns, reportOf ({ states } or { error }), contains(sha, head).
+ */
+export async function revertSpent({ io, repo, pull, culprit }) {
+  if (!io.mainRuns || !io.reportOf || !io.contains) return null;
+  const all = (await io.mainRuns()) ?? [];
+  const newest = all
+    .filter((r) => isMainRun(r, repo) && r?.path === JOURNEYS_WORKFLOW && r?.repository?.full_name === repo)
+    .filter((r) => r.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion))
+    .sort(newestCreated)[0];
+  if (!newest || !SHA40.test(String(newest.head_sha))) return null;
+  const rep = await io.reportOf(newest);
+  if (!rep || rep.error) return null;
+  const redHead = all.find((r) => r.id === redRunOf(pull.body))?.head_sha;
+  const d = spentWhy(pull, {
+    repo,
+    states: new Map(Object.entries(rep.states ?? {})),
+    holdsCulprit: SHA40.test(String(culprit)) ? await io.contains(culprit, newest.head_sha) : false,
+    pastRed: SHA40.test(String(redHead ?? '')) ? await io.contains(redHead, newest.head_sha) : false,
+  });
+  return d.close
+    ? `main no longer needs this revert: main's journeys run ${newest.run_number ?? newest.id} on ${newest.head_sha.slice(0, 10)} ${d.why}, so it would undo a change that is not the cause (journeys-revert.mjs spent closes it)`
+    : null;
+}
+
 /** The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
  *  file). `text(path, ref)` is the file's text, or null when the ref has no such file. */
 export async function touchedSteps({ paths, head, base, text }) {
@@ -1530,14 +1561,20 @@ export async function sealPull({ repo, number, sha, io: given, requireOpen = tru
           branch: pull.head?.ref ?? null,
         })
       : { ok: true, state: 'none', lines: [] };
+  // An automatic revert merges only while main still needs it (revertSpent), whatever its own runs say.
+  const spent = auto?.ok ? await revertSpent({ io, repo, pull, culprit: auto.sha }).catch(() => null) : null;
   const v = {
-    ok: steps.ok && full.ok && touched.ok,
-    stepsOk: steps.ok && touched.ok,
+    ok: steps.ok && full.ok && touched.ok && !spent,
+    stepsOk: steps.ok && touched.ok && !spent,
     fullOk: full.ok,
     // The kind of each red, for its title (redKinds); a touched-step problem is the pull request's own.
-    stepsKinds: [...(steps.ok ? [] : (steps.kinds ?? ['yours'])), ...(touched.ok ? [] : (touched.kinds ?? ['yours']))],
+    stepsKinds: [
+      ...(steps.ok ? [] : (steps.kinds ?? ['yours'])),
+      ...(touched.ok ? [] : (touched.kinds ?? ['yours'])),
+      ...(spent ? ['yours'] : []),
+    ],
     fullKinds: full.ok ? [] : (full.kinds ?? []),
-    lines: [...steps.lines, ...touched.lines, ...full.lines],
+    lines: [...steps.lines, ...touched.lines, ...full.lines, ...(spent ? [spent] : [])],
   };
   return { ...v, lines: v.lines.map((l) => `#${number} (${head.slice(0, 10)}): ${l}`) };
 }

@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
-import { Button } from '@intafaced/ui';
+import { Button } from '@intafaced/ui/lit';
 import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   businessBillLimitsSchema,
@@ -354,11 +354,11 @@ function InboxParts({ accountId, label, reloadTop, t }: { accountId: string; lab
             );
           }}
         >
-          <label className="field">
+          <label className="lt-field">
             <span>{t('file')}</span>
             <input type="file" name="bill" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </label>
-          <Button type="submit" variant="primary" disabled={change.busy || !file}>
+          <Button type="submit" tone="primary" disabled={change.busy || !file}>
             {t('upload')}
           </Button>
         </form>
@@ -421,15 +421,15 @@ function InboxParts({ accountId, label, reloadTop, t }: { accountId: string; lab
               });
           }}
         >
-          <label className="field">
+          <label className="lt-field">
             <span>{t('vendorName')}</span>
             <input name="vendorName" value={vendorName} onChange={(e) => setVendorName(e.target.value)} />
           </label>
-          <label className="field">
+          <label className="lt-field">
             <span>{t('vendorCap')}</span>
             <input name="vendorCap" inputMode="decimal" value={vendorCap} onChange={(e) => setVendorCap(e.target.value)} />
           </label>
-          <Button type="submit" disabled={change.busy || !vendorName.trim() || !vendorCap.trim()}>
+          <Button tone="primary" type="submit" disabled={change.busy || !vendorName.trim() || !vendorCap.trim()}>
             {t('saveVendor')}
           </Button>
         </form>
@@ -465,7 +465,7 @@ function InboxParts({ accountId, label, reloadTop, t }: { accountId: string; lab
           }}
         >
           {(['perPayment', 'daily', 'monthly'] as const).map((k) => (
-            <label key={k} className="field">
+            <label key={k} className="lt-field">
               <span>{t(k)}</span>
               <input
                 name={k}
@@ -475,7 +475,7 @@ function InboxParts({ accountId, label, reloadTop, t }: { accountId: string; lab
               />
             </label>
           ))}
-          <Button type="submit" disabled={change.busy}>
+          <Button tone="primary" type="submit" disabled={change.busy}>
             {t('saveLimits')}
           </Button>
         </form>
@@ -574,6 +574,7 @@ function BillParts({
           </p>
           {!b.duplicateCleared ? (
             <Button
+              tone="primary"
               type="button"
               disabled={change.busy}
               onClick={() => void change.run('businessBills.clearDuplicate', { billId: b.id }, businessBillSchema)}
@@ -639,7 +640,7 @@ function BillParts({
               ['dueDate', 'date'],
             ] as const
           ).map(([k, type]) => (
-            <label key={k} className="field">
+            <label key={k} className="lt-field">
               <span>{t(k)}</span>
               <input
                 name={k}
@@ -650,14 +651,14 @@ function BillParts({
               />
             </label>
           ))}
-          <Button type="submit" disabled={change.busy || b.status !== 'inbox'}>
+          <Button tone="primary" type="submit" disabled={change.busy || b.status !== 'inbox'}>
             {t('saveReview')}
           </Button>
         </form>
         {b.status === 'inbox' ? (
           <Button
             type="button"
-            variant="primary"
+            tone="primary"
             disabled={change.busy}
             onClick={() => void change.run('businessBills.submit', { billId: b.id }, businessBillSchema, () => t('submitted'))}
           >
@@ -683,7 +684,7 @@ function BillParts({
           {b.status === 'awaiting_approval' ? (
             <Button
               type="button"
-              variant="primary"
+              tone="primary"
               disabled={change.busy}
               onClick={() => void change.run('businessBills.approve', { billId: b.id }, businessBillSchema, () => t('approved'))}
             >
@@ -722,13 +723,13 @@ function BillParts({
                 });
             }}
           >
-            <label className="field">
+            <label className="lt-field">
               <span>{t('payOn')}</span>
               <input name="payOn" type="date" value={payOn} onChange={(e) => setPayOn(e.target.value)} />
             </label>
             {lines.map((l, i) => (
               <fieldset key={i} data-testid="bill-split-line">
-                <label className="field">
+                <label className="lt-field">
                   <span>{t('category')}</span>
                   <input
                     name={`category-${i}`}
@@ -736,7 +737,7 @@ function BillParts({
                     onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, category: e.target.value } : x)))}
                   />
                 </label>
-                <label className="field">
+                <label className="lt-field">
                   <span>{t('lineAmount')}</span>
                   <input
                     name={`lineAmount-${i}`}
@@ -745,15 +746,15 @@ function BillParts({
                     onChange={(e) => setLines(lines.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))}
                   />
                 </label>
-                <Button type="button" onClick={() => setLines(lines.filter((_, j) => j !== i))}>
+                <Button tone="primary" type="button" onClick={() => setLines(lines.filter((_, j) => j !== i))}>
                   {t('removeLine')}
                 </Button>
               </fieldset>
             ))}
-            <Button type="button" onClick={() => setLines([...lines, { category: '', amount: '' }])}>
+            <Button tone="primary" type="button" onClick={() => setLines([...lines, { category: '', amount: '' }])}>
               {t('addLine')}
             </Button>
-            <Button type="submit" variant="primary" disabled={change.busy}>
+            <Button type="submit" tone="primary" disabled={change.busy}>
               {payOn ? t('schedule') : t('payNow')}
             </Button>
           </form>
@@ -802,6 +803,7 @@ function BillParts({
               ) : null}
               {p.status === 'scheduled' ? (
                 <Button
+                  tone="primary"
                   type="button"
                   disabled={change.busy}
                   onClick={() => void change.run('businessBills.cancel', { paymentId: p.id }, businessBillSchema, () => t('cancelled'))}
@@ -814,6 +816,7 @@ function BillParts({
         </ul>
         {sending ? (
           <Button
+            tone="primary"
             type="button"
             disabled={change.busy}
             onClick={() => void change.run('businessBills.resend', { paymentId: sending.id }, businessBillSchema)}

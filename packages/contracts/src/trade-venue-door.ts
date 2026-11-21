@@ -167,6 +167,8 @@ export const venueMarketSchema = z.object({
   marginTiers: maybeKnown(
     z.array(z.object({ fromNotional: decimalSchema, maxLeverageBps: z.number().int().positive(), maintenanceRate: decimalSchema })),
   ).optional(),
+  // A perpetual's one published maintenance rate, where the venue publishes no tiers (J-algo-dev-02 #5). Absent: not published.
+  maintenanceMarginRate: maybeKnown(decimalSchema).optional(),
   collateral: maybeKnown(z.array(z.object({ asset: z.string(), haircut: maybeKnown(decimalSchema) }))).optional(),
   // The venue's own trading state for the market, null where it reports none, and our listing's routing beside it
   // (J-charts-desk-15 #6: the chart refuses order entry naming either). Absent from an older door: not reported.

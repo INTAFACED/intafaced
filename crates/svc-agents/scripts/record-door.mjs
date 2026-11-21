@@ -10,6 +10,8 @@
 // - `src/boot_agents.json`: every `agent_definitions` row the boot upserts (`index.ts`: the product factories, the Coach,
 //   the catalogue-only agents), in boot order, as `runtime.registerAgent` writes it. The TypeScript test
 //   `services/svc-agents/src/fleet/boot-agents-rust.test.ts` fails while it is stale.
+// - `src/tool_shapes.json`: every declared tool shape by tool name (`own/catalog.ts` `DECLARED_TOOL_SHAPES`), which
+//   `agent.get` shows. The TypeScript test `services/svc-agents/src/own/tool-shapes-rust.test.ts` fails while it is stale.
 //
 // Run from the repository root, with the workspace packages built (`pnpm --filter "@intafaced/svc-agents^..." build`):
 //   TZ=UTC node --import tsx crates/svc-agents/scripts/record-door.mjs          writes the files
@@ -1097,6 +1099,7 @@ const recording = {
 await registerProductAgentsAtBoot(recording);
 await registerCoachAgent(recording);
 await registerCatalogueOnlyAgents(recording);
+const { DECLARED_TOOL_SHAPES } = await import(`${SVC}own/catalog.ts`);
 
 const outputs = [
   [`${CRATE}src/door/calls.rs`, callsRs],
@@ -1105,6 +1108,7 @@ const outputs = [
   ...parityFiles(),
   [`${CRATE}tests/fixtures/env-parity.golden.json`, `${JSON.stringify({ cases: envCases }, null, 1)}\n`],
   [`${CRATE}src/boot_agents.json`, `${JSON.stringify(bootAgents, null, 2)}\n`],
+  [`${CRATE}src/tool_shapes.json`, `${JSON.stringify(DECLARED_TOOL_SHAPES, null, 2)}\n`],
 ];
 
 /** Each file leaves in the shape the repo's checks hold it to: `cargo fmt --check` for Rust, `format:check` for JSON. */
