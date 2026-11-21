@@ -88,11 +88,12 @@ export class UndeclaredRefusalError extends Error {
 
 /**
  * With `PROCEDURE_REFUSALS_SEEN` set to a directory (a service's test run), each refusal sent is noted there as
- * `<record>\t<code>`, so the run can show that every refusal a record lists is produced by some test.
+ * `<record>\t<code>\t<status>`, so the run can show that every refusal a record lists is produced by some test, and the
+ * call-records codemod can list what a new record's handler was seen to send (tooling/codemod/call-records/refusals.mjs).
  */
-function noteSent(record: string, code: string): void {
+function noteSent(record: string, code: string, status: string): void {
   const dir = process.env.PROCEDURE_REFUSALS_SEEN;
-  if (dir) appendFileSync(join(dir, `${process.pid}-${threadId}.tsv`), `${record}\t${code}\n`);
+  if (dir) appendFileSync(join(dir, `${process.pid}-${threadId}.tsv`), `${record}\t${code}\t${status}\n`);
 }
 
 function guardFor(name: string, access: Access, founder: FounderGuard | undefined) {
@@ -149,7 +150,7 @@ export function mountRecord(record: ProcedureRecord, handler: RecordHandler<Proc
       const refusal = refusalOf(err);
       if (refusal === undefined) throw err;
       const declared = record.refusals[refusal.code];
-      noteSent(record.name, refusal.code);
+      noteSent(record.name, refusal.code, refusal.error.code);
       // Outside tests an unlisted refusal is sent unchanged, so the wire is what the handler says.
       if (declared !== refusal.error.code && process.env.PROCEDURE_REFUSALS_STRICT === '1') {
         throw new UndeclaredRefusalError({ record: record.name, code: refusal.code, status: refusal.error.code, declared });
