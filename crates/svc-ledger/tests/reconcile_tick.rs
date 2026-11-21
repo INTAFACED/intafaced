@@ -81,6 +81,9 @@ struct Recording {
     durable: Option<Cell<Result<i64, ()>>>,
     freeze_fails: Option<StoreError>,
     halted: Option<bool>,
+    /// A due-controls hook that throws, and whether it was called; none without one.
+    controls_throw: bool,
+    controls_called: Cell<bool>,
 }
 
 impl TickLedger for Recording {
@@ -108,6 +111,15 @@ impl TickLedger for Recording {
             d.get()
                 .map_err(|()| StoreError::new("streak read failed", None))
         })
+    }
+    fn run_due_controls(
+        &self,
+    ) -> Option<Result<Vec<svc_ledger::controls::ScheduleFailed>, String>> {
+        if !self.controls_throw {
+            return None;
+        }
+        self.controls_called.set(true);
+        Some(Err("control store down".to_owned()))
     }
 }
 
@@ -616,4 +628,24 @@ fn an_operator_freeze_already_standing_is_left_and_the_stale_page_still_goes_out
     )
     .unwrap();
     assert_eq!(sink.messages(), [STALE_LOG]);
+}
+
+/// `runs due controls from the tick and does not freeze when that hook throws` (`reconciliation-controls.test.ts`).
+#[test]
+fn runs_due_controls_from_the_tick_and_does_not_freeze_when_that_hook_throws() {
+    let sink = Sink::default();
+    let ledger = Recording {
+        controls_throw: true,
+        ..Recording::default()
+    };
+    tick(
+        &|| Ok(SnapshotRun::Skipped),
+        &ledger,
+        &sink.logger(),
+        &mut TickState::new(NOW),
+        &options(None, 3),
+    )
+    .unwrap();
+    assert!(ledger.controls_called.get());
+    assert!(ledger.froze.borrow().is_empty());
 }

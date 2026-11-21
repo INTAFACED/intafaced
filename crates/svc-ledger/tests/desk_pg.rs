@@ -969,6 +969,7 @@ fn door(db: &TestDb, approvals: Box<dyn Approvals>) -> LedgerDoor {
         indexer_url: None,
         fetch: Arc::new(service_kit::http::UreqFetch::new()),
         posting: support::idle_posting(),
+        reconciliation_sources: std::sync::Arc::new(svc_ledger::controls::sources::Unset),
     })
     .unwrap()
 }
