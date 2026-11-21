@@ -379,7 +379,7 @@ function developerReads(userId: string, requestId: string | undefined): ReadSpec
       col('method', 'Method', 'text'),
       col('path', 'Path', 'text'),
       col('status', 'Status', 'int'),
-      col('errorCode', 'Error code', 'text', { nullable: true }),
+      col('errorCode', 'Error code', 'code', { nullable: true }),
       col('outsideIpList', 'Outside IP list', 'bool'),
       col('keyPrefix', 'Key prefix', 'text', { detail: true }),
       col('keyId', 'Key id', 'text', { detail: true }),
