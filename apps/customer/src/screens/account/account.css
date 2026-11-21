@@ -218,7 +218,7 @@
   }
   .acct-body .subaccounts__ref {
     margin: var(--if-space-1) 0 0 !important;
-    font: 400 var(--if-text-base)/var(--if-leading-base) var(--if-font-mono) !important;
+    font: 400 var(--if-text-base)/var(--if-leading-base) var(--lit-font-mono) !important;
     color: var(--if-fg) !important;
     overflow-wrap: anywhere;
   }
