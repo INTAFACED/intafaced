@@ -32,6 +32,13 @@ pub fn timers(env: &AgentsEnv) -> Vec<Timer> {
     let step = ms(env, "AGENTS_BACKGROUND_STEP_MS");
     let session_runs = step.filter(|_| env.int("AGENTS_SESSION_RUN_MAX_STEPS").is_some());
     vec![
+        // `routeSync.start()`: the founders' confirmed route changes read again every 30 s (another replica's confirm).
+        Timer {
+            name: "route table sync",
+            slice: Slice::Gateway,
+            every: Some(Duration::from_secs(30)),
+            at_boot: false,
+        },
         // `purgeExpiredTranscripts`: once at boot, then hourly.
         Timer {
             name: "transcript purge",

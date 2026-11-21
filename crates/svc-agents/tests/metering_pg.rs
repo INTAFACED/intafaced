@@ -1452,6 +1452,8 @@ fn door_of(w: World) -> (AgentsDoor, FakeLedger, TestDb) {
         env,
         now,
         store,
+        gateway: svc_agents::gateway::desk::GatewaySlice::unwired("USDC"),
+        ready: svc_agents::gateway::readiness::ReadyInput::unwired(),
         metering: m,
     })
     .unwrap();
