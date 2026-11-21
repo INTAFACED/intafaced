@@ -16,6 +16,7 @@ pub mod env;
 pub mod errors;
 pub mod errors_table;
 pub mod freeze;
+pub mod history;
 pub mod migrate;
 pub mod posting;
 pub mod refines;

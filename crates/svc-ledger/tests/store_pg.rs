@@ -525,18 +525,7 @@ fn served(db: &TestDb) -> App<LedgerDoor> {
             clock_skew_bound_ms: None,
             now_ms: svc_ledger::clock::system_ms,
             log: service_kit::telemetry::Logger::new("info", Box::new(std::io::sink())),
-            posting: svc_ledger::posting::Posting::new(
-                std::sync::Arc::new(svc_ledger::freeze::MemoryBus::default()),
-                "svc-ledger".to_owned(),
-                false,
-                svc_ledger::posting::engine::EngineOptions {
-                    conflict: svc_ledger::posting::engine::Conflict::Refuse,
-                    clock_skew_bound_ms: None,
-                    clock_ms: || 0,
-                },
-                false,
-                None,
-            ),
+            posting: support::idle_posting(),
         })
         .unwrap(),
         service_name: "svc-ledger".to_owned(),

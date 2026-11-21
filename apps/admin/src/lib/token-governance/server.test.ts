@@ -42,7 +42,7 @@ describe('governance role change step-up', () => {
     const calls = stub((procedure) => {
       if (procedure === 'stepUp.begin') return trpcOk({ challengeId: 'ch_1', totp: true });
       if (procedure === 'stepUp.complete') return trpcOk({ stepUpApprovalId: 'su_1', scope: 'token.step_up.governance.setRole' });
-      return trpcOk({ userId: target, role: 'moderator', revision: 4 });
+      return trpcOk({ userId: target, role: 'moderator', revision: 4, confirmOperatorId: 'founder-2' });
     });
     const reply = await governanceExecute(ctx)(roleSet, { ...ids, stepUpCode: '123456' });
     expect(reply).toMatchObject({ ok: true });

@@ -417,6 +417,20 @@ function GridDetail({
                 : `${displayAmount(data.reserve.amount)} ${data.reserve.asset}`
               : t('None'),
           },
+          // A grid on our own book shows its exits: each price, or Not set; the RSI exit is always Not set (no RSI source).
+          ...(data.exits
+            ? [
+                {
+                  label: t('Stop when the price falls to'),
+                  value: data.exits.stopBelow ? `${displayAmount(data.exits.stopBelow)} ${data.quoteAsset}` : t('Not set'),
+                },
+                {
+                  label: t('Stop when the price rises to'),
+                  value: data.exits.stopAbove ? `${displayAmount(data.exits.stopAbove)} ${data.quoteAsset}` : t('Not set'),
+                },
+                { label: t('RSI exit'), value: t('Not set') },
+              ]
+            : []),
           ...(data.status === 'stopped' && data.statusReason && STOP_WORD[data.statusReason]
             ? [{ label: t('Stopped by'), value: t(STOP_WORD[data.statusReason] as 'Price exit') }]
             : []),

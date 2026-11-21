@@ -546,19 +546,7 @@ fn door(
         clock_skew_bound_ms: bound,
         now_ms,
         log: Logger::new("info", Box::new(std::io::sink())),
-        // These tests post nothing: the posting slice's own bus.
-        posting: svc_ledger::posting::Posting::new(
-            Arc::new(MemoryBus::default()),
-            "svc-ledger".to_owned(),
-            false,
-            svc_ledger::posting::engine::EngineOptions {
-                conflict: svc_ledger::posting::engine::Conflict::Refuse,
-                clock_skew_bound_ms: bound,
-                clock_ms: now_ms,
-            },
-            false,
-            None,
-        ),
+        posting: support::idle_posting(),
     })
     .unwrap()
 }
