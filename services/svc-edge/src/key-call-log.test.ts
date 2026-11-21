@@ -86,6 +86,9 @@ describe('replyErrorCode', () => {
     // A REST error names its class in `code` and its own reason beside it.
     const rest = JSON.stringify({ code: 'PermissionDenied', message: 'Trading is restricted', intafacedCode: 'trade.account_restricted' });
     expect(replyErrorCode(403, rest)).toBe('trade.account_restricted');
+    // An edge refusal names its own dotted code beside the identity code it stands for: the client reads `code`.
+    const denied = JSON.stringify({ code: 'edge.api_key_denied', intafacedCode: 'auth.api_key_denied', message: 'denied' });
+    expect(replyErrorCode(401, denied)).toBe('edge.api_key_denied');
     // A tRPC error names its code in its cause; the status word (`FORBIDDEN`) is only the last resort.
     const trpc = JSON.stringify({
       error: {

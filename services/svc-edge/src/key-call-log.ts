@@ -39,12 +39,19 @@ function codeAt(value: unknown): string | null {
   return typeof value === 'string' && API_CALL_ERROR_CODE.test(value) ? value : null;
 }
 
+/** A typed code in our dotted form (`edge.api_key_denied`), not an error class name (`PermissionDenied`). */
+function dottedAt(value: unknown): string | null {
+  const code = codeAt(value);
+  return code !== null && code.includes('.') ? code : null;
+}
+
 /**
- * The typed error code of an error reply (status 400 or above), as a developer's client reads it: the body's
- * `intafacedCode` (a REST error's own code beside its error class, `PermissionDenied`), else its `code` (every edge
- * error), else a tRPC error's named code (`error.data.cause.code`, `error.data.intafacedCode`,
- * `error.data.appCode`, `error.code`), and only last tRPC's status word (`error.data.code`, `FORBIDDEN`). Null on a
- * success, a body that is not a JSON object, or one with no code. Only the code leaves this function.
+ * The typed error code of an error reply (status 400 or above), the code a developer's client reads: the body's `code`
+ * when it is a dotted code (every edge error: `edge.api_key_denied`, even beside an `intafacedCode`), else its
+ * `intafacedCode` (a REST error's own code beside its error class, `code: PermissionDenied`), else a tRPC error's named
+ * code (`error.data.cause.code`, `error.data.intafacedCode`, `error.data.appCode`, `error.code`), and only last tRPC's
+ * status word (`error.data.code`, `FORBIDDEN`). Null on a success, a body that is not a JSON object, or one with no
+ * code. Only the code leaves this function.
  */
 export function replyErrorCode(status: number, payload: unknown): string | null {
   if (status < 400) return null;
@@ -61,6 +68,7 @@ export function replyErrorCode(status: number, payload: unknown): string | null 
   const error = objectAt(record.error);
   const data = objectAt(error?.data);
   return (
+    dottedAt(record.code) ??
     codeAt(record.intafacedCode) ??
     codeAt(record.code) ??
     codeAt(objectAt(data?.cause)?.code) ??
