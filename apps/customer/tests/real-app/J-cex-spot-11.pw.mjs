@@ -4,6 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, journeyState, restartWithSetting, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
+import { connectWhenAsked } from './dex.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
 import { venueListingWrite } from './own-market.mjs';
@@ -285,12 +286,19 @@ test(`${J} #1 opens /trade/convert and picks the coins: only coins that can be c
   await expect(pickerRow(page, C.base)).toHaveCount(0);
   for (const row of await picker(page).getByTestId('picker__row').all())
     await expect(row).toContainText(/Up to [\d,.]+ \S+ per conversion|Limit not set/);
+  // No coin the service reports restricted is offered, and every coin offered is one the service can convert.
+  const fromTickers = await picker(page).getByTestId('picker__ticker').allInnerTexts();
+  for (const r of pairs.restricted) expect(fromTickers).not.toContain(r);
+  for (const ticker of fromTickers) expect(pairs.assets).toContain(ticker);
   await pickerRow(page, 'USDC').click();
   // To from USDC: A with the venue's published limit, B with none published, never C.
   await card(page).getByRole('button', { name: 'Change the To asset' }).click();
   await expect(pickerRow(page, A.base)).toContainText('Up to 1,000 USDC per conversion');
   await expect(pickerRow(page, B.base)).toContainText('Limit not set');
   await expect(pickerRow(page, C.base)).toHaveCount(0);
+  const toTickers = await picker(page).getByTestId('picker__ticker').allInnerTexts();
+  for (const r of pairs.restricted) expect(toTickers).not.toContain(r);
+  for (const ticker of toTickers) expect(pairs.assets).toContain(ticker);
   await pickerRow(page, A.base).click();
   await expect(page.getByTestId('from-field')).toContainText('USDC');
   await expect(page.getByTestId('to-field')).toContainText(A.base);
@@ -488,6 +496,12 @@ test(`${J} #6 loses the connection on accept: the note stays; Check again reads 
   // The note stays: a poll of the room later it is still there, with no receipt in its place.
   await page.waitForTimeout(6_000);
   await expect(note).toBeVisible();
+  await expect(card(page).getByTestId('cvt-receipt')).toHaveCount(0);
+  // The note stays across a reload, for the same client id.
+  await page.reload();
+  await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
+  await expect(note).toBeVisible({ timeout: 30_000 });
+  await expect(note).toHaveAttribute('data-client-id', cloid);
   await expect(card(page).getByTestId('cvt-receipt')).toHaveCount(0);
   // The order did reach the venue once.
   expect(await orders(s.owner, cloid)).toHaveLength(1);

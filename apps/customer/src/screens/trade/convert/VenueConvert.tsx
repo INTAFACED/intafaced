@@ -12,6 +12,7 @@ import { Dialog } from '../../../shared/ui';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
 import { usePreferences } from '../../../shared/preferences';
 import { useNow } from '../../../shared/use-now';
+import { useDeviceStored } from '../../../shared/device-stored';
 import { useSession } from '../../../features/session/session';
 import { useWallet } from '../../../features/protocol/wallet/WalletProvider';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
@@ -81,6 +82,24 @@ const reachable = (pairs: readonly ConvertPair[], from: string) =>
   [...new Set(pairs.flatMap((p) => (p.quote === from ? [p.base] : p.base === from ? [p.quote] : [])))].sort();
 
 /** The Convert room in venue mode: the card, its review, and Recent conversions. */
+type Unconfirmed = { actionKey: string; venueClientOrderId: string };
+const unconfirmedKey = (owner: string) => `venue-convert-unconfirmed:${owner}`;
+const noop = () => undefined;
+
+/** The conversion this device sent whose answer never came back, if any; anything else stored there reads as none. */
+function readUnconfirmed(owner: string): Unconfirmed | null {
+  try {
+    const kept: unknown = JSON.parse(localStorage.getItem(unconfirmedKey(owner)) ?? 'null');
+    if (kept && typeof kept === 'object' && 'actionKey' in kept && 'venueClientOrderId' in kept) {
+      const { actionKey, venueClientOrderId } = kept;
+      if (typeof actionKey === 'string' && typeof venueClientOrderId === 'string') return { actionKey, venueClientOrderId };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export function VenueConvertRoom({
   mode,
   asked,
@@ -179,7 +198,8 @@ function VenueCard({
   const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [unknown, setUnknown] = useState<{ actionKey: string; venueClientOrderId: string } | null>(null);
+  // A conversion whose answer was lost stays on this device until Check again finds it at the venue, so a reload keeps its note.
+  const [unknown, setUnknown] = useDeviceStored<Unconfirmed | null>(unconfirmedKey(owner), () => readUnconfirmed(owner), noop);
   const [checkNote, setCheckNote] = useState<string | null>(null);
   const [done, setDone] = useState<{ actionKey: string; order: VenueOrder | null } | null>(null);
   const [limitDone, setLimitDone] = useState<{ order: VenueOrder | null; venueClientOrderId: string | null } | null>(null);
