@@ -1,5 +1,5 @@
 import { defineCopy } from '../../shared/i18n';
-const en = {
+export const en = {
   catalogueEmpty: 'No agents are published in this deployment.',
   eligibility: 'Who may use it',
   eligibilityUnstated: 'Not stated by this deployment',

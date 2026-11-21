@@ -1,0 +1,143 @@
+[
+  {
+    "file": "apps/customer/src/app/boot.test.ts",
+    "target": "../shared/preferences.ts",
+    "verdict": "rewrite",
+    "asserts": "The boot script reads the same storage key the app saves the layout preference under, so a Pro choice keeps Home's frame off.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/app/boot.test.ts#reads the key the app keeps its layout preference under"
+    },
+    "why": "Saves a Pro choice through savePreferences, runs the boot script on /home and asserts Home is left unmarked; a Simple choice marks it."
+  },
+  {
+    "file": "apps/customer/src/app/room-templates.test.ts",
+    "target": "..",
+    "verdict": "rewrite",
+    "asserts": "A room marked migrated in the registry really renders through its template.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/app/room-templates.test.ts#a migrated room really renders through its template"
+    },
+    "why": "Renders the whole app at each migrated route (the render-record harness, the look gate's TEST account) and asserts the room draws data-template equal to its registry template; a migrated portal page with no route to open fails."
+  },
+  {
+    "file": "apps/customer/src/app/rooms/rooms.test.ts",
+    "target": "../navigation.ts",
+    "verdict": "rewrite",
+    "asserts": "navigation.ts declares no room row of its own: every row lives in its area's file.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/app/rooms/rooms.test.ts#declares no room row in navigation.ts"
+    },
+    "why": "Imports every area's rows and asserts the room table is exactly those rows joined, row for row by identity, so a row written in navigation.ts fails."
+  },
+  {
+    "file": "apps/customer/src/app/shell-controls-drawn.test.ts",
+    "target": "./",
+    "verdict": "rewrite",
+    "asserts": "The signed-in shell draws the bell, the Simple/Pro switch and the account menu whatever the feature registry says.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/app/shell-controls-drawn.test.ts#draws the bell, the Simple/Pro switch and the account menu"
+    },
+    "why": "With every feature reading as not live, renders the signed-in app and asserts the bell, the Simple/Pro switch, the account menu and the menu's own switch are drawn."
+  },
+  {
+    "file": "apps/customer/src/data/refusals.test.ts",
+    "target": "./refusal-codes.ts",
+    "verdict": "rewrite",
+    "asserts": "No ledger code, the platform-wide pause included, is told to a customer as their account being held.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/data/refusals.test.ts#never says the account is held for the ledger"
+    },
+    "why": "Walks every ledger code the refusal table sorts (its exact codes and prefixes, now exported), the operator freeze codes and an unseen ledger code through classifyRefusal."
+  },
+  {
+    "file": "apps/customer/src/data/refusals.test.ts",
+    "target": "./refusals.ts",
+    "verdict": "rewrite",
+    "asserts": "No banned engineer word reaches a customer in any refusal message.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/data/refusals.test.ts#no banned word is in any message refusals.ts gives"
+    },
+    "why": "Renders refusalCopy for every exact code, a code under every prefix and suffix and an unsorted one, with an empty and a full context, and checks title, body, action and reference."
+  },
+  {
+    "file": "apps/customer/src/features/more/support-help-article.test.ts",
+    "target": "../public/AuthForm.tsx",
+    "verdict": "rewrite",
+    "asserts": "The help article names the sign-in screen's recovery control by its real label, and that control leads to the reset page.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/features/more/support-help-article.test.ts#points at the control that exists on the sign-in screen"
+    },
+    "why": "Renders the sign-in form signed out and asserts a link with the article's quoted label exists and goes to /findPwd."
+  },
+  {
+    "file": "apps/customer/src/features/pay/portal/settings/b-lint.test.ts",
+    "target": ".",
+    "verdict": "rewrite",
+    "asserts": "The developers, reports and analytics pages call only merchant-scoped and own-key procedures, on pay and identity, never an operator or admin one.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/features/pay/portal/settings/b-lint.test.ts#names only merchant-scoped and own-key procedures"
+    },
+    "why": "Calls every function of the composed settings client over a recording fetch and asserts each wire call's service and procedure, and that nothing sent names admin, operator or killswitch."
+  },
+  {
+    "file": "apps/customer/src/features/pay/portal/settings/b-lint.test.ts",
+    "target": "./developers/client.ts",
+    "verdict": "rewrite",
+    "asserts": "The portal never mints a live API key.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/features/pay/portal/settings/b-lint.test.ts#never mints a live key from the portal"
+    },
+    "why": "Asks the client for a key with mode live and asserts the one apiKeys.create call sends mode sandbox and never live."
+  },
+  {
+    "file": "apps/customer/src/screens/trade/buy/cost.test.ts",
+    "target": "./BuyReview.tsx",
+    "verdict": "rewrite",
+    "asserts": "The review dialog's figures come from costRows, the card's figures, never from the bare helpers.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/screens/trade/buy/cost.test.ts#BuyReview.tsx takes its figures from costRows"
+    },
+    "why": "Renders BuyReview for a sell where costRows' limit (64.6) differs from the bare protectedTotal (64.67), asserts the shown limit and get are costRows', and that the dialog called costRows and none of the bare helpers."
+  },
+  {
+    "file": "apps/customer/src/shared/service-off.one-notice.test.ts",
+    "target": "../../../../packages/ui/src/lit/templates/index.ts",
+    "verdict": "rewrite",
+    "asserts": "packages/ui's templates entry exports the one ServiceOffNotice.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/shared/service-off.one-notice.test.ts#packages/ui declares and exports ServiceOffNotice from its templates"
+    },
+    "why": "Imports ServiceOffNotice from @intafaced/ui/lit/templates and renders it, asserting the data-not-connected notice."
+  },
+  {
+    "file": "apps/customer/src/shared/service-off.one-notice.test.ts",
+    "target": "service-off.tsx",
+    "verdict": "rewrite",
+    "asserts": "The customer's shared notice draws the kit's notice, not its own copy.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/customer/src/shared/service-off.one-notice.test.ts#the customer's shared notice draws the kit's"
+    },
+    "why": "Renders the customer ServiceOffNotice with the kit's notice counted and asserts the kit's was drawn once with the code."
+  },
+  {
+    "file": "apps/customer/src/data/queries.test.ts",
+    "target": "./__fixtures__/",
+    "verdict": "rule",
+    "asserts": "Not source text: the test loads JSON wire fixtures (markets.json, tickers.json) as its data.",
+    "note": "The read is data in __fixtures__, which the rule should not count as source text.",
+    "guard": null,
+    "why": "Left unchanged for the rule's owner."
+  }
+]

@@ -1,7 +1,18 @@
-import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+// @vitest-environment happy-dom
+import { act, createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { describe, expect, it, vi } from 'vitest';
+import { draftSchema, previewSchema } from '../../../features/trade/trade-api';
+import { BuyReview } from './BuyReview';
 import { afterFee, afterQuoteFee, aboutValue, costRows, limitFor, protectedTotal } from './cost';
 import { formatGet } from './cost-format';
+import { fmtUsd } from './deps';
+
+// Each of cost.ts's helpers, as the modules that import it see it, counted: what BuyReview asks for is on record.
+vi.mock('./cost', async (original) => {
+  const real = await original<typeof import('./cost')>();
+  return Object.fromEntries(Object.entries(real).map(([name, value]) => [name, typeof value === 'function' ? vi.fn(value) : value]));
+});
 
 describe('protectedTotal', () => {
   it('rounds the most a buyer can pay UP to the cent', () => {
@@ -106,13 +117,77 @@ describe('limitFor (the card and the review dialog share one worst case)', () =>
     const rows = costRows({ side: 'sell', base: '0.001', price: '65000', baseAsset: 'BTC', quoteAsset: 'USDT', preview });
     expect(rows.limit).toBe(limitFor('sell', '0.001', preview, 'USDT'));
   });
-  it('BuyReview.tsx takes its figures from costRows and never from the bare helpers', () => {
-    const source = readFileSync(new URL('./BuyReview.tsx', import.meta.url), 'utf8');
-    expect(source).toContain('costRows(');
-    expect(source).not.toContain('aboutValue(');
-    expect(source).not.toContain('afterFee(');
-    expect(source).not.toContain('limitFor(');
-    expect(source).not.toMatch(/protectedTotal\(/);
+  it('BuyReview.tsx takes its figures from costRows and never from the bare helpers', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const preview = previewSchema.parse({
+      symbol: 'BTC/USDT',
+      side: 'sell',
+      type: 'market',
+      amount: '0.001',
+      price: null,
+      timeInForce: 'IOC',
+      holdAsset: 'BTC',
+      holdAmount: '0.001',
+      protectionPrice: '64674.999',
+      estimatedFee: '0.065',
+      feeAsset: 'USDT',
+      feeBps: 10,
+      feeRole: 'taker',
+      orderable: true,
+      refusals: [],
+    });
+    const draft = draftSchema.parse({
+      symbol: 'BTC/USDT',
+      side: 'sell',
+      type: 'market',
+      amount: '0.001',
+      timeInForce: 'IOC',
+      postOnly: false,
+      clientOrderId: 'TEST-1',
+    });
+    const market = {
+      symbol: 'BTC/USDT',
+      base: 'BTC',
+      quote: 'USDT',
+      orderable: true,
+      tickSize: '0.01',
+      lotSize: '0.00001',
+      minAmount: null,
+      listedAt: null,
+    };
+    for (const helper of [costRows, aboutValue, afterFee, afterQuoteFee, limitFor, protectedTotal]) vi.mocked(helper).mockClear();
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(BuyReview, {
+            review: { draft, preview, price: '65000', changed: false },
+            market,
+            busy: false,
+            message: null,
+            onCancel: () => undefined,
+            onConfirm: () => undefined,
+          }),
+        ),
+      );
+      const rows = costRows({ side: 'sell', base: '0.001', price: '65000', baseAsset: 'BTC', quoteAsset: 'USDT', preview });
+      const shown = (id: string) => document.querySelector(`[data-testid="${id}"]`)?.textContent;
+      // The least the seller gets is costRows' limit, after the fee (64.6), never the bare protectedTotal (64.67).
+      expect(shown('review-limit')).toBe(fmtUsd(rows.limit!));
+      expect(shown('review-limit')).not.toBe(fmtUsd(protectedTotal('sell', '0.001', '64674.999')!));
+      expect(shown('review-get')).toBe(formatGet(rows.get, 'BTC', 5, (_key, p) => `${p.amount} ${p.coin} after the fee`));
+      expect(vi.mocked(costRows)).toHaveBeenCalled();
+      for (const [name, helper] of Object.entries({ aboutValue, afterFee, afterQuoteFee, limitFor }))
+        expect(vi.mocked(helper), name).not.toHaveBeenCalled();
+      // The test's own call above is the only one: the dialog never asks for the bare total.
+      expect(vi.mocked(protectedTotal)).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      vi.unstubAllGlobals();
+    }
   });
 });
 
