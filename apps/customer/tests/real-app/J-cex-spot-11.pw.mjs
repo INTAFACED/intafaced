@@ -1,8 +1,11 @@
 // World: book, gates, restart, stack
 import { randomBytes } from 'node:crypto';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, journeyState, restartWithSetting, toUnits } from './stack.mjs';
+import { api, fromUnits, journeyState, restartWithSetting, STACK_PORTS, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
@@ -34,7 +37,10 @@ import {
 // never from the page, and the person's ledger is read to show it posts nothing for the swap. The steps trade on TEST
 // spot markets of this file's own, made at the start of #1: A (TEST limit 1000 USDC per order, smallest 5 USDC), B (no
 // limit published) and C (listed but not open, so its coin is restricted). Two other TEST traders sign on the TEST
-// venue directly and make the other side. Every figure is TEST.
+// venue directly and make the other side. #11's cash leg is the stack's TEST cash partner's (TRADE_CONVERT_CASH_PARTNER=
+// test, its TEST catalogue in tooling/profiles/test-owner-values/trade.json: EUR only), whose own record is read on
+// svc-trade's database role, and whose TEST USDC reaches the venue account as a deposit under its leg id. Every figure is
+// TEST.
 const J = 'J-cex-spot-11';
 const ROOM = '/trade/convert';
 const MAKER = 'js11-maker';
@@ -157,6 +163,24 @@ async function ledgerRead(path) {
   expect(res.status, text.slice(0, 300)).toBe(200);
   return JSON.parse(text);
 }
+const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
+/** The TEST cash partner's own record of one cash leg, by its business key, read on svc-trade's database role. */
+async function partnerLegs(key) {
+  const ctx = await makeContext({ log: () => undefined });
+  const postgres = createRequire(path.join(REPO, 'services', 'svc-trade', 'package.json'))('postgres');
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
+  const sql = postgres(`postgres://svc_trade:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
+    max: 1,
+    onnotice: () => {},
+  });
+  try {
+    return await sql`SELECT business_key, leg_id, owner, currency, cash::text, fee::text, rate::text, stable, stable_amount::text, state
+      FROM trade.test_cash_partner_legs WHERE business_key = ${key}`;
+  } finally {
+    await sql.end();
+  }
+}
+
 const builderFeeTrace = async (owner, fillId) =>
   ledgerRead(`/operator/trace?businessKey=${encodeURIComponent(`builder-fee:${(await venueInfo()).id}:${owner}:${fillId}`)}`);
 
@@ -661,26 +685,129 @@ test(`${J} #10 opens Recent conversions: the conversion with paid and received a
   }
 });
 
-test(`${J} #11 converts a cash currency through a crypto leg: the screen says it is not offered, since no partner offers the cash leg`, async ({
+test(`${J} #11 converts a cash currency through a crypto leg: two linked legs shown as one record where the partner offers it; otherwise the screen says it is not offered`, async ({
   page,
+  stepPicture,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const s = state();
+  const A = s.marketA;
+  const session = await api(s.account);
   const wallet = await openRoom(page, s);
   const sent = convertCalls(page);
-  await page.goto(`${ROOM}?from=EUR&to=${s.marketA.base}`);
+
+  // Otherwise: GBP, which the TEST partner does not offer. The screen says so, and nothing is priced or sent.
+  await page.goto(`${ROOM}?from=GBP&to=${A.base}`);
   const refused = page.getByTestId('cvt-route-refused');
   await expect(refused).toHaveAttribute('data-code', 'trade.convert_cash_not_offered');
   await expect(refused).toContainText('Cash through a coin isn’t offered here');
   await expect(refused).toContainText(
-    `EUR to ${s.marketA.base} needs a cash leg from a partner as two linked steps, and no partner offers one here.`,
+    `GBP to ${A.base} needs a cash leg from a partner as two linked steps, and none is offered for it here.`,
   );
   await expect(card(page).getByRole('button', { name: 'Get a price', exact: true })).toBeDisabled();
-  const route = await (await api(s.account)).get(`/api/v1/venue/convert/route?from=EUR&to=${s.marketA.base}`);
+  const route = await session.get(`/api/v1/venue/convert/route?from=GBP&to=${A.base}`);
   expect(route.status, JSON.stringify(route.body).slice(0, 300)).toBe(422);
   expect(JSON.stringify(route.body)).toContain('trade.convert_cash_not_offered');
   expect(sent, 'nothing priced or sent').toEqual([]);
   expect(signatures(wallet)).toBe(0);
+
+  // Where the partner offers it: TEST EUR to the coin, two linked legs. The route names both.
+  const offered = await session.get(`/api/v1/venue/convert/route?from=EUR&to=${A.base}`);
+  expect(offered.status, JSON.stringify(offered.body).slice(0, 300)).toBe(200);
+  expect(offered.body).toEqual({ kind: 'cash', symbol: A.symbol, side: 'buy', currency: 'EUR', stable: 'USDC' });
+  const usdcBefore = await balanceOf(s.owner, 'USDC');
+  const coinBefore = await balanceOf(s.owner, A.base);
+  await page.goto(`${ROOM}?from=EUR&to=${A.base}`);
+  await expect(card(page).getByTestId('cvt-cash-route')).toContainText(
+    'You pay EUR to a partner, which delivers USDC to your trading account',
+  );
+  const q = await getPrice(page, '23');
+  // The partner's figure for the cash leg (TEST 1.1 USDC per EUR, TEST fee 1 EUR) and the venue leg sized from its USDC.
+  expect(q).toMatchObject({ from: 'EUR', to: A.base, side: 'buy', market: A.symbol, held: false, test: true });
+  expect(q.cash).toMatchObject({ currency: 'EUR', stable: 'USDC' });
+  for (const [field, value] of [
+    ['cash', '23'],
+    ['fee', '1'],
+    ['rate', '1.1'],
+    ['stableAmount', '24.2'],
+  ])
+    expect(sameDecimal(q.cash[field], value), `${field} ${q.cash[field]}`).toBe(true);
+  expect(toUnits(q.maxCost)).toBeLessThanOrEqual(toUnits(q.cash.stableAmount));
+  const quoted = card(page).getByTestId('cvt-quote');
+  await expect(line(quoted, 'cash-leg')).toHaveText('23 EUR in, 24.2 USDC to your trading account');
+  await expect(line(quoted, 'max-cost')).toHaveText(new RegExp(`USDC$`));
+  const legKey = `convert-cash:${s.owner}:${q.quoteId}`;
+  expect(await partnerLegs(legKey), 'a price takes no cash').toEqual([]);
+
+  await card(page).getByRole('button', { name: 'Review', exact: true }).click();
+  await review(page).getByRole('button', { name: 'Convert now' }).dblclick();
+  await continueInWallet(page);
+  const receipt = card(page).getByTestId('cvt-receipt');
+  await expect(receipt).toHaveAttribute('data-state', 'filled', { timeout: 30_000 });
+  const cloid = await receipt.getAttribute('data-client-id');
+  expect(cloid).toBeTruthy();
+  expect(signatures(wallet)).toBe(1);
+  expect(sent.filter((p) => p === 'convert/accept')).toHaveLength(1);
+  expect(sent.filter((p) => p === 'convert/submit')).toHaveLength(1);
+
+  // The TEST partner's own record: one cash leg under the business key that links it to the venue order, settled, for
+  // the quoted figures.
+  const legs = await partnerLegs(legKey);
+  expect(legs, JSON.stringify(legs)).toHaveLength(1);
+  const leg = legs[0];
+  expect(leg).toMatchObject({ owner: s.owner, currency: 'EUR', stable: 'USDC', state: 'settled' });
+  for (const field of ['cash', 'fee', 'rate']) expect(sameDecimal(leg[field], q.cash[field])).toBe(true);
+  expect(sameDecimal(leg.stable_amount, q.cash.stableAmount)).toBe(true);
+  // The TEST venue's own record: the partner's USDC arrived once, under the leg's id; one order under the client id.
+  const arrivals = (await venueRecord(s.owner, '/arrivals')).value.filter((x) => x.arrivalId === leg.leg_id);
+  expect(arrivals, JSON.stringify(arrivals)).toHaveLength(1);
+  expect(arrivals[0]).toMatchObject({ kind: 'deposit', asset: 'USDC' });
+  expect(sameDecimal(arrivals[0].amount, q.cash.stableAmount)).toBe(true);
+  const placed = await orders(s.owner, cloid);
+  expect(placed, JSON.stringify(placed).slice(0, 400)).toHaveLength(1);
+  expect(placed[0]).toMatchObject({ symbol: A.symbol, side: 'buy', status: 'filled' });
+  expect(sameDecimal(placed[0].price, q.limitPrice)).toBe(true);
+  const fills = await fillsOf(s.owner, cloid);
+  expect(fills.length).toBeGreaterThan(0);
+  for (const f of fills) expect(toUnits(f.price)).toBeLessThanOrEqual(toUnits(q.limitPrice));
+  const got = fromFills(fills, 'buy', A.base, 'USDC');
+  expect(sameDecimal(got.size, q.size)).toBe(true);
+  // The venue account moved by the delivered USDC less what the order paid, and by the coin it received.
+  const usdcAfter = await balanceOf(s.owner, 'USDC');
+  const coinAfter = await balanceOf(s.owner, A.base);
+  expect(fromUnits(toUnits(usdcAfter.total) - toUnits(usdcBefore.total))).toBe(fromUnits(toUnits(q.cash.stableAmount) - toUnits(got.paid)));
+  expect(fromUnits(toUnits(coinAfter.total) - toUnits(coinBefore.total))).toBe(fromUnits(toUnits(got.received)));
+
+  // One record with both legs: the receipt, then Recent conversions, each the partner's leg and the venue's order.
+  await shows(line(receipt, 'paid'), 'EUR', '23');
+  await shows(line(receipt, 'received'), A.base, got.received);
+  const receiptLegs = receipt.getByTestId('cvt-legs');
+  await expect(receiptLegs.locator('[data-leg="cash"]')).toHaveAttribute('data-leg-id', leg.leg_id);
+  await expect(receiptLegs.locator('[data-leg="venue"]')).toHaveAttribute('data-client-id', cloid);
+  const rows = page.getByTestId('cvt-recent').locator(`[data-testid="cvt-recent-row"][data-key="convert:${s.owner}:${q.quoteId}"]`);
+  await expect(rows).toHaveCount(1, { timeout: 30_000 });
+  const row = rows.first();
+  await expect(row).toHaveAttribute('data-legs', '2');
+  await expect(row).toHaveAttribute('data-client-id', cloid);
+  await expect(row).toHaveAttribute('data-state', 'filled');
+  await shows(row.locator('[data-cell="paid"]'), 'EUR', '23');
+  await shows(row.locator('[data-cell="received"]'), A.base, got.received);
+  const cashLeg = row.locator('[data-testid="cvt-legs"] [data-leg="cash"]');
+  await expect(cashLeg).toHaveAttribute('data-leg-id', leg.leg_id);
+  await expect(cashLeg).toHaveAttribute('data-state', 'settled');
+  await expect(cashLeg).toContainText(`Cash leg: 23 EUR in, 24.2 USDC delivered. Partner ref ${leg.leg_id}. Done`);
+  const venueLeg = row.locator('[data-testid="cvt-legs"] [data-leg="venue"]');
+  await expect(venueLeg).toHaveAttribute('data-client-id', cloid);
+  await expect(venueLeg).toContainText(`Order ${cloid}. Filled`);
+  await row.scrollIntoViewIfNeeded();
+  await stepPicture();
+
+  // Money: the ledger posts nothing for either leg, and a buy carries no builder fee.
+  for (const f of fills) {
+    expect(toUnits(f.builderFee)).toBe(0n);
+    expect((await builderFeeTrace(s.owner, f.fillId)).found).toBe(false);
+  }
+  expect(await session.balances()).toEqual(s.ledgerStart);
 });
 
 /** A developer with a key, their own TEST wallet and TEST funds on their venue account, made once for #12 and #13. */
@@ -738,6 +865,8 @@ test(`${J} #12 a developer asks for a quote through the convert API: a quote wit
 
 test(`${J} #13 the developer accepts the same quote id twice through the convert API: the same quote id twice settles one convert`, async ({
   browser,
+  page,
+  stepPicture,
 }) => {
   test.setTimeout(240_000);
   const A = state().marketA;
@@ -814,4 +943,13 @@ test(`${J} #13 the developer accepts the same quote id twice through the convert
     expect(toUnits(debits[0].amount)).toBe(toUnits(f.builderFee));
   }
   expect(await (await api(dev.who)).balances()).toEqual(dev.ledgerStart);
+
+  // The picture: the developer's own Convert room, its Recent conversions showing that one conversion.
+  await openRoom(page, { account: dev.who, walletKey: dev.walletKey });
+  const recent = page.getByTestId('cvt-recent');
+  const row = recent.locator(`[data-testid="cvt-recent-row"][data-client-id="${cloid}"]`);
+  await expect(row).toHaveAttribute('data-state', 'filled', { timeout: 30_000 });
+  await expect(recent.getByTestId('cvt-recent-row')).toHaveCount(1);
+  await row.scrollIntoViewIfNeeded();
+  await stepPicture(page);
 });
