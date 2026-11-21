@@ -367,7 +367,7 @@ describe('the recurring buy on the venue (J-copy-bots-otc-16)', { timeout: 60_00
     const made = await sign(await create());
     const bases = SYMS.map((s) => s.replace(/-USDC$/, ''));
     const held = await Promise.all(bases.map((b) => free(b)));
-    expect(held.every((h) => h !== '0')).toBe(true);
+    expect(held.every((h) => h > 0n)).toBe(true);
     freeze.frozenUsers.add(person.userId);
     const ended = await recurring.terminate(person, made.ruleId);
     expect(ended.status).toBe('terminated');
