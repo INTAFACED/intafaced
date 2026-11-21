@@ -434,7 +434,31 @@ function exactInput(p, node, lines, path) {
 
 function mergeImports(old, imports) {
   let out = old;
-  for (const [spec, names] of imports) {
+  // A name the file already imports (from anywhere, as a value or a type) is not imported twice.
+  const have = new Set(
+    [...old.matchAll(/^import (?:type )?\{([^}]*)\} from/gm)].flatMap((m) =>
+      m[1].split(',').map((x) =>
+        x
+          .trim()
+          .replace(/^type /, '')
+          .split(/ as /)
+          .pop(),
+      ),
+    ),
+  );
+  for (const [spec, wanted] of imports) {
+    const names = new Set(
+      [...wanted].filter(
+        (n) =>
+          !have.has(
+            n
+              .replace(/^type /, '')
+              .split(/ as /)
+              .pop(),
+          ),
+      ),
+    );
+    if (names.size === 0) continue;
     const re = new RegExp(`import \\{([^}]*)\\} from '${spec.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}';`);
     const m = re.exec(out);
     if (m) {
