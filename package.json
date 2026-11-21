@@ -88,6 +88,7 @@
     "knip": "6.45.1",
     "oxc-parser": "0.156.0",
     "oxlint": "1.93.0",
+    "postgres": "^3.4.5",
     "prettier": "^3.10.1",
     "rimraf": "^6.1.4",
     "tsrs": "7.1.0-beta.tsrs4",

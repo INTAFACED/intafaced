@@ -15,6 +15,7 @@ use std::time::Duration;
 use service_kit::edge::{EdgeKey, MIN_SECRET_LENGTH};
 use service_kit::http::{Fetch, UreqFetch};
 use service_kit::json::Json;
+use service_kit::money::parse_amount;
 use service_kit::nats::{JetStream, stream_config};
 use service_kit::s2s::{CallSigner, parse_keyring, s2s_from_env, system_seconds};
 use service_kit::s2s_verify::ServiceVerifier;
@@ -33,8 +34,13 @@ use svc_agents::gateway::providers::{
 use svc_agents::gateway::readiness::{self, ReadyInput};
 use svc_agents::gateway::routing::{self, RoutingTable};
 use svc_agents::metering::Metering;
-use svc_agents::metering::ports::{AffiliatesHttp, JetStreamBus, LedgerHttp, UsagePaymentHttp};
+use svc_agents::metering::ports::{
+    AffiliatesHttp, JetStreamBus, LedgerHttp, LedgerOnly, UsagePayment, UsagePaymentHttp,
+};
 use svc_agents::migrate;
+use svc_agents::runtime::Runtime;
+use svc_agents::runtime::eligibility::parse_tier_laws;
+use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
 use svc_agents::timers::{self, Timer};
 
 fn process_env() -> BTreeMap<String, String> {
@@ -247,6 +253,54 @@ fn metering(
     Ok(m)
 }
 
+/// The runtime as `index.ts` builds it: a spend gate, the funds read as `teamFunds` over `paymentMethodFunds` (how
+/// each person pays from svc-bank while `BANK_URL` is set, else the ledger's balance; a wallet payment method is the
+/// own-controls slice's and reads unread), the transcript's retention, the overage grace and the tier laws.
+fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
+    let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = str_of("INTERNAL_SERVICE_SECRET");
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    let payment: Box<dyn UsagePayment> = match env.str("BANK_URL").filter(|u| !u.is_empty()) {
+        Some(url) => Box::new(UsagePaymentHttp::new(
+            url,
+            signer("svc-bank"),
+            fetch.clone(),
+        )),
+        None => Box::new(LedgerOnly),
+    };
+    let grace = env
+        .str("AGENTS_OVERAGE_GRACE")
+        .map(str::trim)
+        .filter(|g| !g.is_empty())
+        .map(parse_amount)
+        .transpose()?;
+    Ok(Runtime {
+        spend: true,
+        funds: Some(Box::new(PersonFunds {
+            payment,
+            balances: Box::new(BalancesHttp::new(
+                &str_of("LEDGER_URL"),
+                signer("svc-ledger"),
+                fetch.clone(),
+            )),
+        })),
+        transcript_retention_days: env.int("AGENTS_TRANSCRIPT_RETENTION_DAYS").unwrap_or(0),
+        overage_grace: grace,
+        tier_laws: parse_tier_laws(env.str("AGENTS_TIER_LAWS"))?,
+    })
+}
+
 /// The door, built once from the environment, with the store, the meter, the gateway and what `/ready` reports.
 fn door(
     env: &AgentsEnv,
@@ -254,6 +308,7 @@ fn door(
     metering: Metering,
     gateway: GatewaySlice,
     ready: ReadyInput,
+    runtime: Runtime,
 ) -> Result<AgentsDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let door = AgentsDoor::new(DoorConfig {
@@ -265,6 +320,7 @@ fn door(
         metering,
         gateway,
         ready,
+        runtime,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
@@ -339,7 +395,8 @@ fn serve(
     };
     let tasks = gateway.gateway.base().routes.len();
     let metering = metering(env, bus.clone(), &fetch)?;
-    let door = door(env, store, metering, gateway, ready)?;
+    let runtime = runtime(env, &fetch)?;
+    let door = door(env, store, metering, gateway, ready, runtime)?;
 
     let app = App {
         wire: door,

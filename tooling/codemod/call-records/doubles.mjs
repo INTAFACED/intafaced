@@ -27,6 +27,28 @@ export const CALL_METHOD = [
   '},',
 ].join('\n');
 
+/**
+ * The `call` for a double with only one of `query` and `mutate` (a `useApi` mock that sends only reads, or only writes): it
+ * sends a record of that kind to it, and refuses the other kind as the missing method did when the call went by name.
+ */
+export function callMethodFor(keys) {
+  if (keys.includes('query') && keys.includes('mutate')) return CALL_METHOD;
+  const has = keys.includes('query') ? 'query' : 'mutate';
+  const kind = has === 'query' ? 'query' : 'mutation';
+  return [
+    'call(',
+    `  this: { ${has}: (...args: never[]) => unknown },`,
+    '  record: { kind: string; module: string; path: string; output: unknown },',
+    '  input?: unknown,',
+    '  opts?: unknown,',
+    ') {',
+    `  // tooling/codemod/call-records: a call by its record reaches this double's own ${has}, as the client sends it; it has no other.`,
+    `  if (record.kind !== '${kind}') throw new TypeError('this API double has no ${has === 'query' ? 'mutate' : 'query'}');`,
+    `  return Reflect.apply(this.${has}, this, [record.module, record.path, input, record.output, opts]);`,
+    '},',
+  ].join('\n');
+}
+
 const tracked = (pattern) =>
   execFileSync('git', ['ls-files', '--', pattern], { cwd: REPO, encoding: 'utf8' })
     .split('\n')
@@ -64,24 +86,39 @@ function reaches(file, targets, memo = new Map()) {
   return false;
 }
 
-/** The object literals in `file` shaped as an API client double: `query` and `mutate`, and no `call`. */
+/**
+ * The object literals in `file` shaped as an API client double, with no `call`: `query` and `mutate`, or one of them in what
+ * a `useApi` mock returns (`useApi: () => ({ mutate })`).
+ */
 export function doublesIn(file) {
   const p = load(file);
   const out = [];
   walk(p.program, (node) => {
     if (node.type !== 'ObjectExpression') return;
     const keys = node.properties.filter((pr) => pr.type === 'Property').map(keyOf);
-    if (keys.includes('query') && keys.includes('mutate') && !keys.includes('call')) out.push(node);
+    if (keys.includes('call')) return;
+    if (keys.includes('query') && keys.includes('mutate')) out.push(node);
+    else if ((keys.includes('query') || keys.includes('mutate')) && fromUseApi(p, node)) out.push(node);
   });
   return { p, out };
 }
 
+/** Whether an object is what a `useApi` mock returns: `useApi: () => ({ ... })`. */
+function fromUseApi(p, node) {
+  let n = p.parents.get(node);
+  while (n?.type === 'ParenthesizedExpression') n = p.parents.get(n);
+  const prop = n?.type === 'ArrowFunctionExpression' && n.body !== undefined ? p.parents.get(n) : undefined;
+  return prop?.type === 'Property' && keyOf(prop) === 'useApi';
+}
+
 /** The edit adding `call` to one double: after its last property, in the literal's own indentation. */
 function addCall(p, node) {
+  const method = callMethodFor(node.properties.filter((pr) => pr.type === 'Property').map(keyOf));
   const last = node.properties[node.properties.length - 1];
   const oneLine = !p.src.slice(node.start, node.end).includes('\n');
   if (oneLine) {
-    const inline = CALL_METHOD.split('\n')
+    const inline = method
+      .split('\n')
       .filter((l) => !l.trimStart().startsWith('//'))
       .map((l) => l.trim())
       .join(' ')
@@ -92,7 +129,8 @@ function addCall(p, node) {
   const indent = p.src.slice(lineStart, last.start).match(/^\s*/)[0];
   const after = p.src.slice(last.end).match(/^\s*,/);
   const at = after ? last.end + after[0].length : last.end;
-  const body = CALL_METHOD.split('\n')
+  const body = method
+    .split('\n')
     .map((l) => indent + l)
     .join('\n');
   return { start: at, end: at, text: `${after ? '' : ','}\n${body}` };
@@ -104,7 +142,7 @@ function run({ write = false } = {}) {
   const memo = new Map();
   const changed = [];
   for (const file of files.filter(isTest)) {
-    if (!/\bquery\b/.test(readFileSync(file, 'utf8')) || !/\bmutate\b/.test(readFileSync(file, 'utf8'))) continue;
+    if (!/\b(query|mutate)\b/.test(readFileSync(file, 'utf8'))) continue;
     const { p, out } = doublesIn(file);
     if (!out.length || !reaches(file, targets, memo)) continue;
     changed.push({ file: relative(REPO, file), doubles: out.length });

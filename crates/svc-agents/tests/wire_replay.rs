@@ -100,6 +100,7 @@ fn serve() -> AgentsDoor {
         gateway: GatewaySlice::unwired("fixture-asset"),
         ready: ReadyInput::unwired(),
         metering: svc_agents::metering::Metering::unwired("USDC", 60),
+        runtime: svc_agents::runtime::Runtime::unwired(),
     })
     .unwrap()
 }

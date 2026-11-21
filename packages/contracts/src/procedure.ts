@@ -64,6 +64,8 @@ export type Access =
       readonly person?: boolean;
       /** The person's own session: an API key or a sub-account is refused FORBIDDEN with this code (`GuardOptions.ownSession`). */
       readonly ownSession?: string;
+      /** The serving service's own check, by the name it hands the mount (`ServiceParts.checks`; `GuardOptions.check`). */
+      readonly check?: string;
     }
   /** The first of these scopes the caller holds (`anyScopeProcedure(scopes, guards)`): a read open to a member and an operator alike. */
   | {

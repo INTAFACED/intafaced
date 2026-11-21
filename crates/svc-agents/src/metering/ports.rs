@@ -313,6 +313,16 @@ pub trait UsagePayment: Send + Sync {
         asset_id: &str,
         business_id: Option<&str>,
     ) -> Result<HeldBy, PaymentUnavailable>;
+    /// `read` with the partner's reported balance (`available`), which the runtime's funds check reads; none when
+    /// the partner has not reported it (an unknown figure, never 0).
+    fn read_available(
+        &self,
+        user_id: &str,
+        asset_id: &str,
+        business_id: Option<&str>,
+    ) -> Result<(HeldBy, Option<String>), PaymentUnavailable> {
+        self.read(user_id, asset_id, business_id).map(|h| (h, None))
+    }
     fn collect(
         &self,
         user_id: &str,
@@ -454,6 +464,16 @@ impl UsagePayment for UsagePaymentHttp {
         asset_id: &str,
         business_id: Option<&str>,
     ) -> Result<HeldBy, PaymentUnavailable> {
+        self.read_available(user_id, asset_id, business_id)
+            .map(|(h, _)| h)
+    }
+
+    fn read_available(
+        &self,
+        user_id: &str,
+        asset_id: &str,
+        business_id: Option<&str>,
+    ) -> Result<(HeldBy, Option<String>), PaymentUnavailable> {
         let answer = self.call(&with_business(
             vec![
                 ("action", Json::str("read")),
@@ -463,8 +483,8 @@ impl UsagePayment for UsagePaymentHttp {
             business_id,
         ))?;
         match str_of(&answer, "heldBy") {
-            Some("ledger") if keys_are(&answer, &["heldBy"]) => Ok(HeldBy::Ledger),
-            Some("none") if keys_are(&answer, &["heldBy"]) => Ok(HeldBy::None),
+            Some("ledger") if keys_are(&answer, &["heldBy"]) => Ok((HeldBy::Ledger, None)),
+            Some("none") if keys_are(&answer, &["heldBy"]) => Ok((HeldBy::None, None)),
             Some("partner")
                 if keys_are(&answer, &["heldBy", "label", "available", "asOf"])
                     && str_of(&answer, "label").is_some_and(label_ok)
@@ -481,7 +501,10 @@ impl UsagePayment for UsagePaymentHttp {
                         _ => false,
                     } =>
             {
-                Ok(HeldBy::Partner)
+                Ok((
+                    HeldBy::Partner,
+                    str_of(&answer, "available").map(str::to_owned),
+                ))
             }
             _ => Err(PaymentUnavailable),
         }

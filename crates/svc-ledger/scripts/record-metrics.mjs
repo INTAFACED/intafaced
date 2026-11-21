@@ -17,6 +17,7 @@
 // `crates/service-kit/scripts/record-metrics.mjs`, which stays runnable).
 
 import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { createRequire as requireFrom } from 'node:module';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -24,6 +25,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const prettier = requireFrom(`${ROOT}package.json`)('prettier');
 const OUT = fileURLToPath(new URL('../tests/fixtures/metrics-route.golden.json', import.meta.url));
+if (!existsSync(`${ROOT}services/svc-ledger/src/metrics.ts`)) {
+  console.error('record-metrics: services/svc-ledger no longer exists; nothing to record from. The file it wrote is the reference now.');
+  process.exit(2);
+}
 const require = createRequire(`${ROOT}services/svc-ledger/package.json`);
 const Fastify = require('fastify');
 const { registerMetrics, reconcileGauges } = await import(pathToFileURL(`${ROOT}services/svc-ledger/src/metrics.ts`).href);

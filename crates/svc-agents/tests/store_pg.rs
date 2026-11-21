@@ -351,6 +351,7 @@ fn health_answers_as_index_ts_and_ready_reports_the_gateway() {
             live_planes: Json::Null,
         },
         metering: svc_agents::metering::Metering::unwired("USDC", 60),
+        runtime: svc_agents::runtime::Runtime::unwired(),
     })
     .unwrap();
     let app = App {

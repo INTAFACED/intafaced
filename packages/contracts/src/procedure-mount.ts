@@ -21,6 +21,7 @@ import {
   serviceProcedureFor,
   signedInProcedure,
   type Context,
+  type ServiceCheck,
 } from './trpc.js';
 
 /**
@@ -42,9 +43,17 @@ const asBuilder = (guard: FounderGuard) => guard as typeof protectedProcedure;
  * mounts `founder` records. A service with no `founder` record passes its refusal reader alone; a `founder` record mounted
  * without the guard fails at start-up.
  */
-export type ServiceParts = RefusalOf | { readonly refusalOf: RefusalOf; readonly founder: FounderGuard };
+export type ServiceParts =
+  | RefusalOf
+  | {
+      readonly refusalOf: RefusalOf;
+      readonly founder?: FounderGuard;
+      /** The service's own guard checks, by the name a record's `access.check` gives (`GuardOptions.check`). */
+      readonly checks?: Readonly<Record<string, ServiceCheck>>;
+    };
 
-const partsOf = (parts: ServiceParts) => (typeof parts === 'function' ? { refusalOf: parts, founder: undefined } : parts);
+const partsOf = (parts: ServiceParts) =>
+  typeof parts === 'function' ? { refusalOf: parts, founder: undefined, checks: undefined } : parts;
 
 type HandlerContext<A extends Access> = A extends { readonly caller: 'founder' }
   ? Context & { principal: Principal; founderUserId: string }
@@ -96,7 +105,14 @@ function noteSent(record: string, code: string, status: string): void {
   if (dir) appendFileSync(join(dir, `${process.pid}-${threadId}.tsv`), `${record}\t${code}\t${status}\n`);
 }
 
-function guardFor(name: string, access: Access, founder: FounderGuard | undefined) {
+function guardFor(
+  name: string,
+  access: Access,
+  {
+    founder,
+    checks,
+  }: { readonly founder?: FounderGuard | undefined; readonly checks?: Readonly<Record<string, ServiceCheck>> | undefined },
+) {
   switch (access.caller) {
     case 'public':
       return publicProcedure;
@@ -109,6 +125,7 @@ function guardFor(name: string, access: Access, founder: FounderGuard | undefine
         ...(access.tier === undefined ? {} : { tier: access.tier }),
         ...(access.person === undefined ? {} : { person: access.person }),
         ...(access.ownSession === undefined ? {} : { ownSession: access.ownSession }),
+        ...(access.check === undefined ? {} : { check: checkFor(name, access.check, checks) }),
       });
     case 'anyScope':
       return anyScopeProcedure(access.scopes, {
@@ -128,6 +145,13 @@ function guardFor(name: string, access: Access, founder: FounderGuard | undefine
   }
 }
 
+/** The check a record names, from the service's parts: a record naming one the service did not hand over fails at start-up. */
+function checkFor(name: string, check: string, checks: Readonly<Record<string, ServiceCheck>> | undefined): ServiceCheck {
+  const found = checks?.[check];
+  if (found === undefined) throw new Error(`${name} names the check ${check}: mount it with the service's checks`);
+  return found;
+}
+
 /**
  * One tRPC procedure from one record, typed from the record (its handler's input and reply, and the procedure a caller
  * sees), for a router not made from records yet. `mountRecords` mounts a whole router.
@@ -140,15 +164,15 @@ export function mountRecord(
 ): TRPCQueryProcedure<Def<ProcedureRecord>> | TRPCMutationProcedure<Def<ProcedureRecord>>;
 export function mountRecord(record: ProcedureRecord, handler: RecordHandler<ProcedureRecord>, parts: ServiceParts) {
   if (record.transport !== 'trpc') throw new Error(`${record.name} is a plain HTTP door; mount it with its HTTP adapter`);
-  const { refusalOf, founder } = partsOf(parts);
-  const guarded = guardFor(record.name, record.access, founder);
+  const given = partsOf(parts);
+  const guarded = guardFor(record.name, record.access, given);
   const typed = record.input === NO_INPUT ? guarded : guarded.input(record.input);
   const withOutput = typed.output(record.output);
   const resolve = async ({ ctx, input, signal }: { ctx: Context; input: unknown; signal?: AbortSignal | undefined }) => {
     try {
       return await handler({ ctx, input, signal });
     } catch (err) {
-      const refusal = refusalOf(err);
+      const refusal = given.refusalOf(err);
       if (refusal === undefined) throw err;
       const declared = record.refusals[refusal.code];
       noteSent(record.name, refusal.code, refusal.error.code);

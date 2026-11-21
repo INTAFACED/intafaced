@@ -63,7 +63,14 @@ export function calleeName(call) {
 export function resolveRelative(file, from) {
   if (!from.startsWith('.')) return undefined;
   const base = join(dirname(file), from);
-  for (const candidate of [base.replace(/\.js$/, '.ts'), base.replace(/\.js$/, '.tsx'), `${base}.ts`, join(base, 'index.ts'), base]) {
+  for (const candidate of [
+    base.replace(/\.js$/, '.ts'),
+    base.replace(/\.js$/, '.tsx'),
+    `${base}.ts`,
+    `${base}.tsx`,
+    join(base, 'index.ts'),
+    base,
+  ]) {
     if (existsSync(candidate) && candidate.match(/\.[cm]?[jt]sx?$/)) return candidate;
   }
   return undefined;

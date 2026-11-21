@@ -86,6 +86,7 @@ export {
   type ChangeTextProps,
 } from './numbers.js';
 export { HeroNumber, type HeroNumberProps } from './hero-number.js';
+export { Text, type TextProps } from './text.js';
 export { Sparkline, sparklineGeometry, thinSeries, type SparklineProps, type SparklineGeometry } from './sparkline.js';
 export { CoinIcon, hasCoinArt, type CoinIconProps } from './coin-icon.js';
 export { StatusTag, type StatusKind, type StatusTagProps } from './status-tag.js';
