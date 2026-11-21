@@ -31,11 +31,19 @@ use std::path::PathBuf;
 use hmac::{Hmac, Mac};
 use service_kit::edge;
 use service_kit::json::{self, Json};
+use service_kit::money::parse_amount;
 use service_kit::s2s::{self, SERVICE_HEADER, SERVICE_SIGNATURE_HEADER, SERVICE_TIMESTAMP_HEADER};
 use service_kit::s2s_verify::BodyBind;
 use service_kit::server::Request;
+use service_kit::time::Instant;
 use sha2::Sha256;
+use svc_matching::book::types::{EngineOrder, OrderType, Side, Tif};
+use svc_matching::book::wire::to_wire;
 use svc_matching::door::{DoorConfig, MatchingDoor, Outcome, ROUTES, Slice};
+use svc_matching::engine::{EngineParts, MatchingEngine, MemoryEventBus};
+use svc_matching::journal::io::{EngineJournal as _, MemoryJournal};
+use svc_matching::journal::record::JournalCommand;
+use svc_matching::journal::replay::MemorySnapshotSink;
 
 const SECRET: &str = "matching-wire-replay-internal-secret-32c";
 const WRONG_SECRET: &str = "matching-wire-replay-wrong-secret-xx-32c";
@@ -43,6 +51,7 @@ const EDGE_SECRET: &str = "matching-wire-replay-edge-secret-at-least-32";
 const WRONG_EDGE_SECRET: &str = "matching-wire-replay-wrong-edge-secret-32ch";
 const REGION: &str = "XX";
 const OPERATOR: &str = "11111111-1111-4111-8111-111111111111";
+const CONFIRM: &str = "44444444-4444-4444-8444-444444444444";
 /// The recording's frozen clock, 2026-11-19T00:00:00.000Z.
 const NOW_SECONDS: i64 = 1_795_046_400;
 
@@ -98,8 +107,12 @@ fn read_golden() -> Vec<Recorded> {
     out
 }
 
-/// `(file, method, url, input)` to the body sent (none for no body).
-fn read_requests() -> BTreeMap<(String, String, String, String), Option<String>> {
+/// `(file, method, url, input)`: one request of the matrix.
+type RequestKey = (String, String, String, String);
+
+/// `(file, method, url, input)` and the body sent (none for no body), in the matrix's order: the order the TypeScript
+/// replay sent them in.
+fn read_requests() -> Vec<(RequestKey, Option<String>)> {
     let doc = json::parse(include_str!("fixtures/requests.json")).unwrap();
     let Some(Json::Array(list)) = doc.get("requests") else {
         panic!("requests")
@@ -181,16 +194,79 @@ fn caller(name: &str, payload: &str) -> Vec<(String, String)> {
     }
 }
 
-fn door(setup: &str) -> MatchingDoor {
-    MatchingDoor::new(DoorConfig {
-        internal_secret: SECRET.to_owned(),
-        body_bind: BodyBind::Require,
-        keys: None,
-        edge_secret: (setup == "set").then(|| EDGE_SECRET.to_owned()),
-        edge_key: None,
+const MARKET: &str = "BTC-USDT";
+const RESTING: &str = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+/// The engine `wire-replay.test.ts` builds: a journal and a bus in memory, the clock, no snapshots. `set` starts where
+/// its seed left the TypeScript engine: the market opened and one sell resting. The seed is those two records, read
+/// back by a cold start, so the books begin as the TypeScript's did without a venue door this port does not serve yet.
+fn engine(setup: &str) -> MatchingEngine {
+    let mut journal = MemoryJournal::new();
+    if setup == "set" {
+        let at = Instant(now_ms()).iso();
+        let mut resting = EngineOrder::new(
+            RESTING,
+            "mm",
+            OrderType::Limit,
+            Side::Sell,
+            parse_amount("2").unwrap(),
+            Some(parse_amount("30100").unwrap()),
+            Tif::Gtc,
+        );
+        resting.session_id = None;
+        for record in [
+            Json::obj([
+                ("kind", Json::str("open")),
+                ("marketId", Json::str(MARKET)),
+                ("at", Json::str(at.clone())),
+                ("operatorId", Json::str(OPERATOR)),
+                ("confirmOperatorId", Json::str(CONFIRM)),
+            ]),
+            Json::obj([
+                ("kind", Json::str("submit")),
+                ("marketId", Json::str(MARKET)),
+                ("at", Json::str(at)),
+                ("order", to_wire(&resting, None)),
+            ]),
+        ] {
+            journal.append(&JournalCommand(record)).unwrap();
+        }
+    }
+    let mut engine = MatchingEngine::new(EngineParts {
+        journal: Box::new(journal),
+        bus: Box::new(MemoryEventBus::default()),
         clock: now_ms,
-    })
+        expiry_clock: true,
+        snapshot_every: 0,
+        sink: Box::new(MemorySnapshotSink::default()),
+        enabled: true,
+    });
+    engine.recover().unwrap();
+    engine
+}
+
+fn door(setup: &str) -> MatchingDoor {
+    MatchingDoor::new(
+        DoorConfig {
+            internal_secret: SECRET.to_owned(),
+            body_bind: BodyBind::Require,
+            keys: None,
+            edge_secret: (setup == "set").then(|| EDGE_SECRET.to_owned()),
+            edge_key: None,
+            clock: now_ms,
+        },
+        engine(setup),
+    )
     .unwrap()
+}
+
+/// A recorded answer that moved state: a write the TypeScript took (not refused, and not a mark that moved nothing).
+/// A later answer that differs may differ because of it, and is owed by the slice that serves that write.
+fn moved_state(method: &str, a: &Recorded) -> bool {
+    method != "GET"
+        && a.status == 200
+        && !a.body.starts_with("{\"accepted\":false")
+        && !a.body.contains("\"applied\":false")
 }
 
 /// The code a recorded body names, if any.
@@ -243,95 +319,116 @@ fn the_door_answers_every_recorded_request_it_decides_as_the_typescript_does() {
     let requests = read_requests();
     let detail = std::env::var("WIRE_REPLAY_SLICE").ok();
     let strict = std::env::var("WIRE_REPLAY_STRICT").ok();
-    let doors: BTreeMap<&str, MatchingDoor> = [("blank", door("blank")), ("set", door("set"))]
-        .into_iter()
-        .collect();
 
     let mut same = 0usize;
     let mut held: BTreeMap<String, usize> = BTreeMap::new();
     let mut owed: BTreeMap<Slice, usize> = BTreeMap::new();
+    let mut owed_after: BTreeMap<Slice, usize> = BTreeMap::new();
     let mut owed_calls: BTreeMap<Slice, BTreeSet<String>> = BTreeMap::new();
     let mut differ = Vec::new();
     let mut reached = BTreeSet::new();
     let mut sent = BTreeSet::new();
-    for a in &golden {
-        let mut parts = a.key.splitn(5, ' ');
-        let (setup, method, url, input, who) = (
-            parts.next().unwrap(),
-            parts.next().unwrap(),
-            parts.next().unwrap(),
-            parts.next().unwrap(),
-            parts.next().unwrap(),
-        );
-        let request = (
-            a.file.clone(),
-            method.to_owned(),
-            url.to_owned(),
-            input.to_owned(),
-        );
-        let Some(body) = requests.get(&request) else {
-            panic!(
-                "the recording holds a request the matrix does not: {}",
-                a.key
-            )
-        };
-        sent.insert(request.clone());
-        let payload = body.clone().unwrap_or_default();
-        let mut headers = caller(who, &payload);
-        if body.is_some() {
-            headers.push(("content-type".to_owned(), "application/json".to_owned()));
-        }
-        if let Some(p) = pattern_of(method, url) {
-            reached.insert(p);
-        }
-        let outcome = doors[setup].decide(&Request {
-            method,
-            url,
-            headers: &headers,
-            body: &payload,
-        });
-        match outcome {
-            Outcome::Answer(r) if r.status == a.status && r.body == a.body => {
-                same += 1;
-                *held
-                    .entry(
-                        code_of(&a.body)
-                            .map_or_else(|| a.status.to_string(), |c| format!("{} {c}", a.status)),
-                    )
-                    .or_default() += 1;
-            }
-            Outcome::Answer(r) => differ.push(format!(
-                "{}\n  want {} {}\n  got  {} {}",
-                a.key, a.status, a.body, r.status, r.body
-            )),
-            // Every refusal of who is calling and every input check is the door's: a slice can never owe one, so an
-            // answer that should have been one shows here as a difference.
-            Outcome::Owed(slice) if door_class(a) => differ.push(format!(
-                "{}\n  want {} {}\n  got  owed by {}",
-                a.key,
-                a.status,
-                a.body,
-                slice.name()
-            )),
-            Outcome::Owed(slice) => {
-                *owed.entry(slice).or_default() += 1;
-                if let Some(p) = pattern_of(method, url) {
-                    owed_calls.entry(slice).or_default().insert(p);
+    let mut replayed = 0usize;
+    // Answers owed by one slice or more: one jointly owed is counted under each of its slices.
+    let mut owed_n = 0usize;
+    // As the TypeScript replay ran: each set-up on its own engine, the matrix's doors in order, each input from every
+    // caller in turn. Later doors read what earlier ones left.
+    for setup in ["blank", "set"] {
+        let door = door(setup);
+        // The slices whose writes this port did not make: from the first on, an answer may differ because of them.
+        let mut moved_by: BTreeSet<Slice> = BTreeSet::new();
+        for ((file, method, url, input), body) in &requests {
+            let prefix = format!("{setup} {method} {url} {input} ");
+            for a in golden
+                .iter()
+                .filter(|a| a.file == *file && a.key.starts_with(&prefix))
+            {
+                replayed += 1;
+                let who = &a.key[prefix.len()..];
+                sent.insert((file.clone(), method.clone(), url.clone(), input.clone()));
+                let payload = body.clone().unwrap_or_default();
+                let mut headers = caller(who, &payload);
+                if body.is_some() {
+                    headers.push(("content-type".to_owned(), "application/json".to_owned()));
                 }
-                if detail.as_deref() == Some(slice.name()) {
-                    println!(
-                        "owed by {}: {}\n  want {} {}",
-                        slice.name(),
+                let pattern = pattern_of(method, url);
+                if let Some(p) = &pattern {
+                    reached.insert(p.clone());
+                }
+                let outcome = door.decide(&Request {
+                    method,
+                    url,
+                    headers: &headers,
+                    body: &payload,
+                });
+                let mut owe = |slices: &BTreeSet<Slice>, after: bool| {
+                    owed_n += 1;
+                    for &slice in slices {
+                        *owed.entry(slice).or_default() += 1;
+                        if after {
+                            *owed_after.entry(slice).or_default() += 1;
+                        }
+                        if let Some(p) = &pattern {
+                            owed_calls.entry(slice).or_default().insert(p.clone());
+                        }
+                        if detail.as_deref() == Some(slice.name()) {
+                            let why = if after {
+                                let names: Vec<&str> = slices.iter().map(|s| s.name()).collect();
+                                format!(" (after writes of {})", names.join(", "))
+                            } else {
+                                String::new()
+                            };
+                            println!(
+                                "owed by {}{why}: {}\n  want {} {}",
+                                slice.name(),
+                                a.key,
+                                a.status,
+                                a.body
+                            );
+                        }
+                    }
+                };
+                match outcome {
+                    Outcome::Answer(r) if r.status == a.status && r.body == a.body => {
+                        same += 1;
+                        *held
+                            .entry(code_of(&a.body).map_or_else(
+                                || a.status.to_string(),
+                                |c| format!("{} {c}", a.status),
+                            ))
+                            .or_default() += 1;
+                    }
+                    // The door's own answers never depend on state: a difference there is always one.
+                    Outcome::Answer(r) if door_class(a) => differ.push(format!(
+                        "{}\n  want {} {}\n  got  {} {}",
+                        a.key, a.status, a.body, r.status, r.body
+                    )),
+                    // The TypeScript engine had taken a write this port does not serve yet: the state differs.
+                    Outcome::Answer(_) if !moved_by.is_empty() => owe(&moved_by.clone(), true),
+                    Outcome::Answer(r) => differ.push(format!(
+                        "{}\n  want {} {}\n  got  {} {}",
+                        a.key, a.status, a.body, r.status, r.body
+                    )),
+                    // Every refusal of who is calling and every input check is the door's: a slice can never owe one,
+                    // so an answer that should have been one shows here as a difference.
+                    Outcome::Owed(slice) if door_class(a) => differ.push(format!(
+                        "{}\n  want {} {}\n  got  owed by {}",
                         a.key,
                         a.status,
-                        a.body
-                    );
+                        a.body,
+                        slice.name()
+                    )),
+                    Outcome::Owed(slice) => {
+                        owe(&BTreeSet::from([slice]), false);
+                        if moved_state(method, a) {
+                            moved_by.insert(slice);
+                        }
+                    }
                 }
             }
         }
     }
     let total = golden.len();
-    let owed_n: usize = owed.values().sum();
     println!(
         "wire replay: {total} answers, {same} the same, {owed_n} owed by a slice, {} differ",
         differ.len()
@@ -342,15 +439,16 @@ fn the_door_answers_every_recorded_request_it_decides_as_the_typescript_does() {
     }
     for s in Slice::ALL {
         let n = owed.get(&s).copied().unwrap_or(0);
+        let after = owed_after.get(&s).copied().unwrap_or(0);
         let calls = owed_calls.get(&s).map_or(0, BTreeSet::len);
         println!(
-            "  owed by {:<10} {n:>5} answers over {calls} doors",
+            "  owed by {:<10} {n:>5} answers over {calls} doors ({after} of them because of its earlier writes)",
             s.name()
         );
     }
     assert!(
         differ.is_empty(),
-        "{} answers the door decided differ:\n{}",
+        "{} answers differ:\n{}",
         differ.len(),
         differ
             .iter()
@@ -359,6 +457,7 @@ fn the_door_answers_every_recorded_request_it_decides_as_the_typescript_does() {
             .collect::<Vec<_>>()
             .join("\n")
     );
+    assert_eq!(replayed, total, "every recorded answer is replayed");
     assert_eq!(
         same + owed_n,
         total,

@@ -13,7 +13,9 @@
 //!
 //! Past those the call is its slice's: [`Outcome::Owed`] names which. Nothing here reads or moves a book.
 
-use std::sync::LazyLock;
+pub mod book;
+
+use std::sync::{LazyLock, Mutex, PoisonError};
 
 use service_kit::edge::{self, EdgeKey};
 use service_kit::json::{self, Json};
@@ -23,6 +25,7 @@ use service_kit::schema::{Outcome as Parsed, Schema, Value};
 use service_kit::server::{Request, Response};
 use service_kit::time::Instant;
 
+use crate::engine::MatchingEngine;
 use crate::errors;
 use crate::refines::MatchingRefines;
 
@@ -383,6 +386,7 @@ pub struct DoorConfig {
 /// The door.
 pub struct MatchingDoor {
     cfg: DoorConfig,
+    engine: Mutex<MatchingEngine>,
 }
 
 /// The recorded input schemas and which part each door starts at.
@@ -630,10 +634,14 @@ fn answer(r: Response) -> Outcome {
 }
 
 impl MatchingDoor {
-    /// The door; fails when the recorded schemas do not read.
-    pub fn new(cfg: DoorConfig) -> Result<MatchingDoor, String> {
+    /// The door over the one engine every slice reaches the books through; fails when the recorded schemas do not
+    /// read.
+    pub fn new(cfg: DoorConfig, engine: MatchingEngine) -> Result<MatchingDoor, String> {
         INPUTS.as_ref().map_err(Clone::clone)?;
-        Ok(MatchingDoor { cfg })
+        Ok(MatchingDoor {
+            cfg,
+            engine: Mutex::new(engine),
+        })
     }
 
     /// Decides one request, or names the slice that owes its answer.
@@ -660,10 +668,26 @@ impl MatchingDoor {
         if let Err(refused) = checked {
             return answer(refused);
         }
-        match input(req, route, &body, &params) {
-            Ok(()) => Outcome::Owed(route.slice),
-            Err(refused) => answer(refused),
+        let parsed = match input(req, route, &body, &params) {
+            Ok(parsed) => parsed,
+            Err(refused) => return answer(refused),
+        };
+        if route.slice != Slice::Book {
+            return Outcome::Owed(route.slice);
         }
+        let param = |name: &str| {
+            params
+                .iter()
+                .find(|(n, _, _)| *n == name)
+                .map_or_else(String::new, |(_, _, v)| v.clone())
+        };
+        let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
+        book::serve(route, req, &param, &parsed, &mut engine)
+    }
+
+    /// The engine, for what runs beside the doors (the cold start, the tests).
+    pub fn engine(&self) -> std::sync::MutexGuard<'_, MatchingEngine> {
+        self.engine.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// `requireService`: a verified caller on the door's list, else 401 (with why) or 403.
@@ -722,7 +746,12 @@ impl MatchingDoor {
 }
 
 /// The door's input checks, after the caller is let in.
-fn input(req: &Request<'_>, route: &Route, body: &Body, params: &[Param]) -> Result<(), Response> {
+fn input(
+    req: &Request<'_>,
+    route: &Route,
+    body: &Body,
+    params: &[Param],
+) -> Result<Value, Response> {
     let param = |name: &str| {
         params
             .iter()
@@ -730,11 +759,11 @@ fn input(req: &Request<'_>, route: &Route, body: &Body, params: &[Param]) -> Res
             .map_or("", |(_, _, v)| v.as_str())
     };
     match route.input {
-        Input::None => Ok(()),
+        Input::None => Ok(Value::Undefined),
         Input::Account => {
             let n = service_kit::s2s::js_length(param("accountId"));
             if (1..=128).contains(&n) {
-                Ok(())
+                Ok(Value::Undefined)
             } else {
                 Err(errors::bad_request(vec![
                     "accountId: must be 1 to 128 characters".to_owned(),
@@ -746,7 +775,7 @@ fn input(req: &Request<'_>, route: &Route, body: &Body, params: &[Param]) -> Res
             match q.iter().find(|(k, _)| k == "limit").map(|(_, v)| v) {
                 None => Err(errors::coded(400, code)),
                 Some(Json::String(raw)) => published_limit(raw)
-                    .map(|_| ())
+                    .map(|_| Value::Undefined)
                     .ok_or_else(|| errors::coded(400, code)),
                 // A repeated `limit` is a list, and `raw.trim` is not a function on it.
                 Some(_) => Err(errors::thrown("raw.trim is not a function")),
@@ -757,12 +786,12 @@ fn input(req: &Request<'_>, route: &Route, body: &Body, params: &[Param]) -> Res
             if name == "submit" {
                 post_only(&parsed)?;
             }
-            match rule {
-                Some(rule) => bound(&parsed, rule, param(rule.param)),
-                None => Ok(()),
+            if let Some(rule) = rule {
+                bound(&parsed, rule, param(rule.param))?;
             }
+            Ok(parsed)
         }
-        Input::BodyOrEmpty(name) => checked(name, body.or_empty()).map(|_| ()),
+        Input::BodyOrEmpty(name) => checked(name, body.or_empty()),
         Input::Founder { needs_market } => {
             let parsed = checked("founder", body.or_empty())?;
             if !idempotency_key_ok(parsed.get("idempotencyKey")) {
@@ -780,7 +809,7 @@ fn input(req: &Request<'_>, route: &Route, body: &Body, params: &[Param]) -> Res
                     "marketId is required for this door",
                 ));
             }
-            Ok(())
+            Ok(parsed)
         }
     }
 }
