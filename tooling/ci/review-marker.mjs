@@ -5,7 +5,8 @@
  * one that changes a journey test or shared test code only when the same job passed its `Test verdict` step there
  * (JUDGE_CHECK; one model call answers both).
  *
- *   GH_TOKEN=... HEAD_SHA=... REPO=owner/name PR_NUMBER=... node tooling/ci/review-marker.mjs
+ *   HEAD_SHA=... REPO=owner/name PR_NUMBER=... node tooling/ci/review-marker.mjs
+ *   (CI sets GH_TOKEN; run by hand, it reads through the logged-in gh: github-fetch.mjs)
  *
  * What counts (ciReviewVerdict), read from GitHub's Actions API, never from a comment or a status: a workflow run of
  * exactly REVIEW_WORKFLOW, started by `pull_request_target` (so GitHub ran the default branch's copy of the file and
@@ -37,6 +38,7 @@ import { gateFilesTouched } from '../scripts/gate-files.mjs';
 import { BASELINE } from './look-baselines.mjs';
 import { judgeReason } from './test-judge.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
+import { githubFetch, githubToken } from './github-fetch.mjs';
 
 /** How long the seal waits for the review before it fails, and how often it looks. ci.yml's merge-seal timeout covers it. */
 const REVIEW_WAIT_MS = 20 * 60_000;
@@ -428,26 +430,9 @@ export function reviewJob(sha, verdict = 'success', { status = 'completed', test
   };
 }
 
-/**
- * A GitHub GET. In CI it is fetch with the job's token. `--via-gh` (the dry run on a person's machine) reads through the
- * logged-in `gh` CLI instead, so no token is handled here; the answer has the same { ok, status, json() } shape.
- */
-async function get(url, init) {
-  if (!process.argv.includes('--via-gh')) return fetch(url, init);
-  const { spawnSync } = await import('node:child_process');
-  const r = spawnSync('gh', ['api', '-i', url.replace('https://api.github.com/', '')], { encoding: 'utf8', maxBuffer: 64 << 20 });
-  if (r.error) throw new Error(`--via-gh: could not run gh (${r.error.message})`);
-  const status = Number(/^HTTP\/[\d.]+ (\d+)/.exec(r.stdout ?? '')?.[1] ?? 0);
-  const body = String(r.stdout ?? '')
-    .split(/\r?\n\r?\n/)
-    .slice(1)
-    .join('\n\n');
-  return { ok: status >= 200 && status < 300, status, json: async () => JSON.parse(body) };
-}
-
 /** GET a GitHub API path; any failure ends the seal (fail closed), except a 404 when `missingOk` (then null). */
 async function api(path, token, { missingOk = false } = {}) {
-  const res = await get(`https://api.github.com${path}`, {
+  const res = await githubFetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
   });
   if (missingOk && res.status === 404) return null;
@@ -771,7 +756,7 @@ async function readAttempts(repo, run, token) {
 /**
  * `merge_group`: MERGE_GROUP_BASE_SHA, MERGE_GROUP_HEAD_SHA and MERGE_GROUP_HEAD_REF from the event. The dry run reads the
  * same way for any two commits of main and a queue branch name, and reads closed pull requests too:
- *   REPO=owner/name node tooling/ci/review-marker.mjs --merge-group-dry-run <base sha> <head sha> <pr of head> --via-gh
+ *   REPO=owner/name node tooling/ci/review-marker.mjs --merge-group-dry-run <base sha> <head sha> <pr of head>
  */
 async function mainMergeGroup({ repo, token, base, head, headRef, dryRun }) {
   const io = {
@@ -798,25 +783,28 @@ async function main() {
   const dry = process.argv.indexOf('--merge-group-dry-run');
   if (dry > 0) {
     const [base, head, pr] = process.argv.slice(dry + 1).filter((a) => !a.startsWith('--'));
-    const { GH_TOKEN = 'via-gh', REPO } = process.env;
-    if (!REPO || !base || !head || !pr || (!process.env.GH_TOKEN && !process.argv.includes('--via-gh'))) {
-      console.error('usage: REPO=owner/name review-marker.mjs --merge-group-dry-run <base sha> <head sha> <pr of head> [--via-gh]');
+    const { REPO } = process.env;
+    const GH_TOKEN = githubToken();
+    if (!REPO || !base || !head || !pr) {
+      console.error('usage: REPO=owner/name review-marker.mjs --merge-group-dry-run <base sha> <head sha> <pr of head>');
       process.exit(1);
     }
     const headRef = `refs/heads/gh-readonly-queue/main/pr-${pr}-${base}`;
     return mainMergeGroup({ repo: REPO, token: GH_TOKEN, base, head, headRef, dryRun: true });
   }
   if (process.env.MERGE_GROUP_HEAD_SHA) {
-    const { GH_TOKEN, REPO, MERGE_GROUP_BASE_SHA: base, MERGE_GROUP_HEAD_SHA: head, MERGE_GROUP_HEAD_REF: headRef } = process.env;
-    if (!GH_TOKEN || !REPO || !base || !headRef) {
-      console.error('::error::review-marker on a merge group needs GH_TOKEN, REPO, MERGE_GROUP_BASE_SHA and MERGE_GROUP_HEAD_REF');
+    const { REPO, MERGE_GROUP_BASE_SHA: base, MERGE_GROUP_HEAD_SHA: head, MERGE_GROUP_HEAD_REF: headRef } = process.env;
+    const GH_TOKEN = githubToken();
+    if (!REPO || !base || !headRef) {
+      console.error('::error::review-marker on a merge group needs REPO, MERGE_GROUP_BASE_SHA and MERGE_GROUP_HEAD_REF');
       process.exit(1);
     }
     return mainMergeGroup({ repo: REPO, token: GH_TOKEN, base, head, headRef, dryRun: false });
   }
-  const { GH_TOKEN, HEAD_SHA, REPO, PR_NUMBER } = process.env;
-  if (!GH_TOKEN || !HEAD_SHA || !REPO) {
-    console.error('::error::review-marker needs GH_TOKEN, HEAD_SHA and REPO');
+  const { HEAD_SHA, REPO, PR_NUMBER } = process.env;
+  const GH_TOKEN = githubToken();
+  if (!HEAD_SHA || !REPO) {
+    console.error('::error::review-marker needs HEAD_SHA and REPO');
     process.exit(1);
   }
   let needs = [{ check: REVIEW_CHECK, reason: 'not a pull request' }];
