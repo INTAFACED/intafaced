@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
 import { programmeSchema } from './contracts-cards';
 
-export const rampProgrammeSchema = programmeSchema.extend({
+const rampProgrammeSchema = programmeSchema.extend({
   cryptoRail: z.string().nullable(),
   fiatLeg: z.literal('socket.psp-partners'),
   fiatVia: z.literal('svc-pay.RailAdapter'),
@@ -77,7 +77,7 @@ export const walletProofVerifiedSchema = z.object({
   validUntil: z.string().nullable(),
 });
 /** One asset an address may be saved for, with the networks it is sent on (the bank's read of the ledger's asset list). */
-export const withdrawAssetSchema = z.object({
+const withdrawAssetSchema = z.object({
   assetId: z.string(),
   precision: z.number().int(),
   networks: z.array(z.object({ networkId: z.string(), label: z.string() })),

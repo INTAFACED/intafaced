@@ -304,6 +304,10 @@
         "$TURBO_ROOT$/services/svc-support/**",
         "$TURBO_ROOT$/services/svc-token/**",
         "$TURBO_ROOT$/services/svc-ws/**",
+        "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
+        "$TURBO_ROOT$/tooling/lint/count-rule.*",
+        "$TURBO_ROOT$/tooling/trade/inside.*",
+        "$TURBO_ROOT$/tooling/trade/inside/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]

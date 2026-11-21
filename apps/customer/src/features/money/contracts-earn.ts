@@ -41,7 +41,7 @@ export const positionSchema = z.object({
  * What a pool publishes beyond its rate and term (svc-bank `earn.router.ts`, BK-earn-02 and BK-earn-05): how interest is
  * paid, in which asset, from where, and the owner tables that may be blank. A null is a figure nobody published.
  */
-export const poolFacts = {
+const poolFacts = {
   payoutEvery: z.literal('day'),
   compounding: z.literal('simple'),
   rewardAssetId: z.string(),

@@ -4,8 +4,8 @@ import { decimalSchema as money } from '../../shared/money';
 import { businessListSchema, businessSchema } from '../session';
 
 export { businessSchema } from '../session';
-export const memberRoleSchema = z.enum(['admin', 'maker', 'checker']);
-export const approvalSchema = z.object({
+const memberRoleSchema = z.enum(['admin', 'maker', 'checker']);
+const approvalSchema = z.object({
   id: z.string(),
   accountId: z.string(),
   makerUserId: z.string(),
@@ -28,10 +28,10 @@ export const pendingApprovalSchema = approvalSchema.extend({
   receiverOwnerHandleReason: z.enum(['handle_unresolved']).nullable(),
   receiverOwnerName: z.string().nullable(),
 });
-export const teamSchema = z.object({
+const teamSchema = z.object({
   members: z.array(z.object({ accountId: z.string(), userId: z.string(), role: memberRoleSchema, handle: z.string() })),
 });
-export const recipientSpaceSchema = z.discriminatedUnion('found', [
+const recipientSpaceSchema = z.discriminatedUnion('found', [
   z.object({ found: z.literal(false) }),
   z.object({ found: z.literal(true), handle: z.string(), assetId: z.string(), spaceId: z.string().guid().nullable() }),
 ]);

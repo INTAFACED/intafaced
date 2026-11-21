@@ -101,13 +101,13 @@
   {
     "file": "packages/i18n/src/i18n.test.ts",
     "target": "./format.ts",
-    "verdict": "left",
+    "verdict": "rewrite",
     "asserts": "No code in format.ts (comments aside) calls Number(), parseFloat() or parseInt(): money is never converted through a float.",
     "guard": {
       "kind": "lint",
       "ref": "garden/no-number-money"
     },
-    "why": "Left as it is: a static property of every line of format.ts, whose faithful guard is a lint; it moves with money-safety to garden/no-number-money's strict float check. The behaviour test 'converts no amount through a float on any formatting path' is added beside it."
+    "why": "Rewritten: the test runs garden/no-number-money strict over format.ts (the rule judges every Number(), parseFloat(), parseInt() and new Number() there) and shows it fails each planted float door, a silenced one too; the behaviour test 'converts no amount through a float on any formatting path' stays beside it."
   },
   {
     "file": "packages/i18n/src/locale-files.test.ts",
