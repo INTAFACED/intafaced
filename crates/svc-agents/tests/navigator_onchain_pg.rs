@@ -338,6 +338,7 @@ impl World {
             ready: ReadyInput::unwired(),
             metering: Metering::unwired("IFC", 60),
             runtime: rt,
+            advisors: svc_agents::advisors::Advisors::unwired(),
         })
         .unwrap()
     }

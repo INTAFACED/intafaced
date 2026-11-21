@@ -247,6 +247,7 @@ impl World {
             ready: ReadyInput::unwired(),
             metering,
             runtime,
+            advisors: svc_agents::advisors::Advisors::unwired(),
         })
         .unwrap();
         for agent in ["navigator", "probe"] {

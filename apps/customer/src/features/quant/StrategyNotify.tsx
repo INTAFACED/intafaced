@@ -1,11 +1,4 @@
-import {
-  QUANT_ALERT_FIELDS,
-  QUANT_ALERT_TEMPLATE_MAX,
-  quantAlertListSchema,
-  quantAlertSchema,
-  type QuantAlert,
-  type QuantStrategyDetail,
-} from '@intafaced/contracts/quant-algo';
+import { QUANT_ALERT_FIELDS, QUANT_ALERT_TEMPLATE_MAX, type QuantAlert, type QuantStrategyDetail } from '@intafaced/contracts/quant-algo';
 import { QUANT_NOTIFY_GET, QUANT_NOTIFY_SET } from '@intafaced/contracts/quant-strategy-settings-procedures';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
@@ -15,6 +8,7 @@ import { channelStatus } from '../../screens/notifications/notify-api';
 import { Read, Select, TextArea } from '../more';
 import { useApi } from '../session';
 import { notifyCopy } from './notify-copy';
+import { QUANT_ALERT_LIST, QUANT_ALERT_CREATE } from '@intafaced/contracts/quant-alert-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
@@ -147,7 +141,7 @@ export function StrategyAlerts({ strategy }: { strategy: QuantStrategyDetail }) 
   const [opening, setOpening] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const list = useResource(
-    (signal) => api.query('quant', 'alert.list', { strategyId: strategy.id }, quantAlertListSchema, { signal }),
+    (signal) => api.call(QUANT_ALERT_LIST, { strategyId: strategy.id }, { signal }),
     `quant-alerts:${strategy.id}:${revision}`,
   );
   return (
@@ -226,12 +220,7 @@ function AlertForm(props: {
     setBusy(true);
     setInvalid(null);
     setFailure(null);
-    const res = await api.mutate(
-      'quant',
-      'alert.create',
-      { strategyId: props.strategy.id, strategyVersion: Number(version), template, ordinal },
-      quantAlertSchema,
-    );
+    const res = await api.call(QUANT_ALERT_CREATE, { strategyId: props.strategy.id, strategyVersion: Number(version), template, ordinal });
     setBusy(false);
     if (res.ok) return props.onCreated(res.data);
     const detail = invalidOf(res.message);

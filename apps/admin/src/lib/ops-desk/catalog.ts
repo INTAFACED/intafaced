@@ -19,6 +19,8 @@ import { ACADEMY_CURRICULUM_DEPTH } from '@intafaced/contracts/academy-curriculu
 import { ACADEMY_CURRICULUM_IMPORT_STATUS } from '@intafaced/contracts/academy-curriculum-import-status-procedures';
 import { ACADEMY_CERT_XP_PLANE } from '@intafaced/contracts/academy-cert-xp-plane-procedures';
 import { ACADEMY_PAPER_OPS_STATUS } from '@intafaced/contracts/academy-paper-ops-status-procedures';
+import { QUANT_HEALTH } from '@intafaced/contracts/quant-health-procedures';
+import { QUANT_STUDIO_OPERATOR_LIST } from '@intafaced/contracts/quant-studio-records';
 
 /** A read whose call has a record: its module and path are the record's, never typed again here. */
 export const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
@@ -1933,8 +1935,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'quant.health',
         title: 'Service health',
         note: 'Whether svc-quant answers. Nothing about runs.',
-        module: 'quant',
-        procedure: 'health',
+        ...readOf(QUANT_HEALTH),
         shape: 'record',
         columns: [bool('ok', 'Answering'), text('service', 'Service')],
         emptyText: '',
@@ -1944,9 +1945,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'quant.strategies',
         title: 'Saved strategies',
         note: 'Every saved strategy across accounts, newest as the service orders them: name and labels only. The code and blocks are never in this read. Everything here is paper or a historical simulation; the two flags below are pinned, so a strategy claiming to be live is refused as unreadable. The service also limits this read by jurisdiction, so a console with no country may be refused.',
-        module: 'quant',
         plainName: 'saved strategies',
-        procedure: 'studio.operatorList',
+        ...readOf(QUANT_STUDIO_OPERATOR_LIST),
         input: { limit: 50 },
         shape: 'list',
         rowsKey: 'strategies',
