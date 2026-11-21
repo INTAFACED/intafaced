@@ -13,7 +13,8 @@ import { connectWhenAsked } from './dex.mjs';
 import { ageRecord } from './test-age.mjs';
 
 // J-copy-bots-otc-16, in the running app (docs/roadmap/journeys.json): set up a recurring buy of a basket and keep it
-// running. One test per step, titled "J-copy-bots-otc-16 #<n>"; #3 (savings routing) comes later and has none.
+// running. One test per step, titled "J-copy-bots-otc-16 #<n>". #3 (savings routing) is not built: it fails quickly at its
+// first missing part, the Manage dialog's "Send what I buy to" choice (UNBUILT).
 // The rule trades on the person's own account at the stack's TEST venue simulator, with svc-trade's user-venue door on for
 // this file: INTAFACED holds and moves nothing. The person is a TEST account, verified, with a TEST wallet holding TEST
 // USDC on its venue account. The basket is three TEST spot markets of this file's own (ownSpotMarket), each with this
@@ -24,6 +25,7 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const DAY = 86_400_000;
 const MAKER = 'jrb-maker';
 const RULES = '/api/trade/trpc/bots.recurring';
+const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 test.use({ actionTimeout: 15_000 });
@@ -211,6 +213,15 @@ async function nextSlotOrNow(ruleId) {
   await expect.poll(async () => (await rule(state('who'), ruleId)).slots.filter((s) => s.outcome === 'bought').length).toBe(1);
   return rule(state('who'), ruleId);
 }
+
+test(`${J} #3 sets a target savings pool: each run routes the bought asset to flexible savings under its own key`, async ({ page }) => {
+  const ruleId = state('ruleId');
+  const box = await openManage(page);
+  await box.getByLabel('Send what I buy to', { exact: true }).selectOption('Flexible savings', UNBUILT);
+  await box.getByRole('button', { name: 'Save', exact: true }).click();
+  const routed = await nextSlot(ruleId, 2);
+  expect(routed.slots.at(-1).savingsKey).toMatch(new RegExp(`^recurring:${ruleId}:`));
+});
 
 test(`${J} #4 chooses card funding: the notice that card funding needs the card processor and is off in this build, and nothing is saved`, async ({
   page,
