@@ -774,6 +774,7 @@ function write(result) {
     touched.push(file);
   }
   for (const [file, ch] of result.changes.files) if (ch.schemas) retype(file, ch.schemas);
+  for (const file of touched) if (!file.startsWith(CONTRACTS)) pruneSchemas(file);
   for (const file of touched) pruneImports(file);
   if (touched.length)
     execFileSync(join(REPO, 'node_modules/.bin/prettier'), ['--write', '--log-level', 'warn', ...touched], {
@@ -856,6 +857,67 @@ function retype(file, schemas) {
   if (used) src = mergeImports(src, new Map([['@intafaced/contracts/procedure', new Set(['type ProcedureOutput'])]]));
   writeFileSync(file, src);
   forget(file);
+}
+
+/**
+ * A schema value with nothing to run but zod: a name, a member of one, a literal, an object, array or function of such,
+ * and calls on `z` or on such a value (`z.object({...}).nullable()`). Removing one nobody reads changes nothing.
+ */
+function pureSchema(n) {
+  if (!n) return true;
+  switch (n.type) {
+    case 'Identifier':
+    case 'Literal':
+    case 'TemplateLiteral':
+    case 'ArrowFunctionExpression':
+    case 'FunctionExpression':
+      return true;
+    case 'MemberExpression':
+      return !n.computed && pureSchema(n.object);
+    case 'ObjectExpression':
+      return n.properties.every((x) => (x.type === 'SpreadElement' ? pureSchema(x.argument) : !x.computed && pureSchema(x.value)));
+    case 'ArrayExpression':
+      return n.elements.every((x) => pureSchema(x?.type === 'SpreadElement' ? x.argument : x));
+    case 'CallExpression': {
+      let root = n.callee;
+      while (root.type === 'MemberExpression' || root.type === 'CallExpression')
+        root = root.type === 'MemberExpression' ? root.object : root.callee;
+      return (
+        root.type === 'Identifier' &&
+        root.name === 'z' &&
+        n.callee.type === 'MemberExpression' &&
+        pureSchema(n.callee.object) &&
+        n.arguments.every(pureSchema)
+      );
+    }
+    case 'TSAsExpression':
+    case 'TSSatisfiesExpression':
+      return pureSchema(n.expression);
+    default:
+      return false;
+  }
+}
+
+/**
+ * Removes the file's own top-level schema consts no one reads any more: a call that moved to its record no longer
+ * passes the answer schema it was handed, and the const that held it is left behind. Only an unexported, single
+ * declaration whose value is a pure schema goes, and again while removing one leaves another unread.
+ */
+export function pruneSchemas(file) {
+  for (;;) {
+    forget(file);
+    const p = load(file);
+    const edits = [];
+    for (const stmt of p.program.body) {
+      if (stmt.type !== 'VariableDeclaration' || stmt.kind !== 'const' || stmt.declarations.length !== 1) continue;
+      const d = stmt.declarations[0];
+      if (d.id.type !== 'Identifier' || !pureSchema(d.init)) continue;
+      if (usedOutside(p, d.id.name, [{ start: stmt.start, end: stmt.end }])) continue;
+      edits.push({ start: statementStart(p, stmt), end: statementEnd(p, stmt), text: '' });
+    }
+    if (!edits.length) return;
+    writeFileSync(file, applyEdits(p.src, edits));
+  }
 }
 
 /** Removes named import specifiers a file no longer reads (only those: a side-effect import stays). */

@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { answerChecks, Changes, pruneImports, recordName, rewriteSite } from './index.mjs';
+import { answerChecks, Changes, pruneImports, pruneSchemas, recordName, rewriteSite } from './index.mjs';
 import { applyEdits, freeNames, load, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { CALL_METHOD, doublesIn } from './doubles.mjs';
@@ -589,4 +589,28 @@ test("a door record's accepted sample is the door's own accepted request, and no
   assert.match(samplesFor(record, new Map([['p', { from: '2026-01-01' }]])), /verdict: 'accept', input: \{"from":"2026-01-01"\}/);
   assert.throws(() => samplesFor(record, new Map()), /the door lets through/);
   assert.match(samplesFor(record), /verdict: 'accept'/);
+});
+
+test('a schema const the moved call left unread goes, and the one it read after it; one still read, exported or impure stays', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'a.ts');
+  writeFileSync(
+    file,
+    [
+      "import { z } from 'zod';",
+      'const inner = z.object({ id: z.string() });',
+      'const left = z.array(inner).nullable();',
+      'const read = z.string();',
+      'export const shared = z.number();',
+      'const impure = makeSchema();',
+      'export const use = () => read.parse("x");',
+      '',
+    ].join('\n'),
+  );
+  pruneSchemas(file);
+  const out = readFileSync(file, 'utf8');
+  assert.doesNotMatch(out, /const (inner|left) =/);
+  assert.match(out, /const read = z\.string\(\);/);
+  assert.match(out, /export const shared/);
+  assert.match(out, /const impure = makeSchema\(\);/);
 });
