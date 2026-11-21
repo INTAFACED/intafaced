@@ -1,6 +1,10 @@
 import {
   ONBOARDING_ITEMS,
+  TOKEN_BLOCKED,
   type HumanTokenTier,
+  type ProtocolBlockedToken,
+  type ProtocolBlocklistRefusal,
+  type ProtocolPermissionedToken,
   type OnboardingItem,
   type ProtocolNameTagRefusal,
   type ProtocolNameTagRequest,
@@ -25,7 +29,7 @@ import {
  */
 export class TrustDeskRefusedError extends Error {
   constructor(
-    readonly code: ProtocolTierRefusal | ProtocolOnboardingRefusal | ProtocolNameTagRefusal,
+    readonly code: ProtocolTierRefusal | ProtocolOnboardingRefusal | ProtocolNameTagRefusal | ProtocolBlocklistRefusal,
     message: string,
   ) {
     super(message);
@@ -74,6 +78,17 @@ export interface TrustDeskStore {
    * or on the second publish the address's `name` label and its history row.
    */
   approveNameTag(input: { chainId: number; requestId: string; approverId: string }): Promise<NameTagApproveOutcome>;
+  /** The blocked tokens, newest first, and each approved permissioned pool checklist's token contract. */
+  blocklist(chainId: number): Promise<{ blocked: ProtocolBlockedToken[]; permissioned: ProtocolPermissionedToken[] }>;
+  /** Adds the token, unless it is already blocked on the chain (the business key). */
+  addToBlocklist(input: {
+    chainId: number;
+    token: string;
+    reason: string;
+    actorId: string;
+  }): Promise<{ kind: 'added'; entry: ProtocolBlockedToken } | { kind: 'already_blocked' }>;
+  /** Which of `tokens` (lower-case) are on the blocklist. */
+  blockedAmong(chainId: number, tokens: readonly string[]): Promise<string[]>;
 }
 
 export const AUDIT_LIMIT = 200;
@@ -202,4 +217,34 @@ export async function approveNameTag(store: TrustDeskStore, input: { chainId: nu
       'You already approved this name tag, so a different person must give the second approval. Nothing was changed.',
     );
   return outcome.request;
+}
+
+export async function readBlocklist(store: TrustDeskStore, chainId: number, now: Date) {
+  return { asOf: now.toISOString(), chainId, ...(await store.blocklist(chainId)) };
+}
+
+export async function addToBlocklist(store: TrustDeskStore, input: { chainId: number; token: string; reason: string; actorId: string }) {
+  const outcome = await store.addToBlocklist({ ...input, token: input.token.toLowerCase(), reason: input.reason.trim() });
+  if (outcome.kind === 'already_blocked')
+    throw new TrustDeskRefusedError('protocol.blocklist.already_blocked', 'This token is already on the blocklist.');
+  return outcome.entry;
+}
+
+/** A route, path or swap naming a blocked token. */
+export class TokenBlockedError extends Error {
+  readonly code = TOKEN_BLOCKED;
+  constructor(readonly tokens: readonly string[]) {
+    super(`${TOKEN_BLOCKED}: ${tokens.join(', ')} ${tokens.length === 1 ? 'is' : 'are'} on the blocklist, so it is not routed.`);
+    this.name = 'TokenBlockedError';
+  }
+}
+
+/** Refuses when any of `tokens` is on the blocklist; a store that cannot answer refuses too, never routes unchecked. */
+export async function requireRoutable(
+  store: Pick<TrustDeskStore, 'blockedAmong'>,
+  chainId: number,
+  tokens: readonly string[],
+): Promise<void> {
+  const blocked = await store.blockedAmong(chainId, [...new Set(tokens.map((t) => t.toLowerCase()))]);
+  if (blocked.length > 0) throw new TokenBlockedError(blocked);
 }

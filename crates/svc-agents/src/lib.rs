@@ -8,6 +8,7 @@
 //! `migrate` (the `agents` schema's migrations), `boot` (the schema check and the agents' guardrails upserted at boot)
 //! and `timers` (what `index.ts` runs on a period); the binary (`main.rs`) puts them together.
 
+pub mod advisors;
 pub mod audit;
 pub mod background;
 pub mod boot;

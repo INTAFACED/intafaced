@@ -1,6 +1,8 @@
 import { ADDRESS_LABEL_KINDS, HUMAN_TOKEN_TIERS } from '@intafaced/contracts/protocol-address-risk';
 import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import {
+  PROTOCOL_COMPLIANCE_BLOCKLIST_ADD,
+  PROTOCOL_COMPLIANCE_BLOCKLIST_LIST,
   PROTOCOL_COMPLIANCE_LABELS_APPROVE,
   PROTOCOL_COMPLIANCE_LABELS_ASK,
   PROTOCOL_COMPLIANCE_NAME_TAGS_APPROVE,
@@ -27,7 +29,8 @@ import { trustRefusalWords } from '@/lib/protocol-trust/model';
 /**
  * The Protocol trust desk (J-dex-protocol-30) as the signed-in founder: GET reads svc-protocol's compliance queue, its
  * token list, its audit rows, the human token tiers and the permissioned pool checklists; POST asks for or approves a
- * label, a tier or a name tag, removes a tier, and opens or approves a checklist (`compliance.*`). The second person must be a
+ * label, a tier or a name tag, removes a tier, adds a token to the blocklist, and opens or approves a checklist
+ * (`compliance.*`). The second person must be a
  * different person, which svc-protocol enforces. A reply that never arrived is reported as
  * unknown, never as failed, and is never sent again on its own.
  */
@@ -62,13 +65,14 @@ export async function GET(request: Request) {
   if (disabled) return disabled;
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
-  const [reports, tokens, audit, tiers, onboarding, nameTags] = await Promise.all([
+  const [reports, tokens, audit, tiers, onboarding, nameTags, blocklist] = await Promise.all([
     founderRecordCall(session, PROTOCOL_COMPLIANCE_REPORTS_LIST, undefined),
     founderRecordCall(session, PROTOCOL_TOKENS_LIST, { window: '24h' }),
     founderRecordCall(session, PROTOCOL_AUDIT_PRODUCTS, undefined),
     founderRecordCall(session, PROTOCOL_COMPLIANCE_TIERS_LIST, undefined),
     founderRecordCall(session, PROTOCOL_COMPLIANCE_ONBOARDING_LIST, undefined),
     founderRecordCall(session, PROTOCOL_COMPLIANCE_NAME_TAGS_LIST, undefined),
+    founderRecordCall(session, PROTOCOL_COMPLIANCE_BLOCKLIST_LIST, undefined),
   ]);
   return answer(
     {
@@ -79,6 +83,7 @@ export async function GET(request: Request) {
       tiers: part(tiers, 'token tiers'),
       onboarding: part(onboarding, 'pool onboarding checklists'),
       nameTags: part(nameTags, 'name tag requests'),
+      blocklist: part(blocklist, 'token blocklist'),
     },
     200,
   );
@@ -101,7 +106,8 @@ type WriteRecord =
   | typeof PROTOCOL_COMPLIANCE_ONBOARDING_OPEN
   | typeof PROTOCOL_COMPLIANCE_ONBOARDING_APPROVE
   | typeof PROTOCOL_COMPLIANCE_NAME_TAGS_REQUEST
-  | typeof PROTOCOL_COMPLIANCE_NAME_TAGS_APPROVE;
+  | typeof PROTOCOL_COMPLIANCE_NAME_TAGS_APPROVE
+  | typeof PROTOCOL_COMPLIANCE_BLOCKLIST_ADD;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(request: Request) {
@@ -183,6 +189,11 @@ export async function POST(request: Request) {
     if (typeof raw.requestId !== 'string' || !UUID.test(raw.requestId)) return invalid();
     const input = { requestId: raw.requestId };
     sent = write(PROTOCOL_COMPLIANCE_NAME_TAGS_APPROVE, input);
+  } else if (raw.op === 'blocklist-add') {
+    const reason = text(raw.reason, 500);
+    const token = addr(raw.token);
+    if (!token || reason === null) return invalid();
+    sent = write(PROTOCOL_COMPLIANCE_BLOCKLIST_ADD, { token, reason });
   } else return invalid();
 
   if (sent === null) return invalid();

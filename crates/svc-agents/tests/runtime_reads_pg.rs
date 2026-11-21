@@ -250,6 +250,7 @@ impl World {
             metering: metering(&ledger, &bus),
             runtime: runtime_settings(),
             background: svc_agents::background::Settings::default(),
+            advisors: svc_agents::advisors::Advisors::unwired(),
         })
         .unwrap();
         let g = parse_guardrail(&probe(max_actions)).unwrap();
