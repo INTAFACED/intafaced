@@ -1,6 +1,923 @@
 {
   "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
   "procedures": {
+    "bank.deposits.address": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "deposits.address",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.deposit_custody_unset": "PRECONDITION_FAILED",
+        "bank.deposit_catalogue_invalid": "PRECONDITION_FAILED",
+        "bank.asset_registry_unavailable": "SERVICE_UNAVAILABLE",
+        "bank.deposit_network_halted": "PRECONDITION_FAILED",
+        "bank.deposit_asset_unpublished": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "networkId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        },
+        "required": ["assetId", "networkId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "networkId": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "memo": {
+            "type": ["string", "null"]
+          },
+          "qrPayload": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["assetId", "networkId", "address", "memo", "qrPayload"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC",
+            "networkId": "ethereum"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "assetId": "",
+            "networkId": "ethereum"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "assetId": "USDC"
+          }
+        }
+      ]
+    },
+    "bank.deposits.addresses.create": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "deposits.addresses.create",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.deposit_custody_unset": "PRECONDITION_FAILED",
+        "bank.deposit_catalogue_invalid": "PRECONDITION_FAILED",
+        "bank.asset_registry_unavailable": "SERVICE_UNAVAILABLE",
+        "bank.deposit_network_halted": "PRECONDITION_FAILED",
+        "bank.deposit_asset_unpublished": "PRECONDITION_FAILED",
+        "bank.deposit_address_label_invalid": "BAD_REQUEST",
+        "bank.deposit_address_cap_unset": "PRECONDITION_FAILED",
+        "bank.deposit_address_expiry_unset": "PRECONDITION_FAILED",
+        "bank.deposit_address_cap_reached": "PRECONDITION_FAILED",
+        "bank.deposit_address_numbers_used": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "networkId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["assetId", "networkId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "networkId": {
+            "type": "string"
+          },
+          "addressIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "address": {
+            "type": "string"
+          },
+          "memo": {
+            "type": ["string", "null"]
+          },
+          "qrPayload": {
+            "type": ["string", "null"]
+          },
+          "label": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["active", "expired"]
+          }
+        },
+        "required": ["assetId", "networkId", "addressIndex", "address", "memo", "qrPayload", "label", "createdAt", "expiresAt", "state"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC",
+            "networkId": "ethereum"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC",
+            "networkId": "ethereum",
+            "label": "Savings"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "assetId": "USDC",
+            "networkId": "ethereum",
+            "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        }
+      ]
+    },
+    "bank.deposits.addresses.label": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "deposits.addresses.label",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:write",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.deposit_address_label_invalid": "BAD_REQUEST",
+        "bank.deposit_address_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "networkId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "addressIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9999
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["assetId", "networkId", "addressIndex", "label"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "networkId": {
+            "type": "string"
+          },
+          "addressIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "address": {
+            "type": "string"
+          },
+          "memo": {
+            "type": ["string", "null"]
+          },
+          "qrPayload": {
+            "type": ["string", "null"]
+          },
+          "label": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["active", "expired"]
+          }
+        },
+        "required": ["assetId", "networkId", "addressIndex", "address", "memo", "qrPayload", "label", "createdAt", "expiresAt", "state"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC",
+            "networkId": "ethereum",
+            "addressIndex": 1,
+            "label": "Savings"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC",
+            "networkId": "ethereum",
+            "addressIndex": 0,
+            "label": null
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "assetId": "USDC",
+            "networkId": "ethereum",
+            "addressIndex": 10000,
+            "label": null
+          }
+        }
+      ]
+    },
+    "bank.deposits.addresses.list": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "deposits.addresses.list",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "default": {},
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "networkId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "assetId": {
+                  "type": "string"
+                },
+                "networkId": {
+                  "type": "string"
+                },
+                "addressIndex": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "address": {
+                  "type": "string"
+                },
+                "memo": {
+                  "type": ["string", "null"]
+                },
+                "qrPayload": {
+                  "type": ["string", "null"]
+                },
+                "label": {
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": ["string", "null"]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["active", "expired"]
+                }
+              },
+              "required": [
+                "assetId",
+                "networkId",
+                "addressIndex",
+                "address",
+                "memo",
+                "qrPayload",
+                "label",
+                "createdAt",
+                "expiresAt",
+                "state"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "cap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expiryDays": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["items", "cap", "expiryDays"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC",
+            "networkId": "ethereum"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "assetId": "USDC",
+            "other": 1
+          }
+        }
+      ]
+    },
+    "bank.deposits.assets": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "deposits.assets",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.deposit_custody_unset": "PRECONDITION_FAILED",
+        "bank.deposit_catalogue_invalid": "PRECONDITION_FAILED",
+        "bank.asset_registry_unavailable": "SERVICE_UNAVAILABLE"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "assetId": {
+                  "type": "string"
+                },
+                "precision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "networks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "minimumDeposit": {
+                        "type": "string",
+                        "pattern": "^\\d+(\\.\\d{1,18})?$"
+                      },
+                      "confirmationsRequired": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "estimatedArrivalMinutes": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "requirements": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "unsupported": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "warnings": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      }
+                    },
+                    "required": ["id", "label", "minimumDeposit", "confirmationsRequired", "estimatedArrivalMinutes"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["assetId", "networks"],
+              "additionalProperties": false
+            }
+          },
+          "halted": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "assetId": {
+                  "type": "string"
+                },
+                "networkId": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "haltNote": {
+                  "type": ["string", "null"]
+                },
+                "blockedBy": {
+                  "type": "string",
+                  "const": "registry"
+                },
+                "assetState": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["active", "halted", "retired"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["assetId", "networkId", "label", "haltNote"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["assets"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "bank.deposits.list": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "deposits.list",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.deposit_custody_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "default": {
+          "offset": 0,
+          "limit": 50
+        },
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "networkId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "detected",
+              "confirming",
+              "credited",
+              "below_minimum",
+              "held_for_screening",
+              "held_for_release",
+              "on_hold",
+              "held_travel_rule",
+              "rejected",
+              "reversed",
+              "needs_review"
+            ]
+          },
+          "txId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "address": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "offset": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "assetId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9]{1,16}$"
+                },
+                "networkId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{1,32}$"
+                },
+                "address": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^\\S+$"
+                },
+                "txHash": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^\\S+$"
+                },
+                "outputIndex": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9]\\d{0,29})(\\.\\d{1,18})?$"
+                },
+                "confirmations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000
+                },
+                "confirmationsRequired": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "detected",
+                    "confirming",
+                    "credited",
+                    "below_minimum",
+                    "held_for_screening",
+                    "held_for_release",
+                    "on_hold",
+                    "held_travel_rule",
+                    "rejected",
+                    "reversed",
+                    "needs_review"
+                  ]
+                },
+                "reason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "below_minimum",
+                        "amount_mismatch",
+                        "unknown_asset",
+                        "minimum_unset",
+                        "confirmations_unset",
+                        "chain_reorg",
+                        "reversal_unfunded",
+                        "address_expired",
+                        "address_frozen",
+                        "travel_rule_unset",
+                        "travel_rule_declaration",
+                        "travel_rule_review",
+                        "travel_rule_counterparty",
+                        "travel_rule_expired"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "minimumDeposit": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(0|[1-9]\\d{0,29})(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "detectedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                },
+                "creditedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "assetId",
+                "networkId",
+                "address",
+                "txHash",
+                "outputIndex",
+                "amount",
+                "confirmations",
+                "confirmationsRequired",
+                "status",
+                "reason",
+                "minimumDeposit",
+                "detectedAt",
+                "creditedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["items", "total"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "assetId": "USDC",
+            "status": "credited",
+            "limit": 20
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        }
+      ]
+    },
+    "bank.deposits.pending": {
+      "service": "svc-bank",
+      "module": "bank",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "deposits.pending",
+      "access": {
+        "caller": "scope",
+        "scope": "bank:read",
+        "module": "bank"
+      },
+      "refusals": {
+        "bank.deposit_custody_unset": "PRECONDITION_FAILED",
+        "bank.deposit_pending_unbounded": "PRECONDITION_FAILED",
+        "bank.deposit_catalogue_invalid": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "assetId": {
+                  "type": "string"
+                },
+                "networkId": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "confirmations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "confirmationsRequired": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["id", "assetId", "networkId", "amount", "confirmations", "confirmationsRequired"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
     "bank.global.cancel": {
       "service": "svc-bank",
       "module": "bank",

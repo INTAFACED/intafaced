@@ -25,6 +25,13 @@ The `freeze` slice is ported. It added:
 - `src/door/freeze.rs`: `GET` and `POST /operator/freeze`, `POST /operator/unfreeze` and `GET /operator/integrity/clock`. `freezeSchema` is recorded as zod runs it: its trim, then its pipe (`service_kit::schema` runs pipes).
 - `tests/freeze_pg.rs`: the freeze cases of `service.freeze.test.ts`, the clock-skew Postgres case and the freeze doors of `operator-http.test.ts`, on a real Postgres.
 
+The `assets` slice is ported. It added:
+
+- `src/assets.rs`: the registry's reads (`listAssets`, `getAsset`, `listOperatorAssets`) and `applyAssetEdit`: the edit's payload hash (`assetEditPayloadHash`), the founder pair it spends, applied once per operation id, stale against the revision it was approved at. Every input and every row read out runs through the schemas recorded from `packages/contracts/src/asset-registry.ts`, the body's own check as the `asset_body` refine in `src/refines.rs`.
+- `src/door/assets.rs`: `assetsList`, `assetsGet`, `GET /operator/assets` and `POST /operator/assets/apply-edit`, past the door's caller and scope checks.
+- The kit's `Replay` may leave out the consuming operator: the asset edit sends its replay key (`requestId`) alone, as `applyAssetEdit` does; the desk's writes send both.
+- `tests/assets_pg.rs`: `supported-assets.pg.test.ts` case for case, and the doors of `asset-registry-doors.test.ts`, on a real Postgres.
+
 The `reports` slice is ported. It added:
 
 - `src/reports.rs`: `statementPnl`, `reportExport`, `custody`, `financeClose` and `resilience`, each answering as its TypeScript handler does. None of them posts. `statementPnl` reads the owner's balances when no lots are sent, and still refuses, because posted cash is not lots, marks or NAV. A failed read fails the call. A statement sum or product that does not fit `i128` (past about 1.7e20 units) is refused as the ledger's own fault. The TypeScript's bigint answers it, but the port never answers a wrapped or saturated figure. Custody's difference is worked out exactly.
@@ -62,6 +69,13 @@ The `desk` slice is ported. It added:
 - `src/desk.rs`: the desk's reads (the transaction list with its total and cursor, one transaction and a business key's trace with their booking record, the address search with volumes, the book's counts, an account's metadata) and the metadata set and delete. Each read that names a customer writes its `operator_access_log` row first and is refused with nothing read when it cannot. A delete spends identity's approval with its operation as the replay key (`service_kit::approvals::Replay`).
 - `src/door/desk.rs`: the eight desk doors, with `lookup`'s and `metadataWrite`'s answers. The metadata writes' input schemas are recorded beside the doors' (`metadataSet`, `metadataDelete`); they run after the token, as `parseOrRefuse` does.
 - `tests/desk_pg.rs`: `operator-desk.pg.test.ts` and `operator-account-metadata.pg.test.ts` case for case, and the door cases of the three desk `*-http.test.ts` files that need a real book. The book is seeded in SQL as `recipes.deposit` posts, until `posting` is ported.
+
+The `ops-reads` slice is ported. It added:
+
+- `src/ops_reads.rs`: svc-ops' five reads. `feeRevenue` sums earned, returned and collected per venue and asset over a half-open window, and refuses an empty or inverted one with `ledger.fee_revenue_window_invalid`. `ownFunds` reads our house and module accounts and our own-funds places in one statement, then checks every row again with the custody split, so a customer's row is a 500, never counted as ours. `restoreWatermark` reads the chain tip, live or as of `{ asOf }` (`ledger.skew_bound_unset` with no bound, `ledger.restore_asof_unanswerable` before the cut-off is past it). `reconciliationEvaluations` reads settled runs after a microsecond cursor. `transactionsExist` answers ids only.
+- `src/door/mod.rs`: the door answers these five past their checks, with `httpError`'s statuses. `feeRevenue`, `reconciliationEvaluations` and `transactionsExist` now run their recorded input schemas at the door.
+- `src/door/schemas.json`: the four inputs, and the two replies the feed checks before it answers (`reconciliationControlRunSchema`, `reconciliationEvaluationFeedSchema`). A stored run the contract no longer reads is the ledger's 500, and the reply takes the contract's key order. The recorder now records literals and unions.
+- `tests/ops_reads_pg.rs`: `fee-revenue-postgres.test.ts`, `own-funds-postgres.test.ts`, `restore-watermark-asof.pg.test.ts`, the feed case of `reconciliation-controls.pg.test.ts` and the database side of `transactionsExist`, on a real Postgres. The port cannot post yet, so each book is written straight into the tables. The posts are the TypeScript tests' own, made by the same recipes (`tests/fixtures/ops-reads-books.json`).
 
 Left to later slices:
 
