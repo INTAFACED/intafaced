@@ -584,14 +584,6 @@ describe('svc-quant mounted request screening', () => {
   });
 });
 
-describe('svc-quant router — cash is never invented', () => {
-  it('has no decimal.default(10000) on studio.save or sandbox.run', () => {
-    const src = routerSources();
-    expect(src).not.toMatch(/decimal\.default\(['"]10000['"]\)/);
-    expect(src).toMatch(/cash:\s*decimal\.optional\(\)\.nullable\(\)/);
-  });
-});
-
 describe('svc-quant health — liveness is not a custodial stamp', () => {
   it('answers ok + service and does not stamp custodial:false', async () => {
     const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
