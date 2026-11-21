@@ -137,4 +137,3 @@ export class MemoryTemplateStore implements TemplateStore {
     return this.rows.delete(id);
   }
 }
-export { TEMPLATE_ID_PATTERN };

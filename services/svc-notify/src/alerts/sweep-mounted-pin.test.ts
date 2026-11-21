@@ -62,7 +62,11 @@ describe('the alert evaluation driver is reachable from the entrypoint', () => {
   it('the router discloses evaluation status with the watchlist, not behind its own procedure', () => {
     const router = src('router.ts');
     expect(router).toMatch(/evaluationStatus\(\)/);
-    expect(router).toMatch(/alertEvaluationOutput/);
+    // The watchlist's answer carries the evaluation status: its record, which the router mounts.
+    const records = readFileSync(join(here, '../../../../packages/contracts/src/notify-notify-procedures.ts'), 'utf8');
+    expect(records.slice(records.indexOf('export const NOTIFY_ALERTS = '), records.indexOf('export const NOTIFY_CREATE_ALERT = '))).toMatch(
+      /evaluation: alertEvaluationOutput/,
+    );
     // Both surfaces: reading the list AND creating a watch.
     const createAlert = router.slice(router.indexOf('createAlert:'), router.indexOf('cancelAlert:'));
     expect(createAlert).toMatch(/alerts\.whaleEvaluationStatus\(\)/);

@@ -8,7 +8,7 @@ import { bindingOf, calleeName, keyOf, load, resolveRelative, walk } from './ast
 const LEAF = new Set(['query', 'mutation']);
 
 /** The root router: `create<Name>Router` in `src/router.ts` whose body returns `router({...})`. */
-export function rootOf(serviceDir, fnName) {
+function rootOf(serviceDir, fnName) {
   const file = join(serviceDir, 'src', 'router.ts');
   if (!existsSync(file)) throw new Error(`${serviceDir}: no src/router.ts`);
   const p = load(file);

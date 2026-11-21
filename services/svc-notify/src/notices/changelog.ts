@@ -148,4 +148,3 @@ export function retiredEndpoints(entries: readonly ChangelogEntryRef[]): Retired
   }
   return [...byEndpoint.values()].sort((a, b) => a.endpoint.localeCompare(b.endpoint));
 }
-export { CHANGELOG_AREAS };

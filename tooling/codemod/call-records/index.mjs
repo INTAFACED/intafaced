@@ -118,7 +118,7 @@ class Changes {
   }
 }
 
-export function plan(opts) {
+function plan(opts) {
   const serviceDir = join(REPO, 'services', opts.service);
   const { procedures: procs, unread } = procedures(serviceDir, opts.routerFn);
   const all = findSites(REPO);
@@ -201,7 +201,7 @@ function recordFile(opts, path) {
   return join(CONTRACTS, `${opts.module}-${seg}-records.ts`);
 }
 
-export function build(opts, planned) {
+function build(opts, planned) {
   const changes = new Changes();
   const created = new Map();
   const groups = new Map();
@@ -482,7 +482,7 @@ function mergeImports(old, imports) {
 }
 
 /** Writes every change, adds the imports, drops the imports nothing reads any more, and formats what it touched. */
-export function write(result) {
+function write(result) {
   const touched = [];
   for (const [file, body] of result.created) {
     writeFileSync(file, body);
@@ -507,7 +507,7 @@ export function write(result) {
 }
 
 /** The other files that import `name` from `file` (by its module name), the files a re-export of it must keep serving. */
-export function importersOf(file, name) {
+function importersOf(file, name) {
   const stem = basename(file).replace(/\.tsx?$/, '');
   try {
     return execFileSync('git', ['grep', '-l', '-w', name, '--', 'apps', 'packages', 'services'], { cwd: REPO, encoding: 'utf8' })

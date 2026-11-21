@@ -70,7 +70,7 @@ export function resolveRelative(file, from) {
 }
 
 /** The scopes (function bodies, blocks, the program) that enclose a node, innermost first. */
-export function scopesOf(p, node) {
+function scopesOf(p, node) {
   const out = [];
   for (let n = p.parents.get(node); n; n = p.parents.get(n)) {
     if (n.type === 'BlockStatement' || n.type === 'Program' || n.type === 'StaticBlock') out.push(n);
@@ -133,7 +133,7 @@ export function bindingOf(p, node, name) {
   return { kind: 'global' };
 }
 
-export function patternNames(pattern) {
+function patternNames(pattern) {
   if (!pattern) return [];
   switch (pattern.type) {
     case 'Identifier':

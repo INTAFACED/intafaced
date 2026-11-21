@@ -62,7 +62,7 @@ export function contractsExports(repo) {
 
 const unsafeCache = new Map();
 /** True when a contracts file reaches `node:` (directly or through its relative imports): it can't load in the browser. */
-export function nodeOnly(file, seen = new Set()) {
+function nodeOnly(file, seen = new Set()) {
   if (unsafeCache.has(file)) return unsafeCache.get(file);
   if (seen.has(file)) return false;
   seen.add(file);
@@ -189,7 +189,7 @@ export function closureOf(repo, roots) {
 }
 
 /** A top-level declaration of `name` in a file. */
-export function topLevel(q, name) {
+function topLevel(q, name) {
   for (const stmt of q.program.body) {
     const decl = stmt.type === 'ExportNamedDeclaration' && stmt.declaration ? stmt.declaration : stmt;
     if (decl.type === 'VariableDeclaration') {

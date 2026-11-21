@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import type { OutOfAppChannel } from './channels/channel.js';
 import type { ChannelTarget } from './channel-store.js';
-import { type RecipientState, RECIPIENT_STATES } from '@intafaced/contracts/notify-call-schemas';
+import { type RecipientState } from '@intafaced/contracts/notify-call-schemas';
 
 export const QUARANTINE_THRESHOLD_UNSET = 'notify.quarantine_threshold_unset' as const;
 export const RECIPIENT_UNKNOWN = 'notify.recipient_unknown' as const;
@@ -299,4 +299,4 @@ export class PostgresRecipientHealthStore implements RecipientHealthStore {
     });
   }
 }
-export { type RecipientState, RECIPIENT_STATES };
+export { type RecipientState };

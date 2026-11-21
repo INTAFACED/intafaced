@@ -280,4 +280,4 @@ export class MemoryPostmortemStore implements PostmortemStore {
     });
   }
 }
-export { POSTMORTEMS_LIST_MAX, POSTMORTEM_BODY_MAX };
+export { POSTMORTEMS_LIST_MAX };

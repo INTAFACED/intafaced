@@ -9,7 +9,7 @@ const NAMED_AT = { query: [0, 1], mutate: [0, 1], founderCall: [1, 2], founderEd
 const CALL_NAME = /^[a-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+$/u;
 const isString = (n) => (n?.type === 'Literal' && typeof n.value === 'string') || n?.type === 'TemplateLiteral';
 
-export function appFiles(repo) {
+function appFiles(repo) {
   return execFileSync('git', ['ls-files', 'apps/customer/src', 'apps/admin/src'], { cwd: repo, encoding: 'utf8' })
     .split('\n')
     .filter((f) => /\.[cm]?[jt]sx?$/.test(f) && !TEST_FILE.test(f))

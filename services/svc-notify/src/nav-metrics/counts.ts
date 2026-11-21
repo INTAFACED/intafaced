@@ -5,7 +5,6 @@
  * each count once and never retries, so a lost one stays lost, and the write is public, so anyone can add to it.
  */
 import type { Sql } from 'postgres';
-import { NAV_METRIC_DAYS_MAX } from '@intafaced/contracts/notify-call-schemas';
 
 export const NAV_METRIC_KINDS = ['search_miss'] as const;
 export type NavMetricKind = (typeof NAV_METRIC_KINDS)[number];
@@ -68,4 +67,3 @@ export class SqlNavMetricStore implements NavMetricStore {
     return rows.map((row) => ({ day: row.day, count: Number(row.count) }));
   }
 }
-export { NAV_METRIC_DAYS_MAX };
