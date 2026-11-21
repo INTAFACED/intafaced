@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT, type Refusals } from './procedure.js';
-import { quantAccountRulesSchema, quantBacktestFeeSchema, quantBacktestInputSchema, quantBacktestResultSchema } from './quant-algo.js';
+import {
+  quantAccountRulesSchema,
+  quantBacktestFeeSchema,
+  quantBacktestHistorySchema,
+  quantBacktestInputSchema,
+  quantBacktestResultSchema,
+} from './quant-algo.js';
+import { quantMonteCarloSchema } from './quant-research.js';
 import {
   quantAccountField,
   quantCostEvidenceSchema,
@@ -11,8 +18,9 @@ import {
 
 /**
  * svc-quant's backtests, one record per call: the walk-forward run over recorded fills (`backtest.run`), the bar backtest
- * on the exchange's own closed bars (`backtest.start`, AL-backtest-01/02), and the two reads it shows first, the published
- * margin rules and fee rate. Simulated: none moves value. svc-quant mounts each from here (`routes/backtest.ts`).
+ * on the exchange's own closed bars (`backtest.start`, AL-backtest-01/02), the two reads it shows first, the published
+ * margin rules and fee rate, and the stored runs: one result, its Monte Carlo resampling, the history and a run's label
+ * (AL-backtest-03). Simulated: none moves value. svc-quant mounts each from here (`routes/backtest.ts`).
  */
 
 /** Served wherever quant's fiat plane is, with or without a principal; the handler resolves the account itself. */
@@ -214,9 +222,102 @@ export const QUANT_BACKTEST_START = defineProcedure({
   ],
 });
 
+/** The most runs one history page lists. */
+export const QUANT_BACKTEST_HISTORY_PAGE_MAX = 50;
+
+/** A stored run is the caller's own: another account's run, or one that is not a bar backtest, reads as not found. */
+const STORED_RUN = { 'quant.run_not_found': 'NOT_FOUND', 'quant.params_invalid': 'BAD_REQUEST' } as const satisfies Refusals;
+
+/** One stored bar backtest of the caller's own. */
+export const QUANT_BACKTEST_RESULT = defineProcedure({
+  ...base,
+  name: 'quant.backtest.result',
+  kind: 'query',
+  path: 'backtest.result',
+  refusals: STORED_RUN,
+  input: z.object({ runId: z.string().min(1), ...quantAccountField }),
+  output: quantBacktestResultSchema,
+  samples: [
+    { verdict: 'accept', input: { runId: 'r-1' } },
+    { verdict: 'refuse', input: { runId: '' } },
+  ],
+});
+
+/**
+ * Monte Carlo resampling of one finished bar backtest of the caller's (RC-algo-dev-04; J-algo-dev-16 #3): the owner's
+ * path count and fewest round trips, the caller's seed. Deterministic; nothing is stored and nothing moves.
+ */
+export const QUANT_BACKTEST_MONTE_CARLO = defineProcedure({
+  ...base,
+  name: 'quant.backtest.monteCarlo',
+  kind: 'query',
+  path: 'backtest.monteCarlo',
+  refusals: {
+    ...STORED_RUN,
+    'quant.montecarlo_runs_unset': 'PRECONDITION_FAILED',
+    'quant.montecarlo_min_trades_unset': 'PRECONDITION_FAILED',
+    'quant.montecarlo_trades_insufficient': 'PRECONDITION_FAILED',
+  },
+  input: z.object({
+    runId: z.string().min(1).max(128),
+    /** The seed the resampling draws from: the same run, count and seed always give the same distribution. */
+    seed: z.number().int().min(0).max(2_147_483_647),
+    ...quantAccountField,
+  }),
+  output: quantMonteCarloSchema,
+  samples: [
+    { verdict: 'accept', input: { runId: 'r-1', seed: 7 } },
+    { verdict: 'refuse', input: { runId: 'r-1', seed: -1 } },
+    { verdict: 'refuse', input: { runId: '', seed: 7 } },
+  ],
+});
+
+/** The caller's own bar backtests, newest first, with label, version and outcome (AL-backtest-03). */
+export const QUANT_BACKTEST_HISTORY = defineProcedure({
+  ...base,
+  name: 'quant.backtest.history',
+  kind: 'query',
+  path: 'backtest.history',
+  refusals: { 'quant.list_cursor_invalid': 'BAD_REQUEST', 'quant.params_invalid': 'BAD_REQUEST' },
+  input: z.object({
+    limit: z.number().int().min(1).max(QUANT_BACKTEST_HISTORY_PAGE_MAX),
+    cursor: z.string().optional().nullable(),
+    /** Only one strategy's runs (its own page). Another account's strategy id simply matches none. */
+    strategyId: z.string().min(1).max(128).optional(),
+    ...quantAccountField,
+  }),
+  output: quantBacktestHistorySchema,
+  samples: [
+    { verdict: 'accept', input: { limit: 20 } },
+    { verdict: 'accept', input: { limit: 20, cursor: null, strategyId: 's-1' } },
+    { verdict: 'refuse', input: {} },
+    { verdict: 'refuse', input: { limit: QUANT_BACKTEST_HISTORY_PAGE_MAX + 1 } },
+  ],
+});
+
+/** Names one of the caller's own runs. The same label again changes nothing; the stored result is never touched. */
+export const QUANT_BACKTEST_RENAME = defineProcedure({
+  ...base,
+  name: 'quant.backtest.rename',
+  kind: 'mutation',
+  path: 'backtest.rename',
+  refusals: STORED_RUN,
+  input: z.object({ runId: z.string().min(1), label: z.string(), ...quantAccountField }),
+  output: z.object({ runId: z.string(), label: z.string() }),
+  samples: [
+    { verdict: 'accept', input: { runId: 'r-1', label: 'TEST run' } },
+    { verdict: 'accept', input: { runId: 'r-1', label: '' } },
+    { verdict: 'refuse', input: { runId: 'r-1' } },
+  ],
+});
+
 export const QUANT_BACKTEST_PROCEDURES = [
   QUANT_BACKTEST_RUN,
   QUANT_BACKTEST_START,
   QUANT_BACKTEST_ACCOUNT_RULES,
   QUANT_BACKTEST_FEE,
+  QUANT_BACKTEST_RESULT,
+  QUANT_BACKTEST_MONTE_CARLO,
+  QUANT_BACKTEST_HISTORY,
+  QUANT_BACKTEST_RENAME,
 ] as const;

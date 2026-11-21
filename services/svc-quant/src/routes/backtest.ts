@@ -17,19 +17,15 @@ import {
   QUANT_RUN_NOT_FOUND,
   QuantError,
 } from '../errors.js';
-import {
-  QUANT_RUN_LABEL_MAX,
-  publicJurisdictionProcedure,
-  quantBacktestHistorySchema,
-  quantBacktestResultSchema,
-  quantMonteCarloInputSchema,
-  quantMonteCarloSchema,
-  router,
-} from '@intafaced/contracts';
+import { QUANT_RUN_LABEL_MAX, publicJurisdictionProcedure, router } from '@intafaced/contracts';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import {
   QUANT_BACKTEST_ACCOUNT_RULES,
   QUANT_BACKTEST_FEE,
+  QUANT_BACKTEST_HISTORY,
+  QUANT_BACKTEST_MONTE_CARLO,
+  QUANT_BACKTEST_RENAME,
+  QUANT_BACKTEST_RESULT,
   QUANT_BACKTEST_RUN,
   QUANT_BACKTEST_START,
 } from '@intafaced/contracts/quant-backtest-procedures';
@@ -47,7 +43,7 @@ import { withQuantSpan } from '../tracing.js';
 import { z } from 'zod';
 import { quantRefusal, toTrpc, runDetailOutput, accountField, missingStrategy, type QuantCore } from './core.js';
 
-/** `run`, `start`, `fee` and `accountRules` are mounted from their records (`@intafaced/contracts/quant-backtest-procedures`). */
+/** Every call but `get` is mounted from its record (`@intafaced/contracts/quant-backtest-procedures`). */
 export function backtestRoutes(core: QuantCore) {
   const {
     deps,
@@ -277,10 +273,9 @@ export function backtestRoutes(core: QuantCore) {
     ),
 
     /** A stored bar backtest of the caller's own. Another account's run reads as not found. */
-    result: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ runId: z.string().min(1), ...accountField }))
-      .output(quantBacktestResultSchema)
-      .query(async ({ input, ctx }) => {
+    result: mountRecord(
+      QUANT_BACKTEST_RESULT,
+      async ({ input, ctx }) => {
         try {
           const userId = accountOf(ctx, input.accountId);
           const row = await runs.get({ userId, id: input.runId });
@@ -290,17 +285,18 @@ export function backtestRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /**
      * Monte Carlo resampling of one finished bar backtest of the caller's (RC-algo-dev-04; J-algo-dev-16 #3): the
      * owner's path count and fewest round trips, the caller's seed. Deterministic, so the same run, count and seed
      * read back the same distribution every time; nothing is stored and nothing moves.
      */
-    monteCarlo: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantMonteCarloInputSchema.extend(accountField))
-      .output(quantMonteCarloSchema)
-      .query(async ({ input, ctx }) => {
+    monteCarlo: mountRecord(
+      QUANT_BACKTEST_MONTE_CARLO,
+      async ({ input, ctx }) => {
         try {
           const userId = accountOf(ctx, input.accountId);
           const row = await runs.get({ userId, id: input.runId });
@@ -336,21 +332,14 @@ export function backtestRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /** The caller's own bar backtests, newest first, with label, version and outcome (AL-backtest-03). */
-    history: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z.object({
-          limit: z.number().int().min(1).max(BACKTEST_HISTORY_PAGE_MAX),
-          cursor: z.string().optional().nullable(),
-          /** Only one strategy's runs (its own page). Another account's strategy id simply matches none. */
-          strategyId: z.string().min(1).max(128).optional(),
-          ...accountField,
-        }),
-      )
-      .output(quantBacktestHistorySchema)
-      .query(async ({ input, ctx }) => {
+    history: mountRecord(
+      QUANT_BACKTEST_HISTORY,
+      async ({ input, ctx }) => {
         try {
           const userId = accountOf(ctx, input.accountId);
           const cursor = input.cursor?.trim() ? input.cursor.trim() : null;
@@ -377,16 +366,17 @@ export function backtestRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /**
      * Names one of the caller's own runs. The same label again changes nothing; the run and its stored result are
      * never touched. Another account's run reads as not found.
      */
-    rename: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ runId: z.string().min(1), label: z.string(), ...accountField }))
-      .output(z.object({ runId: z.string(), label: z.string() }))
-      .mutation(async ({ input, ctx }) => {
+    rename: mountRecord(
+      QUANT_BACKTEST_RENAME,
+      async ({ input, ctx }) => {
         try {
           const userId = accountOf(ctx, input.accountId);
           const label = input.label.trim();
@@ -400,7 +390,9 @@ export function backtestRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /** The print document of one of the caller's own bar backtests (AL-report-03), mounted from its record. Derived on read. */
     report: mountRecord(

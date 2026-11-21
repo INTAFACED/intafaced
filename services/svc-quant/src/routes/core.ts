@@ -148,11 +148,23 @@ import {
   quantCostEvidenceSchema as costEvidence,
   quantAccountField as accountField,
   quantWriteKeyField as writeKeyField,
+  quantClientIdField as clientIdField,
 } from '@intafaced/contracts/quant-wire';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { z } from 'zod';
 
-export { simulatedStamp, environmentInput, decimal, runOutput, studioBlock, strategyHead, strategyDetail, accountField, writeKeyField };
+export {
+  simulatedStamp,
+  environmentInput,
+  decimal,
+  runOutput,
+  studioBlock,
+  strategyHead,
+  strategyDetail,
+  accountField,
+  writeKeyField,
+  clientIdField,
+};
 
 /** The head an organise sets: a name, one level of folder (blank is the root) and a description, each checked by name. */
 export function organisationOf(input: { name?: unknown; folder?: unknown; description?: unknown }): StrategyOrganisation {
@@ -272,14 +284,6 @@ export function toTrpc(err: unknown): never {
   }
   throw err;
 }
-
-export const studioRisk = z
-  .object({
-    maxDrawdown: z.string().optional(),
-    maxNotional: z.string().optional(),
-    kill: z.string().optional(),
-  })
-  .optional();
 
 export const costBreakdown = z
   .object({
@@ -414,8 +418,6 @@ export const strategyMetadata = z.object({
   live: z.literal(false),
   simulated: z.literal(true),
 });
-
-export const clientIdField = { clientStrategyId: z.string().optional().nullable() };
 
 /** A stored alert as the screen reads it. */
 export function alertView(row: StoredAlert) {
