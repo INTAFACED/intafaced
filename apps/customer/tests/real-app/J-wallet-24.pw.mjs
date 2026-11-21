@@ -1,5 +1,5 @@
 // World: restart
-import { formatUnits } from 'viem';
+import { encodeFunctionData, erc20Abi, formatUnits } from 'viem';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { journeyState } from './stack.mjs';
@@ -140,13 +140,31 @@ test(`${J} #2 tries to deposit with none of the chain's gas token: stopped befor
   await deposit(page)
     .getByLabel(/^Amount/)
     .fill(DEPOSIT);
-  await deposit(page).getByRole('button', { name: 'Deposit', exact: true }).click();
+  const route = await venueRoute();
   const stop = deposit(page).locator('[data-deposit-stop="no_gas"]');
-  await expect(stop).toBeVisible({ timeout: 20_000 });
+  // With no block mined in between, the page and this test ask the chain the same thing at the same gas price.
+  const chainFee = await withMiningPaused(async () => {
+    await deposit(page).getByRole('button', { name: 'Deposit', exact: true }).click();
+    await expect(stop).toBeVisible({ timeout: 20_000 });
+    // The chain's own estimate for this very transfer (the venue's token, `transfer` to its bridge, of the amount typed),
+    // times its own gas price: the TEST chain answers both, so the fee shown is that figure, never "not known".
+    const units = BigInt(DEPOSIT) * 10n ** BigInt(route.tokenDecimals);
+    const call = {
+      from: address,
+      to: route.token,
+      data: encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [route.address, units] }),
+      value: '0x0',
+    };
+    const [gas, price] = await Promise.all([chainRpc('eth_estimateGas', [call]), chainRpc('eth_gasPrice')]);
+    return formatUnits(BigInt(gas) * BigInt(price), 18);
+  });
   await expect(stop).toContainText(
     'Stopped before signing: your wallet holds no ETH, the gas token on TEST chain that pays this transfer’s network fee.',
   );
-  await expect(stop.getByTestId('deposit-fee-estimate')).toHaveText(/^(?:\d+(?:\.\d+)? ETH|not known)$/);
+  const feeShown = stop.getByTestId('deposit-fee-estimate');
+  await expect(feeShown).toHaveText(/^\d+(?:\.\d+)? ETH$/);
+  const [feeFigure] = (await feeShown.textContent()).split(' ');
+  expect(sameDecimal(feeFigure, chainFee), `the fee shown, ${feeFigure} ETH, is the chain's own estimate, ${chainFee} ETH`).toBe(true);
   await expect(stop).toContainText(`To add it, send ETH on TEST chain to your wallet address ${address}`);
   // No sponsored deposit: the owner's setting is blank, by its code, as svc-protocol reports it.
   expect((await recorded(who)).gasSponsor).toEqual({ set: false, code: SPONSOR_UNSET });

@@ -73,6 +73,10 @@ describe('the owner’s provider setting', () => {
       capabilities: { export: true, recovery: true },
     });
     expect(embeddedWalletFromSetting('TEST:test', URL, 'dev').kind).toBe('ready');
+    // The same TEST provider standing in for one whose plan offers no key export (J-wallet-22 #5).
+    const noExport = embeddedWalletFromSetting('TEST:test-no-export', URL, 'test');
+    expect(noExport.kind === 'ready' && noExport.adapter.info.capabilities).toEqual({ export: false, recovery: true });
+    expect(() => embeddedWalletFromSetting('TEST:test-no-export', URL, 'production')).toThrow(/TEST value .* Refusing to boot/);
   });
 
   it('refuses to boot on a TEST provider outside dev or test, a missing or non-loopback URL, or an unknown provider', () => {
