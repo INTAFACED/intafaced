@@ -112,7 +112,7 @@ export interface RecurringBuysDeps {
   /** The seed every venue agent key here derives from (TRADE_AGENT_KEY_SEED); blank refuses every recurring buy. */
   readonly keySeed: string;
   readonly liveTier: (userId: string) => Promise<Principal['tier']>;
-  /** The person's own freeze, read before each slot (null: no order is sent). */
+  /** The person's own freeze, read before each slot and before the sells that end a rule (null: no order is sent). */
   readonly freeze: AccountFreezeRead | null;
   readonly notices?: RecurringNotices;
   readonly platformPauses?: () => Promise<PauseSnapshot>;
@@ -651,10 +651,17 @@ export class RecurringBuys {
     const orders = await this.deps.store.orders(rule.ruleId);
     const markets = await this.spotMarkets(rule.owner);
     const at = this.deps.now();
+    // The same gate every slot passes: no sell is sent for a frozen or ineligible person, or on a coin under a platform
+    // bot halt. A sell not yet placed is recorded refused, so ending the rule sends nothing for it, now or later.
+    const mayTrade = await this.mayTrade(rule, tier);
+    const pauses = await this.pauses();
     for (const row of rule.basket) {
       const key = convertOrderKey(rule.ruleId, row.symbol);
       let order = orders.find((o) => o.orderKey === key);
       if (order && order.status !== 'open') continue;
+      const blocked = !mayTrade || botOrdersHalted(pauses, row.symbol);
+      // A sell already placed whose answer is not read yet is left for readOrders; it is never sent again while blocked.
+      if (order && blocked) continue;
       if (!order) {
         const bought = sumOf(orders.filter((o) => o.kind === 'buy' && o.symbol === row.symbol).map((o) => this.received(rule, o)));
         const market = markets.find((m) => m.symbol === row.symbol);
@@ -671,14 +678,14 @@ export class RecurringBuys {
           symbol: row.symbol,
           price: bid ?? ZERO,
           qty,
-          status: bid === null ? 'refused' : 'open',
+          status: blocked || bid === null ? 'refused' : 'open',
           filled: ZERO,
           quote: ZERO,
           venueFee: ZERO,
           builderFee: ZERO,
           feeAsset: null,
           placedAt: at,
-          closedAt: bid === null ? at : null,
+          closedAt: blocked || bid === null ? at : null,
         });
         if (order.status !== 'open') continue;
       }

@@ -72,6 +72,7 @@ describe('the recurring buy on the venue (J-copy-bots-otc-16)', { timeout: 60_00
   let recurring: RecurringBuys;
   let notices: { ruleId: string; slot: number }[];
   let clock: Date;
+  let freeze: MemoryFreezeRead;
   let wallet: PrivateKeyAccount;
   let owner: string;
   let SYMS: string[] = [];
@@ -170,13 +171,14 @@ describe('the recurring buy on the venue (J-copy-bots-otc-16)', { timeout: 60_00
     store = new InMemoryRecurringStore();
     notices = [];
     clock = new Date();
+    freeze = new MemoryFreezeRead();
     recurring = new RecurringBuys({
       door,
       store,
       verification: () => ({ mode: 'required', level: 'full' }),
       keySeed: SEED,
       liveTier: async () => 'full',
-      freeze: new MemoryFreezeRead(),
+      freeze,
       notices: { suspended: async (x) => void notices.push({ ruleId: x.ruleId, slot: x.slot }) },
       now: () => clock,
     });
@@ -358,6 +360,23 @@ describe('the recurring buy on the venue (J-copy-bots-otc-16)', { timeout: 60_00
     await recurring.tickAll();
     expect((await recurring.get(person, made.ruleId)).slots).toHaveLength(1);
     expect((await refused(recurring.update(person, { ruleId: made.ruleId, amount: '5' }))).code).toBe('trade.recurring_ended');
+  });
+
+  it('sends no sell when a frozen person ends the rule: each conversion is recorded refused and the coins stay', async () => {
+    await approveBuilder();
+    const made = await sign(await create());
+    const bases = SYMS.map((s) => s.replace(/-USDC$/, ''));
+    const held = await Promise.all(bases.map((b) => free(b)));
+    expect(held.every((h) => h !== '0')).toBe(true);
+    freeze.frozenUsers.add(person.userId);
+    const ended = await recurring.terminate(person, made.ruleId);
+    expect(ended.status).toBe('terminated');
+    expect(ended.conversions.map((c) => [c.orderKey, c.status])).toEqual(SYMS.map((s) => [convertOrderKey(made.ruleId, s), 'refused']));
+    expect(await Promise.all(bases.map((b) => free(b)))).toEqual(held);
+    // Lifting the freeze later sends nothing for the refused sells: ending it was once.
+    freeze.frozenUsers.clear();
+    await recurring.terminate(person, made.ruleId);
+    expect(await Promise.all(bases.map((b) => free(b)))).toEqual(held);
   });
 
   it('shows cost always; value Not set while a coin has no mark, and the profit percentage once every coin has one', async () => {
