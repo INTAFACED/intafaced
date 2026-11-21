@@ -522,12 +522,12 @@ fn the_door_answers_every_recorded_request_it_decides_as_the_typescript_does() {
         "routes the recording never reaches: {unreached:?}"
     );
     // A slice the door serves owes nothing, ever.
-    for s in Slice::ALL.into_iter().filter(|s| s.is_served()) {
+    for s in Slice::ALL.into_iter().filter(|s| s.is_ported()) {
         let n = owed.get(&s).copied().unwrap_or(0);
         assert_eq!(
             n,
             0,
-            "slice {} is served and still owes {n} answers",
+            "slice {} is ported and still owes {n} answers",
             s.name()
         );
     }

@@ -475,6 +475,11 @@ const bankSections: readonly DeskSection[] = [
         label: 'Card programme',
         why: 'The set-up checklist, configuration, authorisation rules, 3DS, cardholders, the decision log, reports, staff roles and bulk issue are on their own page.',
       },
+      {
+        href: '/bank-ops/cards/fraud',
+        label: 'Card fraud risk (preview)',
+        why: 'A labelled preview over TEST rows: no fraud engine exists, so no authorisation is scored.',
+      },
     ],
   },
   {

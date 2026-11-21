@@ -365,6 +365,7 @@ impl World {
             ready: ReadyInput::unwired(),
             metering: self.metering(enabled),
             runtime: rt,
+            advisors: svc_agents::advisors::Advisors::unwired(),
         })
         .unwrap()
     }

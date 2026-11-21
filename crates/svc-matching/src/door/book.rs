@@ -1,8 +1,10 @@
 //! The `book` slice's doors, past the caller and input checks (`router.ts`): each turns the checked input into the
 //! engine's call and writes the engine's answer as the TypeScript writes it.
 //!
-//! An order that names a part only a later slice serves (a stop or a trigger, a dated expiry, an iceberg, a peg, all-
-//! or-none, an auction, an option or a combo) is that slice's: the door owes it and the engine never sees it.
+//! The `triggers` slice's parts ride the same doors: a stop, a stop-limit, an OCO, a trailing stop and a dated expiry
+//! are submits, and `POST /markets/:marketId/mark` walks the trailing stops. An order that names a part only a later
+//! slice serves (an iceberg, a peg, all-or-none, an auction, an option or a combo) is that slice's: the door owes it and
+//! the engine never sees it.
 
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
@@ -65,23 +67,6 @@ fn is_true(v: &Value) -> bool {
 pub fn submit_owed_by(body: &Value) -> Option<Slice> {
     let present = |k: &str| !matches!(body.get(k), Value::Undefined);
     let set = |k: &str| !matches!(body.get(k), Value::Undefined | Value::Null);
-    let kind = body.get("type").as_str().unwrap_or("");
-    let tif = body.get("tif").as_str().unwrap_or("");
-    if matches!(kind, "stop" | "stop_limit")
-        || set("stopPrice")
-        || set("stopPx")
-        || body.get("ocoSiblingId").truthy()
-        || is_true(body.get("oco"))
-        || set("takeProfit")
-        || set("stopLoss")
-        || set("stopLossLimit")
-        || body.get("expireAt").truthy()
-        || matches!(tif, "GTD" | "GTT")
-        || present("trail")
-        || present("mark")
-    {
-        return Some(Slice::Triggers);
-    }
     if is_true(body.get("iceberg"))
         || set("displayQty")
         || [
@@ -128,6 +113,29 @@ fn to_engine_order(body: &Value) -> Result<EngineOrder, String> {
         nullish_amount(body.get("price"))?,
         tif,
     );
+    // `body.stopPx ?? body.stopPrice`.
+    order.stop_price = match body.get("stopPx") {
+        Value::Undefined | Value::Null => nullish_amount(body.get("stopPrice"))?,
+        v => Some(amount(v)?),
+    };
+    let truthy_text = |k: &str| {
+        body.get(k)
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    };
+    order.oco_sibling_id = truthy_text("ocoSiblingId");
+    order.exits.oco = is_true(body.get("oco"));
+    // `body.x != null ? { x: parseAmount(body.x) } : {}`.
+    let set_amount = |k: &str| -> Result<Opt<Amount>, String> {
+        Ok(nullish_amount(body.get(k))?.map_or(Opt::Absent, Opt::Some))
+    };
+    order.exits.take_profit = set_amount("takeProfit")?;
+    order.exits.stop_loss = set_amount("stopLoss")?;
+    order.exits.stop_loss_limit = set_amount("stopLossLimit")?;
+    order.expire_at = truthy_text("expireAt");
+    order.trail = opt_amount(body.get("trail"))?;
+    order.mark = opt_amount(body.get("mark"))?;
     order.session_id = body
         .get("sessionId")
         .as_str()
@@ -294,6 +302,12 @@ pub fn serve(
                 Err(e) => return Outcome::Answer(errors::thrown(&e)),
             };
             match engine.submit(&market, &order, proof(body).as_ref()) {
+                Ok(r) => ok(r.to_json()),
+                Err(e) => failed(&e),
+            }
+        }
+        ("POST", "/markets/:marketId/mark") => {
+            match engine.mark_trailing_stops(&market, &text(body.get("mark"))) {
                 Ok(r) => ok(r.to_json()),
                 Err(e) => failed(&e),
             }
