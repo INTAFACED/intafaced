@@ -248,7 +248,7 @@ fn board(engine: &MatchingEngine) -> Json {
     ])
 }
 
-fn limit_of(req: &Request<'_>) -> usize {
+pub(super) fn limit_of(req: &Request<'_>) -> usize {
     query(req.url)
         .iter()
         .find(|(k, _)| k == "limit")

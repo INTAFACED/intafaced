@@ -7,11 +7,8 @@
 //! approval-gated in the door table (`createSeason`, `revokeCert`, `grantCertException`) runs
 //! [`approval_precheck`] itself at the point its TypeScript handler does.
 
-use sha2::{Digest, Sha256};
-
 use service_kit::access::require_mfa;
 use service_kit::edge::Principal;
-use service_kit::json::{self, Json};
 use service_kit::schema::{Value, js_trim};
 use service_kit::trpc::TrpcError;
 
@@ -68,21 +65,8 @@ pub fn approval_precheck(
     read_approval_ids(input)
 }
 
-/// `academyActionPayloadHash(actionType, fields)`: `sha256:` and the hex digest of `JSON.stringify({actionType,
-/// ...fields})`.
-pub fn payload_hash(action_type: &str, fields: &[(&str, &str)]) -> String {
-    let mut all = vec![("actionType".to_owned(), Json::str(action_type))];
-    for (k, v) in fields {
-        match all.iter_mut().find(|(key, _)| key == k) {
-            Some(slot) => slot.1 = Json::str(*v),
-            None => all.push(((*k).to_owned(), Json::str(*v))),
-        }
-    }
-    let payload = Json::Object(json::js_key_order(all)).compact();
-    let digest = Sha256::digest(payload.as_bytes());
-    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
-    format!("sha256:{hex}")
-}
+/// `academyActionPayloadHash(actionType, fields)`: the contracts' one.
+pub use service_kit::approvals::payload_hash;
 
 #[cfg(test)]
 mod tests {

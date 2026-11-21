@@ -37,8 +37,10 @@ use service_kit::s2s_verify::BodyBind;
 use service_kit::server::Request;
 use service_kit::time::Instant;
 use sha2::Sha256;
+use svc_matching::approval::{Stub, parse_operator_ids};
 use svc_matching::book::types::{EngineOrder, OrderType, Side, Tif};
 use svc_matching::book::wire::to_wire;
+use svc_matching::door::venue::VenueConfig;
 use svc_matching::door::{DoorConfig, MatchingDoor, Outcome, ROUTES, Slice};
 use svc_matching::engine::{EngineParts, MatchingEngine, MemoryEventBus};
 use svc_matching::journal::io::{EngineJournal as _, MemoryJournal};
@@ -246,7 +248,7 @@ fn engine(setup: &str) -> MatchingEngine {
 }
 
 fn door(setup: &str) -> MatchingDoor {
-    MatchingDoor::new(
+    let door = MatchingDoor::new(
         DoorConfig {
             internal_secret: SECRET.to_owned(),
             body_bind: BodyBind::Require,
@@ -257,7 +259,18 @@ fn door(setup: &str) -> MatchingDoor {
         },
         engine(setup),
     )
-    .unwrap()
+    .unwrap();
+    if setup != "set" {
+        return door;
+    }
+    // `stubApprovalConsumer(CONFIRM, OPERATOR)` and both operators listed.
+    door.with_venue(VenueConfig {
+        approvals: Box::new(Stub {
+            approver_id: CONFIRM.to_owned(),
+            requester_id: OPERATOR.to_owned(),
+        }),
+        operator_ids: parse_operator_ids(Some(&format!("{OPERATOR}, {CONFIRM}"))),
+    })
 }
 
 /// A recorded answer that moved state: a write the TypeScript took (not refused, and not a mark that moved nothing).

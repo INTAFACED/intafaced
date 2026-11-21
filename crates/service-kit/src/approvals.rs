@@ -12,7 +12,9 @@ use std::sync::Arc;
 use crate::http::{Fetch, HttpRequest};
 use crate::json::{self, Json};
 use crate::s2s::{self, js_length};
+use crate::schema::js_trim;
 use crate::time::zod_datetime;
+use sha2::{Digest, Sha256};
 
 /// `IDENTITY_CONSUME_TIMEOUT_MS`.
 pub const IDENTITY_CONSUME_TIMEOUT_MS: u64 = 5000;
@@ -331,6 +333,74 @@ impl IdentityClient {
             ));
         }
         Ok(approval.consumed)
+    }
+}
+
+/// `JSON.stringify({ actionType, ...fields })` hashed: `sha256:` and the hex digest, as every service's
+/// `*ActionPayloadHash` writes it (a repeated key keeps its first place and its last value; integer-like keys first, as
+/// JavaScript orders them).
+pub fn payload_hash(action_type: &str, fields: &[(&str, &str)]) -> String {
+    let mut all = vec![("actionType".to_owned(), Json::str(action_type))];
+    for (k, v) in fields {
+        match all.iter_mut().find(|(key, _)| key == k) {
+            Some(slot) => slot.1 = Json::str(*v),
+            None => all.push(((*k).to_owned(), Json::str(*v))),
+        }
+    }
+    let payload = Json::Object(json::js_key_order(all)).compact();
+    let digest = Sha256::digest(payload.as_bytes());
+    let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+    format!("sha256:{hex}")
+}
+
+/// `PROTECTIVE_OPERATOR_APPROVALS`: the brakes that need no founder pair.
+const PROTECTIVE: [(&str, &str, &str); 6] = [
+    ("matching.halt", "svc-matching", "halt"),
+    ("matching.halt_all", "svc-matching", "halt_all"),
+    ("matching.reduce_only", "svc-matching", "reduce_only"),
+    ("matching.post_only", "svc-matching", "post_only"),
+    ("ledger.freeze", "svc-ledger", "posting_freeze"),
+    ("execution.halt", "svc-execution", "halt"),
+];
+
+fn norm(s: &str) -> String {
+    js_trim(s).to_lowercase()
+}
+
+/// `isProtectiveOperatorApproval(subject)`: the type, the service and the target's verb all name one brake.
+pub fn is_protective(action_type: &str, target_service: &str, target_id: &str) -> bool {
+    let target = norm(target_id);
+    let verb = target.split(':').next().unwrap_or_default();
+    let (t, s) = (norm(action_type), norm(target_service));
+    PROTECTIVE
+        .iter()
+        .any(|(pt, ps, pv)| *pt == t && *ps == s && *pv == verb)
+}
+
+/// `founderAttestationVerdict(row, subject)`: `None` when it holds, else `missing` or `forged`.
+pub fn founder_verdict(
+    row: &Consumed,
+    action_type: &str,
+    target_service: &str,
+    target_id: &str,
+) -> Option<&'static str> {
+    if is_protective(action_type, target_service, target_id) {
+        return None;
+    }
+    let approver = row.approver_id.as_deref().map(js_trim).unwrap_or_default();
+    let distinct = !approver.is_empty() && approver.to_lowercase() != norm(&row.requester_id);
+    if row.status != "CONSUMED"
+        || js_trim(&row.target_service) != js_trim(target_service)
+        || js_trim(&row.target_id) != js_trim(target_id)
+        || norm(&row.action_type) != norm(action_type)
+        || !distinct
+    {
+        return Some("forged");
+    }
+    match (row.approver_is_founder, row.requester_is_founder) {
+        (None, None) => Some("missing"),
+        (Some(true), Some(true)) => None,
+        _ => Some("forged"),
     }
 }
 

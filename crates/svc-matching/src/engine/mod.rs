@@ -11,6 +11,7 @@
 //! every submit and amend is gated on them, as the base engine gates them.
 
 pub mod reconcile;
+pub mod venue;
 
 use std::collections::{HashMap, HashSet};
 
@@ -357,6 +358,8 @@ pub struct MatchingEngine {
     sink: Box<dyn SnapshotSink<Json> + Send>,
     enabled: bool,
     modes: Modes,
+    /// The open surveillance cases kept as evidence (`surveillance-persist.ts`).
+    evidence: venue::Evidence,
 }
 
 impl MatchingEngine {
@@ -371,6 +374,7 @@ impl MatchingEngine {
             sink: parts.sink,
             enabled: parts.enabled,
             modes: Modes::default(),
+            evidence: venue::Evidence::default(),
         }
     }
 
@@ -628,8 +632,20 @@ impl MatchingEngine {
 
     // ── submit ──────────────────────────────────────────────────────────
 
-    /// Place one order. `lifecycle_proof` is the door's admission evidence, journalled with it.
+    /// Place one order. `lifecycle_proof` is the door's admission evidence, journalled with it. Each surveillance case
+    /// the market's book then holds is kept as evidence (`surveillance-persist.ts`), the refused submit's included.
     pub fn submit(
+        &mut self,
+        market_id: &str,
+        order: &EngineOrder,
+        lifecycle_proof: Option<&Json>,
+    ) -> Result<SubmitResult, EngineError> {
+        let result = self.submit_order(market_id, order, lifecycle_proof)?;
+        self.keep_cases(market_id, &result.surveillance_cases);
+        Ok(result)
+    }
+
+    fn submit_order(
         &mut self,
         market_id: &str,
         order: &EngineOrder,
@@ -975,6 +991,15 @@ impl MatchingEngine {
         }
         self.books = into.books;
         self.modes = replay_modes(&records);
+        self.evidence = venue::Evidence::from_journal(&records);
+        for market in self.markets() {
+            let cases = self
+                .books
+                .get(&market)
+                .map(|b| b.open_surveillance_cases().to_vec())
+                .unwrap_or_default();
+            self.evidence.keep_all(&cases);
+        }
         let mut announced: Vec<Pending> = Vec::new();
         for (market, at, fill) in &into.fills {
             announced.push(filled_event(market, fill, at));

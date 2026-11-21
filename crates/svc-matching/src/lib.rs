@@ -11,7 +11,11 @@
 //! The `book` slice adds the order book (`book`), the engine over it (`engine`: the journal before every move, the
 //! order events, the cold start, reconcile), and the doors that reach it (`door::book`). The `serve` slice adds the
 //! binary that serves them.
+//!
+//! The `venue` slice adds the mode switches, the venue halt, dead sessions and the surveillance evidence
+//! (`engine::venue`), their doors (`door::venue`), and the identity approval each switch spends (`approval`).
 
+pub mod approval;
 pub mod book;
 pub mod door;
 pub mod engine;

@@ -14,6 +14,7 @@
 //! Past those the call is its slice's: [`Outcome::Owed`] names which. Nothing here reads or moves a book.
 
 pub mod book;
+pub mod venue;
 
 use std::sync::{LazyLock, Mutex, PoisonError};
 
@@ -387,6 +388,7 @@ pub struct DoorConfig {
 pub struct MatchingDoor {
     cfg: DoorConfig,
     engine: Mutex<MatchingEngine>,
+    venue: venue::VenueConfig,
 }
 
 /// The recorded input schemas and which part each door starts at.
@@ -641,7 +643,18 @@ impl MatchingDoor {
         Ok(MatchingDoor {
             cfg,
             engine: Mutex::new(engine),
+            venue: venue::VenueConfig {
+                approvals: Box::new(crate::approval::Unwired),
+                operator_ids: std::collections::HashSet::new(),
+            },
         })
+    }
+
+    /// The venue doors' approvals and operator list (`options.approvals`, `options.operatorIds`). Without this call
+    /// they are `index.ts`'s on an empty environment: the unwired consumer, and nobody an operator.
+    pub fn with_venue(mut self, venue: venue::VenueConfig) -> MatchingDoor {
+        self.venue = venue;
+        self
     }
 
     /// Decides one request, or names the slice that owes its answer.
@@ -672,7 +685,7 @@ impl MatchingDoor {
             Ok(parsed) => parsed,
             Err(refused) => return answer(refused),
         };
-        if route.slice != Slice::Book {
+        if !matches!(route.slice, Slice::Book | Slice::Venue) {
             return Outcome::Owed(route.slice);
         }
         let param = |name: &str| {
@@ -682,6 +695,9 @@ impl MatchingDoor {
                 .map_or_else(String::new, |(_, _, v)| v.clone())
         };
         let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
+        if route.slice == Slice::Venue {
+            return venue::serve(&self.venue, route, req, &param, &parsed, &mut engine);
+        }
         book::serve(route, req, &param, &parsed, &mut engine)
     }
 
