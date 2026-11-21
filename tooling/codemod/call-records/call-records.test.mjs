@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { answerChecks, Changes, checkedCall, importedFrom, pruneImports, pruneReExports, pruneSchemas, recordName, rewriteSite } from './index.mjs';
+import { answerChecks, Changes, checkedCall, importedFrom, importsFile, pruneImports, pruneReExports, pruneSchemas, recordName, rewriteSite } from './index.mjs';
 import { applyEdits, freeNames, load, resolveRelative, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
@@ -60,6 +60,19 @@ test('a re-export no other file imports once the run is written is dropped; one 
   assert.doesNotMatch(out, /export \{[^}]*CAP/);
   pruneReExports(file, new Set(['LIMIT']), () => []);
   assert.doesNotMatch(readFileSync(file, 'utf8'), /export \{/);
+});
+
+test("an importer counts only when its import resolves to the file: another folder's schemas.ts is not it", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  mkdirSync(join(dir, 'portal'));
+  writeFileSync(join(dir, 'schemas.ts'), 'export const a = 1;\n');
+  writeFileSync(join(dir, 'portal/schemas.ts'), 'export const a = 1;\n');
+  writeFileSync(join(dir, 'service.ts'), 'export const a = 1;\n');
+  writeFileSync(join(dir, 'portal/api.ts'), "import * as p from './schemas';\nexport const x = p.a;\n");
+  writeFileSync(join(dir, 'router.ts'), "import { a } from './service.js';\nexport const y = a;\n");
+  assert.equal(importsFile(join(dir, 'portal/api.ts'), join(dir, 'schemas.ts'), 'schemas'), false);
+  assert.equal(importsFile(join(dir, 'portal/api.ts'), join(dir, 'portal/schemas.ts'), 'schemas'), true);
+  assert.equal(importsFile(join(dir, 'router.ts'), join(dir, 'service.ts'), 'service'), true);
 });
 
 test('a namespace import names each member it reads, so a schema whose last `s.x` reader moved is seen', () => {

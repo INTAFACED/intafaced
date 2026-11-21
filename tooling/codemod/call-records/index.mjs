@@ -808,8 +808,6 @@ function write(result) {
     touched.push(file);
   }
   for (const [file, ch] of result.changes.files) if (ch.schemas) retype(file, ch.schemas);
-  // A re-export kept at plan time for an importer whose read then moved to contracts serves no one.
-  for (const [file, ch] of result.changes.files) if (ch.exports.size) pruneReExports(file, ch.exports, (name) => importersOf(file, name));
   for (const file of touched) if (!file.startsWith(CONTRACTS)) pruneSchemas(file);
   // A schema a moved caller imported from another file of its app may now have no importer: that file is pruned too.
   const sources = new Set();
@@ -818,15 +816,18 @@ function write(result) {
     const before = importedFrom(file);
     pruneImports(file);
     const after = importedFrom(file);
-    for (const [name, src] of before) if (!after.has(name) && src && !touched.includes(src)) sources.add(src);
+    // A touched file too: it was pruned before this caller stopped reading it.
+    for (const [name, src] of before) if (!after.has(name) && src) sources.add(src);
   }
   for (const file of touched) if (file.startsWith(CONTRACTS)) pruneImports(file);
+  // A re-export kept at plan time for an importer whose read then moved to contracts serves no one, once that import is gone.
+  for (const [file, ch] of result.changes.files) if (ch.exports.size) pruneReExports(file, ch.exports, (name) => importersOf(file, name));
   for (const src of sources) {
     const was = readFileSync(src, 'utf8');
     pruneSchemas(src);
     if (readFileSync(src, 'utf8') !== was) {
       pruneImports(src);
-      touched.push(src);
+      if (!touched.includes(src)) touched.push(src);
     }
   }
   if (touched.length)
@@ -836,16 +837,33 @@ function write(result) {
   return touched;
 }
 
-/** The other files that import `name` from `file` (by its module name), the files a re-export of it must keep serving. */
+/**
+ * The other files that import `name` from `file`, the files a re-export of it must keep serving. A relative or `@/`
+ * import counts only when it resolves to `file` (two apps' `schemas.ts` are not one); a package import by its module name.
+ */
 function importersOf(file, name) {
   const stem = basename(file).replace(/\.tsx?$/, '');
   try {
     return execFileSync('git', ['grep', '-l', '-w', name, '--', 'apps', 'packages', 'services'], { cwd: REPO, encoding: 'utf8' })
       .split('\n')
-      .filter((f) => f && join(REPO, f) !== file && new RegExp(`from '[^']*${stem}(\\.js)?'`).test(readFileSync(join(REPO, f), 'utf8')));
+      .filter((f) => f && join(REPO, f) !== file && importsFile(join(REPO, f), file, stem));
   } catch {
     return [];
   }
+}
+
+/** True when `from` has an import whose module is `file`: resolved when relative or `@/`, else by its last segment `stem`. */
+export function importsFile(from, file, stem) {
+  const app = from.match(/^(.*\/apps\/[^/]+)\//)?.[1];
+  for (const m of readFileSync(from, 'utf8').matchAll(/from '([^']+)'/g)) {
+    const spec = m[1];
+    if (spec.startsWith('.')) {
+      if (resolveRelative(from, spec) === file) return true;
+    } else if (spec.startsWith('@/') && app) {
+      if (resolveRelative(join(app, 'src', 'x.ts'), `./${spec.slice(2)}`) === file) return true;
+    } else if (new RegExp(`/${stem}(\\.js)?$`).test(spec)) return true;
+  }
+  return false;
 }
 
 /**
