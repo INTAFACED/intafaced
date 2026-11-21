@@ -77,9 +77,22 @@ The `ops-reads` slice is ported. It added:
 - `src/door/schemas.json`: the four inputs, and the two replies the feed checks before it answers (`reconciliationControlRunSchema`, `reconciliationEvaluationFeedSchema`). A stored run the contract no longer reads is the ledger's 500, and the reply takes the contract's key order. The recorder now records literals and unions.
 - `tests/ops_reads_pg.rs`: `fee-revenue-postgres.test.ts`, `own-funds-postgres.test.ts`, `restore-watermark-asof.pg.test.ts`, the feed case of `reconciliation-controls.pg.test.ts` and the database side of `transactionsExist`, on a real Postgres. The port cannot post yet, so each book is written straight into the tables. The posts are the TypeScript tests' own, made by the same recipes (`tests/fixtures/ops-reads-books.json`).
 
+The `posting` slice is ported, not served yet (the switch is its own item). It added:
+
+- `src/posting/`: the `post` door after its first input check, in the TypeScript's order. `gate.rs` is the caller binding and the recipe gate (`caller-binding.ts`, `recipe-gate.ts`); `bindings.rs` the four binding checks (`*-binding.ts`); `rules.rs` `assertValidPost`, the fingerprint and the balance rule (the chain hash is `chain.rs`'s); `engine.rs` `PostgresLedger.post` (idempotency, the freeze read, clock skew, balances, the chain tip, `ledger_tx_outbox`); `mod.rs` `LedgerService.post` (the custody switch, then this post's intent published) and the `ledgerTxPosted` relay, which the outbox recovery drains beside `ledgerFreezeUpdated`'s.
+- `src/posting/recorded.rs` and `tests/fixtures/posting-parity/`, written from the TypeScript by `scripts/record-posting.mjs` (`--check` fails when stale): the recipe catalog, the caller allowlist, and 1,172 recorded posts with what the TypeScript answered for each.
+- `tests/posting_parity.rs`: every recorded post judged, refused, fingerprinted and hashed as the TypeScript does.
+- `tests/posting_pg.rs`: the intent and its relay, a failed publish and its retry, the freeze and the custody switch, on a real Postgres.
+- `tests/conformance/`: the TypeScript's own database tests against the binary (`run.mjs`). The ledger conformance suite through the TypeScript door and the Rust one; the four binding files (`*-binding.pg.test.ts`) unmodified on the Rust door; the engine's Postgres tests (`ledger/`) with every post sent through each door. It needs Postgres, NATS and `cargo build -p svc-ledger`; CI does not run it yet.
+
+The `post-recipe` slice is ported, not served yet (the switch is its own item). It added:
+
+- `src/posting/recipe_door.rs`: `postRecipe`, in `handleS2sPostRecipe`'s order: the recipe named, a proven caller's grant for it, the record's input (`postRecipe` in `schemas.json`), the recipe, the grant's module, `post`'s own input, then the booking through `posting::post` and the reply checked against the record's output (`postRecipeReply`). The door's two recipes (`academyPurchase`, `academyPurchaseRefund`) build their legs as `academy-purchase.ts` does.
+- `tests/fixtures/post-recipe.golden.jsonl`, recorded by `record-door.mjs`: what the TypeScript door answers five callers for 239 bodies, its refusal or the post it hands its ledger. `tests/post_recipe_parity.rs` holds the Rust door to every answer, and to the TypeScript door's list of recipes.
+- `tests/conformance/`: `post-recipe-door.pg.test.ts`, unmodified, on the Rust binary (project `post-recipe-pg`, `rust-s2s-register.ts`), custody off as the test sets it.
+
 Left to later slices:
 
-- The recovery has one relay. `posting` adds the `ledgerTxPosted` one; until then a committed post's intent waits unsent.
 - The tick's due-controls run (`runDueReconciliationControls`) is `controls`'s.
 - `/metrics` is in no slice yet. The switch needs it, since Prometheus scrapes it; the `ledger_reconcile_last_verified_*` gauges come with it.
 

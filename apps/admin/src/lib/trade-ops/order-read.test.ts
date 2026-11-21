@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   customerStatusOf,
@@ -17,6 +15,18 @@ import {
   venueOrderIdsIn,
   venueStatusLabel,
 } from './order-read';
+
+/**
+ * svc-trade's own mapping and its order_status set, imported at run time. The paths are URLs rather than static
+ * specifiers only so this app's type program does not pull services/ files in; the values are the modules' real exports.
+ */
+const TRADE_SRC = new URL('../../../../../services/svc-trade/src/', import.meta.url);
+const { toCcxtOrderStatus } = (await import(new URL('private-rest.ts', TRADE_SRC).href)) as {
+  toCcxtOrderStatus: (status: string) => string;
+};
+const { orderStatusEnum } = (await import(new URL('db/schema.ts', TRADE_SRC).href)) as {
+  orderStatusEnum: { enumValues: readonly string[] };
+};
 
 const ORDER = '0b6c3d0e-9f1a-4c2b-8d3e-112233445566';
 const raw = (over: Record<string, unknown> = {}) => ({
@@ -57,22 +67,11 @@ describe('order read (J-cex-spot-18 #1, #2)', () => {
   });
 
   it('gives the customer’s own status word for every service status, as svc-trade’s customer API does', () => {
-    const src = readFileSync(resolve(__dirname, '../../../../../services/svc-trade/src/private-rest.ts'), 'utf8');
-    const body = /export function toCcxtOrderStatus[\s\S]*?\n}\n/.exec(src)?.[0] ?? '';
-    expect(body).not.toBe('');
-    // Each `case 'x': ... return 'y'` group in the service, checked against this mapping.
-    const groups = body.split('return ').slice(1);
-    let cases: string[] = [];
-    for (const chunk of body.split('\n')) {
-      const c = /case '([a-z_]+)':/.exec(chunk);
-      if (c) cases.push(c[1]!);
-      const r = /return '([a-z]+)';/.exec(chunk);
-      if (r) {
-        for (const s of cases) expect(customerStatusOf(s as never), s).toBe(r[1]);
-        cases = [];
-      }
-    }
-    expect(groups.length).toBeGreaterThanOrEqual(5);
+    // The service's whole order_status set, so a status added there and not here fails (it has no word below).
+    const statuses = orderStatusEnum.enumValues;
+    expect(statuses.length).toBeGreaterThanOrEqual(8);
+    for (const s of statuses) expect(customerStatusOf(s as never), s).toBe(toCcxtOrderStatus(s));
+    expect(new Set(statuses.map(toCcxtOrderStatus)).size).toBeGreaterThanOrEqual(5);
   });
 
   it('labels a status in the customer page’s words, and an empty reject as none recorded', () => {

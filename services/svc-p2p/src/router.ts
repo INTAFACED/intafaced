@@ -10,7 +10,6 @@ import {
   P2P_PROCEDURES,
   P2P_REMARK_CASE,
   P2P_REVIEW,
-  P2P_SETTLEMENT,
   P2P_SHARE_LINK,
   P2P_TRADE,
   P2P_TRADE_MISMATCH,
@@ -41,22 +40,11 @@ import {
   type RemarkCase,
   type ShareLinkRecord,
 } from './p2p-service.js';
-import {
-  CASH_RELEASE_MAX_SECONDS,
-  CASH_RELEASE_MIN_SECONDS,
-  CASH_TEXT_MAX,
-  InstrumentError,
-  methodIdFromOfferEntry,
-  NOTE_FORBIDDEN_MAX_WORDS,
-  NOTE_FORBIDDEN_WORD_MAX,
-  NOTE_GUIDANCE_MAX,
-  parseFieldSpecs,
-  type MethodSettlement,
-} from './instruments.js';
+import { InstrumentError, methodIdFromOfferEntry, parseFieldSpecs, type MethodSettlement } from './instruments.js';
 import type { BoardSort } from './customer-depth.js';
 import type { Presence } from './merchant-console.js';
 import { TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
-import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
+import type { InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
 import { TakeStepUpError, unwiredTakeStepUp, type TakeStepUp, type TakeStepUpCaller } from './take-step-up.js';
 import { unwiredReleaseStepUp, type ReleaseStepUp } from './release-step-up.js';
@@ -623,80 +611,9 @@ async function guard<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/**
- * A method's field requirements, as the "add a payment method" screen needs
- * them. About METHODS, never about people — the one instrument-adjacent surface
- * a browsing user may read.
- */
-const fieldSpecOutput = z.object({
-  key: z.string(),
-  label: z.string(),
-  required: z.boolean(),
-  pattern: z.string().optional(),
-  minLength: z.number().int().optional(),
-  maxLength: z.number().int().optional(),
-  /** A hint for the input control. Not an access-control decision. */
-  sensitive: z.boolean().optional(),
-  help: z.string().optional(),
-  /** P-ads-merchant-18: the account holder's name, checked against the person's verified legal name. */
-  holderName: z.boolean().optional(),
-});
-
-const noteRulesInput = z.object({
-  guidance: z.string().min(1).max(NOTE_GUIDANCE_MAX),
-  forbidden: z.array(z.string().min(1).max(NOTE_FORBIDDEN_WORD_MAX)).max(NOTE_FORBIDDEN_MAX_WORDS).readonly(),
-});
-const cashRulesInput = z.object({
-  meetingGuidance: z.string().min(1).max(CASH_TEXT_MAX),
-  proof: z.string().min(1).max(CASH_TEXT_MAX),
-  releaseWindowSeconds: z.number().int().min(CASH_RELEASE_MIN_SECONDS).max(CASH_RELEASE_MAX_SECONDS),
-});
-
 function toRemarkCaseOut(report: RemarkCase): z.infer<typeof P2P_REMARK_CASE> {
   return { ...report, openedAt: report.openedAt.toISOString() };
 }
-
-const methodSchemaOutput = z.object({
-  methodId: z.string(),
-  country: z.string(),
-  label: z.string(),
-  fields: z.array(fieldSpecOutput),
-  enabled: z.boolean(),
-  settlement: P2P_SETTLEMENT,
-  /** P-ads-merchant-19: cash in person when the row carries cash rules; the rules themselves, or null. */
-  kind: z.enum(['transfer', 'cash_in_person']),
-  // Unbounded on the way out: the bounds judge what an operator registers, never a stored row on a read.
-  noteRules: z.object({ guidance: z.string(), forbidden: z.array(z.string()).readonly() }).nullable(),
-  cashRules: z.object({ meetingGuidance: z.string(), proof: z.string(), releaseWindowSeconds: z.number() }).nullable(),
-});
-
-/**
- * AN INSTRUMENT WITHOUT ITS VALUES. The only shape any list returns.
- *
- * There is deliberately no masked hint, no last-four, no partial anything. A
- * mask is still the data, it rides a path that is not access-logged, and it is
- * one helpful refactor away from being the whole value. The owner tells two
- * destinations apart by the label they chose.
- *
- * `fingerprint` is deliberately absent too: it is a hash of the account
- * details, and a hash handed to a caller is an oracle against which a guessed
- * account number can be checked. It stays server-side, where the audit trail
- * needs it and nobody can query it.
- */
-const instrumentHeaderOutput = z.object({
-  id: z.string().guid(),
-  methodId: z.string(),
-  country: z.string(),
-  fiatCurrency: z.string(),
-  label: z.string(),
-  status: z.enum(['active', 'removed']),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  removedAt: z.string().nullable(),
-});
-
-/** The values. Only ever produced by a call that wrote an access-log row. */
-const instrumentDetailsOutput = z.record(z.string(), z.string());
 
 /** One review on the wire. A viewer who is neither its author nor its subject gets no trade id, author or hide reason. */
 function toReviewOut(row: ReviewRecord, viewerId?: string): z.infer<typeof P2P_REVIEW> {
@@ -1054,424 +971,6 @@ export function createP2pRouter(
               quoteId: input.quoteId,
               receivingAccount: input.receivingAccount,
             }),
-          ),
-        ),
-    }),
-
-    /**
-     * PAYMENT INSTRUMENTS (§6.2 "any payment method").
-     *
-     * Who can see a seller's account details, stated once:
-     *
-     *   nobody, except the owner and the counterparty of a trade whose escrow
-     *   is currently HELD — plus a moderator, and only while a dispute on that
-     *   trade is open. Never on an offer, never to a browsing user, never after
-     *   the trade closes. Every one of those reads is logged, including the
-     *   owner's own and including the refusals.
-     *
-     * Nothing in this branch returns a field value except `reveal`, and
-     * `reveal` cannot return one without having written an access-log row in
-     * the same SQL statement (see `instrument-service.ts`).
-     */
-    instruments: router({
-      methods: router({
-        /**
-         * The registry — what each method needs, per country.
-         *
-         * Ships empty. What a payer needs in order to send money differs by
-         * method and by country, and it is not this repo's knowledge to invent;
-         * an operator registers what a market actually requires and until they
-         * do, that market refuses instruments. A seeded guess would be a wrong
-         * answer that looks like a right one.
-         */
-        list: merchantApiProcedure('p2p:read')
-          .input(
-            z
-              .object({
-                country: z.string().length(2).optional(),
-                methodId: z.string().max(64).optional(),
-                /**
-                 * Page size. Optional here so omit reaches the service named
-                 * refuse (`p2p.method_schema_list_limit_unset`) instead of a
-                 * Zod "Required" that looks like a typo. Blank is not 50;
-                 * pass 50 explicitly when that is the page you want.
-                 */
-                limit: z.number().int().min(1).max(200).optional(),
-              })
-              .optional(),
-          )
-          .output(z.array(methodSchemaOutput))
-          .query(async ({ input }) =>
-            guard(async () =>
-              (
-                await instruments.listMethodSchemas({
-                  ...(input?.country ? { country: input.country } : {}),
-                  ...(input?.methodId ? { methodId: input.methodId } : {}),
-                  limit: input?.limit,
-                })
-              ).map((s) => ({ ...s, fields: [...s.fields] })),
-            ),
-          ),
-
-        /**
-         * OPERATOR ONLY. `admin:compliance`, not `admin:write`.
-         *
-         * What a market's payment rails require is the same class of content as
-         * a sanctions list: it is researched, it is jurisdictional, and getting
-         * it wrong produces instruments that look complete and cannot be paid.
-         * Dual-control: MFA + identity-consumed approval. A typed-in
-         * `confirmOperatorId` is not a second person. Missing approval ids
-         * refuse — one operator cannot rewrite the rails a stranger pays against.
-         * `admin:compliance` is not in INTERACTIVE_ONLY_SCOPES; MFA is applied
-         * locally, same as merchants.decide / edge kill-switch.
-         */
-        register: scopedProcedure('admin:compliance', { module: 'p2p' })
-          .input(
-            z.object({
-              methodId: z.string().min(1).max(64),
-              /** ISO 3166-1 alpha-2, or `*` for "the same everywhere". */
-              country: z.string().min(1).max(2),
-              label: z.string().min(1).max(120),
-              fields: z.array(z.unknown()).min(1),
-              enabled: z.boolean().optional(),
-              /**
-               * P-disputes-security-09: whether money on the method arrives at once here, or within `windowSeconds`
-               * (null: the published payment deadline applies). Omitted keeps a row's profile; a new row is instant.
-               */
-              settlement: z
-                .discriminatedUnion('instant', [
-                  z.object({ instant: z.literal(true) }),
-                  z.object({ instant: z.literal(false), windowSeconds: z.number().int().min(60).max(2_592_000).nullable() }),
-                ])
-                .optional(),
-              /** P-ads-merchant-19: payment-note rules. Omitted keeps the row's; null clears them. */
-              noteRules: noteRulesInput.nullable().optional(),
-              /** P-ads-merchant-19: rules make the method cash in person; null makes it a transfer; omitted keeps. */
-              cashRules: cashRulesInput.nullable().optional(),
-              confirmOperatorId: z.string().max(128).nullish(),
-              approvalId: z.string().max(128).nullish(),
-              operationId: z.string().max(128).nullish(),
-            }),
-          )
-          .output(methodSchemaOutput.extend({ confirmOperatorId: z.string() }))
-          .mutation(async ({ ctx, input }) =>
-            guard(async () => {
-              try {
-                requireMfa(ctx.principal);
-              } catch (err) {
-                if (err instanceof AuthError && err.code === 'mfa.required') {
-                  throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
-                }
-                throw err;
-              }
-              void requireUser(ctx);
-              const confirmOperatorId = await consumeOperatorApproval(input, 'p2p.method_register', {
-                methodId: input.methodId,
-                country: input.country,
-                label: input.label,
-                fields: JSON.stringify(parseFieldSpecs(input.fields)),
-                enabled: input.enabled === undefined ? 'preserve-or-default' : input.enabled ? 'true' : 'false',
-                // The approval covers the profile only when one is sent, so a register without it hashes as before.
-                ...(input.settlement === undefined ? {} : { settlement: JSON.stringify(input.settlement) }),
-                // The same for the rules: a register that sends none hashes as before.
-                ...(input.noteRules === undefined ? {} : { noteRules: JSON.stringify(input.noteRules) }),
-                ...(input.cashRules === undefined ? {} : { cashRules: JSON.stringify(input.cashRules) }),
-              });
-              const schema = await instruments.registerMethodSchema({
-                methodId: input.methodId,
-                country: input.country,
-                label: input.label,
-                fields: input.fields,
-                ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
-                ...(input.settlement === undefined ? {} : { settlement: input.settlement }),
-                ...(input.noteRules === undefined ? {} : { noteRules: input.noteRules }),
-                ...(input.cashRules === undefined ? {} : { cashRules: input.cashRules }),
-              });
-              return { ...schema, fields: [...schema.fields], confirmOperatorId };
-            }),
-          ),
-
-        /**
-         * OPERATOR ONLY. Dual-control: MFA + identity-consumed approval.
-         * Disabling a rail is the same class of mutate as registering one —
-         * one operator cannot silently take a market offline.
-         */
-        setEnabled: scopedProcedure('admin:compliance', { module: 'p2p' })
-          .input(
-            z.object({
-              methodId: z.string().min(1).max(64),
-              country: z.string().min(1).max(2),
-              enabled: z.boolean(),
-              /** Required when retiring (`enabled: false`); the customer is told it on a take. */
-              reason: z.enum(DELIST_REASONS).optional(),
-              confirmOperatorId: z.string().max(128).nullish(),
-              approvalId: z.string().max(128).nullish(),
-              operationId: z.string().max(128).nullish(),
-            }),
-          )
-          .output(methodSchemaOutput.extend({ confirmOperatorId: z.string() }))
-          .mutation(async ({ ctx, input }) =>
-            guard(async () => {
-              try {
-                requireMfa(ctx.principal);
-              } catch (err) {
-                if (err instanceof AuthError && err.code === 'mfa.required') {
-                  throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
-                }
-                throw err;
-              }
-              void requireUser(ctx);
-              // Checked here as well as in the service so a refused change never spends the approval.
-              if (!input.enabled && !input.reason) {
-                throw new InstrumentError('Retiring a payment method needs a reason', 'p2p.delist_reason_required');
-              }
-              if (input.enabled && input.reason) {
-                throw new TRPCError({ code: 'BAD_REQUEST', message: 'A payment method switched on has no retirement reason' });
-              }
-              const reason = input.enabled ? undefined : input.reason;
-              const confirmOperatorId = await consumeOperatorApproval(input, 'p2p.method_set_enabled', {
-                methodId: input.methodId,
-                country: input.country,
-                enabled: input.enabled ? 'true' : 'false',
-                ...(reason ? { reason } : {}),
-              });
-              const schema = await instruments.setMethodSchemaEnabled(input.methodId, input.country, input.enabled, reason);
-              return { ...schema, fields: [...schema.fields], confirmOperatorId };
-            }),
-          ),
-      }),
-
-      create: merchantApiProcedure('p2p:write')
-        .input(
-          z.object({
-            instrumentId: z.string().guid(),
-            methodId: z.string().min(1).max(64),
-            country: z.string().length(2),
-            fiatCurrency: z.string().length(3),
-            label: z.string().max(120).optional(),
-            /** Exactly the fields the method schema declared. An extra key is refused. */
-            details: z.record(z.string(), z.string()),
-            /** Identity's approval of exactly this change and these details (P-ads-merchant-18). Without it, refused. */
-            stepUpApprovalId: z.string().min(1).max(200).optional(),
-          }),
-        )
-        .output(instrumentHeaderOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            // Saved details are sealed with the instrument key: without it nothing is saved, before any confirmation.
-            if (options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
-            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), {
-              instrumentId: input.instrumentId,
-              change: 'create',
-              details: input.details,
-              approvalId: input.stepUpApprovalId,
-            });
-            return toHeaderOut(
-              await instruments.createInstrument({
-                instrumentId: input.instrumentId,
-                ownerId: ctx.principal.userId,
-                methodId: input.methodId,
-                country: input.country,
-                fiatCurrency: input.fiatCurrency,
-                ...(input.label === undefined ? {} : { label: input.label }),
-                details: input.details,
-              }),
-            );
-          }),
-        ),
-
-      /**
-       * Edit. Does NOT reach any trade already holding a snapshot — that is the
-       * point of the snapshot, not a limitation of this call.
-       */
-      update: merchantApiProcedure('p2p:write')
-        .input(
-          z.object({
-            instrumentId: z.string().guid(),
-            label: z.string().max(120).optional(),
-            details: z.record(z.string(), z.string()).optional(),
-            stepUpApprovalId: z.string().min(1).max(200).optional(),
-          }),
-        )
-        .output(instrumentHeaderOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            if (input.details !== undefined && options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
-            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), {
-              instrumentId: input.instrumentId,
-              change: 'update',
-              details: input.details,
-              approvalId: input.stepUpApprovalId,
-            });
-            return toHeaderOut(
-              await instruments.updateInstrument({
-                instrumentId: input.instrumentId,
-                ownerId: ctx.principal.userId,
-                ...(input.label === undefined ? {} : { label: input.label }),
-                ...(input.details === undefined ? {} : { details: input.details }),
-              }),
-            );
-          }),
-        ),
-
-      /**
-       * P-ads-merchant-18: the caller's active sell ads that list this method, and which of them it is the last payable
-       * method for (`pauses`). Read before removing, so the warning names the ads. Ad ids and coins only.
-       */
-      removalImpact: merchantApiProcedure('p2p:read')
-        .input(z.object({ instrumentId: z.string().guid() }))
-        .output(
-          z.object({
-            instrumentId: z.string(),
-            methodId: z.string(),
-            fiatCurrency: z.string(),
-            ads: z.array(z.object({ offerId: z.string(), asset: z.string(), fiatCurrency: z.string(), pauses: z.boolean() })),
-          }),
-        )
-        .query(async ({ ctx, input }) => guard(async () => p2p.methodRemovalImpact(input.instrumentId, ctx.principal.userId))),
-
-      /**
-       * Removal is a state change. An in-flight trade keeps working. When the method is the last payable one of an active
-       * sell ad, the removal is refused `p2p.method_in_use` unless `pauseOfferIds` names each of those ads.
-       */
-      remove: merchantApiProcedure('p2p:write')
-        .input(
-          z.object({
-            instrumentId: z.string().guid(),
-            stepUpApprovalId: z.string().min(1).max(200).optional(),
-            /** The ads `removalImpact` marked `pauses`, which the person agreed to pause with the method. */
-            pauseOfferIds: z.array(z.string().guid()).max(1000).optional(),
-          }),
-        )
-        .output(instrumentHeaderOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            const pauseOfferIds = input.pauseOfferIds ?? [];
-            // A removal the ads would refuse is refused before the person's confirmation is spent on it.
-            await p2p.assertRemovalConfirmed(input.instrumentId, ctx.principal.userId, pauseOfferIds);
-            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), {
-              instrumentId: input.instrumentId,
-              change: 'remove',
-              details: undefined,
-              approvalId: input.stepUpApprovalId,
-            });
-            return toHeaderOut(
-              await p2p.removeMethod({
-                instrumentId: input.instrumentId,
-                ownerId: ctx.principal.userId,
-                pauseOfferIds,
-              }),
-            );
-          }),
-        ),
-
-      /** The caller's own instruments. Headers only — no field values, ever. */
-      list: merchantApiProcedure('p2p:read')
-        .input(
-          z
-            .object({
-              includeRemoved: z.boolean().optional(),
-              /**
-               * Page size. Optional here so omit reaches the service named
-               * refuse (`p2p.instrument_list_limit_unset`) instead of a Zod
-               * "Required" that looks like a typo. Blank is not 50; pass 50
-               * explicitly when that is the page you want.
-               */
-              limit: z.number().int().min(1).max(200).optional(),
-            })
-            .optional(),
-        )
-        .output(z.array(instrumentHeaderOutput))
-        .query(async ({ ctx, input }) =>
-          guard(async () =>
-            (await instruments.listInstruments(ctx.principal.userId, input?.includeRemoved === true, input?.limit)).map(toHeaderOut),
-          ),
-        ),
-
-      /**
-       * The owner reads their own account details — and it is logged like
-       * anyone else's read.
-       *
-       * The owner is not exempt because an account takeover reads exactly like
-       * an owner: it holds the session. A log with a hole shaped like "the
-       * owner" says nothing about the one attack it most needs to describe.
-       *
-       * `p2p:write` rather than `p2p:read`: this is the only procedure whose
-       * scope IS the whole gate, so making it the stronger one costs nothing
-       * and stops a read-only API key dumping a user's stored bank details.
-       */
-      reveal: merchantApiProcedure('p2p:write')
-        .input(z.object({ instrumentId: z.string().guid() }))
-        .output(instrumentHeaderOutput.extend({ details: instrumentDetailsOutput }))
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            const revealed = await instruments.revealOwn({ instrumentId: input.instrumentId, viewerId: ctx.principal.userId });
-            return { ...toHeaderOut(revealed), details: { ...revealed.details } };
-          }),
-        ),
-
-      /**
-       * The owner's own details masked (J-p2p-04 #3): the account holder whole, every other value as its last four.
-       * Logged like `reveal`, and `p2p:write` for the same reason. The room shows this; the whole values stay behind
-       * `reveal`.
-       */
-      revealMasked: merchantApiProcedure('p2p:write')
-        .input(z.object({ instrumentId: z.string().guid() }))
-        .output(instrumentHeaderOutput.extend({ details: instrumentDetailsOutput }))
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            const revealed = await instruments.revealOwnMasked({ instrumentId: input.instrumentId, viewerId: ctx.principal.userId });
-            return { ...toHeaderOut(revealed), details: { ...revealed.details } };
-          }),
-        ),
-
-      /**
-       * "Who has looked at my account details, and when."
-       *
-       * Exposed to the owner on purpose. A log only compliance can read is a
-       * log the person whose data it is cannot use — and they are the one who
-       * knows whether a look was expected.
-       */
-      accessLog: merchantApiProcedure('p2p:read')
-        .input(
-          z
-            .object({
-              /**
-               * Page size. Optional here so omit reaches the service named
-               * refuse (`p2p.access_log_limit_unset`) instead of a Zod
-               * "Required" that looks like a typo. Blank is not 100; pass 100
-               * explicitly when that is the page you want.
-               */
-              limit: z.number().int().min(1).max(500).optional(),
-            })
-            .optional(),
-        )
-        .output(
-          z.array(
-            z.object({
-              id: z.string().guid(),
-              instrumentId: z.string().guid().nullable(),
-              viewerId: z.string(),
-              viewerRole: z.enum(['owner', 'counterparty', 'moderator', 'other']),
-              tradeId: z.string().guid().nullable(),
-              outcome: z.enum(['revealed', 'denied']),
-              denyReason: z.string().nullable(),
-              at: z.string(),
-            }),
-          ),
-        )
-        .query(async ({ ctx, input }) =>
-          guard(async () =>
-            (await instruments.accessLogFor(ctx.principal.userId, input?.limit)).map((e) => ({
-              id: e.id,
-              instrumentId: e.instrumentId,
-              viewerId: e.viewerId,
-              viewerRole: e.viewerRole,
-              tradeId: e.tradeId,
-              outcome: e.outcome,
-              denyReason: e.denyReason,
-              at: e.at.toISOString(),
-            })),
           ),
         ),
     }),
@@ -2118,6 +1617,17 @@ export function createP2pRouter(
     return { ...ctx, principal: ctx.principal };
   };
   const userOf = (ctx: Context): string => signed(ctx).principal.userId;
+  /** An operator's change needs a session that passed MFA: without it, UNAUTHORIZED with identity's message. */
+  const operatorMfa = (ctx: Context): void => {
+    try {
+      requireMfa(signed(ctx).principal);
+    } catch (err) {
+      if (err instanceof AuthError && err.code === 'mfa.required') {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
+      }
+      throw err;
+    }
+  };
   const setContact = async (
     ctx: Context,
     change: { peerId: string; idempotencyKey: string; kind: 'follow' | 'block'; present: boolean },
@@ -2313,14 +1823,7 @@ export function createP2pRouter(
       },
       /** Support's decision on one submitted appeal; the actor comes from the principal, never the body. */
       'p2p.reputation.decideAppeal': async ({ ctx, input }) => {
-        try {
-          requireMfa(signed(ctx).principal);
-        } catch (err) {
-          if (err instanceof AuthError && err.code === 'mfa.required') {
-            throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
-          }
-          throw err;
-        }
+        operatorMfa(ctx);
         return p2p.decideCompletionAppeal({
           appealId: input.appealId,
           actorId: requireUser(ctx),
@@ -2434,14 +1937,7 @@ export function createP2pRouter(
        * approval and unfreeze re-check the live reputation snapshot; they do not stamp badges.
        */
       'p2p.merchants.decide': async ({ ctx, input }) => {
-        try {
-          requireMfa(signed(ctx).principal);
-        } catch (err) {
-          if (err instanceof AuthError && err.code === 'mfa.required') {
-            throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
-          }
-          throw err;
-        }
+        operatorMfa(ctx);
         const actorId = requireUser(ctx);
         const confirmOperatorId = await consumeOperatorApproval(input, 'p2p.merchants_decide', {
           userId: input.userId,
@@ -2914,6 +2410,159 @@ export function createP2pRouter(
           attachedAt: view.attachedAt.toISOString(),
           payeeChange: view.payeeChange && { kind: view.payeeChange.kind },
         };
+      },
+      /*
+       * PAYMENT INSTRUMENTS (§6.2 "any payment method"). Who can see a seller's account details, stated once: nobody,
+       * except the owner and the counterparty of a trade whose escrow is currently HELD, plus a moderator only while a
+       * dispute on that trade is open. Never on an offer, never to a browsing user, never after the trade closes. Every
+       * one of those reads is logged, the owner's own and the refusals included. Nothing here returns a field value
+       * except `reveal` and `revealMasked`, and neither can without writing an access-log row in the same SQL statement
+       * (see `instrument-service.ts`).
+       */
+      'p2p.instruments.methods.list': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return (
+          await instruments.listMethodSchemas({
+            ...(input?.country ? { country: input.country } : {}),
+            ...(input?.methodId ? { methodId: input.methodId } : {}),
+            limit: input?.limit,
+          })
+        ).map((s) => ({ ...s, fields: [...s.fields] }));
+      },
+      'p2p.instruments.methods.register': async ({ ctx, input }) => {
+        operatorMfa(ctx);
+        void requireUser(ctx);
+        const confirmOperatorId = await consumeOperatorApproval(input, 'p2p.method_register', {
+          methodId: input.methodId,
+          country: input.country,
+          label: input.label,
+          fields: JSON.stringify(parseFieldSpecs(input.fields)),
+          enabled: input.enabled === undefined ? 'preserve-or-default' : input.enabled ? 'true' : 'false',
+          // The approval covers the profile only when one is sent, so a register without it hashes as before.
+          ...(input.settlement === undefined ? {} : { settlement: JSON.stringify(input.settlement) }),
+          // The same for the rules: a register that sends none hashes as before.
+          ...(input.noteRules === undefined ? {} : { noteRules: JSON.stringify(input.noteRules) }),
+          ...(input.cashRules === undefined ? {} : { cashRules: JSON.stringify(input.cashRules) }),
+        });
+        const schema = await instruments.registerMethodSchema({
+          methodId: input.methodId,
+          country: input.country,
+          label: input.label,
+          fields: input.fields,
+          ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+          ...(input.settlement === undefined ? {} : { settlement: input.settlement }),
+          ...(input.noteRules === undefined ? {} : { noteRules: input.noteRules }),
+          ...(input.cashRules === undefined ? {} : { cashRules: input.cashRules }),
+        });
+        return { ...schema, fields: [...schema.fields], confirmOperatorId };
+      },
+      'p2p.instruments.methods.setEnabled': async ({ ctx, input }) => {
+        operatorMfa(ctx);
+        void requireUser(ctx);
+        // Checked here as well as in the service so a refused change never spends the approval.
+        if (!input.enabled && !input.reason) {
+          throw new InstrumentError('Retiring a payment method needs a reason', 'p2p.delist_reason_required');
+        }
+        if (input.enabled && input.reason) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'A payment method switched on has no retirement reason' });
+        }
+        const reason = input.enabled ? undefined : input.reason;
+        const confirmOperatorId = await consumeOperatorApproval(input, 'p2p.method_set_enabled', {
+          methodId: input.methodId,
+          country: input.country,
+          enabled: input.enabled ? 'true' : 'false',
+          ...(reason ? { reason } : {}),
+        });
+        const schema = await instruments.setMethodSchemaEnabled(input.methodId, input.country, input.enabled, reason);
+        return { ...schema, fields: [...schema.fields], confirmOperatorId };
+      },
+      'p2p.instruments.create': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        const { principal } = signed(ctx);
+        // Saved details are sealed with the instrument key: without it nothing is saved, before any confirmation.
+        if (options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
+        await instrumentStepUp.assertConfirmed(stepUpCaller(principal), {
+          instrumentId: input.instrumentId,
+          change: 'create',
+          details: input.details,
+          approvalId: input.stepUpApprovalId,
+        });
+        return toHeaderOut(
+          await instruments.createInstrument({
+            instrumentId: input.instrumentId,
+            ownerId: principal.userId,
+            methodId: input.methodId,
+            country: input.country,
+            fiatCurrency: input.fiatCurrency,
+            ...(input.label === undefined ? {} : { label: input.label }),
+            details: input.details,
+          }),
+        );
+      },
+      /** Does NOT reach any trade already holding a snapshot: that is the point of the snapshot. */
+      'p2p.instruments.update': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        const { principal } = signed(ctx);
+        if (input.details !== undefined && options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
+        await instrumentStepUp.assertConfirmed(stepUpCaller(principal), {
+          instrumentId: input.instrumentId,
+          change: 'update',
+          details: input.details,
+          approvalId: input.stepUpApprovalId,
+        });
+        return toHeaderOut(
+          await instruments.updateInstrument({
+            instrumentId: input.instrumentId,
+            ownerId: principal.userId,
+            ...(input.label === undefined ? {} : { label: input.label }),
+            ...(input.details === undefined ? {} : { details: input.details }),
+          }),
+        );
+      },
+      'p2p.instruments.removalImpact': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return p2p.methodRemovalImpact(input.instrumentId, userOf(ctx));
+      },
+      'p2p.instruments.remove': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        const { principal } = signed(ctx);
+        const pauseOfferIds = input.pauseOfferIds ?? [];
+        // A removal the ads would refuse is refused before the person's confirmation is spent on it.
+        await p2p.assertRemovalConfirmed(input.instrumentId, principal.userId, pauseOfferIds);
+        await instrumentStepUp.assertConfirmed(stepUpCaller(principal), {
+          instrumentId: input.instrumentId,
+          change: 'remove',
+          details: undefined,
+          approvalId: input.stepUpApprovalId,
+        });
+        return toHeaderOut(await p2p.removeMethod({ instrumentId: input.instrumentId, ownerId: principal.userId, pauseOfferIds }));
+      },
+      'p2p.instruments.list': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return (await instruments.listInstruments(userOf(ctx), input?.includeRemoved === true, input?.limit)).map(toHeaderOut);
+      },
+      'p2p.instruments.reveal': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        const revealed = await instruments.revealOwn({ instrumentId: input.instrumentId, viewerId: userOf(ctx) });
+        return { ...toHeaderOut(revealed), details: { ...revealed.details } };
+      },
+      'p2p.instruments.revealMasked': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        const revealed = await instruments.revealOwnMasked({ instrumentId: input.instrumentId, viewerId: userOf(ctx) });
+        return { ...toHeaderOut(revealed), details: { ...revealed.details } };
+      },
+      'p2p.instruments.accessLog': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return (await instruments.accessLogFor(userOf(ctx), input?.limit)).map((e) => ({
+          id: e.id,
+          instrumentId: e.instrumentId,
+          viewerId: e.viewerId,
+          viewerRole: e.viewerRole,
+          tradeId: e.tradeId,
+          outcome: e.outcome,
+          denyReason: e.denyReason,
+          at: e.at.toISOString(),
+        }));
       },
     },
     p2pRefusal,
