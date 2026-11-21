@@ -100,13 +100,125 @@
     {
       "t": "object",
       "shape": [
-        ["reason", 32],
-        ["confirmOperatorId", 35],
-        ["approvalId", 38],
-        ["operationId", 39]
+        ["account", 32],
+        ["from", 39],
+        ["to", 40]
       ]
     },
-    { "t": "pipe", "in": 33, "out": 34 },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 33],
+        ["ownerId", 34],
+        ["assetId", 35],
+        ["kind", 36],
+        ["purpose", 37]
+      ],
+      "checks": [{ "k": "super", "id": "owner_id_space" }]
+    },
+    { "t": "enum", "values": ["user", "subaccount", "module", "house", "treasury"] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 16 }
+      ]
+    },
+    { "t": "enum", "values": ["available", "hold", "escrow", "stake", "collateral"] },
+    { "t": "optional", "in": 38 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 33],
+        ["ownerId", 34],
+        ["assetId", 42],
+        ["kind", 36],
+        ["purpose", 37],
+        ["limit", 44],
+        ["cursor", 46]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "super", "id": "owner_id_space" }]
+    },
+    { "t": "optional", "in": 43 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 16 }
+      ]
+    },
+    { "t": "default", "in": 45, "value": 50 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "optional", "in": 47 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 256 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 49],
+        ["ownerId", 50],
+        ["from", 51],
+        ["bucketSeconds", 52]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "enum", "values": ["user", "subaccount"] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "literal", "values": [60, 300, 3600, 14400, 86400] },
+    {
+      "t": "object",
+      "shape": [
+        ["reason", 54],
+        ["confirmOperatorId", 57],
+        ["approvalId", 60],
+        ["operationId", 61]
+      ]
+    },
+    { "t": "pipe", "in": 55, "out": 56 },
     { "t": "string", "checks": [{ "k": "trim" }] },
     {
       "t": "string",
@@ -115,8 +227,8 @@
         { "k": "max_length", "n": 500 }
       ]
     },
-    { "t": "optional", "in": 36 },
-    { "t": "nullable", "in": 37 },
+    { "t": "optional", "in": 58 },
+    { "t": "nullable", "in": 59 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     {
       "t": "string",
@@ -135,13 +247,13 @@
     {
       "t": "object",
       "shape": [
-        ["confirmOperatorId", 41],
-        ["approvalId", 44],
-        ["operationId", 45]
+        ["confirmOperatorId", 63],
+        ["approvalId", 66],
+        ["operationId", 67]
       ]
     },
-    { "t": "optional", "in": 42 },
-    { "t": "nullable", "in": 43 },
+    { "t": "optional", "in": 64 },
+    { "t": "nullable", "in": 65 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     {
       "t": "string",
@@ -160,13 +272,13 @@
     {
       "t": "object",
       "shape": [
-        ["confirmOperatorId", 47],
-        ["approvalId", 50],
-        ["operationId", 51]
+        ["confirmOperatorId", 69],
+        ["approvalId", 72],
+        ["operationId", 73]
       ]
     },
-    { "t": "optional", "in": 48 },
-    { "t": "nullable", "in": 49 },
+    { "t": "optional", "in": 70 },
+    { "t": "nullable", "in": 71 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     {
       "t": "string",
@@ -182,29 +294,29 @@
         { "k": "max_length", "n": 128 }
       ]
     },
-    { "t": "object", "shape": [["txId", 53]], "catchall": "strict" },
+    { "t": "object", "shape": [["txId", 75]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "object", "shape": [["businessKey", 55]], "catchall": "strict" },
+    { "t": "object", "shape": [["businessKey", 77]], "catchall": "strict" },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 512 }] },
     {
       "t": "object",
       "shape": [
-        ["assetId", 57],
-        ["from", 59],
-        ["to", 61],
-        ["before", 63]
+        ["assetId", 79],
+        ["from", 81],
+        ["to", 83],
+        ["before", 85]
       ],
       "catchall": "strict",
       "checks": [{ "k": "refine", "id": "from_before_to", "path": ["to"], "msg": "from must be before to" }]
     },
-    { "t": "optional", "in": 58 },
+    { "t": "optional", "in": 80 },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 32 }] },
-    { "t": "optional", "in": 60 },
+    { "t": "optional", "in": 82 },
     {
       "t": "string",
       "checks": [
@@ -215,7 +327,7 @@
         }
       ]
     },
-    { "t": "optional", "in": 62 },
+    { "t": "optional", "in": 84 },
     {
       "t": "string",
       "checks": [
@@ -226,7 +338,7 @@
         }
       ]
     },
-    { "t": "optional", "in": 64 },
+    { "t": "optional", "in": 86 },
     {
       "t": "string",
       "checks": [
@@ -237,13 +349,13 @@
     {
       "t": "object",
       "shape": [
-        ["prefix", 66],
-        ["after", 67]
+        ["prefix", 88],
+        ["after", 89]
       ],
       "catchall": "strict"
     },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "regex", "src": "/^(user|subaccount|module|house|treasury):(.{1,128})$/" }] },
-    { "t": "optional", "in": 68 },
+    { "t": "optional", "in": 90 },
     {
       "t": "string",
       "checks": [
@@ -255,7 +367,7 @@
       ]
     },
     { "t": "object", "shape": [], "catchall": "strict" },
-    { "t": "object", "shape": [["accountId", 71]], "catchall": "strict" },
+    { "t": "object", "shape": [["accountId", 93]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
@@ -274,14 +386,17 @@
     "txByKey": 24,
     "txById": 26,
     "portfolio": 28,
-    "freeze": 31,
-    "unfreeze": 40,
-    "reconcile": 46,
-    "txGet": 52,
-    "trace": 54,
-    "txList": 56,
-    "accountSearch": 65,
-    "stats": 69,
-    "metadataRead": 70
+    "history": 31,
+    "historyPage": 41,
+    "holdingsHistory": 48,
+    "freeze": 53,
+    "unfreeze": 62,
+    "reconcile": 68,
+    "txGet": 74,
+    "trace": 76,
+    "txList": 78,
+    "accountSearch": 87,
+    "stats": 91,
+    "metadataRead": 92
   }
 }
