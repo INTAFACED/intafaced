@@ -700,7 +700,7 @@ if (!db) {
         owedTxId: null,
         payment: null,
       });
-      // A retry in flight (#9359): the reconciler takes the unfunded intent to post its key again, exactly as `attempt` does;
+      // A retry in flight: the reconciler takes the unfunded intent to post its key again, exactly as `attempt` does;
       // until the ledger answers, it still waits on the pot and stays where it stood, in its section and its count.
       const taken = await db.sql`
         UPDATE campaigns.reward_intents SET state = 'posting', attempts = attempts + 1, last_attempt_at = now(), updated_at = now()

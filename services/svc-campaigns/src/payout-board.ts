@@ -48,7 +48,7 @@ type Row = {
 const POT_SHORT = 'ledger.insufficient_funds';
 
 /** The intent's state as finance reads it: a retry in flight after the pot refused it is still `pending_funding`. */
-export function standingOf(state: RewardState, reason: string | null): RewardState {
+function standingOf(state: RewardState, reason: string | null): RewardState {
   return state === 'posting' && reason === POT_SHORT ? 'pending_funding' : state;
 }
 
