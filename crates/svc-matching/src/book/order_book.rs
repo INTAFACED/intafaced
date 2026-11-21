@@ -33,7 +33,7 @@ mod combo;
 mod option;
 mod spread_book;
 
-pub use combo::{combo_identity, combo_intent_refuse, wants_combo};
+pub use combo::{ComboRest, ComboRestLeg, combo_identity, combo_intent_refuse, wants_combo};
 pub use option::wants_option;
 pub use spread_book::{outright_on_spread_refuse, spread_amend_refuse, spread_order_refuse};
 

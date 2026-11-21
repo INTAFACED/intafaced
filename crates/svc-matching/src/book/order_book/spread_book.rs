@@ -211,10 +211,9 @@ impl OrderBook {
         if let Some(r) = spread_order_refuse(Some(self), &market_id, order, now) {
             return SubmitResult::refused(r);
         }
-        // The core book refuses a spread order; the spread layer hands it on as the plain limit it rests as.
-        let mut plain = order.clone();
-        plain.spread = None;
-        let mut result = self.combo_submit(&plain, now);
+        // Handed on with its terms, as the rehearsal ran it: the core book lets a spread price be zero or negative only
+        // on an order that carries them.
+        let mut result = self.combo_submit(order, now);
         if !result.accepted {
             return result;
         }

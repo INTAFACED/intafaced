@@ -19,22 +19,56 @@ pub const STRIKE_MISSING: &str = "missing_strike";
 pub const EXPIRY_MISSING: &str = "missing_expiry";
 pub const COMBO_DISAGREES: &str = "combo_disagrees";
 
-/// A book's resting combos: each order id and the identity of the leg set it rests as.
+/// One remembered leg of a resting combo (`ComboRestLeg`): its trimmed name and its ratio.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComboRestLeg {
+    pub name: String,
+    pub ratio: Amount,
+}
+
+/// A resting combo (`ComboRest`): its order id, the identity of the leg set it rests as, and its legs as sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComboRest {
+    pub order_id: String,
+    pub identity: String,
+    pub legs: Vec<ComboRestLeg>,
+}
+
+/// A book's resting combos, in the order they were remembered.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ComboState {
-    rests: Vec<(String, String)>,
+    rests: Vec<ComboRest>,
 }
 
 impl ComboState {
     fn identity_of(&self, order_id: &str) -> Option<&str> {
-        self.rests
-            .iter()
-            .find(|(id, _)| id == order_id)
-            .map(|(_, i)| i.as_str())
+        self.rest_of(order_id).map(|r| r.identity.as_str())
+    }
+
+    fn rest_of(&self, order_id: &str) -> Option<&ComboRest> {
+        self.rests.iter().find(|r| r.order_id == order_id)
     }
 
     fn forget(&mut self, order_id: &str) {
-        self.rests.retain(|(id, _)| id != order_id);
+        self.rests.retain(|r| r.order_id != order_id);
+    }
+
+    /// `remember`: a combo only rests complete, so every leg holds a ratio.
+    fn remember(&mut self, order_id: &str, legs: &[ComboLeg], identity: String) {
+        self.forget(order_id);
+        self.rests.push(ComboRest {
+            order_id: order_id.to_owned(),
+            identity,
+            legs: legs
+                .iter()
+                .filter_map(|leg| {
+                    read_ratio(leg).map(|ratio| ComboRestLeg {
+                        name: trimmed(leg.name.as_ref()),
+                        ratio,
+                    })
+                })
+                .collect(),
+        });
     }
 }
 
@@ -239,8 +273,8 @@ impl OrderBook {
         }
         self.forget_filled_combos(&result);
         if let (Some(identity), Some(resting)) = (identity, &result.resting) {
-            self.combo.forget(&resting.order_id);
-            self.combo.rests.push((resting.order_id.clone(), identity));
+            let legs = order.legs.value().map_or(&[][..], Vec::as_slice);
+            self.combo.remember(&resting.order_id, legs, identity);
         }
         result
     }
@@ -307,5 +341,10 @@ impl OrderBook {
     /// Whether this book holds a resting combo (a rest or a parked stop) under this id.
     pub fn combo_rest_seen(&self, order_id: &str) -> bool {
         self.combo.identity_of(order_id).is_some()
+    }
+
+    /// `comboRestOf`: the resting combo (a rest or a parked stop) under this id, if this book holds one.
+    pub fn combo_rest_of(&self, order_id: &str) -> Option<&ComboRest> {
+        self.combo.rest_of(order_id)
     }
 }
