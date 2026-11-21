@@ -92,7 +92,6 @@
 }
 .lit-button:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
 }
 .lit-button[data-tone='primary'] {
   background: var(--lit-primary-bg);
@@ -107,6 +106,16 @@
 .lit-button[data-tone='quiet'] {
   background: transparent;
   color: var(--lit-accent-text);
+}
+/* Disabled, any tone: the dark pill with the second text colour, not a faded copy of the tone, so its words keep
+   their contrast (the look gate's 4.5) while it still reads as off. After the tones, so it wins over them. */
+.lit-button[data-tone]:disabled {
+  background: var(--lit-secondary-bg);
+  color: var(--lit-text-2);
+  box-shadow: none;
+}
+.lit-button[data-tone='quiet']:disabled {
+  background: none;
 }
 .lit-button[data-size='lg'] {
   min-height: calc(var(--lit-control-h) + 6px);
