@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, wri
 import { join } from 'node:path';
 import { decodePng, encodePng, crop } from './look-gate/png.mjs';
 import { inside } from './step-pictures.mjs';
+import { githubFetch } from './github-fetch.mjs';
 
 export const CI_WORKFLOW = 'ci.yml';
 /** The look gate's shard jobs in CI, as the jobs API names a reusable workflow's job (`<caller> / <job>`). */
@@ -227,7 +228,7 @@ export function lookImages(dir, { head, base, maxImages, maxBytes }) {
 }
 
 const api = async (path, token, accept = 'application/vnd.github+json') => {
-  const res = await fetch(`https://api.github.com${path.startsWith('/') ? path : `/${path}`}`, {
+  const res = await githubFetch(`https://api.github.com${path.startsWith('/') ? path : `/${path}`}`, {
     headers: { Accept: accept, Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' },
     signal: AbortSignal.timeout(120_000),
   });
