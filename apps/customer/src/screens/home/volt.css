@@ -1,45 +1,45 @@
 /*
- * Volt on Home.
+ * The Volt direction on Home: only under data-direction="volt"; nothing here applies by default.
  * The balance comes first and largest, in the wide grotesk with its decimals quieter; the money object (VoltStack) is a
  * matte black card in front of a chartreuse one, the screen's one spark; the inbox and the getting-started list follow.
  * Role tokens only. Unlayered on purpose: Home's own sheet is in `@layer components`, which this must override.
  */
-:root .if-home {
+[data-direction='volt'] .if-home {
   display: flex;
   flex-direction: column;
 }
-:root .if-home > .home-grid {
+[data-direction='volt'] .if-home > .home-grid {
   order: 1;
 }
-:root .if-home > .home-inbox {
+[data-direction='volt'] .if-home > .home-inbox {
   order: 2;
   margin-block-start: var(--lit-gap-section);
 }
 @media (max-width: 1279px) {
-  :root .home-started-slot {
+  [data-direction='volt'] .home-started-slot {
     order: 1;
   }
 }
 
 /* The balance: a quiet label, then the figure, heavy and wide, its cents a step back. */
-:root .home-label {
+[data-direction='volt'] .home-label {
   font-size: var(--lit-type-micro-size);
   letter-spacing: var(--lit-type-micro-tracking);
   text-transform: uppercase;
   color: var(--lit-text-2);
 }
-:root .home-label > span:first-child,
-:root .home-label .home-tile-link {
+[data-direction='volt'] .home-label > span:first-child,
+[data-direction='volt'] .home-label .home-tile-link {
   white-space: nowrap;
 }
 /* Phone: the label row stays one line. "Customise Home" keeps its words as its name but shows only its sliders, a
    round key at the row's end, so "Est. total value" and the row never wrap (intafaced issue 9302). */
 @media (max-width: 767px) {
-  :root .home-label {
+  [data-direction='volt'] .home-label {
     flex-wrap: nowrap;
     gap: var(--if-space-1-5);
   }
-  :root .home-label .home-customise {
+  [data-direction='volt'] .home-label .home-customise {
     flex: none;
     justify-content: center;
     inline-size: 2.25rem;
@@ -54,52 +54,44 @@
     letter-spacing: 0;
   }
 }
-:root .home-total {
-  --home-hero: clamp(2.75rem, 12.5vw, 4.5rem);
+[data-direction='volt'] .home-total {
   block-size: auto;
-  /* the loaded figure's height while it loads too: NumberFlow pads its digits twice by half its mask (0.25em), each
-     rounded to a whole pixel, above and below, at line-height 1; the loading figure sits at the top of that space, so
-     nothing below moves when the figure arrives (index.html's boot frame keeps the same space) */
-  min-block-size: calc(var(--home-hero) + 4 * round(nearest, 0.125 * var(--home-hero), 1px));
-  align-items: flex-start;
   margin-block-start: var(--if-space-3);
   flex-wrap: wrap;
   row-gap: var(--if-space-2);
 }
-:root .home-total [data-slot='hero-number'] {
+[data-direction='volt'] .home-total [data-slot='hero-number'] {
   font-family: var(--lit-font-figure);
   font-stretch: 125%;
   font-weight: 600;
-  font-size: var(--home-hero);
+  font-size: clamp(2.75rem, 12.5vw, 4.5rem);
   line-height: 1;
   letter-spacing: -0.045em;
   color: var(--lit-text-1);
 }
-:root .home-total [data-slot='hero-number'] ::part(fraction),
-:root .home-total [data-slot='hero-number'] ::part(decimal) {
+[data-direction='volt'] .home-total [data-slot='hero-number'] ::part(fraction),
+[data-direction='volt'] .home-total [data-slot='hero-number'] ::part(decimal) {
   color: var(--lit-text-3);
   font-weight: 500;
 }
-:root .home-change {
-  /* the loaded line (figures in two faces on one baseline) stands a fraction over 20 pixels: reserve it while loading */
-  min-block-size: 1.5rem;
+[data-direction='volt'] .home-change {
   margin-block-start: var(--if-space-3);
 }
 
 /* The money object follows the actions directly; the rest of Home comes after it. */
-:root .home-main {
+[data-direction='volt'] .home-main {
   display: flex;
   flex-direction: column;
 }
-:root .home-actions ~ * {
+[data-direction='volt'] .home-actions ~ * {
   order: 2;
 }
-:root .home-main > .volt-stack {
+[data-direction='volt'] .home-main > .volt-stack {
   order: 1;
 }
 
 /* The actions: one row of stone keys on the page itself (no panel); no colour, the spark is the money object's. */
-:root .home-actions {
+[data-direction='volt'] .home-actions {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
@@ -110,10 +102,10 @@
   background: none;
   box-shadow: none;
 }
-:root .home-actions::before {
+[data-direction='volt'] .home-actions::before {
   content: none;
 }
-:root .home-actions > * {
+[data-direction='volt'] .home-actions > * {
   padding-inline: 0.5rem;
   border-radius: var(--lit-radius-key);
   background: var(--lit-secondary-bg);
@@ -121,7 +113,7 @@
   box-shadow: var(--lit-secondary-shadow);
   font-weight: 600;
 }
-:root .if-home .home-actions > [data-slot='button']:first-child {
+[data-direction='volt'] .if-home .home-actions > [data-slot='button']:first-child {
   background: var(--lit-text-1);
   color: var(--lit-page);
   box-shadow: none;

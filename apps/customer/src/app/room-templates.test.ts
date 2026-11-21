@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// The route-to-template registry stays in step with the app's route table (the Volt kit).
+// The route-to-template registry stays in step with the app's route table (Lit glass redesign).
 import { describe, expect, it, vi } from 'vitest';
 import { templates } from '@intafaced/ui/lit';
 import { PORTAL_ROOMS } from '../features/pay/portal/routes';

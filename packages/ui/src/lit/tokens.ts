@@ -1,21 +1,23 @@
 /**
- * Volt: role token values (the owner's pick, 2026-11-21). Names and meanings are in `./contracts.ts`; this file holds the values.
+ * Lit glass: role token values. Names and meanings are in `./contracts.ts`; this file holds the values.
  *
- * Emitted into `lit.css` by `renderLitCss()` (run `pnpm exec tsx src/lit/generate.ts` in packages/ui and commit both
- * files; `lit.test.ts` fails if they drift):
+ * Four value sets, emitted into `lit.css` by `renderLitCss()` (run `pnpm exec tsx src/lit/generate.ts` in
+ * packages/ui and commit both files; `lit.test.ts` fails if they drift):
  *
- * - `flat`: no `data-look` on the root (the kit gallery's flat view). Every role resolves to today's `--if-*` tokens.
- *   Hex values never appear here.
- * - `lit`: Volt, dark: the kit's first values (`litBase`) with Volt's own (`voltDark`) over them. The beta is dark only.
- * - `litLight`: Volt's light values for the same roles, behind the scheme switch; written now so contrast tests run on
- *   both schemes.
- * - `solid` and `pro`: the Solid surfaces mode (no translucency, no blur) and Pro density.
+ * - `flat`: the look switched off. Every role resolves to today's `--if-*` tokens, so a room built on a template
+ *   shows its new layout in today's skin, with no glass, glow or blur. Hex values never appear here.
+ * - `lit`: the Lit glass skin, dark, blue (the default accent). Each material is measured from the owner's
+ *   reference set (kept outside this repo). PROVISIONAL until the blue re-light is judged against those
+ *   references; names won't change, values may.
+ * - `litLight`: light values for the same roles. Not shipped (dark first, 26 Oct 2026); written now so contrast
+ *   tests run on both schemes.
+ * - `accentSets` and `solid`: per-accent light colours, and the Solid surfaces mode (no translucency, no blur).
  *
  * Budgets the values keep: money and text sit on opaque content panels (`solid-bg`), glass
  * and blur are only on the nav and sheet layers, and text roles meet 4.5:1 on every solid surface.
  */
 import { cssValue } from '../theme/tokens.js';
-import { LIT_LOOK, roleNames, roleVar, type Role, type TypeRole } from './contracts.js';
+import { accents, directions, LIT_LOOK, roleNames, roleVar, type Accent, type Direction, type Role, type TypeRole } from './contracts.js';
 
 type RoleMap = Record<Role, string>;
 
@@ -118,8 +120,8 @@ export const flat: RoleMap = {
   'dock-h': '0px',
 };
 
-/** The kit's first values, dark: the roles Volt (below) leaves as they were written. */
-const litBase: RoleMap = {
+/** Lit glass, dark, with the light colours of the default accent (blue). */
+export const lit: RoleMap = {
   page: '#04050A',
   'page-2': '#08090F',
   field:
@@ -223,8 +225,8 @@ const litBase: RoleMap = {
   'dock-h': '88px',
 };
 
-/** The kit's first light values for the same roles, under Volt's light set below. */
-const litBaseLight: Partial<RoleMap> = {
+/** Light values for the same roles: written and contrast-tested now, not shipped (dark first). */
+export const litLight: Partial<RoleMap> = {
   page: '#ECEEF3',
   'page-2': '#E2E5EC',
   'text-1': '#0B0D12',
@@ -278,6 +280,192 @@ const litBaseLight: Partial<RoleMap> = {
   'status-done': '#0B6C47',
   'status-unknown': '#3D4350',
   'status-stale': '#8A5A00',
+};
+
+/**
+ * The colours per accent. Blue's values are the ones written in `lit`. Ember and emerald also tint the dark page and
+ * panels (warm black; green black), the atmosphere each direction has in the owner's taste map (26 Oct 2026), so
+ * the directions differ in more than the spark. The light block comes later and keeps light neutral.
+ */
+export const accentSets: Record<Accent, Partial<RoleMap>> = {
+  blue: {},
+  ember: {
+    accent: '#FF6A1A',
+    'accent-hot': '#FFC46B',
+    'accent-deep': '#5A1606',
+    'accent-pair': '#FF2D55',
+    'accent-text': '#FF8A4C',
+    'accent-fill': '#B3430A',
+    'accent-fill-2': '#7A2B05',
+    page: '#0A0604',
+    'page-2': '#100A06',
+    'solid-bg': '#150E0A',
+    'solid-bg-raised': '#1F1510',
+    'solid-bg-sunken': '#080503',
+  },
+  violet: {
+    accent: '#A35CFF',
+    'accent-hot': '#EAD2FF',
+    'accent-deep': '#2C155B',
+    'accent-pair': '#4D7CFF',
+    'accent-text': '#B98AFF',
+    'accent-fill': '#7A3FD6',
+    'accent-fill-2': '#55289E',
+  },
+  emerald: {
+    accent: '#2EE0A0',
+    'accent-hot': '#D2FFE9',
+    'accent-deep': '#08382A',
+    'accent-pair': '#2BB5FF',
+    'accent-text': '#2EE0A0',
+    'accent-fill': '#0F7A55',
+    'accent-fill-2': '#0A5A3E',
+    page: '#030806',
+    'page-2': '#06100C',
+    'solid-bg': '#0A1511',
+    'solid-bg-raised': '#111F19',
+    'solid-bg-sunken': '#030705',
+  },
+};
+
+/**
+ * The look directions (intafaced issue 9227): each sets its own material and type over the look's roles, dark and light.
+ * The dark set applies only while the light preview is off, so the light set is never mixed with dark values; `both`
+ * (type faces, radii) and the type sizes apply in either scheme. `today` (optional) re-points today's `--if-*` names for
+ * rooms not yet on a template (values are role references only).
+ */
+export type DirectionSet = {
+  dark: Partial<RoleMap>;
+  both: Partial<RoleMap>;
+  light: Partial<RoleMap>;
+  type: Partial<typeof litType>;
+  today?: Record<string, string>;
+};
+
+/**
+ * Ember: warm black with orange light coming from the edges, never flat orange fills. The orange is redder than
+ * Bitcoin's (#F7931A) and far from the warning amber (`warn-text` stays #FFC452), so a warning never reads as the brand
+ * and the brand never reads as a coin. Figures are set in Bricolage Grotesque (self-hosted, OFL-1.1), heavy and tight.
+ */
+const ember: DirectionSet = {
+  dark: {
+    page: '#0B0806',
+    'page-2': '#110C09',
+    field:
+      'radial-gradient(60% 38% at 100% 0%, color-mix(in srgb, var(--lit-accent) 20%, transparent), transparent 72%), radial-gradient(70% 34% at 0% 100%, color-mix(in srgb, var(--lit-accent-deep) 80%, transparent), transparent 78%)',
+    'text-1': '#F7F0E9',
+    'text-2': '#BCAFA4',
+    'text-3': '#9A8C81',
+    'text-disabled': '#564B43',
+    line: 'rgba(255, 232, 214, 0.07)',
+    'line-strong': 'rgba(255, 232, 214, 0.14)',
+    accent: '#FF5A1F',
+    'accent-hot': '#FFB37A',
+    'accent-deep': '#4A1405',
+    'accent-pair': '#FFD7B5',
+    'accent-text': '#FF7C47',
+    'accent-fill': '#C2410C',
+    'accent-fill-2': '#8A2C06',
+    'on-accent': '#FFFFFF',
+    'solid-bg': '#16100C',
+    'solid-bg-raised': '#1F1712',
+    'solid-bg-sunken': '#090605',
+    'solid-lip': 'inset 0 1px 0 rgba(255, 220, 190, 0.08)',
+    'solid-rim': 'rgba(255, 206, 170, 0.24)',
+    'solid-rim-dim': 'rgba(255, 220, 190, 0.05)',
+    'solid-wall': '#0C0806',
+    sheen: 'linear-gradient(180deg, rgba(255, 236, 220, 0.05), rgba(255, 236, 220, 0.012) 70%)',
+    'corner-glow': 'color-mix(in srgb, var(--lit-accent) 26%, transparent)',
+    'glass-bg': 'linear-gradient(180deg, rgba(255, 236, 220, 0.06), rgba(255, 236, 220, 0.015) 70%), rgba(22, 16, 12, 0.78)',
+    'glass-rim': 'rgba(255, 206, 170, 0.22)',
+    'glass-rim-dim': 'rgba(255, 220, 190, 0.05)',
+    'glass-shadow':
+      'inset 0 1px 0 rgba(255, 220, 190, 0.08), 0 3px 0 0 #0C0806, 0 4px 0 0 rgba(0, 0, 0, 0.5), 0 24px 48px -20px rgba(0, 0, 0, 0.9)',
+    scrim: 'rgba(6, 4, 3, 0.74)',
+    veil: 'rgba(11, 8, 6, 0.62)',
+    'primary-bg': 'linear-gradient(180deg, #FFF8F1 0%, #F1E4D6 55%, #DCCAB8 100%)',
+    'primary-fg': '#140D09',
+    'primary-shadow':
+      'inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 0 rgba(60, 30, 10, 0.35), 0 10px 28px -14px rgba(255, 106, 40, 0.45)',
+    'secondary-bg': 'linear-gradient(180deg, #1D1612, #110C09)',
+    'secondary-fg': '#F7F0E9',
+    'key-bg': 'linear-gradient(180deg, rgba(255, 236, 220, 0.06), rgba(255, 236, 220, 0.015) 70%), #16100C',
+    'control-bg': '#0F0B08',
+    'control-rim': 'rgba(255, 232, 214, 0.4)',
+    'control-rim-active': 'rgba(255, 232, 214, 0.58)',
+    'legal-bg': '#1A1512',
+    'refusal-bg': '#15110E',
+    'test-tag-bg': 'rgba(255, 232, 214, 0.08)',
+    'test-tag-fg': '#BCAFA4',
+    'status-unknown': '#BCAFA4',
+  },
+  both: {
+    'font-figure': "'Bricolage Grotesque Variable', 'Geist Variable', ui-sans-serif, system-ui, sans-serif",
+    'radius-panel': '28px',
+    'radius-tile': '22px',
+    'radius-key': '20px',
+    'radius-control': '16px',
+  },
+  light: {
+    page: '#F3EDE6',
+    'page-2': '#EAE2D8',
+    field:
+      'radial-gradient(60% 38% at 100% 0%, color-mix(in srgb, var(--lit-accent) 13%, transparent), transparent 72%), radial-gradient(70% 34% at 0% 100%, color-mix(in srgb, var(--lit-accent-hot) 22%, transparent), transparent 78%)',
+    'text-1': '#17100B',
+    'text-2': '#4A3E35',
+    'text-3': '#5F5248',
+    'text-disabled': '#A39488',
+    line: 'rgba(48, 26, 10, 0.08)',
+    'line-strong': 'rgba(48, 26, 10, 0.16)',
+    accent: '#FF5A1F',
+    'accent-hot': '#FFB37A',
+    'accent-deep': '#4A1405',
+    'accent-text': '#AF3A0B',
+    'accent-fill': '#C2410C',
+    'accent-fill-2': '#8A2C06',
+    'solid-bg': '#FFFCF8',
+    'solid-bg-raised': '#F8F2EB',
+    'solid-bg-sunken': '#ECE3D8',
+    'solid-wall': '#DED1C3',
+    'solid-rim-dim': 'rgba(48, 26, 10, 0.1)',
+    'solid-shadow': '0 3px 0 0 var(--lit-solid-wall), 0 22px 40px -24px rgba(70, 36, 10, 0.35)',
+    'glass-bg': 'linear-gradient(180deg, rgba(255, 252, 248, 0.82), rgba(255, 252, 248, 0.66) 70%), rgba(243, 237, 230, 0.72)',
+    'glass-rim-dim': 'rgba(48, 26, 10, 0.12)',
+    'glass-shadow': 'inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 2px 0 0 #DED1C3, 0 18px 36px -20px rgba(70, 36, 10, 0.35)',
+    scrim: 'rgba(23, 16, 11, 0.42)',
+    veil: 'rgba(243, 237, 230, 0.72)',
+    'primary-bg': 'linear-gradient(180deg, #2B211B 0%, #140D09 100%)',
+    'primary-fg': '#FFF6EE',
+    'primary-shadow': 'inset 0 1px 0 rgba(255, 220, 190, 0.18), 0 1px 0 rgba(0, 0, 0, 0.3), 0 8px 18px -12px rgba(23, 16, 11, 0.5)',
+    'secondary-bg': 'linear-gradient(180deg, #FFFFFF, #F4ECE3)',
+    'secondary-fg': '#17100B',
+    'key-bg': 'linear-gradient(180deg, #FFFFFF, #F5EEE6)',
+    'control-bg': '#FFFFFF',
+    'control-rim': 'rgba(48, 26, 10, 0.48)',
+    'control-rim-active': 'rgba(48, 26, 10, 0.7)',
+    focus: '#17100B',
+    'legal-bg': '#FFFFFF',
+    'legal-fg': '#17100B',
+    'legal-border': '#4A3E35',
+    'refusal-bg': '#F8F2EB',
+    'refusal-fg': '#17100B',
+    'test-tag-bg': 'rgba(48, 26, 10, 0.07)',
+    'test-tag-fg': '#4A3E35',
+    'status-unknown': '#4A3E35',
+  },
+  type: {
+    hero: { size: '56px', line: '58px', weight: '600', tracking: '-0.045em' },
+    figure: { size: '26px', line: '30px', weight: '600', tracking: '-0.03em' },
+    title: { size: '30px', line: '34px', weight: '600', tracking: '-0.03em' },
+  },
+};
+
+/** Light-scheme accent text per accent (4.5:1 on white). */
+export const accentTextLight: Record<Accent, string> = {
+  blue: '#1F56D6',
+  ember: '#B53D00',
+  violet: '#6A2FD1',
+  emerald: '#00754B',
 };
 
 /**
@@ -351,7 +539,7 @@ const voltDark: Partial<RoleMap> = {
   'object-spark-bg': 'linear-gradient(180deg, #EAFF6A, #E0F83A 45%, #CDE82A)',
   'object-spark-fg': '#0A0A09',
   'control-bg': '#0E0E0D',
-  'control-rim': 'rgba(243, 242, 236, 0.37)',
+  'control-rim': 'rgba(243, 242, 236, 0.36)',
   'control-rim-active': 'rgba(243, 242, 236, 0.6)',
   focus: '#FFFFFF',
   'legal-bg': '#161615',
@@ -370,7 +558,9 @@ const voltDark: Partial<RoleMap> = {
   'radius-control': '999px',
 };
 
-const volt = {
+const volt: DirectionSet = {
+  dark: voltDark,
+  both: {},
   // Volt's light keeps its dark set wherever the light set says nothing (stone material, faces, the spark).
   light: {
     ...voltDark,
@@ -436,7 +626,7 @@ const volt = {
     'status-unknown': '#44433E',
     'status-stale': '#734000',
   },
-  // Today's lime is drawn in ink: the spark is placed by Volt's own sheets, once per screen.
+  // Today's lime is drawn in ink: the spark is placed by the direction's own sheet, once per screen.
   today: {
     '--if-lime': 'var(--lit-text-1)',
     '--if-lime-hover': 'color-mix(in srgb, var(--lit-text-1) 88%, var(--lit-page))',
@@ -456,6 +646,17 @@ const volt = {
     heading: { size: '17px', line: '24px', weight: '600', tracking: '-0.01em' },
   },
 };
+
+/** Lit glass: the look's own roles, with its one blue spark held whatever accent is asked; its glass is drawn by
+ * lit/directions/lit-glass.css from those roles. */
+const litGlass: DirectionSet = {
+  dark: { accent: lit.accent, 'accent-text': lit['accent-text'], 'accent-fill': lit['accent-fill'] },
+  both: {},
+  light: { 'accent-text': litLight['accent-text'] },
+  type: {},
+};
+
+export const directionSets: Record<Direction, DirectionSet> = { ember, volt, 'lit-glass': litGlass };
 
 /** Solid surfaces: no translucency and no blur anywhere; glass layers become opaque panels. */
 export const solid: Partial<RoleMap> = {
@@ -477,7 +678,7 @@ export const pro: Partial<RoleMap> = {
 };
 
 /** Type roles. `flatType` maps to today's text styles. */
-const litBaseType: Record<TypeRole, { size: string; line: string; weight: string; tracking: string }> = {
+export const litType: Record<TypeRole, { size: string; line: string; weight: string; tracking: string }> = {
   hero: { size: '48px', line: '52px', weight: '400', tracking: '-0.035em' },
   figure: { size: '24px', line: '30px', weight: '500', tracking: '-0.02em' },
   title: { size: '28px', line: '34px', weight: '500', tracking: '-0.02em' },
@@ -486,13 +687,6 @@ const litBaseType: Record<TypeRole, { size: string; line: string; weight: string
   label: { size: '13px', line: '18px', weight: '500', tracking: '0' },
   micro: { size: '11px', line: '14px', weight: '500', tracking: '0.08em' },
 };
-
-/** Volt, the look (owner's pick, 2026-11-21): dark, the one the beta ships. */
-export const lit: RoleMap = { ...litBase, ...voltDark };
-/** Volt's light values: written and contrast-tested, behind the scheme switch; the beta is dark only. */
-export const litLight: Partial<RoleMap> = { ...litBaseLight, ...volt.light };
-/** Type roles, in Volt's sizes and weights. */
-export const litType: Record<TypeRole, { size: string; line: string; weight: string; tracking: string }> = { ...litBaseType, ...volt.type };
 export const flatTypeMap: Record<TypeRole, string> = {
   hero: 'hero',
   figure: 'xl',
@@ -565,7 +759,7 @@ const todayInLookRoles: Record<string, string> = {
   '--if-down-bg': 'color-mix(in srgb, var(--if-down) 22%, transparent)',
   '--if-up-bg-soft': 'color-mix(in srgb, var(--if-up) 12%, transparent)',
   '--if-font-ui': 'var(--lit-font-ui)',
-  '--if-r-md': 'var(--lit-radius-tile)',
+  '--if-r-md': 'var(--lit-radius-control)',
   '--if-r-lg': 'var(--lit-radius-panel)',
   '--color-background': 'var(--lit-page)',
   '--color-shell': 'var(--lit-page-2)',
@@ -589,27 +783,64 @@ const L = `:root:where([data-look='${LIT_LOOK}'])`;
 export function renderLitCss(): string {
   const missing = roleNames.filter((r) => !(r in flat) || !(r in lit));
   if (missing.length > 0) throw new Error(`roles without a value: ${missing.join(', ')}`);
+  const accentBlocks = accents
+    .filter((a) => Object.keys(accentSets[a]).length > 0)
+    .map((a) => `\n${L.replace('])', `][data-accent='${a}'])`)} {\n${decl(roleVars(accentSets[a]))}\n}\n`)
+    .join('');
+  const lightAccentBlocks = accents
+    .map(
+      (a) =>
+        `${L.replace('])', `][data-theme='light'][data-accent='${a}'])`)} {\n${decl({ '--lit-accent-text': accentTextLight[a] })}\n}\n`,
+    )
+    .join('\n');
+  const D = (d: Direction, light: boolean) =>
+    L.replace('])', light ? `][data-direction='${d}'][data-theme='light'])` : `][data-direction='${d}']:not([data-theme='light']))`);
+  const directionType = (d: Direction) => {
+    const out: Record<string, string> = {};
+    for (const [k, t] of Object.entries(directionSets[d].type)) {
+      if (!t) continue;
+      out[`--lit-type-${k}-size`] = t.size;
+      out[`--lit-type-${k}-line`] = t.line;
+      out[`--lit-type-${k}-weight`] = t.weight;
+      out[`--lit-type-${k}-tracking`] = t.tracking;
+    }
+    return out;
+  };
+  const directionBlocks = directions
+    .map(
+      (d) =>
+        `/* Direction ${d}: dark (only while the light preview is off), its faces, radii and type, then light. */\n` +
+        `${D(d, false)} {\n${decl(roleVars(directionSets[d].dark))}\n}\n\n` +
+        `${L.replace('])', `][data-direction='${d}'])`)} {\n${decl({ ...roleVars(directionSets[d].both), ...directionType(d) })}\n}\n\n` +
+        `${D(d, true)} {\n${decl(roleVars(directionSets[d].light))}\n}\n` +
+        (directionSets[d].today
+          ? `\n/* Direction ${d}: today's names. */\n:root[data-look='${LIT_LOOK}'][data-direction='${d}'] {\n${decl(directionSets[d].today)}\n}\n`
+          : ''),
+    )
+    .join('\n');
   return `/**
- * Volt role tokens (--lit-*). GENERATED from src/lit/tokens.ts by src/lit/generate.ts.
+ * Lit glass role tokens (--lit-*). GENERATED from src/lit/tokens.ts by src/lit/generate.ts.
  * Do not edit by hand: lit/lit.test.ts fails if the two drift. Names and meanings: src/lit/contracts.ts.
  * Loaded by the customer app only, after theme/tokens.css. Never imported by apps/admin.
  */
 
-/* Without data-look on the root (the kit gallery's flat view): every role is today's skin, flat. */
+/* The look switched off: every role is today's skin, flat. */
 :root {
 ${decl({ ...roleVars(flat), ...typeVars(true) })}
 }
 
-/* Volt, dark: the look. */
+/* Lit glass, dark, blue. */
 ${L} {
 ${decl({ ...roleVars(lit), ...typeVars(false) })}
 }
-
-/* Volt, light: written and tested, behind the scheme switch; the beta is dark only. */
+${accentBlocks}
+/* Light values: written and tested, not shipped. */
 ${L.replace('])', "][data-theme='light'])")} {
 ${decl(roleVars(litLight))}
 }
 
+${lightAccentBlocks}
+${directionBlocks}
 /* Solid surfaces: the in-app switch, and automatically for more contrast, forced colours or reduced transparency. */
 ${L.replace('])', "][data-surfaces='solid'])")} {
 ${decl(roleVars(solid))}
@@ -628,7 +859,7 @@ ${decl(roleVars(pro))}
 
 /* Today's names in the look's roles (todayInLookRoles). */
 :root[data-look='${LIT_LOOK}'] {
-${decl({ ...todayInLookRoles, ...volt.today })}
+${decl(todayInLookRoles)}
 }
 
 @media (prefers-reduced-motion: reduce) {

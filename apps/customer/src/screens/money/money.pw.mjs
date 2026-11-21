@@ -292,13 +292,13 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
     ),
   );
   expect([...tops].sort((a, b) => a - b)).toEqual(tops);
-  // Geometry: container 1224, hero 56/56 (Volt's wide figure, 4rem at the computer).
+  // Geometry: container 1224, hero 48/58.
   expect(Math.round((await root.boundingBox()).width)).toBe(1224);
   expect(
     await page
       .locator('[data-slot="hero-number"]')
       .evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
-  ).toBe('56px/56px');
+  ).toBe('48px/58px');
 
   // Plain words only, and every money figure has a money shape.
   expect(await root.innerText()).not.toMatch(forbidden);
@@ -631,7 +631,7 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
   ).toBe('32px/40px');
   expect(await seen(page.locator('#crypto > [data-testid="money-table"] thead th'))).toEqual([
     'Coin',
-    'Amount · Value',
+    'Amount',
     'Price',
     'Value',
     'Today',
@@ -743,8 +743,7 @@ test('Simple Money has no Available and In orders columns', async ({ page }) => 
   await open(page);
   expect(await seen(page.locator('#crypto > [data-testid="money-table"] thead th'))).toEqual([
     'Coin',
-    // Volt keeps the column head on one line
-    'Amount · Value',
+    'Amount',
     'Price',
     'Value',
     'Today',
