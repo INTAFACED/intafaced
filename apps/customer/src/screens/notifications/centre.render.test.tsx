@@ -41,7 +41,7 @@ describe('channel card', () => {
     const channels = buildChannels(
       [{ channel: 'sms', configured: true, available: true }],
       [{ channel: 'sms', muted: false }],
-      [{ channel: 'sms', address: '+447700900000', verifiedAt: null }],
+      [{ channel: 'sms', address: '+447700900000', locale: 'en', verifiedAt: null }],
     );
     const page = html(<ChannelCard channel="sms" view={channels.sms} onMute={mute} onChanged={() => undefined} />);
     expect(page).toContain('Not confirmed');

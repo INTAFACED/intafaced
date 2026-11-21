@@ -3,7 +3,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthError, requireMfa, requireScope } from '@intafaced/auth';
 import { sbeCodec, type SbeCodec } from '@intafaced/sbe-codec';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
-import { marketLifecycleAdmissionProofSchema, orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
+import { MATCHING_SUBMIT_ORDER } from '@intafaced/exchange-contract';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import {
   DEFAULT_SERVICE_BODY_BIND_MODE,
   retainRawBody,
@@ -60,7 +61,6 @@ import {
   readRulebookDraft,
   rulebookApprovalFields,
   rulebookApprovalTarget,
-  RULEBOOK_SECTION_MAX,
 } from './rulebook.js';
 import { l4, nativeL3FromEngine, publicMakerIdentity } from './engine/l3-queue.js';
 import {
@@ -72,6 +72,23 @@ import {
   parsePublicL2QueryLimit,
 } from './l2-limit.js';
 import { userCopy } from './user-copy.js';
+import {
+  closePositionBodySchema,
+  massCancelBodySchema,
+  mmpFieldsSchema,
+  quoteSideSchema,
+  massQuoteBodySchema,
+  venueKillBodySchema,
+  sessionDeadBodySchema,
+  amendBodySchema,
+  markBodySchema,
+  spreadListBodySchema,
+  spreadOrderBodySchema,
+  reconcileBodySchema,
+  founderBody,
+  rulebookDraftBody,
+  rulebookPublishBody,
+} from './door-inputs.js';
 import {
   concatenateSbePayloads,
   encodeMatchingL2Sbe,
@@ -96,154 +113,6 @@ installMmp();
  * is a `packages/contracts` change, which may ship with this service's change.
  */
 
-/** Decimal string. Reusing the exchange contract's rule rather than inventing a second one. */
-const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are positive decimal strings with at most 18 decimal places');
-/** Offset may be negative. Still a decimal string — never a JSON number. */
-const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'offsets are signed decimal strings with at most 18 decimal places');
-
-/** §5.1 order types. `take_profit` is mapped down by svc-trade before it reaches here. */
-const engineOrderTypeSchema = z.enum(['market', 'limit', 'stop', 'stop_limit']);
-
-const submitBodySchema = z.object({
-  orderId: z.string().guid(),
-  /** §5.1: account ids only. This service never learns whose account it is. */
-  accountId: z.string().min(1).max(128),
-  type: engineOrderTypeSchema,
-  side: orderSideSchema,
-  qty: decimal,
-  price: decimal.nullish(),
-  stopPrice: decimal.nullish(),
-  /** Caller stop trigger. Same money as stopPrice. The engine does not invent one. */
-  stopPx: decimal.nullish(),
-  tif: timeInForceSchema,
-  /** Linked TP+SL sibling. First fill cancels the other; refuse if that sibling is already terminal. */
-  ocoSiblingId: z.string().guid().optional(),
-  /** One-cancels-other exit pair: take-profit (limit) and stop-loss (stop). Missing a leg refuses; the engine does not invent one. */
-  oco: z.boolean().optional(),
-  takeProfit: decimal.nullish(),
-  stopLoss: decimal.nullish(),
-  /** Limit price of the stop-loss leg (a stop-limit instead of a market stop). Needed to bound a buy-side stop. */
-  stopLossLimit: decimal.nullish(),
-  /** Caller expire instant for GTD/GTT. The engine does not invent one. */
-  expireAt: z.string().min(1).optional(),
-  /** Caller session for cancel-on-disconnect. Missing is untagged — the engine does not invent one. */
-  sessionId: z.string().max(128).optional(),
-  /** Rest only if it shrinks this account's position. The engine does not invent a mark. */
-  reduceOnly: z.boolean().optional(),
-  /** Rest only if it would not take. The engine does not invent a price. */
-  postOnly: z.boolean().optional(),
-  iceberg: z.boolean().optional(),
-  displayQty: decimal.optional(),
-  /** Trail distance. Required to rest a trailing stop. The engine does not invent a distance. */
-  trail: decimal.nullish(),
-  /** Injected mark the trail walks with. The engine does not invent a mark. */
-  mark: decimal.nullish(),
-  /** Strike. Required to rest an option. The engine does not invent a strike. */
-  strike: decimal.nullish(),
-  /** Expiry. Required to rest an option. The engine does not invent an expiry. */
-  expiry: z.string().nullish(),
-  /** Minimum fill qty. Missing or zero is not set. The engine does not invent a default. */
-  minQty: decimal.nullish(),
-  /** All-or-none. Missing or false is a normal order. The engine does not invent a fill. */
-  aon: z.boolean().optional(),
-  /** Pegged to caller reference + offset. Missing those refuses. The engine does not invent a mid. */
-  peg: z.boolean().optional(),
-  /** Midpoint. Unsupported — refuses. The engine does not invent a mid. */
-  midpoint: z.boolean().optional(),
-  /** Relative to caller reference + offset. Missing those refuses. The engine does not invent a mid. */
-  relative: z.boolean().optional(),
-  /** Caller reference for peg/relative. The engine does not invent a mid. */
-  reference: decimal.nullish(),
-  /** Caller offset for peg/relative. Added to reference. Missing refuses. */
-  offset: signedDecimal.nullish(),
-  /** Auction. Unsupported — refuses. The engine does not invent an auction price. */
-  auction: z.boolean().optional(),
-  /** Benchmark. Unsupported — refuses. The engine does not invent a benchmark price. */
-  benchmark: z.boolean().optional(),
-  /** Price collar. Missing or false is a normal order. */
-  collar: z.boolean().optional(),
-  /** Caller collar min. Required when collar is true. The engine does not invent last or mid. */
-  min: decimal.nullish(),
-  /** Caller collar max. Required when collar is true. The engine does not invent last or mid. */
-  max: decimal.nullish(),
-  /** Caller min notional. Missing notional when requested refuses. The engine does not invent last. */
-  minNotional: decimal.nullish(),
-  /** Combo / multi-leg. Named legs with ratios required. The engine does not invent a combo book. */
-  combo: z.boolean().optional(),
-  /** Named combo legs. Missing when combo is requested refuses. Ratio is a signed ledger decimal. */
-  legs: z
-    .array(
-      z.object({
-        name: z.string().nullish(),
-        ratio: signedDecimal.nullish(),
-        strike: decimal.nullish(),
-        expiry: z.string().nullish(),
-      }),
-    )
-    .nullish(),
-  /** PX-S01 evidence is mandatory at this private risk-increasing boundary. */
-  lifecycleProof: marketLifecycleAdmissionProofSchema,
-});
-
-const closePositionBodySchema = z.object({
-  orderId: z.string().guid(),
-  accountId: z.string().min(1).max(128),
-  /** Same PLACE / market-lifecycle proof as a market submit. */
-  lifecycleProof: marketLifecycleAdmissionProofSchema,
-});
-
-const massCancelBodySchema = z.object({
-  /** §5.1: account ids only. This service never learns whose account it is. */
-  accountId: z.string().min(1).max(128),
-  /** Not on the book. Present and non-empty refuses rather than inventing a session. */
-  sessionId: z.string().max(128).nullish(),
-  /** Present buy|sell is that side only (book + stops). Missing/null is both. */
-  side: orderSideSchema.nullish(),
-});
-
-/**
- * MMP magnitudes on the wire. Decimal string or blank.
- * Blank is still MMP intent — unpublished refuse. Never a JSON number, never invented 0.
- */
-const mmpMagnitude = z
-  .string()
-  .regex(/^(?:\d+(?:\.\d{1,18})?)?$/, 'MMP magnitudes are decimal strings or blank — never JSON numbers')
-  .nullish();
-
-const mmpFieldsSchema = z.object({
-  mmp: z.boolean().optional(),
-  mmpMaxQuote: mmpMagnitude,
-  mmpMaxPosition: mmpMagnitude,
-  mmpMaxLoss: mmpMagnitude,
-  mmpMaxDelta: mmpMagnitude,
-  mmpMaxVega: mmpMagnitude,
-  mmpVendor: z.boolean().optional(),
-  sidecar: z.boolean().optional(),
-});
-
-const quoteSideSchema = z
-  .object({
-    orderId: z.string().guid(),
-    type: engineOrderTypeSchema,
-    qty: decimal,
-    price: decimal.nullish(),
-    tif: timeInForceSchema,
-  })
-  .merge(mmpFieldsSchema);
-
-const massQuoteBodySchema = z
-  .object({
-    /** Quote set id. Empty refuses — the engine does not invent a set. */
-    setId: z.string(),
-    accountId: z.string().min(1).max(128),
-    /** Explicit one-sided. Missing/false is a required two-sided pair (PTX-M11-R11). */
-    oneSided: z.boolean().optional(),
-    bid: quoteSideSchema.nullish(),
-    ask: quoteSideSchema.nullish(),
-    lifecycleProof: marketLifecycleAdmissionProofSchema,
-  })
-  .merge(mmpFieldsSchema);
-
 type MmpWire = z.infer<typeof mmpFieldsSchema>;
 type QuoteSideWire = z.infer<typeof quoteSideSchema>;
 type MassQuoteEngine = MatchingEngine & {
@@ -260,90 +129,7 @@ function emergencyCmd(authz: {
   return { operatorId: authz.operatorId, confirmOperatorId: authz.confirmOperatorId, evidenceRefs: authz.evidenceRefs };
 }
 
-const venueKillBodySchema = z.object({
-  operatorId: z.string().min(1).max(128),
-  confirmOperatorId: z.string().max(128).nullish(),
-  approvalId: z.string().max(128).nullish(),
-  operationId: z.string().max(128).nullish(),
-});
-
-const sessionDeadBodySchema = z.object({
-  /** Caller session. Missing/empty refuses — the engine does not invent a session. */
-  sessionId: z.string().min(1).max(128),
-});
-
-const amendBodySchema = z
-  .object({
-    expectedVersion: z.number().int().positive(),
-    qty: decimal.optional(),
-    price: decimal.optional(),
-    stopPrice: decimal.optional(),
-    tif: timeInForceSchema.optional(),
-    lifecycleProof: marketLifecycleAdmissionProofSchema,
-  })
-  .superRefine((body, ctx) => {
-    if (body.qty === undefined && body.price === undefined && body.stopPrice === undefined && body.tif === undefined) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'amend must change qty, price, stopPrice, or tif' });
-    }
-  });
-
-const markBodySchema = z.object({ mark: decimal });
-
-/**
- * Owner spread listing (CB-otc-16). Fields are strings or blank so a blank owner value reaches the typed refusal
- * instead of a generic 400. Consumed through the same dual-control approval as OPEN.
- */
-const spreadListBodySchema = z.object({
-  kind: z.string().max(32).nullish(),
-  legs: z
-    .array(
-      z.object({
-        symbol: z.string().max(128).nullish(),
-        side: z.string().max(8).nullish(),
-        ratio: z.string().max(64).nullish(),
-      }),
-    )
-    .max(8)
-    .nullish(),
-  tick: z.string().max(64).nullish(),
-  lot: z.string().max(64).nullish(),
-  operatorId: z.string().min(1).max(128),
-  confirmOperatorId: z.string().max(128).nullish(),
-  approvalId: z.string().max(128).nullish(),
-  operationId: z.string().max(128).nullish(),
-});
-
-/** A spread order. GTC limit at a signed spread price; the engine stamps the listing itself. */
-const spreadOrderBodySchema = z.object({
-  orderId: z.string().guid(),
-  accountId: z.string().min(1).max(128),
-  side: orderSideSchema,
-  qty: decimal,
-  /** Spread price: a weighted leg-price difference, so it may be zero or negative. */
-  price: signedDecimal,
-  tif: timeInForceSchema,
-  /** Caller reference for the anchor leg (leg 0). Missing refuses. The engine does not invent a mark. */
-  anchorReference: decimal.nullish(),
-  clientOrderId: z.string().min(1).max(128).optional(),
-  environment: z.string().max(64).optional(),
-  sessionId: z.string().max(128).optional(),
-  lifecycleProof: marketLifecycleAdmissionProofSchema,
-});
-
-const counterpartOrderSchema = z.object({
-  orderId: z.string().min(1).max(128),
-  marketId: z.string().min(1).max(128),
-  state: z.enum(['pending', 'open', 'terminal']),
-  remaining: decimal,
-  funded: z.boolean(),
-  detail: z.string().max(256).optional(),
-});
-
-const reconcileBodySchema = z.object({
-  orders: z.array(counterpartOrderSchema).max(10_000),
-});
-
-function toEngineOrder(body: z.infer<typeof submitBodySchema>): EngineOrder {
+function toEngineOrder(body: z.output<typeof MATCHING_SUBMIT_ORDER.input>): EngineOrder {
   const stopPx = body.stopPx ?? body.stopPrice;
   return {
     orderId: body.orderId,
@@ -505,7 +291,7 @@ const presentCancellation = (cancellation: CancelledRef) => ({
   reason: cancellation.reason,
 });
 
-function presentSubmit(result: SubmitResult) {
+function presentSubmit(result: SubmitResult): ProcedureOutput<typeof MATCHING_SUBMIT_ORDER> {
   return {
     accepted: result.accepted,
     sequence: result.sequence,
@@ -740,7 +526,7 @@ export function registerRoutes(
     }
 
     const { marketId } = req.params as { marketId: string };
-    const parsed = submitBodySchema.safeParse(req.body);
+    const parsed = MATCHING_SUBMIT_ORDER.input.safeParse(req.body);
     if (!parsed.success) {
       return reply.code(400).send({ code: 'BadRequest', issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
     }
@@ -793,6 +579,21 @@ export function registerRoutes(
       parsed.data.lifecycleProof,
     );
     return reply.code(200).send(presentSubmit(result));
+  });
+
+  // Read-only: the signed net of one account on one book, so svc-trade can size and hold a close before the engine
+  // prints it (#4591). A missing book is flat, not an error: the engine does not invent a position.
+  app.get('/markets/:marketId/positions/:accountId', async (req, reply) => {
+    try {
+      requireTradingService(req);
+    } catch (err) {
+      return authFailure(err, reply);
+    }
+    const { marketId, accountId } = req.params as { marketId: string; accountId: string };
+    if (accountId.length < 1 || accountId.length > 128) {
+      return reply.code(400).send({ code: 'BadRequest', issues: ['accountId: must be 1 to 128 characters'] });
+    }
+    return reply.code(200).send({ marketId, accountId, qty: formatAmount(engine.netPosition(marketId, accountId)) });
   });
 
   app.patch('/markets/:marketId/orders/:orderId', async (req, reply) => {
@@ -1832,13 +1633,6 @@ export function registerRoutes(
     return reply.code(200).send(matchingInFlightRead(engine, new Date().toISOString()));
   });
 
-  const founderBody = z.object({
-    marketId: z.string().min(1).max(64).optional(),
-    approvalId: z.string().max(128),
-    operationId: z.string().max(128),
-    idempotencyKey: z.string(),
-  });
-
   const founderMutate = async (
     req: FastifyRequest,
     reply: FastifyReply,
@@ -1908,16 +1702,6 @@ export function registerRoutes(
     founderIdem.set(key.key, { fingerprint, value });
     return reply.code(200).send(value);
   };
-
-  const rulebookDraftBody = z.object({
-    version: z.string().max(200).optional(),
-    effectiveAt: z.string().max(64).optional(),
-    sections: z.record(z.string(), z.string().max(RULEBOOK_SECTION_MAX * 2)).optional(),
-  });
-  const rulebookPublishBody = rulebookDraftBody.extend({
-    approvalId: z.string().max(128),
-    operationId: z.string().max(128),
-  });
 
   /**
    * Check a rulebook draft before anyone proposes it (RC-cex-spot-08): a blank section refuses

@@ -12,7 +12,7 @@
  *                                                     the test part's input alone from a local clone, for the proof runs
  *
  * Why it exists: proof v2's post-merge reach reads voided 545 proofs over one harness change that, judged once in its
- * own PR, altered nothing the tests observe (project-state research/system-design-2026-11-07/E1-RESULT.md). The test
+ * own PR, altered nothing the tests observe (project-state product/E1-RESULT.md). The test
  * part rules before merge instead, and the seal (review-marker.mjs, JUDGE_CHECK) waits for its Test verdict step on the
  * exact head whenever judgeReason names a changed file. A FAIL stands for its head and its code, like the review's.
  *
@@ -25,7 +25,7 @@
 import { readFileSync, writeFileSync, mkdirSync, appendFileSync, existsSync, readdirSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { join, dirname, posix } from 'node:path';
+import { join, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
 // The default branch's copy: the job runs this file from the default branch's checkout (ci-review.yml), never the pull
 // request's, so the money rule below is main's.
@@ -283,7 +283,7 @@ export function parseDiff(text) {
     }
     if (!cur.hunk && line.startsWith('new file mode')) cur.oldPath = null;
     if (!cur.hunk && line.startsWith('deleted file mode')) cur.newPath = null;
-    if (!cur.hunk && (/^Binary files /.test(line) || line.startsWith('GIT binary patch'))) cur.binary = true;
+    if (!cur.hunk && (line.startsWith('Binary files ') || line.startsWith('GIT binary patch'))) cur.binary = true;
     if (!cur.hunk && /^(rename|copy) from /.test(line)) {
       cur.moved = line.startsWith('rename') ? 'rename' : 'copy';
       cur.oldPath = line.replace(/^(rename|copy) from /, '');
@@ -636,7 +636,12 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords, lead 
     if (users.length === 0) continue; // e.g. a look sweep or a file no journey reaches: no step to judge
     const names = new Set([...changedNames(before.get(f.path), f.removed), ...changedNames(after.get(f.path), f.added)]);
     let n = 0;
-    for (const jf of users) for (const s of allStepsOf(jf)) if (!own.has(s)) (reached.set(s, reached.get(s) ?? jf), n++);
+    for (const jf of users)
+      for (const s of allStepsOf(jf))
+        if (!own.has(s)) {
+          reached.set(s, reached.get(s) ?? jf);
+          n++;
+        }
     changes.push({ file: f.path, kind: 'shared', reaches: n, journeys: users.length, names: [...names] });
   }
   for (const s of own) reached.delete(s);
@@ -1049,20 +1054,87 @@ const roadmapAt = (read, manifests) => ({
   manifests,
 });
 
+/** git's empty tree, and its own defaults for every setting that shapes a diff's text (a local config never counts). */
+const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+const DIFF_DEFAULTS = [
+  'diff.noprefix=false',
+  'diff.mnemonicPrefix=false',
+  'diff.srcPrefix=a/',
+  'diff.dstPrefix=b/',
+  'diff.context=3',
+  'diff.interHunkContext=0',
+  'diff.indentHeuristic=true',
+  'diff.suppressBlankEmpty=false',
+  'diff.algorithm=myers',
+  'diff.relative=false',
+  'diff.renames=true',
+  'core.quotePath=true',
+  'core.autocrlf=false',
+].flatMap((c) => ['-c', c]);
+
 export function gitSource(clone, graphSha) {
   const git = (...a) => execFileSync('git', ['-C', clone, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  // Each sha's regular files are listed once (one ls-tree) and each blob read once, the import graph's code files in one
+  // `git cat-file --batch` (about 0.3 s): the graph probes thousands of paths, and one git call per probe took 105 s on
+  // intafaced #8496. Only a regular file's text, as before: a symlink, a submodule or a directory is null.
+  const trees = new Map();
+  const texts = new Map();
+  const filesAt = (sha) => {
+    if (!trees.has(sha)) {
+      const m = new Map();
+      for (const l of git('ls-tree', '-r', '-z', '--full-tree', sha).split('\0')) {
+        const r = /^100(?:644|755) blob ([0-9a-f]+)\t([^]+)$/.exec(l);
+        if (r) m.set(r[2], r[1]);
+      }
+      trees.set(sha, m);
+      if (sha === graphSha) {
+        const blobs = [...new Set([...m].filter(([p]) => /\.(mjs|cjs|js|mts|ts|tsx|json)$/.test(p)).map(([, b]) => b))];
+        const out = execFileSync('git', ['-C', clone, 'cat-file', '--batch'], { input: `${blobs.join('\n')}\n`, maxBuffer: 1 << 30 });
+        for (let at = 0; at < out.length;) {
+          const nl = out.indexOf(10, at);
+          const [blob, type, size] = out.subarray(at, nl).toString('latin1').split(' ');
+          if (type !== 'blob') throw new Error(`git cat-file --batch: ${blob} is ${type}`);
+          texts.set(blob, out.subarray(nl + 1, nl + 1 + Number(size)).toString('utf8'));
+          at = nl + 2 + Number(size);
+        }
+      }
+    }
+    return trees.get(sha);
+  };
   const show = (sha, p) => {
     try {
-      if (!/^100(644|755) blob /.test(git('ls-tree', sha, '--', p))) return null;
-      return git('show', `${sha}:${p}`);
+      const blob = filesAt(sha).get(p);
+      if (!blob) return null;
+      if (!texts.has(blob)) texts.set(blob, git('cat-file', 'blob', blob));
+      return texts.get(blob);
     } catch {
       return null;
     }
   };
   return {
     diff: async (base, head) => ({
-      // Rename detection on, as in the compare API's diff, so a local replay sees the renames CI sees.
-      diff: git('diff', '--no-color', '--no-ext-diff', '--find-renames', `${base}...${head}`),
+      // Rename detection on, as in the compare API's diff, so a local replay sees the renames CI sees. The compare API
+      // reads no .gitattributes (its `-diff` lockfile comes as text: #8458's 33075 bytes, 793 here without this) and no
+      // one's git config: attributes from the empty tree, and git's own defaults for what shapes a diff.
+      diff: execFileSync(
+        'git',
+        [
+          '-C',
+          clone,
+          `--attr-source=${EMPTY_TREE}`,
+          ...DIFF_DEFAULTS,
+          'diff',
+          '--no-color',
+          '--no-ext-diff',
+          '-O/dev/null', // no diff.orderFile: the files in git's own order
+          '--find-renames',
+          `${base}...${head}`,
+        ],
+        {
+          encoding: 'utf8',
+          maxBuffer: 256 * 1024 * 1024,
+        },
+      ),
       mergeBase: git('merge-base', base, head).trim(),
     }),
     read: async (sha, p) => show(sha, p),

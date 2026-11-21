@@ -1,0 +1,114 @@
+{
+  "callers": [
+    {
+      "path": "own.usageByDay",
+      "type": "query",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "own.usageByDay": null
+  },
+  "answers": {
+    "own.usageByDay valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay valid execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay absent execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay wrong-type execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay empty execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay extra-key execute": {
+      "status": 503,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32603,\"data\":{\"code\":\"SERVICE_UNAVAILABLE\",\"httpStatus\":503,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    },
+    "own.usageByDay extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"A signed-in user session is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"own.usageByDay\",\"requestId\":\"<request>\"}}}"
+    }
+  }
+}

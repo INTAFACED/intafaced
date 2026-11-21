@@ -178,7 +178,7 @@ function harness(options: { routed?: boolean; providerRegistered?: boolean; grou
   const routes =
     options.routed === false ? [] : [{ task: COACH_TASK, providerId: 'primary', model: 'test-engine', maxOutputTokens: 1024, price: null }];
   const deps: CoachRunDeps = {
-    runtime: runtime as unknown as CoachRunDeps['runtime'],
+    runtime: runtime as CoachRunDeps['runtime'],
     gateway: {
       routingTable: { routes } as unknown as CoachRunDeps['gateway']['routingTable'],
       registeredProvider: (id: string) => (options.providerRegistered === false || id !== 'primary' ? undefined : provider),
@@ -295,7 +295,7 @@ describe('coach run — a metered run', () => {
     const row = await store.find(USER, 'coach:req:0001');
     expect(row?.status).toBe('answered');
     expect(row?.billedAmount).toBe('0');
-    expect(looksLikeAdvice(result as unknown as Record<string, unknown>)).toBe(false);
+    expect(looksLikeAdvice(result as Record<string, unknown>)).toBe(false);
   });
 
   it('a retry with the same request id returns the stored answer and never calls the engine again', async () => {
@@ -413,7 +413,7 @@ describe('coach run — stored runs and their readback', () => {
     const first = await ask(deps, SIZE_ASK);
     const unrouted = {
       ...deps,
-      gateway: { ...deps.gateway, routingTable: { routes: [] } as unknown as CoachRunDeps['gateway']['routingTable'] },
+      gateway: { ...deps.gateway, routingTable: { routes: [] } as CoachRunDeps['gateway']['routingTable'] },
     };
     expect(await ask(unrouted, SIZE_ASK)).toEqual({ ...first, replayed: true });
     expect(await ask(unrouted, 'TEST: explain drawdown', 'coach:req:0002')).toEqual({
@@ -460,7 +460,7 @@ describe('coach guardrail', () => {
         calls.push({ input, options });
         return coachAgentGuardrail();
       },
-    } as unknown as Parameters<typeof registerCoachAgent>[0]);
+    } as Parameters<typeof registerCoachAgent>[0]);
     expect(calls).toEqual([{ input: serialiseGuardrail(coachAgentGuardrail()), options: { enabled: true } }]);
   });
 

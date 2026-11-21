@@ -13,7 +13,7 @@ import {
 } from './lead-api.js';
 
 const LEAD = '0b9c5f8e-4a3d-4c2b-9e1f-7a6b5c4d3e2f';
-const principal = (userId: string) => ({ userId, scopes: ['trade:write', 'copy:lead'] }) as unknown as Principal;
+const principal = (userId: string) => ({ userId, scopes: ['trade:write', 'copy:lead'] }) as Principal;
 const listings: Record<string, { state: string; assets: string[] }> = {
   [LEAD]: { state: 'listed', assets: ['BTC/USDT'] },
   suspended: { state: 'suspended', assets: ['BTC/USDT'] },
@@ -59,7 +59,7 @@ describe('the lead API', () => {
       reads += 1;
       return read(userId);
     };
-    const tradeOnly = { userId: LEAD, kid: 'k1', scopes: ['trade:read', 'trade:write'] } as unknown as Principal;
+    const tradeOnly = { userId: LEAD, kid: 'k1', scopes: ['trade:read', 'trade:write'] } as Principal;
     expect(await refuseLeadOrder(leadOrderGate(counted), tradeOnly, { symbol: 'BTC/USDT' }, reply)).toBe(true);
     expect(sent).toEqual([{ status: 403, body: LEAD_SCOPE_REFUSAL }]);
     expect(reads).toBe(0);

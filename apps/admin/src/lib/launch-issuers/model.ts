@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * The launch issuer lens (J-more-catalogue-14): svc-token's `launch.*` shapes as this console reads and sends them. Pure: no
  * service call here. svc-token is the authority for every rule; this file only refuses what it can never accept.
@@ -226,7 +227,6 @@ export interface LaunchMove {
   at: string;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const str = (v: unknown): v is string => typeof v === 'string';
 const strOrNull = (v: unknown): v is string | null => v === null || typeof v === 'string';
 const int = (v: unknown): v is number => Number.isInteger(v);

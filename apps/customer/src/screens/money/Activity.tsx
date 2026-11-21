@@ -55,7 +55,6 @@ import {
   TabsTab,
   useActivity,
   type ActivityFeed,
-  type ActivityItem,
   type ActivityKind,
   type Loadable,
 } from './deps';
@@ -80,6 +79,8 @@ import { DormancyNotice } from './DormancyNotice';
 import { TaxEffects } from './TaxEffects';
 import { stamp } from './time';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
+import { useVenueMode } from '../../features/trade/use-venue-mode';
+import { SourceActivity } from './SourceActivity';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -692,12 +693,24 @@ export default function Activity({ search }: { search: string }) {
   const { hideBalances, layoutMode } = usePreferences();
   const [filters, setFilters] = useState<ActivityFilters>(NO_FILTERS);
   const tab = tabFromSearch(search);
+  // The launch model (OWNER 226): with svc-trade's user-venue door on, All lists what the wallet, the venue and the
+  // partner report, each line named with its source (J-portfolio-03 #1), as Assets does (WhereItSits).
+  const venue = useVenueMode();
+  const bySource = venue.mode === 'on' && venue.status.available ? venue.status : null;
   // `?asset=BTC` narrows every tab that lists money lines or fills; Orders lists orders, so it ignores it.
   const asset = tab === 'orders' ? null : assetFromSearch(search);
-  // On a phone the tab row scrolls on its own; keep the open tab in view, also when a link opens a far one.
+  // On a phone the tab row scrolls on its own; keep the open tab in view, also when a link opens a far one, and again
+  // whenever a tab changes size (its face arriving late widens the row after the first scroll).
   const tabList = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    tabList.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const row = tabList.current;
+    if (!row) return;
+    const reveal = () => row.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    reveal();
+    if (typeof ResizeObserver === 'undefined') return;
+    const sizes = new ResizeObserver(reveal);
+    for (const child of row.children) sizes.observe(child);
+    return () => sizes.disconnect();
   }, [tab]);
   return (
     <div data-testid="if-money" className="if-money if-money--activity" data-density={layoutMode === 'pro' ? 'pro' : undefined}>
@@ -731,6 +744,8 @@ export default function Activity({ search }: { search: string }) {
           <TradesPanel asset={asset} fill={fillFromSearch(search)} />
         ) : tab === 'orders' ? (
           <OrdersPanel />
+        ) : tab === 'all' && bySource ? (
+          <SourceActivity status={bySource} filters={filters} asset={asset} hidden={hideBalances} />
         ) : isLedgerTab(tab) ? (
           <LedgerTabs tab={tab} asset={asset} copy={copy} hidden={hideBalances} filters={filters} />
         ) : null}

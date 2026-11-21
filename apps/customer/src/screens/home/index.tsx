@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useMemo, useState } from 'react';
+import { Suspense, lazy, useMemo, useState } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
 import { clockTime } from './clock';
@@ -8,10 +8,8 @@ import {
   ChangeText,
   dec,
   fmtChangeLine,
-  fmtUsd,
   HeroNumber,
   isHiddenPath,
-  Money,
   refusalCopy,
   Skeleton,
   StateBlock,
@@ -26,11 +24,10 @@ import {
   useTickers,
   type Loadable,
   type HomePortfolio,
-  type TickerRow,
   Loading,
 } from './deps';
 import { InfoTip } from './InfoTip';
-import { IN_PANEL, STATE_IN_COLUMN } from './panel';
+import { STATE_IN_COLUMN } from './panel';
 import { MarketsFailure, MarketsRow, MarketsSkeleton, MoversHeading, MoversRow, MoversSkeleton } from './MarketsSection';
 import { YourCrypto, YourCryptoSkeleton } from './YourCrypto';
 import { listings, topCards, topMovers } from './select';
@@ -38,13 +35,16 @@ import { Watchlist } from './Watchlist';
 import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
+import { useRecentActivityLimit } from './recent-activity-limit';
+import { HomeStanding, launchStanding, useLaunchVenue } from './HomeStanding';
 import { WorkList } from './WorkList';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
 import type { NeedsYouShown } from './work-list';
 import { CustomiseHome } from './CustomiseHome';
-import { LitSphere } from './LitSphere';
+import './lit-spike.css';
+import { VoltStack } from './VoltStack';
 import { HomeNotices } from './Notices';
 import { HomeInbox } from './HomeInbox';
 import { useHomeLayout } from './tiles-data';
@@ -104,44 +104,6 @@ function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) 
             </Button>
           ))}
     </nav>
-  );
-}
-
-function HoldingsCard({ portfolio, hidden }: { portfolio: HomePortfolio; hidden: boolean }) {
-  const { t } = homeCopy.useCopy();
-  const rows = [
-    { id: 'cash', label: t('Cash'), glyph: '$', value: portfolio.cashUsd },
-    { id: 'crypto', label: t('Crypto'), glyph: '₿', value: portfolio.cryptoUsd },
-  ] as const;
-  return (
-    <section data-testid="home-holdings" className="home-holdings" aria-label={t('Your holdings')}>
-      {rows.map((row) => (
-        <a key={row.id} data-testid="home-holdings__row" className="home-holdings__row" href={`/money#${row.id}`}>
-          <span className="home-holdings__glyph" aria-hidden="true">
-            {row.glyph}
-          </span>
-          <span className="home-holdings__label">{row.label}</span>
-          <Money data-testid="home-holdings__value" className="home-holdings__value" value={fmtUsd(row.value)} hidden={hidden} />
-          <ChevronRight size={20} aria-hidden="true" className="home-holdings__chev" />
-        </a>
-      ))}
-    </section>
-  );
-}
-
-function HoldingsSkeleton() {
-  return (
-    <section data-testid="home-holdings" className="home-holdings" aria-hidden="true">
-      {[0, 1].map((index) => (
-        <div key={index} data-testid="home-holdings__row" className="home-holdings__row">
-          <Skeleton width={32} height={32} circle className={IN_PANEL} />
-          <span className="home-holdings__label">
-            <Skeleton width={64} height={20} className={IN_PANEL} />
-          </span>
-          <Skeleton width={96} height={20} className={IN_PANEL} />
-        </div>
-      ))}
-    </section>
   );
 }
 
@@ -250,6 +212,9 @@ function HomeSimple() {
   const movers = useMovers(6);
   const { userId } = useSession();
   const activity = useActivity();
+  const activityLimit = useRecentActivityLimit();
+  // The launch model (OWNER 226): with the user-venue door on, the total is where the person stands, as Assets shows it.
+  const launch = launchStanding(useLaunchVenue(), portfolio);
   const { favorites, isFavorite, toggle } = useFavorites(userId);
   const favoriting = useMemo(() => ({ isFavorite, toggle }), [isFavorite, toggle]);
 
@@ -309,6 +274,33 @@ function HomeSimple() {
   const started = useStartedTile(portfolio, side.includes('started'));
   // What "Needs you" shows, so the inbox row is never a notice it already carries.
   const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
+  // The total, its label and the actions.
+  const hero = (
+    <>
+      <div data-testid="home-label" className="home-label">
+        <span>{t('Est. total value')}</span>
+        <button
+          type="button"
+          className="home-eye"
+          onClick={() => savePreferences({ hideBalances: !hideBalances })}
+          aria-label={hideBalances ? t('Show balances') : t('Hide balances')}
+        >
+          {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+        </button>
+        <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
+        {isHiddenPath('/money') ? null : (
+          <a className="home-tile-link" href="/money">
+            {t('Assets')}
+            <ChevronRight size={14} aria-hidden="true" />
+          </a>
+        )}
+        <CustomiseHome home={home} mode="simple" />
+      </div>
+
+      {launch ? <HomeStanding status={launch} hidden={hideBalances} /> : <Balance portfolio={portfolio} hidden={hideBalances} />}
+      <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
+    </>
+  );
 
   return (
     <div data-testid="if-home" className="if-home">
@@ -317,46 +309,15 @@ function HomeSimple() {
       <HomeInbox needsYou={needsYou} />
       <div className="home-grid">
         <div data-testid="home-main" className="home-main">
-          <div data-testid="home-label" className="home-label">
-            <span>{t('Est. total value')}</span>
-            <button
-              type="button"
-              className="home-eye"
-              onClick={() => savePreferences({ hideBalances: !hideBalances })}
-              aria-label={hideBalances ? t('Show balances') : t('Hide balances')}
-            >
-              {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
-            </button>
-            <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
-            {isHiddenPath('/money') ? null : (
-              <a className="home-tile-link" href="/money">
-                {t('Assets')}
-                <ChevronRight size={14} aria-hidden="true" />
-              </a>
-            )}
-            <CustomiseHome home={home} mode="simple" />
-          </div>
-
-          <Balance portfolio={portfolio} hidden={hideBalances} />
-          <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
+          {hero}
           {main.map((id) => {
             switch (id) {
               case 'work':
                 return <WorkList key={id} hidden={hideBalances} onShown={setNeedsYou} />;
               case 'holdings':
-                return portfolio.status === 'loading' ? (
-                  // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't
-                  // arrive late and push the rows below it down
-                  <Fragment key={id}>
-                    <LitSphere portfolio={portfolio} hidden={hideBalances} />
-                    <HoldingsSkeleton />
-                  </Fragment>
-                ) : portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
-                  <Fragment key={id}>
-                    <LitSphere portfolio={portfolio} hidden={hideBalances} />
-                    <HoldingsCard portfolio={portfolio.data} hidden={hideBalances} />
-                  </Fragment>
-                ) : null;
+                // Volt draws the holdings as its card stack. On the launch model the holdings are the parts of the
+                // total above, each read from its own source.
+                return launch ? null : <VoltStack key={id} portfolio={portfolio} hidden={hideBalances} />;
               case 'markets':
                 return showMarkets ? (
                   <section key={id} className="home-section" aria-labelledby="home-markets-title">
@@ -387,7 +348,7 @@ function HomeSimple() {
                   </section>
                 ) : null;
               case 'activity':
-                return <RecentActivity key={id} activity={activity} hidden={hideBalances} />;
+                return <RecentActivity key={id} activity={activity} limit={activityLimit} hidden={hideBalances} />;
               case 'learn':
                 return <LearnStrip key={id} />;
               default:
@@ -406,7 +367,7 @@ function HomeSimple() {
           <aside data-testid="home-side" className="home-side">
             {side.map((id) =>
               id === 'your-crypto' ? (
-                portfolio.status === 'loading' ? (
+                launch ? null : portfolio.status === 'loading' ? (
                   <YourCryptoSkeleton key={id} />
                 ) : portfolio.status === 'ready' || portfolio.status === 'empty' ? (
                   <YourCrypto key={id} holdings={portfolio.status === 'ready' ? portfolio.data.holdings : []} hidden={hideBalances} />

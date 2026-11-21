@@ -20,7 +20,6 @@ import {
   usePortfolio,
   usePreferences,
   useSession,
-  useTicker,
   type Loadable,
   type MarketRow,
   type PortfolioSummary,
@@ -32,6 +31,7 @@ import { KeyStats, holdingOf } from './KeyStats';
 import { PriceCard } from './PriceCard';
 import { RecentActivity } from './RecentActivity';
 import { YourCoin } from './YourCoin';
+import { RecurringBuyButton } from '../trade/copybots/RecurringBuy';
 
 const ASSET = /^[A-Z0-9]{2,12}$/;
 /** The two coins every price is read against, in the order a price is looked up (UI-SPEC 1.2). */
@@ -212,6 +212,8 @@ function CoinPage({ asset, markets, portfolio }: { asset: string; markets: Marke
               {t('Trade {pair}', { pair: `${market.base}/${market.quote}` })}
             </Button>
           ) : null}
+          {/* A recurring buy of a basket, this coin first, on the person's own venue account (J-copy-bots-otc-16). */}
+          {!stable ? <RecurringBuyButton asset={asset} /> : null}
           {market || !holds ? (
             <KeyStats asset={asset} symbol={market?.symbol ?? null} tickSize={market?.tickSize ?? null} portfolio={portfolio} />
           ) : null}

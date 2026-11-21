@@ -1,14 +1,15 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { Button, Panel } from '../../shared/ui';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { currentSharedCardRoute, subscribeSharedCardRoute } from './blueprint-shared-card-contract';
-import { crewExportForOwner, crewProjection, type CrewEnvelope, type CrewRead } from './blueprint-crew-codec';
+import { currentRoute, subscribeRoute } from '../../shared/route-watch';
+import { BLUEPRINT_EXPORT } from '@intafaced/contracts/blueprint-procedures';
+import { crewExportOwnedBy, crewProjection, type CrewEnvelope, type CrewRead } from './blueprint-crew-codec';
 import { blueprintCrewCopy } from './blueprint-crew-copy';
 import './blueprint-crew.css';
 
-type Lease = Readonly<{ api: ApiClient; owner: string | null; session: object | null; route: ReturnType<typeof currentSharedCardRoute> }>;
+type Lease = Readonly<{ api: ApiClient; owner: string | null; session: object | null; route: ReturnType<typeof currentRoute> }>;
 type Request = Readonly<{ lease: Lease; controller: AbortController }>;
 type View =
   | { status: 'idle' }
@@ -29,7 +30,7 @@ export function BlueprintCrew() {
     requestRef.current?.controller.abort();
     requestRef.current = null;
   }
-  const route = currentSharedCardRoute();
+  const route = currentRoute();
   if (
     !leaseRef.current ||
     leaseRef.current.api !== api ||
@@ -42,7 +43,7 @@ export function BlueprintCrew() {
   }
   const lease = leaseRef.current;
   const admits = () =>
-    mounted.current && leaseRef.current === lease && !!lease.owner && lease.api.canWrite() && currentSharedCardRoute() === lease.route;
+    mounted.current && leaseRef.current === lease && !!lease.owner && lease.api.canWrite() && currentRoute() === lease.route;
   const requestCurrent = (request: Request) => admits() && request.lease === lease && requestRef.current === request;
   const visible = view.status === 'idle' || requestCurrent(view.request);
   const rendered = visible ? view : { status: 'idle' as const };
@@ -53,7 +54,7 @@ export function BlueprintCrew() {
   }
   useLayoutEffect(() => {
     mounted.current = true;
-    const release = subscribeSharedCardRoute(() => {
+    const release = subscribeRoute(() => {
       discard();
       leaseRef.current = null;
       // The observer runs at the URL departure, including same-task A→B→A.
@@ -82,8 +83,9 @@ export function BlueprintCrew() {
     show({ status: 'loading', request });
     let result: ApiResult<CrewEnvelope>;
     try {
-      result = await lease.api.query('blueprint', 'export', undefined, crewExportForOwner(lease.owner), {
+      result = await lease.api.call(BLUEPRINT_EXPORT, undefined, {
         signal: request.controller.signal,
+        accept: crewExportOwnedBy(lease.owner),
       });
     } catch {
       result = { ok: false, reason: 'unreachable', message: '' };

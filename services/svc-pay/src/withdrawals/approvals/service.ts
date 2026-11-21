@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { BankApproverEligibilityPort } from '@intafaced/contracts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { PayError } from '../../payment-service.js';
@@ -132,7 +132,7 @@ const terms = (r: RequestRow): WithdrawalTerms => ({
 export const approvalLockKey = (userId: string, assetId: string): string => `pay.withdrawal_approval:${userId}:${assetId}`;
 
 /** The latest policy event, active or not. Null when none was ever set. */
-export async function latestPolicyRow(q: Sql, userId: string, assetId: string): Promise<PolicyRow | null> {
+export async function latestPolicyRow(q: Queryable, userId: string, assetId: string): Promise<PolicyRow | null> {
   const [row] = await q<PolicyRow[]>`
     SELECT user_id, asset_id, active, team_account_id, required_approvals, threshold::text AS threshold, window_seconds,
            expiry_seconds, hold_at_submit, set_by, set_at
@@ -148,7 +148,7 @@ export async function latestPolicyRow(q: Sql, userId: string, assetId: string): 
  * reference is left out of the sum, so a retry never counts itself.
  */
 export async function policyAppliesTo(
-  q: Sql,
+  q: Queryable,
   now: Date,
   userId: string,
   assetId: string,
@@ -205,7 +205,7 @@ export class WithdrawalApprovalService {
    * The policy that applies to this withdrawal, or null when it may go direct (see `policyAppliesTo`). Reads on `q`, so
    * `propose` can ask again inside the transaction that inserts the request.
    */
-  private applicable(q: Sql, userId: string, assetId: string, amount: Amount, clientRef: string): Promise<PolicyRow | null> {
+  private applicable(q: Queryable, userId: string, assetId: string, amount: Amount, clientRef: string): Promise<PolicyRow | null> {
     return policyAppliesTo(q, this.now(), userId, assetId, amount, clientRef);
   }
 
@@ -599,13 +599,13 @@ export class WithdrawalApprovalService {
     return row ?? null;
   }
 
-  private async lock(tx: Sql, id: string): Promise<RequestRow> {
+  private async lock(tx: Queryable, id: string): Promise<RequestRow> {
     const [row] = await tx<RequestRow[]>`SELECT ${tx.unsafe(COLUMNS)} FROM pay.withdrawal_approval_requests WHERE id = ${id} FOR UPDATE`;
     if (!row) throw notFound();
     return row;
   }
 
-  private async event(q: Sql, requestId: string, kind: string, actor: string, detail: Record<string, unknown>): Promise<void> {
+  private async event(q: Queryable, requestId: string, kind: string, actor: string, detail: Record<string, unknown>): Promise<void> {
     await q`
       INSERT INTO pay.withdrawal_approval_events (request_id, kind, actor_id, detail)
       VALUES (${requestId}, ${kind}, ${actor}, ${q.json(detail as never)})`;

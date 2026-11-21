@@ -24,7 +24,7 @@ import { addressOf } from './Links';
 import { StatusChip } from '../ui/StatusChip';
 import { Timeline } from '../ui/Timeline';
 import { useServerList } from '../ui/useServerList';
-import { useDebouncedValue } from './use-debounced';
+import { useDebouncedValue } from '../../../../shared/use-debounced';
 import {
   allowedActions,
   blankDraft,
@@ -38,7 +38,6 @@ import {
   isOverdue,
   lineAmount,
   lineProblem,
-  linesTotal,
   localDay,
   matchingPayments,
   MAX_INVOICE_LINES,

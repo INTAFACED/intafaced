@@ -65,21 +65,21 @@ const mismatchResult = (): ScheduledReconcileResult =>
     report: failedReport(),
     snapshotted: false,
     run: { outcome: 'mismatch' },
-  }) as unknown as ScheduledReconcileResult;
+  }) as ScheduledReconcileResult;
 const okResult = (): ScheduledReconcileResult =>
   ({
     outcome: 'ok',
     report: { ...failedReport(), ok: true, chain: { ok: true, length: 0 } },
     snapshotted: true,
     run: { outcome: 'ok' },
-  }) as unknown as ScheduledReconcileResult;
+  }) as ScheduledReconcileResult;
 const incompleteResult = (errorCode = '57014'): ScheduledReconcileResult =>
   ({
     outcome: 'incomplete',
     report: null,
     snapshotted: false,
     run: { outcome: 'incomplete', phase: 'proof', error: new Error('canceling statement due to statement timeout'), errorCode, runId: '7' },
-  }) as unknown as ScheduledReconcileResult;
+  }) as ScheduledReconcileResult;
 
 /** A ledger that records every freeze it is asked for. */
 function recordingLedger(last?: LastVerified): {

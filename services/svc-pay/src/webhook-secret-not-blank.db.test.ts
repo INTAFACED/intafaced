@@ -160,6 +160,9 @@ describe('merchant webhook signing_secret and secret_hash are non-blank', () => 
          WHERE n.nspname = ${schema}
            AND c.relname = 'merchant_webhook_endpoints'
            AND con.contype = 'c'
+           -- The two checks 0024 adds. Later migrations add checks of their own to this table (event types, overlap
+           -- pair), which say nothing about whether 0024 applied.
+           AND con.conname IN (${SECRET_HASH_CK}, ${SIGNING_SECRET_CK})
          ORDER BY con.conname
       `;
       return rows.map((row) => row.conname);

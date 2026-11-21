@@ -69,9 +69,10 @@ export interface DeskFact {
   readonly waitingOn: SupportWaitingOn | null;
 }
 
+// The arrays are plain (not `readonly`) so a filter is a JSON value (`JsonValue`) as the record's schema reads it.
 export type DeskFilter =
-  | { readonly all: readonly DeskFilter[] }
-  | { readonly any: readonly DeskFilter[] }
+  | { readonly all: DeskFilter[] }
+  | { readonly any: DeskFilter[] }
   | { readonly field: string; readonly op: string; readonly value: string | null };
 
 export interface ViewSave {

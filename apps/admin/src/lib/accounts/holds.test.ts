@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { StaffHold, StaffHoldResult } from '@intafaced/contracts/ops-staff-holds';
 import { holdActionable, movementLine, placeKey, readPlaceForm } from './holds';
 
@@ -9,7 +10,7 @@ const { holdReply } = await import('./holds-server');
 const USER = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
 const form = {
   userId: USER,
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   amount: '40.00',
   reason: 'TEST suspected takeover',
   expiresInHours: null,
@@ -18,7 +19,7 @@ const form = {
 const hold = (over: Partial<StaffHold> = {}): StaffHold => ({
   holdNo: '1',
   userId: USER,
-  assetId: 'USDT',
+  assetId: asAssetId('USDT'),
   amount: '40',
   remaining: '40',
   state: 'active',
@@ -50,7 +51,7 @@ describe('the staff hold place form', () => {
     expect(readPlaceForm({ ...form, expiresInHours: 24 })).toMatchObject({ expiresInHours: 24 });
     expect(readPlaceForm({ ...form, amount: '0' })).toBeNull();
     expect(readPlaceForm({ ...form, amount: '1e3' })).toBeNull();
-    expect(readPlaceForm({ ...form, assetId: 'usdt' })).toBeNull();
+    expect(readPlaceForm({ ...form, assetId: asAssetId('usdt') })).toBeNull();
     expect(readPlaceForm({ ...form, reason: ' padded ' })).toBeNull();
     expect(readPlaceForm({ ...form, reason: 'x'.repeat(81) })).toBeNull();
     expect(readPlaceForm({ ...form, expiresInHours: 1.5 })).toBeNull();

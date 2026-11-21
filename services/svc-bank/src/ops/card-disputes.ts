@@ -6,7 +6,7 @@
 import { scopedProcedure } from '@intafaced/contracts';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
-import { DISPUTE_EVENT_KINDS, DISPUTE_OUTCOMES, DISPUTE_STATES } from '../cards/card-disputes.js';
+import { DISPUTE_CLOSURES, DISPUTE_EVENT_KINDS, DISPUTE_OUTCOMES, DISPUTE_STATES } from '../cards/card-disputes.js';
 import { LOSS_BEARERS } from '../cards/partner-terms.js';
 
 type Guard = <T>(fn: () => Promise<T>) => Promise<T>;
@@ -32,7 +32,8 @@ const summary = z.object({
   }),
   decision: z
     .object({
-      outcome: z.enum(DISPUTE_OUTCOMES),
+      outcome: z.enum(DISPUTE_CLOSURES),
+      reason: z.string().nullable(),
       lossStatus: z.enum(['reported', 'not_known']),
       lossBearer: z.enum(LOSS_BEARERS).nullable(),
       lossTerms: z.string().nullable(),
@@ -104,7 +105,7 @@ export function cardDisputeProcedures(bank: BankServices, guard: Guard) {
       .output(disputeCase)
       .mutation(({ ctx, input }) => guard(() => d().grantProvisionalCredit({ ...input, actor: ctx.principal.userId }))),
     cardDisputeDecide: scopedProcedure('support:ops')
-      .input(id.extend({ outcome: z.enum(DISPUTE_OUTCOMES) }).strict())
+      .input(id.extend({ outcome: z.enum(DISPUTE_OUTCOMES), reason: z.string().optional() }).strict())
       .output(disputeCase)
       .mutation(({ ctx, input }) => guard(() => d().decide({ ...input, actor: ctx.principal.userId }))),
   };

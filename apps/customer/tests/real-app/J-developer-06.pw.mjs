@@ -32,6 +32,7 @@ let page;
 let who;
 let key;
 let keyId;
+// The key's name holds a base36 time, so a field label it happens to contain ("why" in `mwhy…`) must be matched exactly.
 const keyName = `limits-${Date.now().toString(36)}`;
 /** What step 2 spent, for step 3 to find on the key detail. */
 let spent = 0;
@@ -247,7 +248,7 @@ test(`${J} #5 submits a request for a higher limit and a spike notice: the reque
   // The spike notice: when the traffic will spike.
   await form.getByLabel('Spike starts').fill(day(7));
   await form.getByLabel('Spike ends').fill(day(8));
-  await form.getByLabel('Why').fill('TEST: a launch week');
+  await form.getByLabel('Why', { exact: true }).fill('TEST: a launch week');
   await form.getByRole('button', { name: 'Send request' }).click();
   await expect(form.getByRole('status')).toHaveText('Your request is recorded. A reviewer will answer it here.');
 

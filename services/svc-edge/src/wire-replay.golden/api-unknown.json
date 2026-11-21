@@ -1,0 +1,121 @@
+{
+  "headers": [
+    [
+      ["content-type", "application/json; charset=utf-8"],
+      ["referrer-policy", "no-referrer"],
+      ["vary", "origin"],
+      ["x-content-type-options", "nosniff"],
+      ["x-frame-options", "DENY"],
+      ["x-ratelimit-limit", "1000000"]
+    ],
+    [
+      ["access-control-allow-credentials", "true"],
+      ["access-control-allow-origin", "https://app.example.test"],
+      [
+        "access-control-expose-headers",
+        "x-request-id, x-server-received, x-server-sent, intafaced-version, intafaced-version-source, intafaced-advisories, deprecation, link"
+      ],
+      ["content-type", "application/json; charset=utf-8"],
+      ["referrer-policy", "no-referrer"],
+      ["vary", "origin"],
+      ["x-content-type-options", "nosniff"],
+      ["x-frame-options", "DENY"],
+      ["x-ratelimit-limit", "1000000"]
+    ],
+    [
+      ["access-control-allow-credentials", "true"],
+      ["access-control-allow-headers", "authorization, content-type, idempotency-key, x-api-explorer, intafaced-version"],
+      ["access-control-allow-methods", "GET, POST, OPTIONS"],
+      ["access-control-allow-origin", "https://app.example.test"],
+      ["access-control-max-age", "600"],
+      ["vary", "origin"]
+    ]
+  ],
+  "bodies": [
+    "{\"error\":\"We could not find that.\",\"code\":\"edge.no_route\",\"message\":\"We could not find that.\",\"docs\":\"/developers/errors#edge.no_route\",\"requestId\":\"<uuid>\"}",
+    ""
+  ],
+  "answers": {
+    "DELETE /api/unknown/x": {
+      "absent anon": [404, 0, 0],
+      "absent bad-token": [404, 0, 0],
+      "absent api-key": [404, 0, 0],
+      "absent no-scope": [404, 0, 0],
+      "absent all": [404, 1, 0]
+    },
+    "GET /api/unknown/x": {
+      "absent anon": [404, 0, 0],
+      "absent bad-token": [404, 0, 0],
+      "absent api-key": [404, 0, 0],
+      "absent no-scope": [404, 0, 0],
+      "absent all": [404, 1, 0]
+    },
+    "OPTIONS /api/unknown/x": { "absent anon": [204, 2, 1] },
+    "PATCH /api/unknown/x": {
+      "absent anon": [404, 0, 0],
+      "absent bad-token": [404, 0, 0],
+      "absent api-key": [404, 0, 0],
+      "absent no-scope": [404, 0, 0],
+      "absent all": [404, 1, 0],
+      "empty anon": [404, 0, 0],
+      "empty bad-token": [404, 0, 0],
+      "empty api-key": [404, 0, 0],
+      "empty no-scope": [404, 0, 0],
+      "empty all": [404, 1, 0],
+      "wrong-type anon": [404, 0, 0],
+      "wrong-type bad-token": [404, 0, 0],
+      "wrong-type api-key": [404, 0, 0],
+      "wrong-type no-scope": [404, 0, 0],
+      "wrong-type all": [404, 1, 0],
+      "malformed anon": [404, 0, 0],
+      "malformed bad-token": [404, 0, 0],
+      "malformed api-key": [404, 0, 0],
+      "malformed no-scope": [404, 0, 0],
+      "malformed all": [404, 1, 0]
+    },
+    "POST /api/unknown/x": {
+      "absent anon": [404, 0, 0],
+      "absent bad-token": [404, 0, 0],
+      "absent api-key": [404, 0, 0],
+      "absent no-scope": [404, 0, 0],
+      "absent all": [404, 1, 0],
+      "empty anon": [404, 0, 0],
+      "empty bad-token": [404, 0, 0],
+      "empty api-key": [404, 0, 0],
+      "empty no-scope": [404, 0, 0],
+      "empty all": [404, 1, 0],
+      "wrong-type anon": [404, 0, 0],
+      "wrong-type bad-token": [404, 0, 0],
+      "wrong-type api-key": [404, 0, 0],
+      "wrong-type no-scope": [404, 0, 0],
+      "wrong-type all": [404, 1, 0],
+      "malformed anon": [404, 0, 0],
+      "malformed bad-token": [404, 0, 0],
+      "malformed api-key": [404, 0, 0],
+      "malformed no-scope": [404, 0, 0],
+      "malformed all": [404, 1, 0]
+    },
+    "PUT /api/unknown/x": {
+      "absent anon": [404, 0, 0],
+      "absent bad-token": [404, 0, 0],
+      "absent api-key": [404, 0, 0],
+      "absent no-scope": [404, 0, 0],
+      "absent all": [404, 1, 0],
+      "empty anon": [404, 0, 0],
+      "empty bad-token": [404, 0, 0],
+      "empty api-key": [404, 0, 0],
+      "empty no-scope": [404, 0, 0],
+      "empty all": [404, 1, 0],
+      "wrong-type anon": [404, 0, 0],
+      "wrong-type bad-token": [404, 0, 0],
+      "wrong-type api-key": [404, 0, 0],
+      "wrong-type no-scope": [404, 0, 0],
+      "wrong-type all": [404, 1, 0],
+      "malformed anon": [404, 0, 0],
+      "malformed bad-token": [404, 0, 0],
+      "malformed api-key": [404, 0, 0],
+      "malformed no-scope": [404, 0, 0],
+      "malformed all": [404, 1, 0]
+    }
+  }
+}

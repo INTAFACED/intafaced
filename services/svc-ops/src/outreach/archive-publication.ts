@@ -1,6 +1,6 @@
+import type { Queryable } from '@intafaced/db';
 import { isDeepStrictEqual } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
-import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { OutreachError } from './config.js';
 import { erasureArchiveSchema } from './restore-privacy.js';
@@ -27,7 +27,7 @@ export const currentArchiveSchema = z
   .strict();
 
 /** Caller holds the privacy gate. Commit this original body BEFORE calling the publisher. */
-export async function prepareArchive(tx: Sql, intentId: string): Promise<void> {
+export async function prepareArchive(tx: Queryable, intentId: string): Promise<void> {
   if ((await tx`SELECT 1 FROM ops.crm_erasure_publications WHERE intent_id=${intentId}`).length) return;
   const [e] = await tx`SELECT * FROM ops.crm_erasure_intents WHERE id=${intentId}`;
   if (!e || e.status !== 'pending_notify') return;
@@ -71,7 +71,7 @@ export async function prepareArchive(tx: Sql, intentId: string): Promise<void> {
   const body = JSON.stringify(archive);
   await tx`INSERT INTO ops.crm_erasure_publications(intent_id,body,digest) VALUES (${intentId},${body},${archiveDigest(body)})`;
 }
-export async function confirmArchive(tx: Sql, intentId: string, publisher: ArchivePublisher): Promise<void> {
+export async function confirmArchive(tx: Queryable, intentId: string, publisher: ArchivePublisher): Promise<void> {
   const [packet] = await tx`SELECT body,digest FROM ops.crm_erasure_publications WHERE intent_id=${intentId}`;
   if (!packet || archiveDigest(packet.body) !== packet.digest) throw new OutreachError('ops.crm.storage_unavailable');
   try {

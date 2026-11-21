@@ -18,7 +18,7 @@ import {
 } from '@intafaced/ledger-client';
 import { createLedgerRouter } from './router.js';
 import { stubApprovalConsumer } from './ledger/action-approval-consume.js';
-import { RECIPE_REQUIRED_CODE } from './recipe-gate.js';
+import { RECIPE_REQUIRED_CODE } from '@intafaced/ledger-client/gate';
 import { WITHDRAW_RETURN_UNBOUND_CODE } from './withdraw-return-binding.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
@@ -441,7 +441,9 @@ describe('balances — authorisation', () => {
     const fetch = async () =>
       new Response(
         JSON.stringify({
-          result: { data: [{ market: 'IFC-USD', size: '1.5', entryPrice: '30.25' }] },
+          result: {
+            data: [{ market: 'IFC-USD', account: chainAccount, size: '1.5', entryPrice: '30.25', blockHeight: 3, blockHash: '0xab' }],
+          },
         }),
         { headers: { 'content-type': 'application/json' } },
       );

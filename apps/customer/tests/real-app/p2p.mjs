@@ -14,18 +14,18 @@ export const TEST_IBAN = 'DE89370400440532013000';
 const pace = () => new Promise((resolve) => setTimeout(resolve, 75));
 
 /** The scope and purpose a take is confirmed under (svc-p2p take-step-up.ts, contracts CUSTOMER_STEP_UP_DOORS). */
-export const TAKE_STEP_UP = { scope: 'p2p.step_up.trades.take', purpose: 'trades.take' };
+const TAKE_STEP_UP = { scope: 'p2p.step_up.trades.take', purpose: 'trades.take' };
 /** The scope and purpose a release is confirmed under (svc-p2p release-step-up.ts): one confirmation covers the
  * session's releases for ten minutes. */
-export const RELEASE_STEP_UP = { scope: 'p2p.step_up.trades.confirmReceived', purpose: 'trades.confirmReceived' };
+const RELEASE_STEP_UP = { scope: 'p2p.step_up.trades.confirmReceived', purpose: 'trades.confirmReceived' };
 /**
  * Adding, changing or removing a payment method (P-ads-merchant-18): one confirmation per change, naming the digest of
  * the details it saves (contracts' `p2pInstrumentDetailsDigest`, the same function svc-p2p checks it with).
  */
-export const INSTRUMENT_STEP_UP = { scope: 'p2p.step_up.instruments.change', purpose: 'instruments.change' };
+const INSTRUMENT_STEP_UP = { scope: 'p2p.step_up.instruments.change', purpose: 'instruments.change' };
 const INSTRUMENT_CHANGES = { 'instruments.create': 'create', 'instruments.update': 'update', 'instruments.remove': 'remove' };
 let ruleClass;
-export async function instrumentStepUpRequest(instrumentId, change, details) {
+async function instrumentStepUpRequest(instrumentId, change, details) {
   ruleClass ??= import(pathToFileURL(path.join(ROOT, 'packages/contracts/dist/p2p-rule-class.js')).href);
   const detailsDigest = await (await ruleClass).p2pInstrumentDetailsDigest(details);
   return { ...INSTRUMENT_STEP_UP, target: instrumentId, fields: { instrumentId, change, detailsDigest } };
@@ -121,7 +121,7 @@ export function p2p(who, passkey = null) {
 }
 
 /** Accepts the advertiser terms version svc-p2p publishes, as `bare` (a p2p() client's `bare`). */
-export async function acceptAdvertiserTerms(bare) {
+async function acceptAdvertiserTerms(bare) {
   const terms = await bare.query('merchants.advertiserTerms');
   const version = terms.body?.result?.data?.version;
   if (terms.status !== 200 || !version)
@@ -133,7 +133,7 @@ export async function acceptAdvertiserTerms(bare) {
 }
 
 /** What a take's confirmation names: the reviewed ad, coin amount and method, and the held quote when there is one. */
-export const takeStepUpRequest = (input) => ({
+const takeStepUpRequest = (input) => ({
   ...TAKE_STEP_UP,
   target: input.offerId,
   amount: input.amount,
@@ -146,10 +146,10 @@ export const takeStepUpRequest = (input) => ({
 });
 
 /** What a release's confirmation names: the order whose escrow goes to the buyer. */
-export const releaseStepUpRequest = (tradeId) => ({ ...RELEASE_STEP_UP, target: tradeId, fields: { tradeId } });
+const releaseStepUpRequest = (tradeId) => ({ ...RELEASE_STEP_UP, target: tradeId, fields: { tradeId } });
 
 /** Identity's step-up for one take, answered with `passkey`: returns the single-use stepUpApprovalId. */
-export async function confirmTake(session, passkey, input) {
+async function confirmTake(session, passkey, input) {
   return confirmStepUp(session, passkey, takeStepUpRequest(input));
 }
 

@@ -18,6 +18,7 @@ import { UserSpendStore } from '../spend/store.js';
 import { parseTierLaws } from '../tier-laws.js';
 import { decide } from './policy.js';
 import { OWN_RUN_TASK } from './routes.js';
+import { MemorySelfFreezeRead } from './self-freeze.js';
 
 /**
  * A person's allow and deny rules for their own agent (AG-spend-02, J-agents-08 #1): a deny at any scope covering the
@@ -137,7 +138,16 @@ if (!available) {
       spend: new UserSpendStore(sql),
       funds: { available: async () => 100n * 10n ** 18n },
     });
-    const router = createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'USDT', sql, tierLaws: parseTierLaws(undefined) });
+    const router = createAgentsRouter({
+      // An open freeze read: nobody here is frozen (J-wallet-13 fails closed without one).
+      selfFreeze: new MemorySelfFreezeRead(),
+      runtime,
+      gateway,
+      meter,
+      feeAssetId: 'USDT',
+      sql,
+      tierLaws: parseTierLaws(undefined),
+    });
     return {
       person: router.createCaller(callerFor(USER)),
       other: router.createCaller(callerFor(OTHER)),

@@ -1,16 +1,11 @@
-import {
-  QUANT_PAPER_LIST_MAX,
-  quantPaperListSchema,
-  quantPaperRunSchema,
-  type QuantPaperRun,
-  type QuantStrategyDetail,
-} from '@intafaced/contracts/quant-algo';
+import { QUANT_PAPER_LIST_MAX, type QuantPaperRun, type QuantStrategyDetail } from '@intafaced/contracts/quant-algo';
+import { QUANT_PAPER_GET, QUANT_PAPER_LIST, QUANT_PAPER_START, QUANT_PAPER_STOP } from '@intafaced/contracts/quant-paper-procedures';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Field, Loading } from '../../shared/ui';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { Read, Select } from '../more';
+import { useApi } from '../session';
 import { paperCopy } from './paper-copy';
 import { QuotaAwareFailure } from './quota-refusal';
 
@@ -32,15 +27,14 @@ export function PaperRuns({ strategy }: { strategy: QuantStrategyDetail }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
   const list = useResource(
-    (signal) =>
-      api.query('quant', 'paper.list', { strategyId: strategy.id, limit: QUANT_PAPER_LIST_MAX }, quantPaperListSchema, { signal }),
+    (signal) => api.call(QUANT_PAPER_LIST, { strategyId: strategy.id, limit: QUANT_PAPER_LIST_MAX }, { signal }),
     `quant-paper:${strategy.id}:${revision}`,
   );
   async function stop(runId: string) {
     if (busy) return;
     setBusy(runId);
     setFailure(null);
-    const res = await api.mutate('quant', 'paper.stop', { runId }, quantPaperRunSchema);
+    const res = await api.call(QUANT_PAPER_STOP, { runId });
     setBusy(null);
     if (!res.ok) return setFailure(res);
     setNote(t('stopped'));
@@ -138,30 +132,33 @@ function StartForm(props: {
   const [delay, setDelay] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failed | null>(null);
+  const [cashRefusal, setCashRefusal] = useState<string | null>(null);
+  const [feedRefused, setFeedRefused] = useState(false);
   // The run count each version had when this dialog opened: the start's key, kept until it is confirmed or cancelled.
   const [ordinals] = useState(() => new Map(props.counts.map((row) => [row.strategyVersion, row.runs])));
   async function start() {
     if (busy) return;
     setBusy(true);
     setFailure(null);
+    setCashRefusal(null);
+    setFeedRefused(false);
     const chosen = Number(version);
-    const res = await api.mutate(
-      'quant',
-      'paper.start',
-      {
-        strategyId: props.strategy.id,
-        strategyVersion: chosen,
-        cash,
-        holdings: [],
-        feed,
-        costs: { feeRole, slippageBps: slippage, delayBars: delay },
-        ordinal: ordinals.get(chosen) ?? 0,
-      },
-      quantPaperRunSchema,
-    );
+    const res = await api.call(QUANT_PAPER_START, {
+      strategyId: props.strategy.id,
+      strategyVersion: chosen,
+      cash,
+      holdings: [],
+      feed,
+      costs: { feeRole, slippageBps: slippage, delayBars: delay },
+      ordinal: ordinals.get(chosen) ?? 0,
+    });
     setBusy(false);
-    if (res.ok) props.onStarted(res.data);
-    else setFailure(res);
+    if (res.ok) return props.onStarted(res.data);
+    // `quant.paper_cash_unset — cash — …` names the cash; `feed.market — …` is the outside feed, switched off here.
+    const named = /^quant\.paper_cash_unset — cash — (.*)$/.exec(res.message.trim());
+    if (named) return setCashRefusal(named[1]!);
+    if (res.message.trim().startsWith('feed.market')) return setFeedRefused(true);
+    setFailure(res);
   }
   const outside = feed !== 'own_venue';
   return (
@@ -181,7 +178,18 @@ function StartForm(props: {
           .sort((a, b) => b.version - a.version)
           .map((row) => ({ value: String(row.version), label: t('versionOf', { version: row.version }) }))}
       />
-      <Field label={t('cash')} value={cash} onChange={(event) => setCash(event.currentTarget.value)} inputMode="decimal" />
+      <Field
+        label={t('cash')}
+        value={cash}
+        onChange={(event) => setCash(event.currentTarget.value)}
+        inputMode="decimal"
+        error={cashRefusal ? t('cashRefused', { detail: cashRefusal }) : undefined}
+      />
+      {cashRefusal && (
+        <p role="alert" data-testid="quant-paper-refusal" data-input="cash" data-code="quant.paper_cash_unset">
+          {t('cashRefused', { detail: cashRefusal })}
+        </p>
+      )}
       <p data-testid="quant-paper-holdings">
         <strong>{t('holdings')}:</strong> {t('holdingsNone')}
       </p>
@@ -217,6 +225,11 @@ function StartForm(props: {
         {t('cancel')}
       </Button>
       {busy && <Loading label={t('starting')} />}
+      {feedRefused && (
+        <p role="alert" data-testid="quant-paper-refusal" data-input="feed" data-code="feed.market">
+          {t('feedRefused')}
+        </p>
+      )}
       {failure && <QuotaAwareFailure result={failure} retry={() => void start()} />}
     </form>
   );
@@ -225,14 +238,18 @@ function StartForm(props: {
 function PaperRunView({ runId }: { runId: string }) {
   const api = useApi();
   const { t } = paperCopy.useCopy();
-  const run = useResource(
-    (signal) => api.query('quant', 'paper.get', { runId }, quantPaperRunSchema, { signal }),
-    `quant-paper-run:${runId}`,
-  );
+  const run = useResource((signal) => api.call(QUANT_PAPER_GET, { runId }, { signal }), `quant-paper-run:${runId}`);
   return (
     <Read resource={run.resource} retry={run.reload}>
       {(data) => (
-        <div data-testid="quant-paper-view" data-run-id={data.runId} data-state={data.state} data-priced={String(data.priced)}>
+        <div
+          data-testid="quant-paper-view"
+          data-label={data.claimLabel}
+          data-live={String(data.live)}
+          data-run-id={data.runId}
+          data-state={data.state}
+          data-priced={String(data.priced)}
+        >
           <p>
             <strong>{data.claimLabel}</strong>
           </p>
@@ -253,7 +270,15 @@ function PaperRunView({ runId }: { runId: string }) {
           ) : (
             <DataTable label={t('fills')} headers={[t('at'), t('side'), t('qty'), t('price'), t('fee')]}>
               {data.trades.map((trade, index) => (
-                <tr key={`${trade.ts}:${index}`} data-testid="quant-paper-fill">
+                <tr
+                  key={`${trade.ts}:${index}`}
+                  data-testid="quant-paper-fill"
+                  data-ts={trade.ts}
+                  data-side={trade.side}
+                  data-qty={trade.qty}
+                  data-price={trade.price}
+                  data-bar-price={trade.barPrice}
+                >
                   <td lang="zxx">{utcText(trade.ts)}</td>
                   <td>{trade.side === 'buy' ? t('buy') : t('sell')}</td>
                   <td lang="zxx">{trade.qty}</td>

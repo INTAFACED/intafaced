@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import { LOCAL_TEST_MARKER_PREFIX, hasLocalTestMarker, isExplicitDevOrTest } from '@intafaced/config';
 import type { Sql } from 'postgres';
@@ -699,7 +700,7 @@ export class AppendOnlyMarketLifecycleLog {
 /** Durable append-only adapter used by the service process when SQL is available. */
 export class SqlMarketLifecycleEvidenceStore {
   constructor(
-    private readonly sql: Sql,
+    private readonly sql: Queryable,
     private readonly options: { readonly env?: LifecycleEnv } = {},
   ) {}
 
@@ -728,14 +729,34 @@ export class SqlMarketLifecycleEvidenceStore {
     // the schema and every publish answered `trade.lifecycle_publication_conflict`. The fakes in the tests
     // never saw it; the real driver does.
     const payload = JSON.stringify(parsed);
+    const existing = await this.readStored(evidenceId, parsed);
+    if (existing) return existing;
+    try {
+      return await this.insertNew(evidenceId, parsed, payload);
+    } catch (error) {
+      // The same publication sent twice at once: the twin that lost the race sees the winner as the chain's head, or
+      // hits one of the table's other unique keys (mapped to a chain error below), before it sees the row. The row
+      // that won is its answer; a different publication finds no row under its id and keeps the refusal.
+      if (error instanceof MarketLifecyclePublicationChainError) {
+        const won = await this.readStored(evidenceId, parsed);
+        if (won) return won;
+      }
+      throw error;
+    }
+  }
+
+  /** The stored publication under this id when it is exactly this one, null when none; a different one conflicts. */
+  private async readStored(evidenceId: string, parsed: MarketLifecyclePublication): Promise<MarketLifecyclePublication | null> {
     const [existing] = await this.sql<Array<{ publication: unknown }>>`
       SELECT publication FROM trade.market_lifecycle_evidence WHERE evidence_id = ${evidenceId} LIMIT 1
     `;
-    if (existing) {
-      const prior = marketLifecyclePublicationSchema.safeParse(existing.publication);
-      if (!prior.success || JSON.stringify(prior.data) !== JSON.stringify(parsed)) throw new MarketLifecyclePublicationConflict();
-      return prior.data;
-    }
+    if (!existing) return null;
+    const prior = marketLifecyclePublicationSchema.safeParse(existing.publication);
+    if (!prior.success || JSON.stringify(prior.data) !== JSON.stringify(parsed)) throw new MarketLifecyclePublicationConflict();
+    return prior.data;
+  }
+
+  private async insertNew(evidenceId: string, parsed: MarketLifecyclePublication, payload: string): Promise<MarketLifecyclePublication> {
     const [latest] = await this.sql<Array<{ evidence_id: string; publication: unknown }>>`
       SELECT evidence_id, publication FROM trade.market_lifecycle_evidence
       WHERE market_id = ${parsed.marketId} AND evidence_kind = 'AUTHORITY_DOSSIER'
@@ -775,12 +796,9 @@ export class SqlMarketLifecycleEvidenceStore {
       }
       throw error;
     }
-    const [stored] = await this.sql<Array<{ publication: unknown }>>`
-      SELECT publication FROM trade.market_lifecycle_evidence WHERE evidence_id = ${evidenceId} LIMIT 1
-    `;
-    const prior = stored ? marketLifecyclePublicationSchema.safeParse(stored.publication) : null;
-    if (!prior?.success || JSON.stringify(prior.data) !== JSON.stringify(parsed)) throw new MarketLifecyclePublicationConflict();
-    return prior.data;
+    const stored = await this.readStored(evidenceId, parsed);
+    if (!stored) throw new MarketLifecyclePublicationConflict();
+    return stored;
   }
 
   async appendTransition(record: MarketTransitionRecord): Promise<MarketTransitionRecord> {

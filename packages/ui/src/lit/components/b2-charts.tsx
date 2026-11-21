@@ -57,7 +57,16 @@ interface SeriesProps {
   live?: boolean;
 }
 
-function Series({ label, points, asset, tone = 'neutral', live = false, fill }: SeriesProps & { fill: boolean }) {
+function Series({
+  label,
+  points,
+  asset,
+  tone = 'neutral',
+  live = false,
+  fill,
+  soft = false,
+}: SeriesProps & { fill: boolean; soft?: boolean }) {
+  const gradient = `lt-chart-soft-${React.useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   if (points.length < 2) return null;
   const { x, y, ys } = scale(points);
   const d = ys.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
@@ -66,7 +75,17 @@ function Series({ label, points, asset, tone = 'neutral', live = false, fill }: 
   return (
     <figure className="lt-chart" data-tone={tone}>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label}>
-        {fill ? <path className="lt-chart-area" d={area} /> : null}
+        {fill && soft ? (
+          <defs>
+            <linearGradient id={gradient} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" className="lt-chart-soft-top" />
+              <stop offset="1" className="lt-chart-soft-bottom" />
+            </linearGradient>
+          </defs>
+        ) : null}
+        {fill ? (
+          <path className="lt-chart-area" data-soft={soft || undefined} d={area} style={soft ? { fill: `url(#${gradient})` } : undefined} />
+        ) : null}
         <path className="lt-chart-line" d={d} vectorEffect="non-scaling-stroke" />
         {live ? <circle className="lt-chart-live" data-live="" cx={x(last)} cy={y(ys[last]!)} r={4} /> : null}
       </svg>
@@ -79,8 +98,9 @@ export function LineChart(props: SeriesProps) {
   return <Series {...props} fill={false} />;
 }
 
-export function AreaChart(props: SeriesProps) {
-  return <Series {...props} fill />;
+/** `soft` fades the fill from the line down to nothing (the balance over time); without it the fill is flat, as before. */
+export function AreaChart({ soft, ...props }: SeriesProps & { soft?: boolean }) {
+  return <Series {...props} fill soft={soft} />;
 }
 
 export function Bars({ label, bars, asset }: { label: string; bars: readonly { label: string; value: DecimalString }[]; asset: string }) {

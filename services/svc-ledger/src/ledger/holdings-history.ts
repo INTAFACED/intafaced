@@ -4,6 +4,7 @@ import {
   ledgerHoldingsHistoryInputSchema,
   type LedgerHoldingsHistory,
   type LedgerHoldingsHistoryBucket,
+  asAssetId,
 } from '@intafaced/contracts';
 
 /**
@@ -76,9 +77,9 @@ export function serializeHoldingsHistory(input: HoldingsHistoryInput, read: Hold
     asOf: read.asOf.toISOString(),
     from: input.from.toISOString(),
     bucketSeconds: input.bucketSeconds,
-    holdings: read.holdings.map((h) => ({ assetId: h.assetId, amount: formatAmount(h.amount) })),
+    holdings: read.holdings.map((h) => ({ assetId: asAssetId(h.assetId), amount: formatAmount(h.amount) })),
     movements: read.movements.map((m) => ({
-      assetId: m.assetId,
+      assetId: asAssetId(m.assetId),
       module: m.module,
       reason: m.reason,
       bucketStart: m.bucketStart.toISOString(),

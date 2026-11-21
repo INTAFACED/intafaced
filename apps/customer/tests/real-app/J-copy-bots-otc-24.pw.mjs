@@ -4,6 +4,7 @@ import { test, expect } from './journey.mjs';
 import { approverSessions, makeContext, setFeeDiscountSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { api, fromUnits, fund, journeyState, signOutBrowser, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn, signUp } from './desk.mjs';
+import { agePast } from './test-age.mjs';
 
 // J-copy-bots-otc-24, in the running app (docs/roadmap/journeys.json): ask the quote desk at /otc for a firm price on a
 // large trade and settle it. One test per step, titled "J-copy-bots-otc-24 #<n>". The trader is a TEST account on the
@@ -15,7 +16,7 @@ import { fundedTrader, signIn, signUp } from './desk.mjs';
 // account, so there is no outside settlement account (CB-otc-08's bank name-match needs a fiat settlement leg to a linked
 // bank account). The level gate of #3 is built; the name match has its own test, red by name with that blocker.
 // The stack publishes a TEST desk law (tooling/profiles/test-owner-values/trade.json): a 60 s firm quote and a 60 s
-// window to settle an accepted one, so #7 and #8 watch both run out on the real clock. Each step checks the service's
+// window to settle an accepted one; #7 and #8 age the quote past them through the TEST age door (test-age.mjs). Each step checks the service's
 // own record of the quote (rfq.get through Edge) and the ledger balance, not only the screen. Every request asks the
 // providers it picks from the owner's TEST provider list (CB-otc-01); the steps after #2 ask the house desk.
 // #5 asks three TEST outside providers at once; each is priced at its LOCAL TEST spread against the house inventory
@@ -117,6 +118,21 @@ async function listedMakers(client) {
   return read.body.result.data;
 }
 
+/**
+ * Picks BTC/USDT in the `name` pair select inside `scope` and waits until the select shows it and its list is closed.
+ * The select can swallow an option click that lands as its list opens, leaving the list open over the form (#8640), so
+ * the pick is clicked again until the select reads BTC/USDT.
+ */
+async function pickPair(page, scope, name, options = {}) {
+  const select = scope.getByRole('combobox', { name });
+  await expect(async () => {
+    if ((await select.getAttribute('aria-expanded')) !== 'true') await select.click({ timeout: 5_000 });
+    await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click({ timeout: 5_000 });
+    await expect(select).toHaveAttribute('aria-expanded', 'false', { timeout: 2_000 });
+    await expect(select).toContainText('BTC/USDT', { timeout: 1_000 });
+  }).toPass({ intervals: [250, 500, 1_000], ...options });
+}
+
 /** Ticks each named provider in the request form's Providers group. */
 async function pickProviders(page, names, options) {
   const group = request(page).getByRole('group', { name: 'Providers' });
@@ -129,8 +145,7 @@ async function pickProviders(page, names, options) {
  */
 async function askRefused(page, quantity, providers = [HOUSE]) {
   const answer = page.waitForResponse((res) => res.url().includes('rfq.quote'));
-  await request(page).getByRole('combobox', { name: 'Pair' }).click();
-  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+  await pickPair(page, request(page), 'Pair');
   await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity);
   await pickProviders(page, providers);
   await page.getByRole('button', { name: 'Request price' }).click();
@@ -188,8 +203,7 @@ async function openOtc(page) {
 
 /** Asks the house desk for a price on `quantity` BTC against USDT and returns the open quote card. */
 async function ask(page, quantity = '0.5') {
-  await request(page).getByRole('combobox', { name: 'Pair' }).click(UNBUILT);
-  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click(UNBUILT);
+  await pickPair(page, request(page), 'Pair', { timeout: 15_000 });
   await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity, UNBUILT);
   await pickProviders(page, [HOUSE], UNBUILT);
   await page.getByRole('button', { name: 'Request price' }).click(UNBUILT);
@@ -553,8 +567,7 @@ async function shownBoard(page) {
  */
 async function askFrom(page, quantity, providers) {
   const answer = page.waitForResponse((res) => res.url().includes('rfq.quote'));
-  await request(page).getByRole('combobox', { name: 'Pair' }).click();
-  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+  await pickPair(page, request(page), 'Pair');
   await request(page).getByRole('textbox', { name: 'Quantity' }).fill(quantity);
   await pickProviders(page, providers);
   await page.getByRole('button', { name: 'Request price' }).click();
@@ -604,7 +617,7 @@ test(`${J} #5 board of requests: one quote per provider asked, grouped by status
   await settledCard.getByRole('button', { name: 'Settle', exact: true }).click();
   await dialog(page).getByRole('button', { name: 'Settle now' }).click();
   await expect(settledCard.getByTestId('phase-line')).toContainText('Settled. The trade is complete.');
-  await page.waitForTimeout(Math.max(0, Date.parse((await rfq(expiring)).expiresAt) - Date.now()) + 1_000);
+  await agePast('trade', 'otc-quote', expiring, (await rfq(expiring)).expiresAt);
 
   // One request to three providers, ticked in this order.
   await page.goto('/otc');
@@ -814,7 +827,7 @@ test(`${J} #7 deferred settle: one posting inside the window, refused past it, "
 
   // After the window: the other accepted quote refuses to settle, and nothing moves.
   const lateBound = await rfq(lateId);
-  await page.waitForTimeout(Math.max(0, Date.parse(lateBound.settleBy) - Date.now()) + 1_000);
+  await agePast('trade', 'otc-quote', lateId, lateBound.settleBy);
   await page.goto(`/otc?quoteId=${lateId}`);
   await expect(card(page).getByTestId('phase-line')).toContainText('Accepted, not settled');
   await card(page).getByRole('button', { name: 'Settle', exact: true }).click();
@@ -840,7 +853,7 @@ test(`${J} #7 deferred settle: one posting inside the window, refused past it, "
       /^Not set: no deferral, settle by the quote expiry \d{2} [A-Z][a-z]{2}, \d{2}:\d{2}/,
     );
     const beforeBlank = await balances();
-    await page.waitForTimeout(Math.max(0, Date.parse(blankBound.expiresAt) - Date.now()) + 1_000);
+    await agePast('trade', 'otc-quote', blankId, blankBound.expiresAt);
     await page.goto(`/otc?quoteId=${blankId}`);
     await card(page).getByRole('button', { name: 'Settle', exact: true }).click();
     await dialog(page).getByRole('button', { name: 'Settle now' }).click();
@@ -858,9 +871,10 @@ test(`${J} #8 expiry then re-price: the old quote stays expired, a new one exist
   await openOtc(page);
   const quote = await ask(page);
   const oldId = await quote.getAttribute('data-quote-id');
-  const old = await rfq(oldId);
+  const asked = await rfq(oldId);
+  expect(Date.parse(asked.expiresAt) - Date.parse(asked.createdAt), 'the TEST desk law: a 60 s firm quote').toBe(60_000);
   const before = await balances();
-  await page.waitForTimeout(Math.max(0, Date.parse(old.expiresAt) - Date.now()) + 1_000);
+  const old = { ...asked, expiresAt: (await agePast('trade', 'otc-quote', oldId, asked.expiresAt)).expiresAt };
   // The service, not the screen's clock, says it expired.
   await quote.getByRole('button', { name: 'Check status' }).click();
   await expect(quote.getByTestId('phase-line')).toContainText('Expired.');
@@ -913,8 +927,7 @@ test(`${J} #9 Convert at the desk price: the range, the quoted price and the set
   const panel = otcConvert(page);
   await expect(panel).toBeVisible();
   // Only pairs on the desk's asset list are offered; BTC/USDT is the one the stack prices (its one TEST mid).
-  await panel.getByRole('combobox', { name: 'Desk pair' }).click();
-  await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+  await pickPair(page, panel, 'Desk pair');
   await expect(panel.getByRole('combobox', { name: 'Desk pair' })).toContainText('BTC/USDT');
 
   // The size range on the page is the one the desk publishes, read back.
@@ -976,8 +989,7 @@ test(`${J} #9 Convert at the desk price: the range, the quoted price and the set
     tradeConvertBounds(false);
     expect(await convertBounds(me)).toBeNull();
     await page.goto('/trade/convert');
-    await panel.getByRole('combobox', { name: 'Desk pair' }).click();
-    await page.getByRole('option', { name: 'BTC/USDT', exact: true }).click();
+    await pickPair(page, panel, 'Desk pair');
     await expect(panel.getByTestId('convert-otc-range')).toHaveText(
       'Desk size range:Not setThe desk has no size range for conversions, so a request refuses.',
     );

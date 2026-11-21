@@ -1,4 +1,4 @@
-import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
 import { lockBusiness } from './store.js';
@@ -10,7 +10,8 @@ import { lockBusiness } from './store.js';
  * worst case and committed ones at what they cost.
  *
  * An allocation, a project limit and the pool are limits on what members' team runs may spend in all, never a balance:
- * each run is charged to the member's own account at its usage window's seal.
+ * each run's usage window is owed by the business at its seal, naming the member, and collected from the business's
+ * payment method (on the custodial layer, charged to the member's own account).
  */
 
 /** A team session's holds carry this prefix: only the team run route, which reads membership first, makes them. */
@@ -32,7 +33,7 @@ function exceeded(scope: 'allocation' | 'project' | 'pool', cap: Amount, assetId
 
 /** Held and committed holds on the business's team sessions, of the members named (all of them when null). The team
  * page shows the same sum, so what it reads as used is what the next hold is checked against. */
-export async function used(tx: Sql, businessId: string, memberUserIds: readonly string[] | null): Promise<Amount> {
+export async function used(tx: Queryable, businessId: string, memberUserIds: readonly string[] | null): Promise<Amount> {
   const rows = await tx<Array<{ total: string }>>`
     SELECT COALESCE(SUM(CASE WHEN r.status = 'held' THEN r.amount ELSE r.committed_amount END), 0::numeric)::text AS total
       FROM agents.spend_reservations r
@@ -50,7 +51,7 @@ export async function used(tx: Sql, businessId: string, memberUserIds: readonly 
  * runs unlimited. A session that is not a team session is not this check's.
  */
 export async function holdAgainstTeam(
-  tx: Sql,
+  tx: Queryable,
   input: { userId: string; sessionId: string; reservationKey: string; assetId: string; amount: Amount; teamRun: boolean },
 ): Promise<void> {
   const [session] = await tx<Array<{ business_id: string; member_user_id: string }>>`

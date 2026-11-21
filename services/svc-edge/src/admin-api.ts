@@ -37,13 +37,7 @@ import {
   updateReconciliationControlInputSchema,
 } from '@intafaced/contracts/ledger-reconciliation';
 import { createEdgeWarehouseLagProbe, warehouseLagProbeEnabled } from './analytics-lag-probe.js';
-import {
-  ActionApprovalConsumeError,
-  edgeActionPayloadHash,
-  readApprovalIds,
-  unwiredApprovalConsumer,
-  type ActionApprovalConsumer,
-} from './action-approval-consume.js';
+import { edgeActionPayloadHash, readApprovalIds, unwiredApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { EdgeComplianceQueue, edgeComplianceHonesty, type EdgeComplianceHonesty } from './compliance-honesty.js';
 import { readConfirmOperatorId, requireDualControl } from './dual-control.js';
 

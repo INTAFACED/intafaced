@@ -4,6 +4,7 @@
  * failed, or a figure in another asset says so, never a zero.
  */
 import { describe, expect, it } from 'vitest';
+import { asAssetId } from '@intafaced/contracts/asset-id';
 import type { BankPartnerReserves, LedgerOwnFunds, OpsCapitalVenues } from '@intafaced/contracts';
 import { opsCapitalPlacesSchema } from '@intafaced/contracts';
 import { composePlaces, VENUES_NOT_CONNECTED } from './desk.js';
@@ -19,11 +20,11 @@ const ledger: SourceRead<LedgerOwnFunds> = {
     asOf: AT,
     accounts: [],
     places: [
-      { kind: 'venue_builder_account', placeId: 'test-venue', assetId: 'USDC', held: '2.5' },
-      { kind: 'venue_builder_account', placeId: 'gone-venue', assetId: 'USDC', held: '1' },
-      { kind: 'partner_reserve', placeId: 'bank', assetId: 'USD', held: '1.5' },
-      { kind: 'partner_reserve', placeId: 'card', assetId: 'USD', held: '0' },
-      { kind: 'treasury_wallet', placeId: 'base:ops', assetId: 'USDC', held: '9' },
+      { kind: 'venue_builder_account', placeId: 'test-venue', assetId: asAssetId('USDC'), held: '2.5' },
+      { kind: 'venue_builder_account', placeId: 'gone-venue', assetId: asAssetId('USDC'), held: '1' },
+      { kind: 'partner_reserve', placeId: 'bank', assetId: asAssetId('USD'), held: '1.5' },
+      { kind: 'partner_reserve', placeId: 'card', assetId: asAssetId('USD'), held: '0' },
+      { kind: 'treasury_wallet', placeId: 'base:ops', assetId: asAssetId('USDC'), held: '9' },
     ],
   },
 };
@@ -35,7 +36,7 @@ const venues: OpsCapitalVenues = {
       displayName: 'TEST venue',
       test: true,
       builderAccount: '0xb1',
-      balance: { status: 'read', assetId: 'USDC', amount: '2.5', asOf: VENUE_AT },
+      balance: { status: 'read', assetId: asAssetId('USDC'), amount: '2.5', asOf: VENUE_AT },
       minimum: { status: 'not_published' },
     },
   ],
@@ -49,7 +50,7 @@ const reserves: SourceRead<BankPartnerReserves> = {
         partner: 'bank',
         label: 'TEST partner bank',
         test: true,
-        reserve: { status: 'reported', assetId: 'USD', amount: '1.4', asOf: PARTNER_AT },
+        reserve: { status: 'reported', assetId: asAssetId('USD'), amount: '1.4', asOf: PARTNER_AT },
       },
       { partner: 'card', label: 'TEST partner card', test: true, reserve: { status: 'none' } },
     ],
@@ -121,7 +122,7 @@ describe('composePlaces', () => {
       venues: [
         {
           ...(venues.status === 'read' ? venues.venues[0]! : ({} as never)),
-          balance: { status: 'read', assetId: 'USDT', amount: '2.5', asOf: VENUE_AT },
+          balance: { status: 'read', assetId: asAssetId('USDT'), amount: '2.5', asOf: VENUE_AT },
         },
       ],
     };

@@ -747,3 +747,225 @@ describe('upstream terminal usage over actual HTTP', () => {
     ]);
   });
 });
+
+describe('upstream cancellation and deadline through body consumption, over actual HTTP (#4553)', () => {
+  const start = { type: 'message_start', message: { usage: { input_tokens: 100, output_tokens: 1 } } };
+  const text = { type: 'content_block_delta', delta: { text: 'generated' } };
+  const final = { type: 'message_delta', usage: { input_tokens: 200, output_tokens: 15 }, delta: { stop_reason: 'end_turn' } };
+  const stop = { type: 'message_stop' };
+  const frame = (event: unknown) => `data: ${JSON.stringify(event)}\n\n`;
+
+  /**
+   * A loopback upstream that sends its headers and `frames`, then stalls with
+   * the response left open. `closed` resolves when our side drops the socket.
+   */
+  async function stalled(contentType: string, frames: string) {
+    let closedResolve: () => void = () => undefined;
+    const closed = new Promise<void>((resolve) => (closedResolve = resolve));
+    const server = createServer(async (req, res) => {
+      for await (const _chunk of req) {
+        /* drain the native request */
+      }
+      res.on('close', () => closedResolve());
+      res.writeHead(200, { 'content-type': contentType });
+      res.flushHeaders();
+      if (frames) res.write(frames);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('HTTP fixture did not bind');
+    return {
+      baseUrl: `http://127.0.0.1:${address.port}`,
+      closed,
+      stop: () => {
+        server.closeAllConnections();
+        return new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      },
+    };
+  }
+
+  /** A caller signal that counts its live abort listeners. */
+  function countedCaller() {
+    const caller = new AbortController();
+    let live = 0;
+    const add = caller.signal.addEventListener.bind(caller.signal);
+    const remove = caller.signal.removeEventListener.bind(caller.signal);
+    caller.signal.addEventListener = ((...args: Parameters<AbortSignal['addEventListener']>) => {
+      if (args[0] === 'abort') live++;
+      add(...args);
+    }) as AbortSignal['addEventListener'];
+    caller.signal.removeEventListener = ((...args: Parameters<AbortSignal['removeEventListener']>) => {
+      if (args[0] === 'abort') live--;
+      remove(...args);
+    }) as AbortSignal['removeEventListener'];
+    return { caller, live: () => live };
+  }
+
+  async function drain(stream: AsyncIterable<StreamChunk>, onChunk: (chunk: StreamChunk) => void = () => undefined) {
+    const chunks: StreamChunk[] = [];
+    let error: unknown;
+    try {
+      for await (const chunk of stream) {
+        chunks.push(chunk);
+        onChunk(chunk);
+      }
+    } catch (caught) {
+      error = caught;
+    }
+    return { chunks, error };
+  }
+
+  const cases: readonly [string, string][] = [
+    ['after headers, before any frame', ''],
+    ['after the start frame', frame(start)],
+    ['after a text delta', frame(start) + frame(text)],
+    ['after final usage but before message_stop', frame(start) + frame(text) + frame(final)],
+  ];
+
+  it.each(cases)('a caller abort %s ends the stream as a cancellation, with no done or usage', async (_name, frames) => {
+    const fixture = await stalled('text/event-stream', frames);
+    try {
+      const provider = upstream({ baseUrl: fixture.baseUrl, timeoutMs: 60_000 });
+      const { caller, live } = countedCaller();
+      const hasText = frames.includes('generated');
+      // With a text frame, abort while consuming it; otherwise abort once the
+      // headers have arrived (the provider is reachable) and the body stalls.
+      const pending = drain(provider.stream(request({ signal: caller.signal })), () => caller.abort());
+      if (!hasText) {
+        await vi.waitFor(() => expect(provider.health().healthy).toBe(true));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        caller.abort();
+      }
+      const result = await pending;
+
+      expect(result.error).toBeInstanceOf(ProviderError);
+      expect(result.error).toMatchObject({ message: 'Upstream call cancelled', retryable: false });
+      expect(result.chunks.some((chunk) => chunk.done || chunk.usage !== undefined)).toBe(false);
+      expect(result.chunks.map((chunk) => chunk.delta)).toEqual(hasText ? ['generated'] : []);
+      // The connection is dropped, the caller listener released, and a
+      // cancellation is never an outage.
+      await fixture.closed;
+      expect(live()).toBe(0);
+      expect(provider.health()).toMatchObject({ healthy: true });
+      expect(provider.health().reason).toBeUndefined();
+    } finally {
+      await fixture.stop();
+    }
+  });
+
+  it.each(cases)('a stall %s hits the deadline as a retryable timeout, with no done or usage', async (_name, frames) => {
+    const fixture = await stalled('text/event-stream', frames);
+    try {
+      const provider = upstream({ baseUrl: fixture.baseUrl, timeoutMs: 100 });
+      const { caller, live } = countedCaller();
+      // Three stalls in a row: a body-phase timeout counts toward the outage
+      // threshold exactly as a header-phase one does.
+      for (let i = 0; i < 3; i++) {
+        const result = await drain(provider.stream(request({ signal: caller.signal })));
+        expect(caller.signal.aborted).toBe(false);
+        expect(result.error).toBeInstanceOf(ProviderError);
+        expect(result.error).toMatchObject({ message: 'Upstream call timed out', retryable: true });
+        expect(result.chunks.some((chunk) => chunk.done || chunk.usage !== undefined)).toBe(false);
+      }
+      await fixture.closed;
+      expect(live()).toBe(0);
+      expect(provider.health()).toMatchObject({ healthy: false, reason: 'upstream timed out' });
+    } finally {
+      await fixture.stop();
+    }
+  });
+
+  it('keeps a stream that keeps delivering alive past one deadline: the deadline is idle, not total', async () => {
+    const server = createServer(async (req, res) => {
+      for await (const _chunk of req) {
+        /* drain the native request */
+      }
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const frames = [start, text, text, text, text, final, stop];
+      for (const event of frames) {
+        res.write(frame(event));
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = server.address();
+      if (address === null || typeof address === 'string') throw new Error('HTTP fixture did not bind');
+      // 7 frames × 40 ms ≈ 280 ms total, over a 120 ms idle deadline.
+      const provider = upstream({ baseUrl: `http://127.0.0.1:${address.port}`, timeoutMs: 120 });
+      const result = await drain(provider.stream(request()));
+      expect(result.error).toBeUndefined();
+      expect(result.chunks.filter((chunk) => chunk.done)).toEqual([
+        { delta: '', done: true, usage: { inputTokens: 200, outputTokens: 15 }, stopReason: 'end' },
+      ]);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+  });
+
+  it('preserves a genuine completion: message_stop with final usage, then an abort before EOF, still reports the real bill once', async () => {
+    const fixture = await stalled('text/event-stream', frame(start) + frame(text) + frame(final) + frame(stop));
+    try {
+      const provider = upstream({ baseUrl: fixture.baseUrl, timeoutMs: 60_000 });
+      const { caller, live } = countedCaller();
+      const pending = drain(provider.stream(request({ signal: caller.signal })));
+      await vi.waitFor(() => expect(provider.health().healthy).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      caller.abort();
+      const result = await pending;
+
+      expect(result.error).toBeUndefined();
+      expect(result.chunks.filter((chunk) => chunk.done)).toEqual([
+        { delta: '', done: true, usage: { inputTokens: 200, outputTokens: 15 }, stopReason: 'end' },
+      ]);
+      await fixture.closed;
+      expect(live()).toBe(0);
+    } finally {
+      await fixture.stop();
+    }
+  });
+
+  it('a consumer that stops reading early closes the upstream connection and releases its listener', async () => {
+    const fixture = await stalled('text/event-stream', frame(start) + frame(text));
+    try {
+      const provider = upstream({ baseUrl: fixture.baseUrl, timeoutMs: 60_000 });
+      const { caller, live } = countedCaller();
+      for await (const chunk of provider.stream(request({ signal: caller.signal }))) {
+        expect(chunk).toEqual({ delta: 'generated', done: false });
+        break;
+      }
+      await fixture.closed;
+      expect(live()).toBe(0);
+      expect(provider.health()).toMatchObject({ healthy: true });
+    } finally {
+      await fixture.stop();
+    }
+  });
+
+  it('a caller abort while a JSON body is stalled is a cancellation, and a stall is a timeout', async () => {
+    const fixture = await stalled('application/json', '{"content":[');
+    try {
+      const provider = upstream({ baseUrl: fixture.baseUrl, timeoutMs: 60_000 });
+      const { caller, live } = countedCaller();
+      const pending = provider.complete(request({ signal: caller.signal })).catch((err: unknown) => err);
+      await vi.waitFor(() => expect(provider.health().healthy).toBe(true));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      caller.abort();
+      expect(await pending).toMatchObject({ message: 'Upstream call cancelled', retryable: false });
+      expect(live()).toBe(0);
+      expect(provider.health().reason).toBeUndefined();
+
+      const slow = upstream({ baseUrl: fixture.baseUrl, timeoutMs: 100 });
+      for (let i = 0; i < 3; i++) {
+        expect(await slow.complete(request()).catch((err: unknown) => err)).toMatchObject({
+          message: 'Upstream call timed out',
+          retryable: true,
+        });
+      }
+      expect(slow.health()).toMatchObject({ healthy: false, reason: 'upstream timed out' });
+    } finally {
+      await fixture.stop();
+    }
+  });
+});

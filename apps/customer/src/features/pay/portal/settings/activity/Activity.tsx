@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from 'react';
-import { useSession } from '../../../../session/session';
+import { useSession } from '../../../../session';
 import { PaySection } from '../../../components';
 import { ListShell, MoreFooter, SelectField } from '../../components';
 import { useMemberNames, useUrlParam, type ListState } from '../../hooks';

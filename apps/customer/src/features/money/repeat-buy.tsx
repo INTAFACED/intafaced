@@ -4,7 +4,7 @@ import { Button, Page } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import { parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
-import { useSession, useApi } from '../session/session';
+import { useSession, useApi } from '../session';
 import { createMoneyClient } from './client';
 import { bankReads, ruleSchema } from './contracts';
 import { t } from './repeat-buy-copy';

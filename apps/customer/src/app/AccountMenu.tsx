@@ -2,7 +2,8 @@
 import { useId } from 'react';
 import { z } from 'zod';
 import { SegmentedControl } from '@intafaced/ui';
-import { fetchMe, meSchema } from '../data/identity';
+import { IDENTITY_ME } from '@intafaced/contracts/identity-handles';
+import { handleNamed } from '../data/identity';
 import { useAccountViewStatus } from '../features/account/ViewSync';
 import { verificationStatus } from '../features/account/verification-guards';
 import { useSession } from '../features/session/session';
@@ -23,7 +24,7 @@ function Summary() {
   const { api, userId } = useSession();
   const { t } = accountMenuCopy.useCopy();
   const copy = accountMenuCopy.useCopy();
-  const me = useResource((signal) => api.query('identity', 'me', undefined, meSchema, { signal }), `menu-me:${userId}`);
+  const me = useResource((signal) => api.call(IDENTITY_ME, undefined, { signal, accept: handleNamed }), `menu-me:${userId}`);
   const profile = useResource(
     (signal) => api.query('identity', 'profile.get', undefined, profileSchema, { signal }),
     `menu-profile:${userId}`,

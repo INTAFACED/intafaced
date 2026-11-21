@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { kycPoaReadSchema, kycPoaSubmissionSchema, type KycPoaRead, type KycPoaSubmission } from '@intafaced/contracts/identity-kyc-poa';
 import type { ApiResult } from '../../shared/api';
 import { base64Of, kib, localToday } from '../../shared/file-base64';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { verificationPoaCopy as copy } from './verification-poa-copy';

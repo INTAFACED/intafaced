@@ -1,13 +1,12 @@
 import { useMemo, useState, type FormEvent } from 'react';
+import { type MyVoucher, type VoucherValidation } from '@intafaced/contracts/campaigns-catalogue';
 import {
-  myVoucherSchema,
-  myVouchersSchema,
-  voucherRedeemResultSchema,
-  voucherValidationSchema,
-  type MyVoucher,
-  type VoucherValidation,
-} from '@intafaced/contracts/campaigns-catalogue';
-import { useApi } from '../session/session';
+  CAMPAIGNS_VOUCHERS_CLAIM,
+  CAMPAIGNS_VOUCHERS_MINE,
+  CAMPAIGNS_VOUCHERS_REDEEM,
+  CAMPAIGNS_VOUCHERS_VALIDATE,
+} from '@intafaced/contracts/campaigns-procedures';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel } from '../../shared/ui';
@@ -25,6 +24,7 @@ const CODES = [
   'campaigns.voucher_invalid',
   'campaigns.voucher_window_unset',
   'campaigns.voucher_expired',
+  'campaigns.voucher_not_cash',
   'campaigns.voucher_amount_invalid',
   'campaigns.voucher_exceeds_remaining',
   'campaigns.voucher_sequence_invalid',
@@ -82,7 +82,7 @@ export function MyVouchers() {
   const api = useApi();
   const { t } = campaignVouchersCopy.useCopy();
   const when = useWhen();
-  const wallet = useResource((signal) => api.query('campaigns', 'vouchers.mine', {}, myVouchersSchema, { signal }), 'campaign-vouchers');
+  const wallet = useResource((signal) => api.call(CAMPAIGNS_VOUCHERS_MINE, {}, { signal }), 'campaign-vouchers');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState<'check' | 'claim' | null>(null);
   const [refusal, setRefusal] = useState<Failed | null>(null);
@@ -92,14 +92,14 @@ export function MyVouchers() {
 
   const check = async () => {
     setBusy('check');
-    const result = await api.query('campaigns', 'vouchers.validate', { code: code.trim() }, voucherValidationSchema);
+    const result = await api.call(CAMPAIGNS_VOUCHERS_VALIDATE, { code: code.trim() });
     setBusy(null);
     setChecked(result.ok ? result.data : null);
     setRefusal(result.ok ? null : result);
   };
   const claim = async () => {
     setBusy('claim');
-    const result = await api.mutate('campaigns', 'vouchers.claim', { code: code.trim() }, myVoucherSchema);
+    const result = await api.call(CAMPAIGNS_VOUCHERS_CLAIM, { code: code.trim() });
     setBusy(null);
     setChecked(null);
     setRefusal(result.ok ? null : result);
@@ -128,13 +128,21 @@ export function MyVouchers() {
       </form>
       {checked ? (
         <p role="status" data-testid="voucher-validation">
-          {t('validation', {
-            amount: checked.face.amount,
-            asset: checked.face.asset,
-            campaign: checked.campaignName,
-            claimBy: when(checked.claimBy),
-            useBy: when(checked.useBy),
-          })}
+          {checked.feeSaver
+            ? t('validationFeeSaver', {
+                pct: percentOfFee(checked.feeSaver.discountBps),
+                orders: checked.feeSaver.orders,
+                campaign: checked.campaignName,
+                claimBy: when(checked.claimBy),
+                useBy: when(checked.useBy),
+              })
+            : t('validation', {
+                amount: checked.face.amount,
+                asset: checked.face.asset,
+                campaign: checked.campaignName,
+                claimBy: when(checked.claimBy),
+                useBy: when(checked.useBy),
+              })}
         </p>
       ) : null}
       {refusal ? <Refusal result={refusal} /> : null}
@@ -173,6 +181,9 @@ export function MyVouchers() {
   );
 }
 
+/** A discount in basis points of the fee as a percent of that fee: 5000 is "50". */
+const percentOfFee = (bps: number): string => String(bps / 100);
+
 function VoucherRow({
   voucher: v,
   when,
@@ -188,15 +199,15 @@ function VoucherRow({
   const { t } = campaignVouchersCopy.useCopy();
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
-  const open = (v.state === 'claimed' || v.state === 'partially_used') && v.remaining !== '0';
+  // A fee-saver is never redeemed: it is taken on an order when our builder fee is priced.
+  const open = v.kind === 'cash' && (v.state === 'claimed' || v.state === 'partially_used') && v.remaining !== '0';
   const redeem = async () => {
     setBusy(true);
-    const result = await api.mutate(
-      'campaigns',
-      'vouchers.redeem',
-      { voucherId: v.id, amount: amount.trim(), sequence: v.redemptions.length + 1 },
-      voucherRedeemResultSchema,
-    );
+    const result = await api.call(CAMPAIGNS_VOUCHERS_REDEEM, {
+      voucherId: v.id,
+      amount: amount.trim(),
+      sequence: v.redemptions.length + 1,
+    });
     setBusy(false);
     if (result.ok) setAmount('');
     answered(result.ok ? null : result);
@@ -209,12 +220,56 @@ function VoucherRow({
       <td>{v.campaignName}</td>
       <td data-testid="voucher-state">{t(`state_${v.state}`)}</td>
       <td>
-        <span data-testid="voucher-remaining">{t('left', { remaining: v.remaining, face: v.face.amount, asset: v.face.asset })}</span>
+        {v.feeSaver ? (
+          <>
+            <span data-testid="voucher-kind" data-kind={v.kind}>
+              {t('kind_fee_saver')}
+            </span>{' '}
+            <span data-testid="voucher-does">
+              {t('feeSaverDoes', { pct: percentOfFee(v.feeSaver.discountBps), orders: v.feeSaver.orders })}
+            </span>{' '}
+            <span data-testid="voucher-remaining">{t('ordersLeft', { remaining: v.remaining, orders: v.feeSaver.orders })}</span>
+            {v.feeSaver.uses.length > 0 ? (
+              <ul aria-label={t('feeSaverUses')} data-testid="voucher-uses">
+                {v.feeSaver.uses.map((u) => (
+                  <li key={u.sequence} data-order-key={u.orderKey}>
+                    {t('feeSaverUse', { sequence: u.sequence, when: when(u.at) })}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <span data-testid="voucher-kind" data-kind={v.kind}>
+              {t('kind_cash')}
+            </span>{' '}
+            <span data-testid="voucher-remaining">{t('left', { remaining: v.remaining, face: v.face.amount, asset: v.face.asset })}</span>
+          </>
+        )}
         {v.redemptions.length > 0 ? (
           <ul aria-label={t('redemptions')} data-testid="voucher-redemptions">
             {v.redemptions.map((r) => (
               <li key={r.sequence} data-reward-key={r.reward.rewardKey} data-state={r.reward.state}>
                 {t('redemption', { amount: r.amount, asset: v.face.asset, state: t(`reward_${r.reward.state}`) })}
+                {r.reward.payout ? (
+                  <>
+                    {' '}
+                    {/* The chain's own record of the payment: it left INTAFACED's wallet for the connected one, never a balance. */}
+                    <span data-testid="voucher-paid-to" data-wallet={r.reward.payout.toWallet}>
+                      {t('paidTo', { wallet: r.reward.payout.toWallet })}
+                    </span>{' '}
+                    <a
+                      className="text-link"
+                      data-testid="voucher-chain-tx"
+                      data-tx={r.reward.payout.chainTx}
+                      href={`/chain/tx/${encodeURIComponent(r.reward.payout.chainTx)}`}
+                      lang="zxx"
+                    >
+                      {t('chainTx', { tx: r.reward.payout.chainTx })}
+                    </a>
+                  </>
+                ) : null}
               </li>
             ))}
           </ul>

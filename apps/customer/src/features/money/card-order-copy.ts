@@ -111,6 +111,9 @@ const en = {
   cashbackRefused: 'Not paid, the reward pot was short: {amount} {asset}',
   cashbackSimulated: 'Paid on spend from the simulation record’s cards.',
   cashbackOff: 'Cashback needs rail.card. It is switched off in this build.',
+  cashbackToWallet:
+    'Cashback on spend the card partner holds: {amount} {asset}. INTAFACED owes it to you and pays it to your own wallet. It is not spendable until it is paid.',
+  cashbackToWalletLink: 'See each payment in My rewards',
   tierNone: 'None',
   tierStandard: 'Standard',
   tierMetal: 'Metal',
@@ -129,7 +132,10 @@ const en = {
   payFromNotKnown: 'not known',
   payFromNotListed: 'not on the spendable list',
   payFromBalanceHead: 'Partner balance',
-  payFromRateHead: 'Rate in {asset}',
+  payFromRateHead: 'The card partner’s quoted rate in {asset}',
+  payFromEstimate: 'estimate',
+  payFromEstimateNote:
+    'A quoted rate is an estimate until the card partner holds a payment; the rate it holds at, and its time, show on the payment.',
   payFromRateHeadNone: 'Rate',
   payFromRateTimeHead: 'Rate time',
   payFromSavedHead: 'Saved order',

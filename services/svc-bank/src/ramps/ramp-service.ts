@@ -1,4 +1,4 @@
-import type { TestPartner } from '../partner/test-partner.js';
+import type { TestPartnerDoors } from '../partner/test-partner.js';
 import { listWithdrawNetworks, type WithdrawAsset, type WithdrawNetworkSource } from './withdraw-networks.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -249,7 +249,7 @@ export interface RampServiceOptions {
   /** The local stack's TEST rate stand-in (`BANK_ONRAMP_RATES=ramp-sim`), for the asks it lists. Unset everywhere else. */
   onrampStandIn?: OnrampStandIn | null;
   /** The TEST ramp's switches (quote expired, fee not known), on a dev or test stack only. Unset everywhere else. */
-  testRamp?: TestPartner | null;
+  testRamp?: TestPartnerDoors | null;
   /**
    * Partner that opens a hosted payment or bank-transfer instruction.
    * Unset refuses `bank.fiat_ramp_socket` and inserts no row.
@@ -302,7 +302,7 @@ export class RampService {
   private readonly offrampCoolingHours: string | undefined;
   private readonly onrampQuotes: OnrampQuoteSource | null;
   private readonly onrampStandIn: OnrampStandIn | null;
-  private readonly testRamp: TestPartner | null;
+  private readonly testRamp: TestPartnerDoors | null;
   private readonly onrampPayments: OnrampPaymentPort | null;
   private readonly offrampFees: OfframpFeeSource | null;
   private readonly withdrawNetworkSource: WithdrawNetworkSource | null;
@@ -516,8 +516,22 @@ export class RampService {
    * Idempotent by `onrampId`. Stores the partner instruction and does not credit the ledger.
    * A blank partner refuses `bank.fiat_ramp_socket` before any row.
    */
-  onrampCreate(input: { userId: string; onrampId: string; quoteId: string; method: OnrampMethod }): Promise<CustomerOnrampView> {
+  onrampCreate(input: {
+    userId: string;
+    onrampId: string;
+    quoteId: string;
+    method: OnrampMethod;
+    walletAddress?: string;
+  }): Promise<CustomerOnrampView> {
     return createOnramp(this.customerDeps(), input);
+  }
+
+  /**
+   * Buy to wallet (J-dex-protocol-05 #4): the owner's destination sanctions list must clear the wallet, on any network,
+   * as for every other crypto destination outside INTAFACED. A listed address, or any while the list is unset, refuses.
+   */
+  screenWallet(address: string): void {
+    assertNotSanctioned(this.sanctions, null, address);
   }
 
   /** One of the customer's own on-ramp quotes as stored, expired or not. */

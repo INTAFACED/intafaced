@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Failure, Loading } from '../../shared/ui';

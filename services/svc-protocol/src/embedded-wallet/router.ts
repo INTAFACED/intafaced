@@ -1,10 +1,8 @@
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
-import {
-  protocolEmbeddedWalletCreateInputSchema,
-  protocolEmbeddedWalletCreateOutputSchema,
-  protocolEmbeddedWalletStatusOutputSchema,
-  type ProtocolEmbeddedWalletRefusal,
-} from '@intafaced/contracts/protocol-embedded-wallet';
+import { router, TRPCError } from '@intafaced/contracts';
+import type { ProtocolEmbeddedWalletRefusal } from '@intafaced/contracts/protocol-embedded-wallet';
+import { gasSponsorFromSetting, type GasSponsorSetting } from './gas-sponsor.js';
+import { PROTOCOL_EMBEDDED_WALLET_CREATE, PROTOCOL_EMBEDDED_WALLET_STATUS } from '@intafaced/contracts/protocol-wallet-procedures';
+import { mountProtocolRecord } from '../record-mount.js';
 import {
   EMBEDDED_PROVIDER_DOWN,
   EMBEDDED_PROVIDER_UNSET,
@@ -26,9 +24,9 @@ import {
  */
 export interface EmbeddedWalletRouterDeps extends EmbeddedWalletDeps {
   now?: () => Date;
+  /** The owner's gas-sponsor setting, read once at boot (gas-sponsor.ts). Absent reads as the blank setting: no sponsor. */
+  gasSponsor?: GasSponsorSetting;
 }
-
-const guard = { module: 'protocol', plane: 'protocol', person: true } as const;
 
 const HTTP_CODE: Record<ProtocolEmbeddedWalletRefusal, TRPCError['code']> = {
   [EMBEDDED_PROVIDER_UNSET]: 'PRECONDITION_FAILED',
@@ -66,23 +64,22 @@ export function createEmbeddedWalletRouter(deps: EmbeddedWalletRouterDeps) {
     }
   };
   return router({
-    status: scopedProcedure('protocol:read', guard)
-      .output(protocolEmbeddedWalletStatusOutputSchema)
-      .query(({ ctx }) =>
-        guarded(async () => {
-          const { provider, wallet } = await embeddedWalletStatus(deps, ctx.principal.userId);
-          return { provider, wallet: wallet ? embeddedWalletOut(wallet) : null };
-        }),
-      ),
-    create: scopedProcedure('protocol:read', guard)
-      .input(protocolEmbeddedWalletCreateInputSchema)
-      .output(protocolEmbeddedWalletCreateOutputSchema)
-      .mutation(({ ctx, input }) =>
-        guarded(async () => {
-          const { row, created } = await createEmbeddedWallet(deps, { userId: ctx.principal.userId, passkey: input.passkey }, now());
-          return { wallet: embeddedWalletOut(row), created };
-        }),
-      ),
+    status: mountProtocolRecord(PROTOCOL_EMBEDDED_WALLET_STATUS, ({ ctx }) =>
+      guarded(async () => {
+        const { provider, wallet } = await embeddedWalletStatus(deps, ctx.principal.userId);
+        return {
+          provider,
+          wallet: wallet ? embeddedWalletOut(wallet) : null,
+          gasSponsor: deps.gasSponsor ?? gasSponsorFromSetting(undefined),
+        };
+      }),
+    ),
+    create: mountProtocolRecord(PROTOCOL_EMBEDDED_WALLET_CREATE, ({ ctx, input }) =>
+      guarded(async () => {
+        const { row, created } = await createEmbeddedWallet(deps, { userId: ctx.principal.userId, passkey: input.passkey }, now());
+        return { wallet: embeddedWalletOut(row), created };
+      }),
+    ),
   });
 }
 

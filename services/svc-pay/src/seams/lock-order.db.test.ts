@@ -78,7 +78,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
       const spy = new Proxy(tx, {
         apply: (target, thisArg, args: unknown[]) => {
           if (Array.isArray(args[0])) seen.push((args[0] as string[]).join('?').replace(/\s+/g, ' ').trim());
-          return Reflect.apply(target as unknown as (...a: unknown[]) => unknown, thisArg, args);
+          return Reflect.apply(target as (...a: unknown[]) => unknown, thisArg, args);
         },
         get: (target, prop, receiver) => {
           const value = Reflect.get(target, prop, receiver) as unknown;
@@ -168,7 +168,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
       const spy = new Proxy(tx, {
         apply: (target, thisArg, args: unknown[]) => {
           if (Array.isArray(args[0])) seen.push((args[0] as string[]).join('?').replace(/\s+/g, ' ').trim());
-          return Reflect.apply(target as unknown as (...a: unknown[]) => unknown, thisArg, args);
+          return Reflect.apply(target as (...a: unknown[]) => unknown, thisArg, args);
         },
         get: (target, prop, receiver) => {
           const value = Reflect.get(target, prop, receiver) as unknown;
@@ -241,7 +241,7 @@ describe('guard seams: W5 treasury lock comes before W1 counter locks', () => {
       const spy = new Proxy(tx, {
         apply: (target, thisArg, args: unknown[]) => {
           if (Array.isArray(args[0])) seen.push((args[0] as string[]).join('?').replace(/\s+/g, ' ').trim());
-          return Reflect.apply(target as unknown as (...a: unknown[]) => unknown, thisArg, args);
+          return Reflect.apply(target as (...a: unknown[]) => unknown, thisArg, args);
         },
         get: (target, prop, receiver) => {
           const value = Reflect.get(target, prop, receiver) as unknown;

@@ -1,0 +1,25 @@
+// How many jobs one local check may run at once, from the one setting a shared machine sets: INTAFACED_LOCAL_JOBS.
+//
+// Unset (CI, one person's machine), every tool keeps its own default and runs as fast as the machine allows. Set, it
+// bounds the three local runs that otherwise size themselves to the whole machine, so builders sharing one box don't
+// each take all of it (project-state#3420: three memory fills on 20 Nov):
+//   - the pre-push typecheck: turbo's --concurrency (tooling/scripts/pre-push-typecheck.mjs);
+//   - the pre-push rust:check: cargo's CARGO_BUILD_JOBS and RUST_TEST_THREADS (.githooks/pre-push), unless set already;
+//   - every vitest run: its maxWorkers, through the shared TEST_BUDGET that every package spreads, and the Customer app's config.
+// turbo.json passes it through to the tasks turbo starts.
+const LOCAL_JOBS = 'INTAFACED_LOCAL_JOBS';
+
+/** The bound, a whole number of at least 1, or null when unset. Anything else throws, naming the setting. */
+export function localJobs(env = process.env) {
+  const raw = env[LOCAL_JOBS];
+  if (raw === undefined || raw === '') return null;
+  if (!/^[1-9]\d*$/u.test(raw))
+    throw new Error(`${LOCAL_JOBS} must be a whole number of at least 1, or unset; it is ${JSON.stringify(raw)}`);
+  return Number(raw);
+}
+
+/** vitest's part of the bound: `{ maxWorkers }` when set, else nothing (vitest's own default). */
+export function localWorkers(env = process.env) {
+  const jobs = localJobs(env);
+  return jobs === null ? {} : { maxWorkers: jobs };
+}

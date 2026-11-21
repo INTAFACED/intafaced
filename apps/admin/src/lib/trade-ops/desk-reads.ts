@@ -25,12 +25,14 @@ import { BUST_ACTION_TYPE, BUST_POLICY_VERSION, BUST_TARGET_SERVICE, bustPayload
 import {
   parseOrderRead,
   parseReconcileStatus,
+  parseVenueOrderRead,
   parseSweepResult,
   parseTradeAudit,
   type OrderRead,
   type ReconcileStatus,
   type SweepResult,
   type TradeAuditRow,
+  type VenueOrderRead,
 } from './order-read';
 
 /**
@@ -208,4 +210,12 @@ export function readTradeAudit(
   filter: { kind?: string; accountId?: string; cursor?: string },
 ): Promise<Outcome<{ rows: TradeAuditRow[]; nextCursor: string | null }>> {
   return edgeCall(ctx, trpcSpec('trade', 'admin.audit.feed', 'query', { ...filter, limit: TRADE_AUDIT_PAGE_SIZE }, parseTradeAudit));
+}
+
+/**
+ * admin.orders.venueGet: one customer's routed order, read from the venue by the customer's own address (J-cex-spot-18
+ * #1). The account names the customer the ticket is about; the service audits each read that finds the order.
+ */
+export function readVenueOrder(ctx: TradeCtx, accountId: string, venueClientOrderId: string): Promise<Outcome<VenueOrderRead>> {
+  return edgeCall(ctx, trpcSpec('trade', 'admin.orders.venueGet', 'query', { accountId, venueClientOrderId }, parseVenueOrderRead));
 }

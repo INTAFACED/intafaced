@@ -1,7 +1,7 @@
 import { PaySection } from '../../../components';
 import { useMerchantAccess, readyAccess } from '../../access/MerchantAccess';
 import { Chip } from '../../components';
-import { IdentitySessions } from '../../../../account/IdentitySessions';
+import { IdentitySessions } from '../../../../account';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import { portalCopy } from '../copy';

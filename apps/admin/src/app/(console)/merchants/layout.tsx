@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { MerchantsSubnav } from '@/components/merchants/merchants-subnav';
-import { TestDataBadge } from '@/components/merchants/test-data-badge';
+import { TestDataBadge } from '@/components/test-data-badge';
 import '@/components/merchants/merchants.css';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';

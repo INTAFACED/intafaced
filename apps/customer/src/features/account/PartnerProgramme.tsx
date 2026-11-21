@@ -1,37 +1,18 @@
 import { useState } from 'react';
-import { z } from 'zod';
+import type { z } from 'zod';
+import { partnerApplicationSchema, partnerEligibilitySchema, partnerSubTreeSchema } from '@intafaced/contracts/identity-account-room';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { partnerProgrammeCopy as copy } from './partner-programme-copy';
 
 // Become an affiliate partner (CM-referral-05, RC-campaigns-07; J-campaigns-07). Apply against the owner's qualified
 // invitee count, see the decision, and as an approved partner open the partner portal and my own sub-tree to the
 // programme depth. Blank owner values refuse by name and nothing is recorded.
-// hand-declared-ok: svc-identity's affiliates procedures have no browser-safe schema in packages/contracts yet
-const eligibilitySchema = z.object({
-  requiredCount: z.number().int().positive(),
-  qualifiedCount: z.number().int().nonnegative(),
-  eligible: z.boolean(),
-});
-const categories = ['not_enough_activity', 'incomplete_application', 'compliance', 'other'] as const;
-const applicationSchema = z.object({
-  applicationId: z.string().uuid(),
-  state: z.enum(['submitted', 'approved', 'rejected']),
-  qualifiedCount: z.number().int().nonnegative(),
-  requiredCount: z.number().int().positive(),
-  approvalReason: z.string().nullable(),
-  rejectCategory: z.enum(categories).nullable(),
-  reapplyAt: z.string().nullable(),
-  createdAt: z.string(),
-  decidedAt: z.string().nullable(),
-});
-const subTreeSchema = z.object({
-  depth: z.number().int().positive(),
-  members: z.array(z.object({ handle: z.string(), level: z.number().int().positive(), joinedAt: z.string() })),
-  beyondDepth: z.number().int().nonnegative(),
-});
+const eligibilitySchema = partnerEligibilitySchema;
+const applicationSchema = partnerApplicationSchema;
+const subTreeSchema = partnerSubTreeSchema;
 type Application = z.infer<typeof applicationSchema>;
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 

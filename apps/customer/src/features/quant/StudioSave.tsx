@@ -1,11 +1,12 @@
 import { quantStrategyHeadSchema, type QuantStrategyHead } from '@intafaced/contracts/quant-algo';
 import { useState } from 'react';
 import { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
+import { QUANT_STUDIO_SAVE, QUANT_STUDIO_UPDATE } from '@intafaced/contracts/quant-studio-procedures';
+import { parsesAs, type ApiResult } from '../../shared/api';
 import { signedDecimalSchema } from '../../shared/money';
 import { Button, Field, Loading } from '../../shared/ui';
 import { QuotaAwareFailure } from './quota-refusal';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { studioCopy } from './studio-copy';
 import { useRuleWords } from './SignalBuilder';
 import { ruleRefusal, signalRulesFilled, trimSignalRules } from './signal-rules';
@@ -98,8 +99,8 @@ export function StudioSave({
     };
     const res =
       link.strategyId && link.version
-        ? await api.mutate('quant', 'studio.update', { ...body, id: link.strategyId }, savedHead)
-        : await api.mutate('quant', 'studio.save', { ...body, clientStrategyId: link.clientStrategyId }, savedHead);
+        ? await api.call(QUANT_STUDIO_UPDATE, { ...body, id: link.strategyId }, { accept: parsesAs(savedHead) })
+        : await api.call(QUANT_STUDIO_SAVE, { ...body, clientStrategyId: link.clientStrategyId }, { accept: parsesAs(savedHead) });
     setBusy(false);
     // The rules the service holds now: a replay after a lost reply may hold the first press's rules, not the form's.
     if (res.ok) {

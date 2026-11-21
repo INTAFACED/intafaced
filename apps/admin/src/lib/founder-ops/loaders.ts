@@ -1,16 +1,18 @@
 import 'server-only';
-import { isTestData } from '@/components/merchants/test-data-badge';
-import { payCall, type PayCallContext, type PayCallResult } from '@/lib/merchants/pay-call';
+import { isTestData } from '@/components/test-data-badge';
 import {
   loadApprovalQueue,
-  type ApprovalQueueData,
   loadDashboard,
-  type DashboardData,
   loadTreasury,
+  payCall,
+  type ApprovalQueueData,
+  type DashboardData,
+  type PayCallContext,
+  type PayCallResult,
+  type TierView,
   type TreasuryData,
-} from '@/lib/merchants/loaders';
+} from '@/lib/merchants';
 import type { FounderMerchantSection, FounderMerchantSectionPage, MerchantMetricsSnapshot } from '@intafaced/contracts';
-import type { TierView } from '@/lib/merchants/control-model';
 import type { FounderScreen } from './screens';
 import type { NotePage } from './notes';
 import { loadControlAudit, loadLimitRequests, loadTiers } from './control-reads';

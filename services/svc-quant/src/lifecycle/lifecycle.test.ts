@@ -76,7 +76,7 @@ const history: HistoryPort = {
     return bars;
   },
 };
-const fees = { wired: true, fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }) } as unknown as FeePort;
+const fees = { wired: true, fee: async () => ({ version: 'local-test:v1', makerBps: 8, takerBps: 10 }) } as FeePort;
 
 function setup() {
   // The run store stamps a paper start with the wall clock, so the router's clock starts there too.
@@ -270,6 +270,48 @@ describe('promotion gate (AL-lifecycle-01)', () => {
     expect(out.lifecycle.stage).toBe('paper');
     expect(out.lifecycle.decisions).toHaveLength(1);
     expect(out.lifecycle.stages).toEqual([]);
+  });
+
+  it('lists every promotion on the operator audit: an approval with its one stage row and the criteria used, a rejection with none (J-algo-dev-13 #3)', async () => {
+    const t = setup();
+    const { s, run, p } = await ready(t);
+    await t.set('gate.maxDrawdownPercent', '100');
+    await t.set('gate.paperMinutes', '600');
+    const rejected = await t.a.lifecycle.promote({ strategyId: s.id, strategyVersion: 1, seq: 0 });
+    expect(rejected.decision.decision).toBe('rejected');
+    await t.set('gate.paperMinutes', '60');
+    await t.a.lifecycle.promote({ strategyId: s.id, strategyVersion: 1, seq: 1 });
+    // A lost reply's retry and a fresh press add nothing to the audit.
+    await t.a.lifecycle.promote({ strategyId: s.id, strategyVersion: 1, seq: 1 });
+    await expect(t.a.lifecycle.promote({ strategyId: s.id, strategyVersion: 1, seq: 2 })).rejects.toThrow(
+      /^quant\.stage_transition_invalid/,
+    );
+
+    const audit = await t.reader.ops.lifecycle.audit();
+    expect(audit.total).toBe(2);
+    expect(audit.rows).toHaveLength(2);
+    const [approved, first] = audit.rows;
+    expect(approved).toMatchObject({
+      accountId: ACCOUNT_A,
+      strategyId: s.id,
+      strategyVersion: 1,
+      actor: ACCOUNT_A,
+      decision: {
+        decision: 'approved',
+        runIds: [run.runId, p.runId],
+        criteria: [
+          { name: 'paperMinutes', value: '60' },
+          { name: 'maxDrawdownPercent', value: '100' },
+        ],
+      },
+      stage: { from: 'paper', to: 'candidate', runIds: [run.runId, p.runId] },
+    });
+    expect(first).toMatchObject({ decision: { decision: 'rejected' }, stage: null });
+    expect(first!.decision.criteria).toContainEqual({ name: 'paperMinutes', value: '600' });
+    expect(audit.rows.filter((row) => row.stage !== null)).toHaveLength(1);
+
+    // A developer's session cannot read the operator audit.
+    await expect(t.a.ops.lifecycle.audit()).rejects.toThrow();
   });
 
   it('counts no inconclusive verdict and no paper run of another version, and names blank risk limits', async () => {

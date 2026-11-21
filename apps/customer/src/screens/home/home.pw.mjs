@@ -42,7 +42,7 @@ const defaults = {
   alerts: () => alertList(),
   activity: () => establishedActivity(),
   // Needs you: Home's owner values (svc-ops) and each owner's items, empty for an account with nothing owed.
-  homeConfig: () => ({ workListCap: 5, workListOrder: null, searchResultCap: null, revision: 1 }),
+  homeConfig: () => ({ workListCap: 5, workListOrder: null, searchResultCap: null, recentActivityLimit: 3, revision: 1 }),
   'work:identity': () => ({ items: [] }),
   'work:bank': () => ({ items: [] }),
   'work:pay': () => ({ items: [] }),
@@ -169,21 +169,24 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   // Simple Buy and Sell open the Buy card (M2 critic H1); Pro Home goes to the desk.
   await expect(page.getByTestId('home-actions').locator('a').nth(0)).toHaveAttribute('href', '/trade/buy');
   await expect(page.getByTestId('home-actions').locator('a').nth(1)).toHaveAttribute('href', '/trade/buy?side=sell');
-  // Critic H1: the Buy label is dark on lime (an unlayered rule once made it white, 1.25:1).
+  // Critic H1: the Buy label is dark on its light key (an unlayered rule once made it white, 1.25:1); in Volt the first
+  // key is ink with the page's black on it.
   const color = (selector) =>
     page
       .locator(selector)
       .first()
       .evaluate((node) => getComputedStyle(node).color);
-  expect(await color('[data-testid="home-actions"] [data-slot="button"]:first-child')).toBe('rgb(11, 11, 11)');
+  expect(await color('[data-testid="home-actions"] [data-slot="button"]:first-child')).toBe('rgb(10, 10, 9)');
   // Critic H2: kit sizes are true px (the legacy 14 px root made every pill 35 tall).
   expect(Math.round((await page.getByTestId('home-actions').locator('a').first().boundingBox()).height)).toBe(40);
 
   // Cash / Crypto card
-  await expect(page.getByTestId('home-holdings__row').nth(0)).toContainText('Cash');
-  await expect(page.getByTestId('home-holdings__row').nth(0)).toContainText('$4,100.00');
-  await expect(page.getByTestId('home-holdings__row').nth(1)).toContainText('$8,381.29');
-  await expect(page.getByTestId('home-holdings__row').nth(1)).toHaveAttribute('href', '/money#crypto');
+  // Volt's money object: the cash card in front, the crypto card behind, each opening its part of Money
+  const stack = page.getByTestId('volt-stack');
+  await expect(stack.locator('a[href="/money#cash"]')).toContainText('Cash');
+  await expect(stack.locator('a[href="/money#cash"]')).toContainText('$4,100.00');
+  await expect(stack.locator('a[href="/money#crypto"]')).toContainText('Crypto');
+  await expect(stack.locator('a[href="/money#crypto"]')).toContainText('$8,381.29');
 
   // Markets: four cards, BTC/ETH/IFC first (no activity numbers), then the next listed asset.
   const cards = page.getByTestId('home-card');
@@ -223,7 +226,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   await expect(page.getByTestId('home-watch').getByTestId('home-watch__head').locator('h2')).toHaveText('Popular');
   expect(await texts(page.getByTestId('home-watch').getByTestId('home-watch__ticker'))).toEqual(['XRP', 'DOGE']); // the cards' coins are not repeated (critic N3)
 
-  // Geometry: container 1224, main 792, side 408, card 186 x 176, hero text 48/58.
+  // Geometry: container 1224, main 792, side 408, card 186 x 176, hero text 63/63 (Volt's wide figure, 4.5rem).
   expect(Math.round((await box('[data-testid="if-home"]')).width)).toBe(1224);
   expect(Math.round((await box('[data-testid="home-main"]')).width)).toBe(792);
   expect(Math.round((await box('[data-testid="home-side"]')).width)).toBe(408);
@@ -233,7 +236,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
   const heroStyle = await page
     .locator('[data-slot="hero-number"]')
     .evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight);
-  expect(heroStyle).toBe('48px/58px');
+  expect(heroStyle).toBe('63px/63px');
   // The Markets row is on the first screen (the real app adds a 28 px local-test banner above).
   expect((await box('[data-testid="home-card"]')).y + card.height).toBeLessThanOrEqual(900 - 28);
 
@@ -243,7 +246,7 @@ test('ready state at 1440x900: layout, words, keyboard path, numbers', async ({ 
       '[data-slot="hero-number"]',
       '[data-testid="home-change"]',
       '[data-testid="home-actions"]',
-      '[data-testid="home-holdings"]',
+      '[data-testid="volt-stack"]',
       '[data-testid="home-cards"]',
     ].map((selector) => document.querySelector(selector).getBoundingClientRect().top),
   );
@@ -392,7 +395,7 @@ test('hidden balances show bullets, prices stay, and the choice is remembered', 
   await page.getByRole('button', { name: 'Hide balances' }).click();
   await expect(page.getByRole('button', { name: 'Show balances' })).toBeVisible();
   await expectHero(page, '$••••');
-  expect(await texts(page.getByTestId('home-holdings__value'))).toEqual(['••••', '••••']);
+  expect(await texts(page.getByTestId('volt-stack').locator('[data-slot="money"]'))).toEqual(['••••', '••••']);
   await expect(page.getByTestId('home-change').locator('[data-slot="change-text"]')).toContainText('••••'); // the whole change line is a portfolio figure
   await expect(page.getByTestId('home-change')).not.toContainText('206'); // and no digit of it leaks
   await expect(page.getByTestId('home-card__price').first()).toHaveText('$67,812.40'); // prices still show
@@ -418,20 +421,20 @@ test('loading shows final-size skeletons and nothing moves when data arrives', a
     page.evaluate(() =>
       [
         '[data-testid="home-actions"]',
-        '[data-testid="home-holdings"]',
+        '.volt-stack',
         '[data-testid="home-cards"]',
         '[data-testid="home-pills"]',
         ':is([data-testid="home-watch"], [data-testid="home-yours"])',
       ].map((selector) => Math.round(document.querySelector(selector).getBoundingClientRect().top)),
     );
   const before = await layout();
-  // Critic M4: a skeleton inside a panel is the field colour, not the panel's own (it was invisible).
+  // Critic M4: a skeleton inside a panel is not the panel's own colour (it was invisible); in Volt it is the ink at 9%.
   expect(
     await page
       .locator(':is([data-testid="home-watch"], [data-testid="home-yours"]) [data-slot="skeleton"]')
       .first()
       .evaluate((node) => getComputedStyle(node).backgroundColor),
-  ).toBe('rgb(33, 33, 33)');
+  ).toBe('color(srgb 0.952941 0.94902 0.92549 / 0.09)');
   await page.screenshot({ path: join(shots, 'home-state-loading.png') });
   await api.release();
   await expectHero(page, '$12,481.29');
@@ -447,7 +450,7 @@ test('empty portfolio: zero is shown once, with one plain line and a way to star
   await expect(page.getByTestId('home-note')).toHaveText(
     'Your account is empty. Add money to get started, or receive coins from someone on INTAFACED.',
   );
-  await expect(page.getByTestId('home-holdings')).toHaveCount(0);
+  await expect(page.getByTestId('volt-stack')).toHaveCount(0);
   // The side card says so in one line instead of vanishing.
   await expect(page.getByTestId('home-yours')).toContainText('Coins you hold show here.');
   // An empty account leads with Add money, then Receive; nothing to sell, send or convert.
@@ -600,7 +603,7 @@ test('holding money ticks Add money, and Get started stays until every step is d
   await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'todo');
   funded = true;
   await page.clock.runFor(31_000);
-  await expect(page.getByTestId('home-holdings')).toBeVisible();
+  await expect(page.getByTestId('volt-stack')).toBeVisible();
   await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'done');
   await expect(started.locator('[data-step="trade"]')).toHaveAttribute('data-status', 'todo');
   await expect(started.getByTestId('home-started__count')).toHaveText('2 of 6 done');
@@ -626,7 +629,7 @@ test('a person who hid Get started makes none of its reads', async ({ page }) =>
   );
   const api = await mock(page, { kyc: () => kycAnswer('none'), passkeys: () => passkeyList(0), alerts: () => alertList([]) });
   await open(page);
-  await expect(page.getByTestId('home-holdings')).toBeVisible();
+  await expect(page.getByTestId('volt-stack')).toBeVisible();
   await expect(page.getByTestId('home-started')).toHaveCount(0);
   expect(api.seen.filter((path) => ['kyc.status', 'webauthn.list', 'notify.alerts'].includes(path))).toEqual([]);
 });

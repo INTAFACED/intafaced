@@ -5,7 +5,6 @@ import {
   completeRouteCount,
   routingProviderIds,
   routingTableBoardCard,
-  routingTableStatusLine,
   parseRoutingTableStatusLine,
   routingTableStatusLineMatches,
   routingTableExportHeader,

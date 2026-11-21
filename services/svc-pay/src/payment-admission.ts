@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { identityOperationIntentSchema, type IdentityOperationIntent, type IdentityOperationDecisionPort } from '@intafaced/contracts';
 import {
   PayoutAdmissionError,
@@ -20,9 +20,9 @@ export interface PreparedPaymentOperation {
   authority?: IdentityOperationIntent['authority'];
 }
 export async function preparePaymentAdmission(
-  tx: Sql,
+  tx: Queryable,
   input: PreparedPaymentOperation,
-  guard: (tx: Sql) => Promise<void>,
+  guard: (tx: Queryable) => Promise<void>,
   authorityPort?: OwnerIdentityAuthorityPort,
 ): Promise<IdentityOperationIntent> {
   const businessId = `${input.kind}:${input.paymentId.toLowerCase()}`;
@@ -52,8 +52,8 @@ export async function withPaymentAdmission<T>(
   sql: Sql,
   identity: IdentityOperationDecisionPort | undefined,
   input: PreparedPaymentOperation,
-  guard: (tx: Sql) => Promise<void>,
-  effect: (tx: Sql, admitted: boolean) => Promise<T>,
+  guard: (tx: Queryable) => Promise<void>,
+  effect: (tx: Queryable, admitted: boolean) => Promise<T>,
   authorityPort?: OwnerIdentityAuthorityPort,
 ): Promise<T> {
   if (!identity) return transaction(sql, (tx) => effect(tx, false), { isolation: 'read committed', maxAttempts: 5 });
@@ -81,7 +81,7 @@ export async function withPaymentAdmission<T>(
 }
 /** Caller owns the merchant exclusive restriction guard. */
 export async function drainPendingPaymentIdentityIntents(
-  tx: Sql,
+  tx: Queryable,
   merchantId: string,
   identity: IdentityOperationDecisionPort,
 ): Promise<void> {
@@ -94,7 +94,7 @@ export async function drainPendingPaymentIdentityIntents(
   }
 }
 /** Exactly the pending records that an exclusive cutoff must drain. */
-export async function pendingIdentityIntentCount(tx: Sql, merchantId: string): Promise<number> {
+export async function pendingIdentityIntentCount(tx: Queryable, merchantId: string): Promise<number> {
   const [row] = await tx`SELECT (
     (SELECT count(*) FROM pay.payout_admissions a WHERE a.merchant_id=${merchantId} AND a.identity_intent IS NOT NULL AND NOT EXISTS(SELECT 1 FROM pay.payout_outcomes o WHERE o.admission_id=a.id AND o.kind IN('identity_granted','identity_cancelled'))) +
     (SELECT count(*) FROM pay.payment_admissions a WHERE a.merchant_id=${merchantId} AND NOT EXISTS(SELECT 1 FROM pay.payment_admission_outcomes o WHERE o.business_id=a.business_id AND o.kind IN('identity_granted','identity_cancelled')))

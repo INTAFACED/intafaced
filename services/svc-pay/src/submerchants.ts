@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { MAX_FEE_BPS } from './fee-bps-bound.js';
 import { logIsolationDenial } from './isolation-log.js';
 import { pendingPayfacPermissionIntentCount } from './payfac-authority.js';
@@ -369,7 +369,7 @@ export type PermissionAuthorityEvidence = {
     | { kind: 'root_relation'; rootMerchantId: string; ancestry: string[] }
     | { kind: 'permission_event'; grantEventId: string; grantSequence: string };
 };
-export type PermissionIntentDrain = (tx: Sql, current: PermissionEventRecord) => Promise<void>;
+export type PermissionIntentDrain = (tx: Queryable, current: PermissionEventRecord) => Promise<void>;
 
 export class SubMerchantService {
   constructor(
@@ -382,7 +382,7 @@ export class SubMerchantService {
     actorUserId: string,
     subjectMerchantId: string,
     area: PermissionArea,
-    tx: Sql,
+    tx: Queryable,
   ): Promise<PermissionAuthorityEvidence> {
     const [actor] = await tx`SELECT id FROM pay.merchants WHERE user_id=${actorUserId}`;
     if (!actor) throw new SubMerchantError('Actor has no merchant node', 'pay.submerchant_not_onboarded');
@@ -409,7 +409,7 @@ export class SubMerchantService {
    * ONE QUERY, bounded. A per-level round trip would make the hot authorization
    * path N queries deep and would race a concurrent onboarding halfway up.
    */
-  private async ancestry(merchantId: string, tx: Sql = this.sql): Promise<string[]> {
+  private async ancestry(merchantId: string, tx: Queryable = this.sql): Promise<string[]> {
     const rows = await tx<Array<{ id: string; depth: number }>>`
       WITH RECURSIVE chain AS (
         SELECT id, parent_merchant_id, 0 AS depth
@@ -450,7 +450,7 @@ export class SubMerchantService {
    * and they fail with the same code so the refusal is not an oracle for the
    * shape of somebody else's tree.
    */
-  async assertWithinSubtree(actorMerchantId: string, subjectMerchantId: string, tx: Sql = this.sql): Promise<string[]> {
+  async assertWithinSubtree(actorMerchantId: string, subjectMerchantId: string, tx: Queryable = this.sql): Promise<string[]> {
     const chain = await this.ancestry(subjectMerchantId, tx);
     if (!chain.includes(actorMerchantId)) {
       // The caller sees exactly what a missing id gets (same code, same words as
@@ -466,7 +466,7 @@ export class SubMerchantService {
     granteeMerchantId: string,
     subjectMerchantId: string,
     area: string,
-    tx: Sql = this.sql,
+    tx: Queryable = this.sql,
   ): Promise<PermissionEventRecord | null> {
     const rows = await tx<PermissionEventRow[]>`
       SELECT id, seq, grantee_merchant_id, subject_merchant_id, area, action, reason,
@@ -493,7 +493,13 @@ export class SubMerchantService {
    * `chain` is passed in when the caller has already walked it, so an operation
    * that checks scope and then area does not walk the tree twice.
    */
-  async holds(actorMerchantId: string, subjectMerchantId: string, area: string, tx: Sql = this.sql, chain?: string[]): Promise<boolean> {
+  async holds(
+    actorMerchantId: string,
+    subjectMerchantId: string,
+    area: string,
+    tx: Queryable = this.sql,
+    chain?: string[],
+  ): Promise<boolean> {
     const ancestry = chain ?? (await this.assertWithinSubtree(actorMerchantId, subjectMerchantId, tx));
     if (actorMerchantId === subjectMerchantId) return true;
     if (ancestry[ancestry.length - 1] === actorMerchantId) return true;
@@ -507,7 +513,7 @@ export class SubMerchantService {
     actorMerchantId: string,
     subjectMerchantId: string,
     area: PermissionArea,
-    tx: Sql = this.sql,
+    tx: Queryable = this.sql,
     chain?: string[],
   ): Promise<void> {
     const ancestry = chain ?? (await this.assertWithinSubtree(actorMerchantId, subjectMerchantId, tx));
@@ -704,7 +710,7 @@ export class SubMerchantService {
    * performed by somebody who could not have granted is a privilege escalation
    * dressed as a cleanup.
    */
-  private async assertMayDelegate(input: PermissionChangeInput, tx: Sql): Promise<void> {
+  private async assertMayDelegate(input: PermissionChangeInput, tx: Queryable): Promise<void> {
     if (!isPermissionArea(input.area)) {
       throw new SubMerchantError(`Unknown permission area "${input.area}"`, 'pay.submerchant_area_unknown', {
         known: PERMISSION_AREAS,

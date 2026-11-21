@@ -1,3 +1,4 @@
+import type { ResearchProvenance } from '@intafaced/contracts/agents-research';
 import { AgentError, MeteredReplayError } from '../errors.js';
 import { RefusedError, type ThinkResult } from '../runtime.js';
 import { RunTransitionError } from './machine.js';
@@ -12,7 +13,7 @@ const ENGINE_FAILURES: ReadonlySet<string> = new Set(['agents.provider_unavailab
  * Runs one engine call as a stored run (AG-sessions-01, ENGINE RS-1 to RS-4), in this order:
  * 1. the run row is written first, in its own transaction (`admitted`);
  * 2. it moves to `running`, then the call runs (admission, engine, meter and audit, unchanged);
- * 3. it ends `completed` with the reply and the metered cost, `refused` with the platform's typed code, or `failed`
+ * 3. it ends `completed` with the reply and the metered cost (and a research answer's provenance, in that same write), `refused` with the platform's typed code, or `failed`
  *    when the engine did not answer.
  *
  * If this crashes exactly here:
@@ -34,7 +35,16 @@ const ENGINE_FAILURES: ReadonlySet<string> = new Set(['agents.provider_unavailab
  */
 export async function runRecorded(
   store: RunStore,
-  input: { userId: string; sessionId: string; agentId: string; requestId: string; task: string; assetId: string },
+  input: {
+    userId: string;
+    sessionId: string;
+    agentId: string;
+    requestId: string;
+    task: string;
+    assetId: string;
+    /** A research answer's provenance from its reply (RC-agents-09), stored in the same write as the reply. */
+    provenanceOf?: (reply: string) => ResearchProvenance;
+  },
   call: () => Promise<ThinkResult>,
   now: () => number = Date.now,
 ): Promise<{ result: ThinkResult; run: StoredRun }> {
@@ -90,6 +100,7 @@ export async function runRecorded(
       assetId: input.assetId,
       metered: result.metered,
       actionId: result.action.id,
+      ...(input.provenanceOf ? { provenance: input.provenanceOf(result.text) } : {}),
     })
     // The usage is metered and the reply is the person's: a failed mark leaves the run `running` and still answers.
     // Money-safe: the meter's unique (session, request id) row means a retry never bills again, and a retry past the

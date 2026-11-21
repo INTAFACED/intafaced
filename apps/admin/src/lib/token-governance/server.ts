@@ -1,21 +1,26 @@
 import 'server-only';
 import { doorForScope } from '@intafaced/contracts';
-import type { ExecuteFn, ExecuteReply } from '@/lib/desk/approval-steps';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
-import type { DeskRequest } from '@/lib/desk/approval-packet';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
-import { failureRefusal } from '@/lib/ops-desk/execute';
 import {
-  isObj,
-  readRoleResult,
-  readRoles,
-  readSettings,
-  readSettingsHistory,
-  type GovernanceSettings,
-  type RoleRow,
-  type SettingsMove,
-} from './model';
+  TOKEN_GOVERNANCE_ROLES_LIST,
+  TOKEN_GOVERNANCE_SET_ROLE,
+  TOKEN_GOVERNANCE_SET_SETTINGS,
+  TOKEN_GOVERNANCE_SETTINGS,
+  TOKEN_GOVERNANCE_SETTINGS_HISTORY,
+} from '@intafaced/contracts/token-procedures';
+import {
+  type DeskRequest,
+  type ExecuteFn,
+  type ExecuteReply,
+  explainRefusal,
+  failureRefusal,
+  founderCall,
+  type FounderCallContext,
+  founderRecordCall,
+  type Part,
+  partFrom,
+  type RefusalView,
+} from '@/lib/desk';
+import { isObj, type GovernanceSettings, type RoleRow, type SettingsMove } from './model';
 
 /**
  * Token governance (J-more-catalogue-10), read and written as the signed-in founder through svc-token `governance.*`. Each
@@ -40,9 +45,9 @@ export interface GovernanceRead {
 
 export async function readGovernance(ctx: FounderCallContext): Promise<GovernanceRead> {
   const [settings, history, roles] = await Promise.all([
-    founderCall(ctx, 'token', 'governance.settings', 'GET', undefined, readSettings),
-    founderCall(ctx, 'token', 'governance.settingsHistory', 'GET', undefined, readSettingsHistory),
-    founderCall(ctx, 'token', 'governance.roles', 'GET', { limit: PAGE }, readRoles),
+    founderRecordCall(ctx, TOKEN_GOVERNANCE_SETTINGS, undefined),
+    founderRecordCall(ctx, TOKEN_GOVERNANCE_SETTINGS_HISTORY, undefined),
+    founderRecordCall(ctx, TOKEN_GOVERNANCE_ROLES_LIST, { limit: PAGE }),
   ]);
   const rolePart = partFrom(roles, (d) => d, LABELS);
   return {
@@ -59,19 +64,12 @@ export function governanceExecute(ctx: FounderCallContext): ExecuteFn {
   return async (request, ids) => {
     const approval = { approvalId: ids.approvalId, operationId: ids.operationId };
     if (request.kind === 'token.governance.settings.set') {
-      const result = await founderCall(
-        ctx,
-        'token',
-        'governance.setSettings',
-        'POST',
-        {
-          votingDelayMs: request.votingDelayMs || null,
-          votingPeriodMs: request.votingPeriodMs || null,
-          expectedRevision: Number(request.revision),
-          ...approval,
-        },
-        readSettings,
-      );
+      const result = await founderRecordCall(ctx, TOKEN_GOVERNANCE_SET_SETTINGS, {
+        votingDelayMs: request.votingDelayMs || null,
+        votingPeriodMs: request.votingPeriodMs || null,
+        expectedRevision: Number(request.revision),
+        ...approval,
+      });
       if (result.kind !== 'ok') return failureRefusal('svc-token', 'token', result);
       return { ok: true, detail: `The governance settings are stored at revision ${result.data.revision}.` };
     }
@@ -84,20 +82,13 @@ export function governanceExecute(ctx: FounderCallContext): ExecuteFn {
         if (!stepped.ok) return stepped;
         stepUpApprovalId = stepped.stepUpApprovalId;
       }
-      const result = await founderCall(
-        ctx,
-        'token',
-        'governance.setRole',
-        'POST',
-        {
-          userId: request.userId,
-          role: request.role || null,
-          expectedRevision: Number(request.revision),
-          ...approval,
-          ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
-        },
-        readRoleResult,
-      );
+      const result = await founderRecordCall(ctx, TOKEN_GOVERNANCE_SET_ROLE, {
+        userId: request.userId,
+        role: request.role || null,
+        expectedRevision: Number(request.revision),
+        ...approval,
+        ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
+      });
       if (result.kind !== 'ok') return failureRefusal('svc-token', 'token', result);
       if (result.data.userId !== request.userId) return { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) };
       return {

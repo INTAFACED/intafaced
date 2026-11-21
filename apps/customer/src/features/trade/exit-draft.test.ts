@@ -179,3 +179,23 @@ describe('OTO drafts', () => {
     });
   });
 });
+
+describe('a lead order (J-copy-bots-otc-04 #5)', () => {
+  const lead = {
+    symbol: 'BTC/USDT',
+    side: 'buy',
+    type: 'limit',
+    amount: '0.1',
+    price: '100',
+    timeInForce: 'PO',
+    postOnly: true,
+    clientOrderId: 'desk:3',
+    lead: true,
+  } as const;
+
+  it('places with the lead switch, and previews without it: the preview refuses fields it does not price', () => {
+    expect(draftSchema.safeParse(lead).success).toBe(true);
+    expect(placeBody(lead)).toMatchObject({ lead: true });
+    expect(previewBody(lead)).not.toHaveProperty('lead');
+  });
+});

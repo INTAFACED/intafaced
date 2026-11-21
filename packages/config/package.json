@@ -57,11 +57,15 @@
     "./marketing-language": {
       "types": "./dist/marketing-language.d.ts",
       "default": "./dist/marketing-language.js"
+    },
+    "./compose": {
+      "types": "./dist/compose.d.ts",
+      "default": "./dist/compose.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "typecheck": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo"

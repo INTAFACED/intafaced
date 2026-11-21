@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { payCapSchema, payPayoutFeeSchema, type PayCap, type PayPayoutFee } from '@intafaced/contracts';
@@ -101,12 +102,12 @@ export function toTier(row: TierRow): TierConfig {
   };
 }
 
-export async function loadTier(q: Sql, tierId: string): Promise<TierConfig | null> {
+export async function loadTier(q: Queryable, tierId: string): Promise<TierConfig | null> {
   const rows = await q<TierRow[]>`SELECT * FROM pay.control_tiers WHERE id = ${tierId}`;
   return rows[0] ? toTier(rows[0]) : null;
 }
 
-export async function loadMerchantControl(q: Sql, merchantId: string): Promise<MerchantControl> {
+export async function loadMerchantControl(q: Queryable, merchantId: string): Promise<MerchantControl> {
   const rows = await q<
     Array<{
       tier_id: string | null;
@@ -204,7 +205,12 @@ export function toRule(row: RuleRow): PricingRule {
 }
 
 /** Live rules that could apply to this merchant and asset, one per layer at most. */
-export async function loadApplicableRules(q: Sql, merchantId: string, tierId: string | null, assetCode: string): Promise<PricingRule[]> {
+export async function loadApplicableRules(
+  q: Queryable,
+  merchantId: string,
+  tierId: string | null,
+  assetCode: string,
+): Promise<PricingRule[]> {
   const rows = await q<RuleRow[]>`
     SELECT * FROM pay.control_pricing_rules
      WHERE superseded_at IS NULL AND asset_code = ${assetCode}

@@ -42,7 +42,7 @@ function service(options: { prices?: Record<string, { price: string }>; moduleEn
     // No loan row exists yet: the open is a new loan, not a retry.
     if (/FROM bank\.loans WHERE id/.test(text)) return Promise.resolve([]);
     return Promise.resolve([productRow]);
-  }) as unknown as Sql;
+  }) as Sql;
   const loans = new LoanService(sql, new MemoryLedger(), {
     priceSource: fixedPriceSource(options.prices ?? { BTC: { price: '60000' } }),
     ...(options.moduleEnabled === undefined ? {} : { moduleEnabled: options.moduleEnabled }),

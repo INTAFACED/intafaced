@@ -37,7 +37,7 @@ function fakeChain(): VenueChain & { reads: string[] } {
       const key = `${call.address}:${call.functionName}`;
       if (!(key in values)) throw new Error(`execution reverted: ${key}`);
       return values[key];
-    }) as unknown as VenueChain['readContract'],
+    }) as VenueChain['readContract'],
   };
 }
 

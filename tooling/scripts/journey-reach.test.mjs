@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   INCOMPLETE,
+  busLogs,
   POSITIONS_SUFFIX,
   REACH_ATTACHMENT,
   decodeMappings,
@@ -344,4 +345,51 @@ test("the stack's logs (#7512 review): a character split across two reads is dec
   const [l] = reader.read();
   assert.equal(l.path, '/api/bank/ü');
   assert.equal(l.served, true);
+});
+
+test("the bus logs each delivery (#8657): a record says so only when the checkout's bus does, and the line makes its service active", () => {
+  assert.equal(busLogs(REPO), true, "this checkout's bus writes a line for each delivery");
+  assert.equal(busLogs(ROOT), false, 'a root with no bus source: no claim');
+  // A planted bus: the claim needs both the event's name exported and the pump's call; either alone is no claim.
+  const fake = mkdtempSync(path.join(tmpdir(), 'bus-'));
+  mkdirSync(path.join(fake, 'packages/events/src'), { recursive: true });
+  const bus = (body) => writeFileSync(path.join(fake, 'packages/events/src/jetstream-bus.ts'), body);
+  const exported = "export const BUS_DELIVERED = 'bus.delivered';\n";
+  const pump =
+    'async function pump(def, msg) {\n  await handle(msg);\n  announceDelivered(def.subject, def.durable, msg.info.deliveryCount);\n}\n';
+  bus(exported + pump);
+  assert.equal(busLogs(fake), true, 'planted: the export and the call in the pump: the claim');
+  bus(exported + pump.replace(/\n\s*announceDelivered\(def\.subject[^\n]*/, ''));
+  assert.equal(busLogs(fake), false, 'planted: the call removed from the pump, the export left: no claim');
+  bus(pump);
+  assert.equal(busLogs(fake), false, 'planted: the call without the exported event name: no claim');
+  const logs = path.join(fake, 'logs');
+  mkdirSync(logs);
+  writeFileSync(path.join(logs, 'notify.log'), '');
+  const reader = makeLogReader(logs);
+  const rec = makeRecorder({ root: REPO, distDir: DIST, routes: ROUTES });
+  rec.enter('A', 100);
+  rec.enter('B', 200);
+  // The line announceDelivered writes (packages/events jetstream-bus.test.ts checks its shape against a real server).
+  const line = {
+    level: 30,
+    time: 150,
+    event: 'bus.delivered',
+    subject: 'intafaced.trade.order.filled',
+    durable: 'notify-x',
+    attempt: 1,
+    msg: 'bus delivered',
+  };
+  appendFileSync(path.join(logs, 'notify.log'), `${JSON.stringify(line)}\n`);
+  rec.served(reader.read(), 'B');
+  const a = rec.take('A');
+  assert.deepEqual(
+    [a.active, a.served, a.bus],
+    [['notify'], [], true],
+    'a handler that served nothing is active in the file that ran then',
+  );
+  assert.equal(makeRecorder({ root: ROOT, distDir: DIST, routes: ROUTES }).take('A'), null);
+  const off = makeRecorder({ root: ROOT, distDir: DIST, routes: ROUTES });
+  off.request('A', 'http://127.0.0.1:14509/x', 'GET');
+  assert.equal(off.take('A').bus, undefined, 'no bus claim from a checkout whose bus does not log');
 });

@@ -10,16 +10,17 @@
 
 Internal tRPC. Note there is no user-facing write path, and `packages/auth` has no `ledger:write` scope at all — a user moves value by asking a module to act, never by calling the ledger.
 
-| Procedure   | Scope               | Input                                       | Output                                                                                                                        |
-| ----------- | ------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `health`    | —                   | —                                           | `{ ok, service, postingEnabled }`                                                                                             |
-| `post`      | service credentials | `PostRequest` (decimal-string amounts)      | `{ txId, hash, postedAt }`                                                                                                    |
-| `balance`   | `ledger:read`       | `AccountRef`                                | `{ accountId, assetId, kind, purpose, amount }`                                                                               |
-| `balances`  | `ledger:read`       | `{ ownerType, ownerId }`                    | `{ accountId, assetId, kind, purpose, amount }[]` — own pots only; `purpose` is identity (P0-3), empty string when unpurposed |
-| `history`   | service credentials | `{ account, from, to }` — ISO, `[from, to)` | `{ txId, module, reason, direction, amount, postedAt }[]`                                                                     |
-| `reconcile` | `admin:treasury`    | —                                           | `{ ok, accountsChecked, chainLength, unbalancedAssets, chainBrokenAt? }`                                                      |
-| `freeze`    | `admin:treasury`    | `{ reason, confirmOperatorId }`             | `{ postingEnabled, frozenReason, frozenBy, confirmOperatorId }`                                                               |
-| `unfreeze`  | `admin:treasury`    | `{ confirmOperatorId }`                     | `{ postingEnabled, frozenReason, frozenBy, confirmOperatorId }`                                                               |
+| Procedure    | Scope               | Input                                                               | Output                                                                                                                        |
+| ------------ | ------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `health`     | —                   | —                                                                   | `{ ok, service, postingEnabled }`                                                                                             |
+| `post`       | service credentials | `PostRequest` (decimal-string amounts)                              | `{ txId, hash, postedAt }`                                                                                                    |
+| `postRecipe` | service credentials | `{ recipe, input }` (the recipe's business inputs, decimal strings) | `{ txId, idempotencyKey, module, reason, hash, postedAt, entries }`                                                           |
+| `balance`    | `ledger:read`       | `AccountRef`                                                        | `{ accountId, assetId, kind, purpose, amount }`                                                                               |
+| `balances`   | `ledger:read`       | `{ ownerType, ownerId }`                                            | `{ accountId, assetId, kind, purpose, amount }[]` — own pots only; `purpose` is identity (P0-3), empty string when unpurposed |
+| `history`    | service credentials | `{ account, from, to }` — ISO, `[from, to)`                         | `{ txId, module, reason, direction, amount, postedAt }[]`                                                                     |
+| `reconcile`  | `admin:treasury`    | —                                                                   | `{ ok, accountsChecked, chainLength, unbalancedAssets, chainBrokenAt? }`                                                      |
+| `freeze`     | `admin:treasury`    | `{ reason, confirmOperatorId }`                                     | `{ postingEnabled, frozenReason, frozenBy, confirmOperatorId }`                                                               |
+| `unfreeze`   | `admin:treasury`    | `{ confirmOperatorId }`                                             | `{ postingEnabled, frozenReason, frozenBy, confirmOperatorId }`                                                               |
 
 HTTP: `GET /health` (liveness) · `GET /ready` — returns **503 when frozen**, so a frozen ledger leaves the load balancer rotation instead of refusing posts one by one.
 
@@ -60,6 +61,12 @@ Account metadata (OPS-ledger-desk-01, J-ops-console-03 #6, #7; migration 0029) i
 ### Who may call which door
 
 Each door on the service port names the services that may call it (`src/door-callers.ts`), and the caller is the owner of the S2S v3 key that signed the request. A service not listed gets `403 ledger.caller_forbidden`; a door with no named caller (`portfolio`, `statementPnl`, `reportExport`, `custody`, `financeClose`, `resilience`) refuses everyone until one exists. Settings and the move off the shared secret: [`CALLER-BINDING.md`](CALLER-BINDING.md).
+
+### `postRecipe` — a service names a recipe and its inputs, and the ledger runs the recipe
+
+`POST /trpc/postRecipe` takes `{ recipe, input }`: the name of a recipe in `@intafaced/ledger-client` and that recipe's business inputs, with every amount a decimal string and every bigint counter a decimal string of digits. The ledger builds the post itself with the registry recipe and books it through exactly the pipeline `/trpc/post` runs (caller binding, recipe gate, the binding checks, idempotency, freeze, custody switch), so a caller written in another language never assembles ledger entries. The record (`LEDGER_POST_RECIPE`, `packages/ledger-client/src/post-recipe-record.ts`, exported language-neutral in `packages/ledger-client/procedures/svc-ledger.schema.json`) is the wire contract; callers use `createHttpRecipePoster` from `@intafaced/ledger-client/post-recipe`.
+
+Only `academyPurchase` and `academyPurchaseRefund` are on the door, and only svc-academy may call it. A proven caller must hold a grant for the named recipe in its module (`caller-allowlist.ts`). A name the door does not post refuses `ledger.recipe_unknown`, and inputs the record or the recipe refuses refuse `ledger.recipe_input_invalid` (both 400, before anything is read or booked). The key is the recipe's business key, built from the inputs, so a retry books nothing twice and the same key with a different body is refused as on `post`. The reply is `post`'s acknowledgement plus the key, module and reason booked. `post-recipe-door.test.ts` and `post-recipe-door.pg.test.ts` prove the refusals, the single booking, the freeze and that the door books exactly what `post(recipes[name](input))` books.
 
 ### `feeRevenue` — fee revenue per venue and asset, for one caller
 

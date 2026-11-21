@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Failure, Loading } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
 import { CopyButton } from '../../screens/account/CopyButton';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useBankRead } from './components';
 import type { AccountDetailSet, AccountDetailsRow } from './contracts';
 import { accountDetailsCopy } from './account-details-copy';

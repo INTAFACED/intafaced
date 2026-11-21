@@ -227,10 +227,12 @@ export class RecoveryClaimService {
     if (!estate)
       throw new BankError('This account is not one you can claim [bank.recovery_estate_not_found]', 'bank.recovery_estate_not_found');
     const id = recoveryClaimId(estate.userId, estate.noticeId);
+    // No conflict target: the id is a hash of the owner (and notice), so a clash on either unique key is with this
+    // owner's one claim. A racing open is absorbed on whichever key it hits, and the read-back below decides.
     await this.sql`
       INSERT INTO bank.recovery_claims (id, owner_user_id, heir_user_id, notice_id)
       VALUES (${id}, ${estate.userId}, ${heirUserId}, ${estate.noticeId})
-      ON CONFLICT (owner_user_id) DO NOTHING
+      ON CONFLICT DO NOTHING
     `;
     const claim = await this.claimFor(estate.userId);
     if (!claim || claim.id !== id || claim.heirUserId !== heirUserId) {

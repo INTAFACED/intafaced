@@ -1,11 +1,8 @@
 /** Browser hop for the waitlist waves desk. Same-origin BFF only; no credential is held here. */
 import type { WavesView } from './waves-server';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export type WavesDeskView = WavesView;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 export async function fetchWaves(signal?: AbortSignal): Promise<WavesDeskView | null> {
   try {

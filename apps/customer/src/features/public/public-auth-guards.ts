@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { isSignInDestination, rooms } from '../../app/navigation';
-import { sessionSchema, type Session } from '../session/session';
+import { sessionSchema, type Session } from '../session';
 
 export const authKinds = ['register', 'password', 'options', 'passkey', 'secondStep', 'wallet'] as const;
 export type AuthKind = (typeof authKinds)[number];

@@ -102,6 +102,8 @@ const en = {
     'Nothing was signed or sent. On a new device, use a passkey saved for this wallet or your recovery passkey; a device without one cannot sign.',
   refusedTitle: 'Your wallet provider refused',
   refusedBody: '{provider} did not accept the passkey check. Nothing was signed or sent.',
+  chainTitle: 'The chain refused this transaction',
+  chainBody: 'The chain refused this transaction before it was sent. Nothing was sent.',
   spentTitle: 'This key was already exported',
   spentBody: '{provider} shows your key only once, and it was already shown. No key was shown or sent this time.',
   unsupportedTitle: 'Passkeys are not available here',

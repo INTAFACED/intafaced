@@ -11,7 +11,6 @@ import {
   usefulPathProbeMessage,
   hasUsefulPathTask,
   usefulPathResultBoardCard,
-  usefulPathResultStatusLine,
   parseUsefulPathResultStatusLine,
   usefulPathResultStatusLineMatches,
   usefulPathResultExportHeader,

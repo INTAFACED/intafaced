@@ -2,6 +2,50 @@ import { AuthError, requireMfa } from '@intafaced/auth';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts';
+import {
+  MARKET_APPLY_AS_VENDOR,
+  MARKET_ARCHIVE_LISTING,
+  MARKET_CANCEL_SUBSCRIPTION,
+  MARKET_COMMERCE_PROGRAMME,
+  MARKET_CREATE_LISTING,
+  MARKET_CREATE_STRATEGY_LISTING,
+  MARKET_LIST_APPLICATIONS,
+  MARKET_LISTED,
+  MARKET_LISTING,
+  MARKET_LISTING_CATEGORIES_READ,
+  MARKET_LISTINGS,
+  MARKET_LISTINGS_BY_CATEGORY,
+  MARKET_MINE,
+  MARKET_MY_LISTINGS,
+  MARKET_MY_PURCHASES,
+  MARKET_OPS_SALES,
+  MARKET_OPS_TAKEDOWN_LISTING,
+  MARKET_PROFILE,
+  MARKET_PURCHASE,
+  MARKET_REFUND,
+  MARKET_REFUND_REQUESTS,
+  MARKET_RELEASE_SLOT,
+  MARKET_REQUEST_REFUND,
+  MARKET_REVIEWS_LIST,
+  MARKET_REVIEWS_SUBMIT,
+  MARKET_SIGNALS_ARCHIVE,
+  MARKET_SIGNALS_CRITERIA,
+  MARKET_SIGNALS_EARNINGS,
+  MARKET_SIGNALS_LIST,
+  MARKET_SIGNALS_MINE,
+  MARKET_SIGNALS_PUBLISH,
+  MARKET_SLOTS,
+  MARKET_SUBSCRIPTION_ACCESS,
+  MARKET_VET,
+  REVIEW_MEAN_ROUNDING,
+  marketListingSchema,
+  marketPublicVendorSchema,
+  marketReviewedListingSchema,
+  marketSlotSchema,
+  marketStatusEventSchema,
+} from '@intafaced/contracts/market-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { marketRefusal } from './refusal.js';
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
@@ -12,7 +56,7 @@ import {
 } from './action-approval-consume.js';
 import { MARKET_OPS_SCOPE, MarketError, type VendorService } from './vendor-service.js';
 import type { CommerceService } from './commerce/commerce-service.js';
-import { assertMyPurchasesListLimit, LISTING_REVIEW_STATES } from './commerce/commerce-service.js';
+import { assertMyPurchasesListLimit } from './commerce/commerce-service.js';
 import {
   MARKET_PURCHASE_NOT_FOUND,
   MARKET_REFUND_FORBIDDEN,
@@ -21,9 +65,18 @@ import {
   MARKET_REFUND_POLICY_UNSET,
 } from './commerce/held-purchase.js';
 import type { ReviewsService } from './reviews/reviews-service.js';
-import { REVIEW_MEAN_ROUNDING } from './reviews/reviews-service.js';
 import { userCopy } from './user-copy.js';
 import { createStrategyListing } from './strategy/strategy-listing.js';
+import {
+  PRICE_NOT_SET,
+  PROVIDER_CRITERIA_NOT_MET,
+  PROVIDER_CRITERIA_NOT_SET,
+  PROVIDER_RECORD_UNAVAILABLE,
+  SIGNAL_KEY_CONFLICT,
+  SIGNAL_NOT_FOUND,
+  SIGNAL_TIERS,
+  type SignalPublisher,
+} from './signals/signal-publisher.js';
 import type { PerpProposalService } from './perp-proposal-service.js';
 import {
   MARKET_L3_UNAVAILABLE,
@@ -88,52 +141,6 @@ import { MARKET_LISTING_PIN_IEEE, MARKET_LISTING_PIN_UNSET, MARKET_LISTING_SET_U
  * closes the door in an `onRequest` hook.
  */
 
-const vendorStatus = z.enum(['applied', 'approved', 'rejected', 'suspended']);
-
-const vendorOut = z.object({
-  id: z.string().guid(),
-  userId: z.string().guid(),
-  displayName: z.string(),
-  description: z.string(),
-  status: vendorStatus,
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
-
-/** No amount, no capacity, no tier — a slot row records only that it was taken. */
-const slotOut = z.object({
-  id: z.string().guid(),
-  vendorId: z.string().guid(),
-  ref: z.string(),
-  claimedAt: z.string().datetime(),
-  releasedAt: z.string().datetime().nullable(),
-});
-
-/**
- * The public shape. Four fields, and `vendor-service.ts` `PublicVendorProfile`
- * carries the full argument for each omission — no userId, no status, no tier,
- * no slot refs, and nothing whatsoever from the operator event log.
- */
-const publicVendorOut = z.object({
-  id: z.string().guid(),
-  displayName: z.string(),
-  description: z.string(),
-  createdAt: z.string().datetime(),
-});
-
-const statusEventOut = z.object({
-  id: z.string().guid(),
-  /** `bigserial` as a string — an ordering key, never arithmetic. */
-  seq: z.string(),
-  vendorId: z.string().guid(),
-  fromStatus: vendorStatus,
-  toStatus: vendorStatus,
-  reason: z.string(),
-  actorId: z.string().guid(),
-  actorScope: z.string(),
-  createdAt: z.string().datetime(),
-});
-
 /**
  * Error codes are preserved, not flattened.
  *
@@ -152,6 +159,15 @@ function mapError(err: unknown): never {
     const message = userCopy(err.code);
     if (err.code === 'market.vendor_not_found') throw new TRPCError({ code: 'NOT_FOUND', message, cause: err });
     if (err.code === 'market.vendor_already_applied') throw new TRPCError({ code: 'CONFLICT', message, cause: err });
+    // Signals (J-copy-bots-otc-22): criteria unset is the owner's blank; a provider short of them is refused; an
+    // unreadable trading record is ours to fix, never a pass or a fail.
+    if (err.code === PROVIDER_CRITERIA_NOT_SET || err.code === PRICE_NOT_SET) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    }
+    if (err.code === PROVIDER_CRITERIA_NOT_MET) throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    if (err.code === PROVIDER_RECORD_UNAVAILABLE) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message, cause: err });
+    if (err.code === SIGNAL_NOT_FOUND) throw new TRPCError({ code: 'NOT_FOUND', message, cause: err });
+    if (err.code === SIGNAL_KEY_CONFLICT) throw new TRPCError({ code: 'CONFLICT', message, cause: err });
     if (err.code === 'market.vet_operator_required' || err.code === 'market.ops_required') {
       throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     }
@@ -242,118 +258,16 @@ function mapError(err: unknown): never {
   throw err;
 }
 
-export const listingOut = z.object({
-  id: z.string().guid(),
-  vendorId: z.string().guid(),
-  title: z.string(),
-  description: z.string(),
-  offerType: z.enum(['one_time', 'subscription']),
-  assetId: z.string(),
-  price: z.string(),
-  periodSeconds: z.number().int().positive().nullable(),
-  status: z.enum(['active', 'archived', 'taken_down']),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
-
-/** A catalogue or own-list row: the listing and its review state (`listingReviewState`), the same for every kind. */
-export const reviewedListingOut = listingOut.extend({ reviewState: z.enum(LISTING_REVIEW_STATES) });
+function requireSignals(signals: SignalPublisher | undefined): SignalPublisher {
+  if (!signals) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'market.signals_not_wired' });
+  return signals;
+}
 
 /**
  * A listing stores no copy-leader, bot or signal id, so this read has no
  * performance source. `reported: false` carries no figure.
  */
 const NO_LISTING_PERFORMANCE = { reported: false } as const;
-
-/** Public listing detail. Strict so a seller user id cannot ride along. */
-export const listingDetailOut = z
-  .object({
-    listing: listingOut.strict(),
-    vendor: publicVendorOut.strict(),
-    activeListingCount: z.number().int().positive(),
-    reviews: z
-      .object({
-        count: z.string().regex(/^(0|[1-9][0-9]*)$/),
-        mean: z.string().nullable(),
-        meanRounding: z.literal(REVIEW_MEAN_ROUNDING),
-      })
-      .strict(),
-    terms: z
-      .object({
-        offerType: z.enum(['one_time', 'subscription']),
-        assetId: z.string(),
-        price: z.string(),
-        periodSeconds: z.number().int().positive().nullable(),
-      })
-      .strict(),
-    performance: z.object({ reported: z.literal(false) }).strict(),
-  })
-  .strict();
-
-const purchaseOut = z.object({
-  id: z.string().guid(),
-  listingId: z.string().guid(),
-  buyerId: z.string().guid(),
-  vendorId: z.string().guid(),
-  vendorUserId: z.string().guid(),
-  assetId: z.string(),
-  price: z.string(),
-  commissionBps: z.number().int(),
-  status: z.enum(['pending', 'settled', 'rejected', 'held', 'released', 'refunded']),
-  ledgerTxId: z.string().guid().nullable(),
-  rejectionCode: z.string().nullable(),
-  createdAt: z.string().datetime(),
-  settledAt: z.string().datetime().nullable(),
-  accessUntil: z.string().datetime().nullable(),
-  periodSeconds: z.number().int().positive().nullable(),
-  flow: z.enum(['pay', 'hold']),
-  refundWindowSeconds: z.number().int().positive().nullable(),
-  holdPostedAt: z.string().datetime().nullable(),
-  refundWindowEndsAt: z.string().datetime().nullable(),
-  refundRequestedAt: z.string().datetime().nullable(),
-  outcome: z.enum(['release', 'refund']).nullable(),
-  outcomeTxId: z.string().guid().nullable(),
-  outcomeAt: z.string().datetime().nullable(),
-});
-
-const salesRowOut = z.object({
-  vendorId: z.string().guid(),
-  assetId: z.string(),
-  settledVolume: z.string(),
-  settledCount: z.string(),
-  commission: z.string(),
-});
-
-const reviewOut = z.object({
-  id: z.string().guid(),
-  purchaseId: z.string().guid(),
-  listingId: z.string().guid(),
-  vendorId: z.string().guid(),
-  buyerId: z.string().guid(),
-  score: z.number().int().min(1).max(5),
-  text: z.string().nullable(),
-  createdAt: z.string().datetime(),
-});
-
-/** Public review. No buyer id and no purchase id — those stay on `reviews.submit`. */
-export const reviewPublicOut = z
-  .object({
-    id: z.string().guid(),
-    listingId: z.string().guid(),
-    vendorId: z.string().guid(),
-    score: z.number().int().min(1).max(5),
-    text: z.string().nullable(),
-    createdAt: z.string().datetime(),
-  })
-  .strict();
-
-const takedownOut = z.object({
-  listingId: z.string().guid(),
-  status: z.literal('taken_down'),
-  reason: z.string(),
-  actorId: z.string().guid(),
-  takenDownAt: z.string().datetime(),
-});
 
 const categorySetOut = z.object({
   listingId: z.string().guid(),
@@ -370,6 +284,7 @@ export function createMarketRouter(
   perpProposals?: PerpProposalService,
   approvals: ActionApprovalConsumer = unwiredApprovalConsumer(),
   reviews?: ReviewsService,
+  signals?: SignalPublisher,
 ) {
   return router({
     /**
@@ -378,23 +293,26 @@ export function createMarketRouter(
      * Named `applyAsVendor` rather than `apply` because tRPC reserves `apply` as a
      * router key — a bare `apply` compiles and then throws at router construction.
      */
-    applyAsVendor: scopedProcedure('market:write', { module: 'market' })
-      .input(z.object({ displayName: z.string().min(1).max(80), description: z.string().min(1).max(2_000) }))
-      .output(vendorOut)
-      .mutation(async ({ ctx, input }) => {
+    applyAsVendor: mountRecord(
+      MARKET_APPLY_AS_VENDOR,
+      async ({ ctx, input }) => {
         try {
-          return await vendors.applyAsVendor({ userId: ctx.principal!.userId, ...input });
+          return await vendors.applyAsVendor({ userId: ctx.principal.userId, ...input });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /** The caller's own application. Null rather than a 404: "you have not applied" is an answer. */
-    mine: scopedProcedure('market:read', { module: 'market' })
-      .output(vendorOut.nullable())
-      .query(async ({ ctx }) => {
-        return vendors.myVendor(ctx.principal!.userId);
-      }),
+    mine: mountRecord(
+      MARKET_MINE,
+      async ({ ctx }) => {
+        return vendors.myVendor(ctx.principal.userId);
+      },
+      marketRefusal,
+    ),
 
     /**
      * The operator queue. Defaults to undecided applications, oldest first.
@@ -404,16 +322,17 @@ export function createMarketRouter(
      * that looks like a typo. Blank is not 50; pass 50 explicitly when that is
      * the page you want.
      */
-    listApplications: scopedProcedure(MARKET_OPS_SCOPE)
-      .input(z.object({ status: vendorStatus.optional(), limit: z.number().int().positive().max(50).optional() }).optional())
-      .output(z.array(vendorOut))
-      .query(async ({ input }) => {
+    listApplications: mountRecord(
+      MARKET_LIST_APPLICATIONS,
+      async ({ input }) => {
         try {
           return await vendors.listApplications({ status: input?.status ?? 'applied', limit: input?.limit });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * Record an operator's decision and apply it.
@@ -426,28 +345,11 @@ export function createMarketRouter(
      * is display attribution only — a second name is not a second person.
      * `market:ops` is not INTERACTIVE_ONLY, so MFA is local like kyc.approve.
      */
-    vet: scopedProcedure(MARKET_OPS_SCOPE)
-      .input(
-        z.object({
-          vendorId: z.string().guid(),
-          decision: z.enum(['approved', 'rejected', 'suspended']),
-          reason: z.string().min(1).max(2_000),
-          confirmOperatorId: z.string().max(128).nullish(),
-          approvalId: z.string().max(128).nullish(),
-          operationId: z.string().max(128).nullish(),
-        }),
-      )
-      .output(
-        z.object({
-          changed: z.boolean(),
-          vendor: vendorOut,
-          event: statusEventOut.nullable(),
-          confirmOperatorId: z.string(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) => {
+    vet: mountRecord(
+      MARKET_VET,
+      async ({ ctx, input }) => {
         try {
-          requireMfa(ctx.principal!);
+          requireMfa(ctx.principal);
           void input.confirmOperatorId;
           const ids = readApprovalIds(input);
           const consumed = await approvals.consume({
@@ -467,14 +369,16 @@ export function createMarketRouter(
             vendorId: input.vendorId,
             decision: input.decision,
             reason: input.reason,
-            actorId: ctx.principal!.userId,
+            actorId: ctx.principal.userId,
             actorScope: MARKET_OPS_SCOPE,
           });
           return { ...result, confirmOperatorId };
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     ops: router({
       /**
@@ -482,27 +386,9 @@ export function createMarketRouter(
        * Commission uses each purchase row's stored bps, floored like marketPurchase.
        * Blank window or limit refuses. A session without market:ops never reaches this.
        */
-      sales: scopedProcedure(MARKET_OPS_SCOPE)
-        .input(
-          z
-            .object({
-              from: z.string().max(64).optional(),
-              to: z.string().max(64).optional(),
-              vendorId: z.string().guid().optional(),
-              limit: z.number().int().positive().max(50).optional(),
-              cursor: z.string().max(512).optional(),
-            })
-            .optional(),
-        )
-        .output(
-          z.object({
-            rows: z.array(salesRowOut),
-            refusedCount: z.string(),
-            pendingCount: z.string(),
-            nextCursor: z.string().nullable(),
-          }),
-        )
-        .query(async ({ input }) => {
+      sales: mountRecord(
+        MARKET_OPS_SALES,
+        async ({ input }) => {
           requireCommerce(commerce);
           try {
             return await commerce.opsSales({
@@ -516,31 +402,24 @@ export function createMarketRouter(
           } catch (err) {
             mapError(err);
           }
-        }),
+        },
+        marketRefusal,
+      ),
 
       /**
        * Operator takedown. MFA is local because market:ops is not INTERACTIVE_ONLY.
        * Identity approval type `market.takedown`, target id = listing id, expectedVersion `1`.
        * Payload hash is marketActionPayloadHash('market.takedown', { listingId, reason }).
        */
-      takedownListing: scopedProcedure(MARKET_OPS_SCOPE)
-        .input(
-          z.object({
-            listingId: z.string().guid(),
-            reason: z.string().max(2_000),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-            clientRequestId: z.string().max(128),
-          }),
-        )
-        .output(takedownOut)
-        .mutation(async ({ ctx, input }) => {
+      takedownListing: mountRecord(
+        MARKET_OPS_TAKEDOWN_LISTING,
+        async ({ ctx, input }) => {
           requireCommerce(commerce);
           try {
-            requireMfa(ctx.principal!);
+            requireMfa(ctx.principal);
             return await commerce.takedownListing(
               {
-                actorId: ctx.principal!.userId,
+                actorId: ctx.principal.userId,
                 actorScope: MARKET_OPS_SCOPE,
                 listingId: input.listingId,
                 reason: input.reason,
@@ -553,7 +432,9 @@ export function createMarketRouter(
           } catch (err) {
             mapError(err);
           }
-        }),
+        },
+        marketRefusal,
+      ),
 
       /**
        * File a one-time listing under a product category. MFA is local because
@@ -575,9 +456,9 @@ export function createMarketRouter(
         .mutation(async ({ ctx, input }) => {
           requireCommerce(commerce);
           try {
-            requireMfa(ctx.principal!);
+            requireMfa(ctx.principal);
             return await commerce.setListingCategory({
-              actorId: ctx.principal!.userId,
+              actorId: ctx.principal.userId,
               actorScope: MARKET_OPS_SCOPE,
               listingId: input.listingId,
               category: input.category,
@@ -603,26 +484,27 @@ export function createMarketRouter(
      */
     claimSlot: scopedProcedure('market:write', { module: 'market' })
       .input(z.object({ ref: z.string().min(1).max(200) }))
-      .output(z.object({ claimed: z.boolean(), slot: slotOut }))
+      .output(z.object({ claimed: z.boolean(), slot: marketSlotSchema }))
       .mutation(async ({ ctx, input }) => {
         try {
-          return await vendors.claimSlot({ userId: ctx.principal!.userId, ref: input.ref });
+          return await vendors.claimSlot({ userId: ctx.principal.userId, ref: input.ref });
         } catch (err) {
           mapError(err);
         }
       }),
 
     /** Give a slot back. `released: false` when it was not held — not a 404. */
-    releaseSlot: scopedProcedure('market:write', { module: 'market' })
-      .input(z.object({ ref: z.string().min(1).max(200) }))
-      .output(z.object({ released: z.boolean() }))
-      .mutation(async ({ ctx, input }) => {
+    releaseSlot: mountRecord(
+      MARKET_RELEASE_SLOT,
+      async ({ ctx, input }) => {
         try {
-          return await vendors.releaseSlot({ userId: ctx.principal!.userId, ref: input.ref });
+          return await vendors.releaseSlot({ userId: ctx.principal.userId, ref: input.ref });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     proposePerpMarket: scopedProcedure('market:write', { module: 'market' })
       .input(
@@ -657,7 +539,7 @@ export function createMarketRouter(
           throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'market perpetual proposals are not wired in this process' });
         }
         try {
-          return await perpProposals.propose({ ...input, proposerId: ctx.principal!.userId });
+          return await perpProposals.propose({ ...input, proposerId: ctx.principal.userId });
         } catch (err) {
           mapError(err);
         }
@@ -671,25 +553,17 @@ export function createMarketRouter(
      * `usable: 0` here immediately, which is what makes DoD clause 5 hold
      * without svc-market subscribing to an unstake event that does not exist.
      */
-    slots: scopedProcedure('market:read', { module: 'market' })
-      .output(
-        z.object({
-          vendorId: z.string().guid(),
-          status: vendorStatus,
-          tier: z.string(),
-          capacity: z.number().int().nonnegative(),
-          held: z.number().int().nonnegative(),
-          usable: z.number().int().nonnegative(),
-          slots: z.array(slotOut),
-        }),
-      )
-      .query(async ({ ctx }) => {
+    slots: mountRecord(
+      MARKET_SLOTS,
+      async ({ ctx }) => {
         try {
-          return await vendors.slotStatus(ctx.principal!.userId);
+          return await vendors.slotStatus(ctx.principal.userId);
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * One listed vendor's public profile (Stage 3).
@@ -704,10 +578,9 @@ export function createMarketRouter(
      * does not exist, which is false, cacheable, and would still be being served
      * long after svc-token came back.
      */
-    profile: publicProcedure
-      .input(z.object({ vendorId: z.string().guid() }))
-      .output(publicVendorOut)
-      .query(async ({ input }) => {
+    profile: mountRecord(
+      MARKET_PROFILE,
+      async ({ input }) => {
         let profile;
         try {
           profile = await vendors.publicProfile(input.vendorId);
@@ -718,7 +591,9 @@ export function createMarketRouter(
           throw new TRPCError({ code: 'NOT_FOUND', message: 'No listed vendor with that id.' });
         }
         return profile;
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * The public directory of listed vendors, in registration order.
@@ -733,12 +608,33 @@ export function createMarketRouter(
      * that looks like a typo. Blank is not 20; pass 20 explicitly when that is
      * the page you want.
      */
-    listed: publicProcedure
-      .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
-      .output(z.array(publicVendorOut))
-      .query(async ({ input }) => {
+    listed: mountRecord(
+      MARKET_LISTED,
+      async ({ input, signal }) => {
         try {
-          return await vendors.listedVendors({ limit: input?.limit });
+          return await vendors.listedVendors({ limit: input?.limit, signal });
+        } catch (err) {
+          mapError(err);
+        }
+      },
+      marketRefusal,
+    ),
+
+    /**
+     * The same directory, one page at a time, with where the next page resumes.
+     *
+     * `nextCursor: null` is the only "there are no more listed vendors". A page
+     * shorter than `limit` with a cursor means this request checked as many
+     * candidates as one page may (`LISTED_CANDIDATE_FACTOR`) and the rest are
+     * behind the cursor — newer eligible vendors are never hidden behind older
+     * ineligible ones. A closed connection aborts the pending stake reads.
+     */
+    listedPage: publicProcedure
+      .input(z.object({ limit: z.number().int().positive().max(50).optional(), cursor: z.string().guid().optional() }).optional())
+      .output(z.object({ vendors: z.array(marketPublicVendorSchema), nextCursor: z.string().guid().nullable() }))
+      .query(async ({ input, signal }) => {
+        try {
+          return await vendors.listedVendorsPage({ limit: input?.limit, cursor: input?.cursor, signal });
         } catch (err) {
           mapError(err);
         }
@@ -754,7 +650,7 @@ export function createMarketRouter(
      */
     history: scopedProcedure(MARKET_OPS_SCOPE)
       .input(z.object({ vendorId: z.string().guid(), limit: z.number().int().positive().max(200).optional() }))
-      .output(z.array(statusEventOut))
+      .output(z.array(marketStatusEventSchema))
       .query(async ({ input }) => {
         try {
           return await vendors.history(input.vendorId, input.limit);
@@ -770,80 +666,48 @@ export function createMarketRouter(
      * refuse-closed default — createListing, public catalogue, and purchase
      * will not invent a rate (D26-P1-M2).
      */
-    commerceProgramme: publicProcedure
-      .output(
-        z.object({
-          commissionBps: z.number().int().nullable(),
-          commissionConfigured: z.boolean(),
-          purchaseHold: z.boolean(),
-          refundWindowSeconds: z.number().int().positive().nullable(),
-          refundPolicy: z.enum(['seller_full']).nullable(),
-        }),
-      )
-      .query(() => {
+    commerceProgramme: mountRecord(
+      MARKET_COMMERCE_PROGRAMME,
+      () => {
         if (!commerce) {
           return { commissionBps: null, commissionConfigured: false, purchaseHold: false, refundWindowSeconds: null, refundPolicy: null };
         }
         return commerce.programme();
-      }),
+      },
+      marketRefusal,
+    ),
 
-    createListing: scopedProcedure('market:write', { module: 'market' })
-      .input(
-        z.object({
-          title: z.string().min(1).max(120),
-          description: z.string().min(1).max(4_000),
-          offerType: z.enum(['one_time', 'subscription']),
-          assetId: z.string().min(1).max(32),
-          /** Decimal string — never a number. */
-          price: z.string().min(1).max(64),
-          /** Whole seconds. Required when offerType is subscription. No default month. */
-          periodSeconds: z.number().int().positive().optional(),
-          /**
-           * Product category. Optional on one-time — omit stays uncategorised.
-           * Checked only when sent. Strategy listings stay uncategorised.
-           */
-          category: z.string().max(64).optional(),
-        }),
-      )
-      .output(listingOut)
-      .mutation(async ({ ctx, input }) => {
+    createListing: mountRecord(
+      MARKET_CREATE_LISTING,
+      async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
           // Blank MARKET_HOUSE_COMMISSION_BPS refuses before insert/slot claim.
-          return await commerce.createListing({ userId: ctx.principal!.userId, ...input });
+          return await commerce.createListing({ userId: ctx.principal.userId, ...input });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * Strategy marketplace publish — same shop as createListing.
      * Always a subscription with periodSeconds. Stake gate is claimSlot.
      * No profit-share input. Catalogue ranking is not this door.
      */
-    createStrategyListing: scopedProcedure('market:write', { module: 'market' })
-      .input(
-        z
-          .object({
-            title: z.string().min(1).max(120),
-            description: z.string().min(1).max(4_000),
-            assetId: z.string().min(1).max(32),
-            /** Decimal string — never a number. */
-            price: z.string().min(1).max(64),
-            /** Whole seconds. Required. No default month. */
-            periodSeconds: z.number().int().positive(),
-          })
-          .strict(),
-      )
-      .output(listingOut)
-      .mutation(async ({ ctx, input }) => {
+    createStrategyListing: mountRecord(
+      MARKET_CREATE_STRATEGY_LISTING,
+      async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
-          return await createStrategyListing(commerce, { userId: ctx.principal!.userId, ...input });
+          return await createStrategyListing(commerce, { userId: ctx.principal.userId, ...input });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * One-time listing that names a product category. Not a strategy.
@@ -864,44 +728,46 @@ export function createMarketRouter(
           })
           .strict(),
       )
-      .output(listingOut.extend({ category: z.string().min(1).max(32) }))
+      .output(marketListingSchema.extend({ category: z.string().min(1).max(32) }))
       .mutation(async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
-          return await commerce.createNonStrategyListing({ userId: ctx.principal!.userId, ...input });
+          return await commerce.createNonStrategyListing({ userId: ctx.principal.userId, ...input });
         } catch (err) {
           mapError(err);
         }
       }),
 
-    archiveListing: scopedProcedure('market:write', { module: 'market' })
-      .input(z.object({ listingId: z.string().guid() }))
-      .output(listingOut)
-      .mutation(async ({ ctx, input }) => {
+    archiveListing: mountRecord(
+      MARKET_ARCHIVE_LISTING,
+      async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
-          return await commerce.archiveListing({ userId: ctx.principal!.userId, listingId: input.listingId });
+          return await commerce.archiveListing({ userId: ctx.principal.userId, listingId: input.listingId });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * Caller's listings. `limit` optional so omit reaches
      * `market.my_listings_list_limit_unset`. Blank is not 50; pass 50
      * explicitly when that is the page you want.
      */
-    myListings: scopedProcedure('market:read', { module: 'market' })
-      .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
-      .output(z.array(reviewedListingOut))
-      .query(async ({ ctx, input }) => {
+    myListings: mountRecord(
+      MARKET_MY_LISTINGS,
+      async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
-          return await commerce.myListings(ctx.principal!.userId, { limit: input?.limit });
+          return await commerce.myListings(ctx.principal.userId, { limit: input?.limit });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * PTX-M06-R06 / R09 — public market-data honesty door.
@@ -969,10 +835,9 @@ export function createMarketRouter(
      * Blank commission is `market.commission_not_configured`, before the read.
      * No seller user id. Performance is unreported: there is no source id to read.
      */
-    listing: publicProcedure
-      .input(z.object({ listingId: z.string().guid() }))
-      .output(listingDetailOut)
-      .query(async ({ input }) => {
+    listing: mountRecord(
+      MARKET_LISTING,
+      async ({ input }) => {
         requireCommerce(commerce);
         try {
           const detail = await commerce.publicListing(input.listingId);
@@ -995,7 +860,9 @@ export function createMarketRouter(
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * Public catalogue — empty when commission blank; else listed vendors only.
@@ -1003,17 +870,18 @@ export function createMarketRouter(
      * Blank is not 50; pass 50 explicitly when that is the page you want.
      * Order is `created_at ASC, id ASC`. Search and paging are `listingsPage`.
      */
-    listings: publicProcedure
-      .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
-      .output(z.array(reviewedListingOut))
-      .query(async ({ input }) => {
+    listings: mountRecord(
+      MARKET_LISTINGS,
+      async ({ input }) => {
         requireCommerce(commerce);
         try {
           return await commerce.publicListings({ limit: input?.limit });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * Paged public catalogue. `sort` is required: omit or blank is
@@ -1035,7 +903,7 @@ export function createMarketRouter(
       )
       .output(
         z.object({
-          items: z.array(reviewedListingOut.extend({ vendorListingCount: z.number().int().nonnegative() })),
+          items: z.array(marketReviewedListingSchema.extend({ vendorListingCount: z.number().int().nonnegative() })),
           nextCursor: z.string().nullable(),
         }),
       )
@@ -1059,31 +927,27 @@ export function createMarketRouter(
      * Product category enum for one-time listings. Not an owner env list.
      * Strategy listings stay uncategorised for now.
      */
-    listingCategories: publicProcedure.output(z.object({ categories: z.array(z.string().min(1).max(32)) })).query(() => {
-      requireCommerce(commerce);
-      try {
-        return { categories: [...commerce.listingCategories()] };
-      } catch (err) {
-        mapError(err);
-      }
-    }),
+    listingCategories: mountRecord(
+      MARKET_LISTING_CATEGORIES_READ,
+      () => {
+        requireCommerce(commerce);
+        try {
+          return { categories: [...commerce.listingCategories()] };
+        } catch (err) {
+          mapError(err);
+        }
+      },
+      marketRefusal,
+    ),
 
     /**
      * One-time listings in one product category. Omit / blank category is
      * not the whole catalogue. Omit limit is not 50. Strategy rows are excluded.
      * Short page only — a cursor for this page is a later slice.
      */
-    listingsByCategory: publicProcedure
-      .input(
-        z
-          .object({
-            category: z.string().max(64).optional(),
-            limit: z.number().int().positive().max(50).optional(),
-          })
-          .optional(),
-      )
-      .output(z.array(reviewedListingOut.extend({ category: z.string().min(1).max(32) })))
-      .query(async ({ input }) => {
+    listingsByCategory: mountRecord(
+      MARKET_LISTINGS_BY_CATEGORY,
+      async ({ input }) => {
         requireCommerce(commerce);
         try {
           return await commerce.publicListingsByCategory({
@@ -1093,7 +957,9 @@ export function createMarketRouter(
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * Automatic recurring charge is not built (no second recipe / scheduler).
@@ -1120,84 +986,89 @@ export function createMarketRouter(
      * One-time purchase. `purchaseId` is client-supplied so a retry is the same
      * purchase. Blank commission config refuses before any post.
      */
-    purchase: scopedProcedure('market:write', { module: 'market' })
-      .input(z.object({ listingId: z.string().guid(), purchaseId: z.string().guid() }))
-      .output(purchaseOut)
-      .mutation(async ({ ctx, input }) => {
+    purchase: mountRecord(
+      MARKET_PURCHASE,
+      async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
           return await commerce.purchase({
-            buyerId: ctx.principal!.userId,
+            buyerId: ctx.principal.userId,
             listingId: input.listingId,
             purchaseId: input.purchaseId,
           });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * The buyer asks for a refund of a held purchase inside its refund window. The seller decides. Asking again returns
      * the stored request. Outside held or after the window: `market.refund_not_held`.
      */
-    requestRefund: scopedProcedure('market:write', { module: 'market' })
-      .input(z.object({ purchaseId: z.string().guid() }))
-      .output(purchaseOut)
-      .mutation(async ({ ctx, input }) => {
+    requestRefund: mountRecord(
+      MARKET_REQUEST_REFUND,
+      async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
-          return await commerce.held.requestRefund({ buyerId: ctx.principal!.userId, purchaseId: input.purchaseId });
+          return await commerce.held.requestRefund({ buyerId: ctx.principal.userId, purchaseId: input.purchaseId });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * The seller refunds a held purchase inside its window: the whole price returns to the buyer once
      * (`market:refund:<purchase>:1`). Anyone but the seller: `market.refund_forbidden`. Released, or outside held:
      * `market.refund_not_held`. A retry returns the refunded row.
      */
-    refund: scopedProcedure('market:write', { module: 'market' })
-      .input(z.object({ purchaseId: z.string().guid() }))
-      .output(purchaseOut)
-      .mutation(async ({ ctx, input }) => {
+    refund: mountRecord(
+      MARKET_REFUND,
+      async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
-          return await commerce.held.refund({ sellerUserId: ctx.principal!.userId, purchaseId: input.purchaseId });
+          return await commerce.held.refund({ sellerUserId: ctx.principal.userId, purchaseId: input.purchaseId });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /** The seller's held purchases with a refund request, oldest first. Page size as `myPurchases`: omit refuses. */
-    refundRequests: scopedProcedure('market:read', { module: 'market' })
-      .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
-      .output(z.array(purchaseOut))
-      .query(async ({ ctx, input }) => {
+    refundRequests: mountRecord(
+      MARKET_REFUND_REQUESTS,
+      async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
-          return await commerce.held.refundRequests(ctx.principal!.userId, assertMyPurchasesListLimit(input?.limit));
+          return await commerce.held.refundRequests(ctx.principal.userId, assertMyPurchasesListLimit(input?.limit));
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * Caller's purchases. `limit` optional so omit reaches
      * `market.my_purchases_list_limit_unset`. Blank is not 50; pass 50
      * explicitly when that is the page you want.
      */
-    myPurchases: scopedProcedure('market:read', { module: 'market' })
-      .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
-      .output(z.array(purchaseOut))
-      .query(async ({ ctx, input }) => {
+    myPurchases: mountRecord(
+      MARKET_MY_PURCHASES,
+      async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
-          return await commerce.purchasesOf(ctx.principal!.userId, { limit: input?.limit });
+          return await commerce.purchasesOf(ctx.principal.userId, { limit: input?.limit });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
     /**
      * Caller's settled sales. Window is required. Commission is each row's snapshot.
@@ -1235,7 +1106,7 @@ export function createMarketRouter(
         requireCommerce(commerce);
         try {
           return await commerce.myEarnings({
-            userId: ctx.principal!.userId,
+            userId: ctx.principal.userId,
             from: input?.from,
             to: input?.to,
           });
@@ -1244,36 +1115,100 @@ export function createMarketRouter(
         }
       }),
 
-    reviews: router({
-      submit: scopedProcedure('market:write', { module: 'market' })
-        .input(
-          z.object({
-            purchaseId: z.string().guid(),
-            score: z.number(),
-            text: z.string().max(1_000).optional(),
-            clientRequestId: z.string().max(128),
-          }),
-        )
-        .output(reviewOut)
-        .mutation(async ({ ctx, input }) => {
-          requireReviews(reviews);
+    /**
+     * Signal publishing (CB-bots-api-signal-05, -06, -07; J-copy-bots-otc-22). Publish vets the provider once against
+     * the owner's criteria and answers a retried key with the first signal. Fee models are free and a monthly fee; a
+     * profit share and an automatic recurring subscription are refused by name. Earnings are per asset, settled at sale.
+     */
+    signals: router({
+      criteria: mountRecord(
+        MARKET_SIGNALS_CRITERIA,
+        () => {
+          const c = requireSignals(signals).criteria();
+          return c ? { set: true, minTier: c.minTier, minFills: c.minFills } : { set: false, minTier: null, minFills: null };
+        },
+        marketRefusal,
+      ),
+      publish: mountRecord(
+        MARKET_SIGNALS_PUBLISH,
+        async ({ ctx, input }) => {
+          const publisher = requireSignals(signals);
           try {
-            return await reviews.submit({ buyerId: ctx.principal!.userId, ...input });
+            const tier = (SIGNAL_TIERS as readonly string[]).includes(ctx.principal.tier) ? ctx.principal.tier : 'none';
+            return await publisher.publish({ ...input, userId: ctx.principal.userId, tier: tier as (typeof SIGNAL_TIERS)[number] });
           } catch (err) {
             mapError(err);
           }
-        }),
+        },
+        marketRefusal,
+      ),
+      archive: mountRecord(
+        MARKET_SIGNALS_ARCHIVE,
+        async ({ ctx, input }) => {
+          const publisher = requireSignals(signals);
+          try {
+            return await publisher.archive({ userId: ctx.principal.userId, signalId: input.signalId });
+          } catch (err) {
+            mapError(err);
+          }
+        },
+        marketRefusal,
+      ),
+      mine: mountRecord(
+        MARKET_SIGNALS_MINE,
+        async ({ ctx, input }) => {
+          const publisher = requireSignals(signals);
+          try {
+            return await publisher.mine(ctx.principal.userId, input.limit);
+          } catch (err) {
+            mapError(err);
+          }
+        },
+        marketRefusal,
+      ),
+      list: mountRecord(
+        MARKET_SIGNALS_LIST,
+        async ({ input }) => {
+          const publisher = requireSignals(signals);
+          try {
+            return await publisher.catalogue(input.limit);
+          } catch (err) {
+            mapError(err);
+          }
+        },
+        marketRefusal,
+      ),
+      earnings: mountRecord(
+        MARKET_SIGNALS_EARNINGS,
+        async ({ ctx, input }) => {
+          const publisher = requireSignals(signals);
+          try {
+            return await publisher.earnings({ userId: ctx.principal.userId, from: input.from, to: input.to });
+          } catch (err) {
+            mapError(err);
+          }
+        },
+        marketRefusal,
+      ),
+    }),
 
-      list: scopedProcedure('market:read', { module: 'market' })
-        .input(
-          z.object({
-            listingId: z.string().guid(),
-            limit: z.number().int().positive().max(50).optional(),
-            cursor: z.string().max(512).optional(),
-          }),
-        )
-        .output(z.object({ reviews: z.array(reviewPublicOut), nextCursor: z.string().nullable() }))
-        .query(async ({ input }) => {
+    reviews: router({
+      submit: mountRecord(
+        MARKET_REVIEWS_SUBMIT,
+        async ({ ctx, input }) => {
+          requireReviews(reviews);
+          try {
+            return await reviews.submit({ buyerId: ctx.principal.userId, ...input });
+          } catch (err) {
+            mapError(err);
+          }
+        },
+        marketRefusal,
+      ),
+
+      list: mountRecord(
+        MARKET_REVIEWS_LIST,
+        async ({ input }) => {
           requireReviews(reviews);
           try {
             return await reviews.list({
@@ -1284,7 +1219,9 @@ export function createMarketRouter(
           } catch (err) {
             mapError(err);
           }
-        }),
+        },
+        marketRefusal,
+      ),
 
       summary: scopedProcedure('market:read', { module: 'market' })
         .input(z.object({ vendorId: z.string().guid() }))
@@ -1306,42 +1243,31 @@ export function createMarketRouter(
         }),
     }),
 
-    cancelSubscription: scopedProcedure('market:write', { module: 'market' })
-      .input(z.object({ listingId: z.string().guid() }))
-      .output(
-        z.object({
-          listingId: z.string().guid(),
-          buyerId: z.string().guid(),
-          cancelledAt: z.string().datetime(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) => {
+    cancelSubscription: mountRecord(
+      MARKET_CANCEL_SUBSCRIPTION,
+      async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
-          return await commerce.cancelSubscription({ buyerId: ctx.principal!.userId, listingId: input.listingId });
+          return await commerce.cancelSubscription({ buyerId: ctx.principal.userId, listingId: input.listingId });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
 
-    subscriptionAccess: scopedProcedure('market:read', { module: 'market' })
-      .input(z.object({ listingId: z.string().guid() }))
-      .output(
-        z.object({
-          granted: z.literal(true),
-          listingId: z.string().guid(),
-          buyerId: z.string().guid(),
-          accessUntil: z.string().datetime(),
-        }),
-      )
-      .query(async ({ ctx, input }) => {
+    subscriptionAccess: mountRecord(
+      MARKET_SUBSCRIPTION_ACCESS,
+      async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
-          return await commerce.subscriptionAccess({ buyerId: ctx.principal!.userId, listingId: input.listingId });
+          return await commerce.subscriptionAccess({ buyerId: ctx.principal.userId, listingId: input.listingId });
         } catch (err) {
           mapError(err);
         }
-      }),
+      },
+      marketRefusal,
+    ),
   });
 }
 

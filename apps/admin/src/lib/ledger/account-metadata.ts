@@ -1,3 +1,5 @@
+import { isRecord } from '@intafaced/contracts/guards';
+import { METADATA_KEY } from '@/lib/approval-fields';
 /**
  * An account's operator metadata on the ledger desk (J-ops-console-03 #6, #7, OPS-ledger-desk-01): the shapes the console
  * reads from svc-ledger through svc-edge, and the checks it makes before sending a write. svc-ledger checks everything
@@ -11,8 +13,6 @@
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-/** svc-ledger's key rule (`account_metadata_key_ck`, 0029). */
-export const METADATA_KEY = /^[a-z][a-z0-9_.:-]{0,63}$/;
 export const METADATA_VALUE_MAX = 500;
 const REVISION_MAX = 2_147_483_646;
 
@@ -48,10 +48,6 @@ export interface AccountMetadata {
 
 export function isAccountId(value: unknown): value is string {
   return typeof value === 'string' && UUID.test(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 const isRevision = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= REVISION_MAX;

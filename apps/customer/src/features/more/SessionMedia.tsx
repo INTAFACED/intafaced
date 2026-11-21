@@ -1,7 +1,7 @@
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { Button, Failure } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 type MediaTrack = { kind: string; attach: () => HTMLMediaElement; detach: () => HTMLMediaElement[] };

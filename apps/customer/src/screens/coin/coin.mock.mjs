@@ -8,7 +8,7 @@ import { candles, fills, markets, tickers, wireTicker } from './coin.fixtures.mj
 
 export async function mock(page, overrides = {}, options = {}) {
   const world = { young: false, history: 'long', ...options };
-  const base = await tradeMock(page, { markets: () => markets, tickers: () => tickers(world), ...(overrides.trade ?? {}) });
+  const base = await tradeMock(page, { markets: () => markets, tickers: () => tickers(world), ...overrides.trade });
   const calls = [];
   const held = [];
   const fulfill = async (route, value, request) => {

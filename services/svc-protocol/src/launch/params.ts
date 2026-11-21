@@ -30,8 +30,8 @@ import type { Address } from 'viem';
 /** Mirrors `TokenFactory.MAX_DECIMALS`. */
 export const MAX_DECIMALS = 18;
 /** Mirrors `TokenFactory.MAX_NAME_BYTES` / `MAX_SYMBOL_BYTES`. */
-export const MAX_NAME_BYTES = 64;
-export const MAX_SYMBOL_BYTES = 16;
+const MAX_NAME_BYTES = 64;
+const MAX_SYMBOL_BYTES = 16;
 
 /**
  * The largest whole-unit supply this surface will launch: 10^20 − 1.

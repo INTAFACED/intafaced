@@ -44,7 +44,7 @@ function middleDiff(before: readonly string[], after: readonly string[]): DiffLi
   if ((n + 1) * (m + 1) > DIFF_CELLS_MAX) {
     return [...before.map((text): DiffLine => ({ op: 'removed', text })), ...after.map((text): DiffLine => ({ op: 'added', text }))];
   }
-  const longest: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
+  const longest: number[][] = Array.from({ length: n + 1 }, () => Array.from({ length: m + 1 }, () => 0));
   for (let i = n - 1; i >= 0; i -= 1) {
     for (let j = m - 1; j >= 0; j -= 1) {
       longest[i]![j] = before[i] === after[j] ? longest[i + 1]![j + 1]! + 1 : Math.max(longest[i + 1]![j]!, longest[i]![j + 1]!);

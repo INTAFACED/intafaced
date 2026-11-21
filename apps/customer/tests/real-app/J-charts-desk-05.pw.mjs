@@ -5,6 +5,7 @@ import {
   atTick,
   barTimeText,
   centred,
+  clickAndRead,
   clickPlot,
   openWorkbench,
   pick,
@@ -14,6 +15,7 @@ import {
   pricesOf,
   rowNamed,
   rows,
+  storedAsRead,
   timesOf,
 } from './charts-desk.mjs';
 
@@ -74,19 +76,23 @@ async function paneValueAt(page, point) {
 /**
  * How far, in pixels, a painted height `y` (chart pixels) sits from where the pane now reads `value`. The Volume pane
  * rescales as the live bar's volume grows, so a line at a fixed value moves on screen after it is placed; this reads the
- * pane's own scale at the painted height (the whole pixel there and one either side) rather than trusting the scale at
- * the click.
+ * pane's own scale now rather than trusting the scale at the click. The scale is read at a quarter and three quarters of
+ * the pane's height, never at the painted height itself: the chart's pane-resize handle covers the pixels next to each
+ * pane separator, and a pointer there reads nothing, so a line the rescale carried near the pane's edge could not
+ * be read at its own height. The Volume pane's scale is linear, so two reads place every value on it.
  */
 async function pixelsFromValue(page, x, y, value) {
   const box = await chartHost(page).boundingBox();
   if (!box) throw new Error('the chart has no box');
-  const cy = Math.round(y);
-  const above = await paneValueAt(page, { x, y: box.y + cy - 1 });
-  const below = await paneValueAt(page, { x, y: box.y + cy + 1 });
-  const at = await paneValueAt(page, { x, y: box.y + cy });
-  const perPixel = Math.abs(above.value - below.value) / 2;
-  if (!(perPixel > 0)) throw new Error(`the pane reads no scale at y ${cy}`);
-  return Math.abs(at.value - value) / perPixel + Math.abs(y - cy);
+  const pane = (await paneBoxes(page)).find((b) => b.index === 1);
+  if (!pane) throw new Error('the chart has no Volume pane');
+  const [ya, yb] = [0.25, 0.75].map((f) => Math.round(pane.top + pane.height * f));
+  const a = await paneValueAt(page, { x, y: box.y + ya });
+  const b = await paneValueAt(page, { x, y: box.y + yb });
+  if (a.pane !== 1 || b.pane !== 1) throw new Error(`the Volume pane's scale was read on panes ${a.pane} and ${b.pane}`);
+  const perPixel = (b.value - a.value) / (yb - ya);
+  if (!(perPixel < 0)) throw new Error(`the Volume pane reads no scale between y ${ya} and ${yb}`);
+  return Math.abs(y - (ya + (value - a.value) / perPixel));
 }
 
 test.describe.configure({ mode: 'serial' });
@@ -128,21 +134,33 @@ test(`${J} #1 opens the drawing toolbar and picks the trend line, then two click
   await expect(trendTool).toHaveAttribute('aria-pressed', 'true');
   // What the chart reads under each click: the bar's time and the price at that height.
   const trendPoints = [await centred(page, await plot(page, 0.3, 0.4)), await centred(page, await plot(page, 0.6, 0.5))];
-  // Each click, then what the chart reads at that same pixel (read after it, so both see the page as it was clicked).
+  // Each click, and what the chart read at that same pixel as it was clicked (the price scale follows the live feed, so
+  // a read taken later may be on a scale that has moved since).
   const at = [];
-  for (const point of trendPoints) {
-    await page.mouse.click(point.x, point.y);
-    at.push(await pointerAt(page, point));
-  }
+  for (const point of trendPoints) at.push(await clickAndRead(page, point));
   await expect(rows(page)).toHaveCount(1);
   const text = await pointText(rows(page).first()).textContent();
   // Two points, each stored as that bar's time and that price at the tick's places (two for BTC-USDT's 0.01 tick).
-  expect(timesOf(text)).toEqual(at.map((p) => barTimeText(p.time)));
+  const times = timesOf(text);
+  expect(times).toHaveLength(2);
   expect(pricesOf(text)).toHaveLength(2);
   pricesOf(text).forEach((price, i) => {
     expect(price).toMatch(/^\d+\.\d{2}$/);
-    expect(atTick(price, at[i].price), `point ${i + 1}: stored ${price}, pointer ${at[i].price}`).toBe(true);
+    expect(storedAsRead(times[i], price, at[i]), `point ${i + 1}: stored ${times[i]} ${price}, read ${JSON.stringify(at[i])}`).toBe(true);
   });
+  // Stored as bar times and prices, not pixels: when the price scale moves (here a drag on the price axis, as the live feed
+  // moves it), the stored points stay, while the same pixel now reads another price; a double-click puts the scale back.
+  await pick(page, 'Select');
+  const box = await chartHost(page).boundingBox();
+  const axisX = box.x + box.width - 15;
+  await page.mouse.move(axisX, box.y + box.height * 0.3);
+  await page.mouse.down();
+  await page.mouse.move(axisX, box.y + box.height * 0.1, { steps: 10 });
+  await page.mouse.up();
+  const moved = await pointerAt(page, trendPoints[0]);
+  expect(atTick(pricesOf(text)[0], moved.price), `the scale moved: point 1 now reads ${moved.price}`).toBe(false);
+  await expect(pointText(rows(page).first())).toHaveText(text);
+  await page.mouse.dblclick(axisX, box.y + box.height * 0.3);
 });
 
 test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price pane, and on an indicator pane where allowed`, async () => {
@@ -220,6 +238,19 @@ test(`${J} #2 adds an info line, a horizontal line and a ray, each on the price 
     }
   }).toPass({ timeout: 15_000 });
 
+  // The measure above reads a painted height next to the pane's top edge too, where the chart's pane-resize handle
+  // takes the pointer and the crosshair reads nothing: a height a pixel under the separator is measured from the
+  // same value as the clicked height, by exactly the pixels between them.
+  await expect(async () => {
+    const hostBox = await chartHost(page).boundingBox();
+    const here = await paneValueAt(page, level);
+    const clickedY = level.y - hostBox.y;
+    expect(await pixelsFromValue(page, level.x, clickedY, here.value)).toBeLessThanOrEqual(1.5);
+    const edgeY = volume.top + 1;
+    const fromEdge = await pixelsFromValue(page, level.x, edgeY, here.value);
+    expect(Math.abs(fromEdge - (clickedY - edgeY)), `at y ${edgeY}, ${fromEdge} px from y ${clickedY}`).toBeLessThanOrEqual(1.5);
+  }).toPass({ timeout: 15_000 });
+
   // A ray and an info line on the Volume pane: each point stored at the value the pane reads under it, and each painted
   // inside the Volume pane through the points that were clicked.
   const twoPointsOnVolume = async (tool, kind, a, b, count) => {
@@ -283,15 +314,17 @@ test(`${J} #3 adds text at the chosen point, with the font size and colour chose
   await toolbar.getByLabel('Text size').selectOption({ label: '24 px' });
   await toolbar.getByLabel('Text colour').selectOption({ label: 'Up' });
   const point = await centred(page, await inPane(page, 0, 0.25, 0.55));
-  await page.mouse.click(point.x, point.y);
-  const at = await pointerAt(page, point);
+  const at = await clickAndRead(page, point);
   const row = page.locator('[data-drawing-id][data-kind="text"]');
   await expect(row).toHaveCount(1);
   await expect(row.getByRole('textbox', { name: 'Text to place or edit' })).toHaveValue('Support');
   // At the chosen point: stored as the bar under the click and the price at its height.
   const stored = await pointText(row).textContent();
-  expect(timesOf(stored)).toEqual([barTimeText(at.time)]);
-  expect(atTick(pricesOf(stored)[0], at.price), `stored ${pricesOf(stored)[0]}, pointer ${at.price}`).toBe(true);
+  expect(timesOf(stored)).toHaveLength(1);
+  expect(
+    storedAsRead(timesOf(stored)[0], pricesOf(stored)[0], at),
+    `stored ${timesOf(stored)[0]} ${pricesOf(stored)[0]}, read ${JSON.stringify(at)}`,
+  ).toBe(true);
   // With the font size and colour chosen: stored with the text, and painted in that size and the Up colour.
   await expect(row).toHaveAttribute('data-size', '24');
   await expect(row).toHaveAttribute('data-tone', 'up');
@@ -312,8 +345,12 @@ test(`${J} #3 adds text at the chosen point, with the font size and colour chose
   await row.getByLabel('Text colour').selectOption({ label: 'Down' });
   await expect(row).toHaveAttribute('data-size', '18');
   await expect(row).toHaveAttribute('data-tone', 'down');
+  // The size and the colour are two choices, so the chart may paint the new size a frame before the new colour: each is
+  // waited for on the canvas, and both must land.
   await expect.poll(async () => (await paintedText())?.font ?? '').toMatch(/(^|\s)18px\s/);
-  expect((await paintedText()).colour).toBe(await token('--if-down'));
+  const down = await token('--if-down');
+  expect(down, 'the Down colour token').not.toBe('');
+  await expect.poll(async () => (await paintedText())?.colour ?? '').toBe(down);
   await expect(pointText(row)).toHaveText(stored);
 });
 

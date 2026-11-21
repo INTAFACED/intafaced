@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DeskRequest } from '@/lib/desk/approval-packet';
-import { opsExecute, readAmbassadorAnswer, readCardStatusAnswer, readTakedownAnswer, readResidencyAnswer, readVetAnswer } from './execute';
+import type { DeskRequest } from '@/lib/desk';
+import { opsExecute, readAmbassadorAnswer, readCardStatusAnswer, readResidencyAnswer } from './execute';
 
 const FOUNDER = '11111111-1111-4111-8111-111111111111';
 const VENDOR = '5a3b9c10-1111-4222-8333-444455556666';
@@ -29,15 +29,28 @@ const vet = (decision: 'approved' | 'rejected' | 'suspended'): DeskRequest => ({
   decision,
   reason: 'documents checked against the application',
 });
-const vendor = (status: string, id = VENDOR) => ({ id, status });
+/** svc-market's whole vendor record, as `vet` returns it (`MARKET_VET`). */
+const vendor = (status: string, id = VENDOR) => ({
+  id,
+  userId: USER,
+  displayName: 'Shop',
+  description: 'What the shop sells',
+  status,
+  createdAt: '2026-10-18T01:00:00.000Z',
+  updatedAt: '2026-10-18T01:00:00.000Z',
+});
+const vetAnswer = (status: string, changed = true, id = VENDOR) => ({
+  changed,
+  vendor: vendor(status, id),
+  event: null,
+  confirmOperatorId: FOUNDER,
+});
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('market vendor decision', () => {
   it('sends the decision, reason and both approval ids as the founder, to the vet procedure', async () => {
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) =>
-      ok({ changed: true, vendor: vendor('approved'), event: null, confirmOperatorId: 'x' }),
-    );
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(vetAnswer('approved')));
     vi.stubGlobal('fetch', fn);
     const reply = await opsExecute(ctx)(vet('approved'), ids);
     expect(reply).toMatchObject({ ok: true });
@@ -53,10 +66,7 @@ describe('market vendor decision', () => {
     expect((init!.headers as Record<string, string>).authorization).toBe('Bearer founder-access-token');
   });
   it('counts as done only when the returned vendor is in the state asked for', async () => {
-    for (const body of [
-      { changed: true, vendor: vendor('rejected') },
-      { changed: true, vendor: vendor('approved', USER) },
-    ]) {
+    for (const body of [vetAnswer('rejected'), vetAnswer('approved', true, USER)]) {
       vi.stubGlobal(
         'fetch',
         vi.fn(async () => ok(body)),
@@ -69,6 +79,18 @@ describe('market vendor decision', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ok({ vendor: 'approved' })),
+    );
+    expect(await opsExecute(ctx)(vet('approved'), ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+  });
+  it('reads the answer strictly: a wrong-typed field or a vendor missing its fields is an unknown outcome', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ ...vetAnswer('approved'), changed: 'no' })),
+    );
+    expect(await opsExecute(ctx)(vet('approved'), ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ ...vetAnswer('approved'), vendor: {} })),
     );
     expect(await opsExecute(ctx)(vet('approved'), ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
   });
@@ -99,7 +121,7 @@ describe('market vendor decision', () => {
   it('says so when the vendor was already in that state', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ok({ changed: false, vendor: vendor('approved') })),
+      vi.fn(async () => ok(vetAnswer('approved', false))),
     );
     const reply = await opsExecute(ctx)(vet('approved'), ids);
     expect(reply.ok && reply.detail).toContain('nothing changed');
@@ -277,12 +299,6 @@ describe('request kinds this executor does not own', () => {
 
 describe('answer readers', () => {
   it('read only the fields they need, strictly', () => {
-    expect(readVetAnswer({ changed: false, vendor: { id: VENDOR, status: 'approved' } })).toEqual({
-      changed: false,
-      vendorId: VENDOR,
-      status: 'approved',
-    });
-    expect(readVetAnswer({ changed: 'no', vendor: {} })).toBeNull();
     expect(readAmbassadorAnswer({ userId: USER, status: 'frozen' })).toEqual({ userId: USER, status: 'frozen' });
     expect(readAmbassadorAnswer({ userId: 1, status: 'frozen' })).toBeNull();
     expect(readResidencyAnswer({ id: VENDOR, status: 'accepted', decisionNote: null })).toEqual({ id: VENDOR, status: 'accepted' });
@@ -373,9 +389,11 @@ describe('listing takedown', () => {
     });
   });
   it('needs the returned listing to be this one and taken down', async () => {
+    const answer = { reason: 'x', actorId: USER, takenDownAt: '2026-10-18T01:00:00.000Z' };
     for (const body of [
-      { listingId: LISTING, status: 'active' },
-      { listingId: USER, status: 'taken_down' },
+      { ...answer, listingId: LISTING, status: 'active' },
+      { ...answer, listingId: USER, status: 'taken_down' },
+      { listingId: LISTING, status: 'taken_down' },
     ]) {
       vi.stubGlobal(
         'fetch',
@@ -383,7 +401,11 @@ describe('listing takedown', () => {
       );
       expect(await opsExecute(ctx)(takedown, ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
     }
-    expect(readTakedownAnswer({ listingId: LISTING })).toBeNull();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ listingId: LISTING })),
+    );
+    expect(await opsExecute(ctx)(takedown, ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
   });
   it('an approval for another listing is refused in words and the listing is left as it was', async () => {
     vi.stubGlobal(

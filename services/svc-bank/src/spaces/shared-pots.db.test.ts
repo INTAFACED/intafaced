@@ -21,6 +21,7 @@ import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankRouter } from '../router.js';
 import { memoryBusinessDirectory, type DirectoryPerson } from '../business/business-directory.js';
 import { cardIssuerFor } from '../cards/issuer.js';
+import { ageSharedPotInvite } from '../test-age-door.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -181,6 +182,59 @@ describe('sharedPots', () => {
     });
     await expect(stranger).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'This account belongs to another user' });
     expect([await inPot(pot.id), await main(VIEWER), await main(PARTNER)]).toEqual(['15', '20', '15']);
+  });
+
+  it('the TEST age door: an invite made a lifetime earlier is ended at the real time, refused by name; an answered one is not aged', async () => {
+    const bank = services();
+    const pot = await sharedPot(bank);
+    const made = await caller(bank, OWNER).sharedPots.invite({
+      inviteId: randomUUID(),
+      spaceId: pot.id,
+      handle: 'Vic_Viewer',
+      role: 'viewer',
+    });
+    const viewer = caller(bank, VIEWER);
+    expect((await viewer.sharedPots.list({ limit: 50 })).invites.map((i) => i.expired)).toEqual([false]);
+    const [was] = await sql<
+      { created_at: Date; expires_at: Date }[]
+    >`SELECT created_at, expires_at FROM bank.shared_pot_invites WHERE id = ${made.inviteId}`;
+    const aged = await ageSharedPotInvite(sql)(made.inviteId, 3_601_000);
+    // Both its times moved back by exactly what was asked: its lifetime is as it was, and it has ended.
+    expect(aged).toEqual({
+      createdAt: new Date(was!.created_at.getTime() - 3_601_000).toISOString(),
+      expiresAt: new Date(was!.expires_at.getTime() - 3_601_000).toISOString(),
+    });
+    expect((await viewer.sharedPots.list({ limit: 50 })).invites.map((i) => i.expired)).toEqual([true]);
+    await expect(viewer.sharedPots.accept({ inviteId: made.inviteId })).rejects.toMatchObject(refused('bank.invite_expired', 'CONFLICT'));
+    expect((await viewer.sharedPots.list({ limit: 50 })).shared).toEqual([]);
+
+    const answered = await caller(bank, OWNER).sharedPots.invite({
+      inviteId: randomUUID(),
+      spaceId: pot.id,
+      handle: 'Pia_Partner',
+      role: 'contributor',
+    });
+    await caller(bank, PARTNER).sharedPots.accept({ inviteId: answered.inviteId });
+    expect(await ageSharedPotInvite(sql)(answered.inviteId, 60_000)).toBeNull();
+    // Declined and cancelled are answered too: neither is aged.
+    const declined = await caller(bank, OWNER).sharedPots.invite({
+      inviteId: randomUUID(),
+      spaceId: pot.id,
+      handle: 'Tom_Third',
+      role: 'viewer',
+    });
+    await caller(bank, THIRD).sharedPots.decline({ inviteId: declined.inviteId });
+    expect(await ageSharedPotInvite(sql)(declined.inviteId, 60_000)).toBeNull();
+    const cancelled = await caller(bank, OWNER).sharedPots.invite({
+      inviteId: randomUUID(),
+      spaceId: pot.id,
+      handle: 'Tom_Third',
+      role: 'viewer',
+    });
+    await caller(bank, OWNER).sharedPots.cancelInvite({ inviteId: cancelled.inviteId });
+    expect(await ageSharedPotInvite(sql)(cancelled.inviteId, 60_000)).toBeNull();
+    expect(await ageSharedPotInvite(sql)(randomUUID(), 60_000)).toBeNull();
+    expect(await ageSharedPotInvite(sql)('not-a-uuid', 60_000)).toBeNull();
   });
 
   it('an invite past its lifetime refuses bank.invite_expired and nobody joins', async () => {

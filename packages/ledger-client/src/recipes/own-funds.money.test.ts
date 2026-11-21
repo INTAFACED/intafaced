@@ -3,6 +3,7 @@ import {
   balanceAllowed,
   houseFees,
   isOwnFundsPlace,
+  ownFundsCostAccount,
   partnerReserve,
   treasuryWallet,
   userAvailable,
@@ -121,6 +122,57 @@ describe('ownFundsMove', () => {
     expect(isOwnFundsPlace(venueBoundary(VENUE, 'USDC'))).toBe(false);
     expect(isOwnFundsPlace(venueBuilderFeeReceivable(VENUE, 'USDC'))).toBe(false);
     expect(isOwnFundsPlace(userAvailable(USER, 'USDC'))).toBe(false);
+  });
+});
+
+describe('ownFundsMove with its costs', () => {
+  const FEES = [
+    { kind: 'venue-withdrawal-fee' as const, paidTo: VENUE, amount: amt('1') },
+    { kind: 'network-fee' as const, paidTo: 'test-chain', amount: amt('0.25') },
+  ];
+  const sweep = (amount: string, reference: string, costs = FEES) =>
+    recipes.ownFundsMove({ from: BUILDER, to: WALLET, assetId: 'USDC', amount: amt(amount), reference, costs });
+
+  it('takes what arrived and every cost off the source, once, so both places match their outside records', async () => {
+    await collect('10', 'c1');
+    const post = sweep('5.75', '0xsweep-cost-1');
+    await ledger.post(post);
+    await ledger.post(post);
+    // 7 left the venue account: 5.75 arrived at our wallet, the venue kept 1 and the network took 0.25.
+    expect(await bal(venueBuilderAccount(VENUE, 'USDC'))).toBe('-3');
+    expect(await bal(treasuryWallet('base:ops', 'USDC'))).toBe('-5.75');
+    expect(await bal(ownFundsCostAccount('venue-withdrawal-fee', VENUE, 'USDC'))).toBe('-1');
+    expect(await bal(ownFundsCostAccount('network-fee', 'test-chain', 'USDC'))).toBe('-0.25');
+    expect(ledger.journal().filter((t) => t.reason === 'treasury.own_funds.moved')).toHaveLength(1);
+    expect(post.meta).toMatchObject({
+      costs: [
+        { kind: 'venue-withdrawal-fee', paidTo: VENUE, amount: amt('1').toString() },
+        { kind: 'network-fee', paidTo: 'test-chain', amount: amt('0.25').toString() },
+      ],
+    });
+    // A cost is not a place of ours: it can never be moved again.
+    expect(isOwnFundsPlace(ownFundsCostAccount('network-fee', 'test-chain', 'USDC'))).toBe(false);
+    expect(isCustomerBalanceAccount(ownFundsCostAccount('network-fee', 'test-chain', 'USDC'))).toBe(false);
+  });
+
+  it('is refused whole when what arrived and its costs are more than the book shows at the source', async () => {
+    await collect('6', 'c1');
+    await expect(ledger.post(sweep('5', '0xsweep-cost-2'))).rejects.toBeInstanceOf(InsufficientFundsError);
+    expect(await bal(venueBuilderAccount(VENUE, 'USDC'))).toBe('-6');
+    expect(await bal(ownFundsCostAccount('venue-withdrawal-fee', VENUE, 'USDC'))).toBe('0');
+  });
+
+  it('refuses a zero, negative, unnamed or repeated cost, and keeps a move with none as it was', () => {
+    const one = (cost: Record<string, unknown>) => () => sweep('1', '0xr', [cost as never]);
+    expect(one({ kind: 'venue-withdrawal-fee', paidTo: VENUE, amount: 0n })).toThrow(InvalidEntryError);
+    expect(one({ kind: 'venue-withdrawal-fee', paidTo: VENUE, amount: -1n })).toThrow(InvalidEntryError);
+    expect(one({ kind: 'venue-withdrawal-fee', paidTo: 'Has Space', amount: 1n })).toThrow(InvalidEntryError);
+    expect(one({ kind: 'gas-tip', paidTo: VENUE, amount: 1n })).toThrow(InvalidEntryError);
+    expect(() => sweep('1', '0xr', [FEES[0]!, FEES[0]!])).toThrow(/twice/);
+    const plain = recipes.ownFundsMove({ from: BUILDER, to: WALLET, assetId: 'USDC', amount: amt('1'), reference: '0xr' });
+    expect(plain.entries).toHaveLength(2);
+    expect(plain.meta).not.toHaveProperty('costs');
+    expect(sweep('1', '0xr', []).entries).toEqual(plain.entries);
   });
 });
 

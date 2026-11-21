@@ -31,7 +31,7 @@ const SID = '99999999-9999-4999-8999-999999999999';
 const HOUR = 3_600_000;
 
 function caller(bank: BankServices, userId: string) {
-  const principal = { sub: userId, userId, sid: SID, scopes: ['bank:read', 'bank:write'], tier: 'full', mfa: true } as unknown as Principal;
+  const principal = { sub: userId, userId, sid: SID, scopes: ['bank:read', 'bank:write'], tier: 'full', mfa: true } as Principal;
   const raw = encodePrincipal({ ...principal, expiresAt: new Date(Date.now() + 60_000) } as Principal);
   const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
   return createBankRouter(bank).createCaller(

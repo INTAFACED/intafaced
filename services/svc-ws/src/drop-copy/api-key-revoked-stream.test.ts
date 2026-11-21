@@ -1,6 +1,6 @@
 import { TEST_AUTHORITY } from '../test-support/authority.js';
 import { createServer, request as httpRequest, type Server } from 'node:http';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { DropCopyHub } from './hub.js';
@@ -23,11 +23,15 @@ const tokens: TokenConfig = {
 type FlippingPort = LiveCredentialPort & {
   sessionRevoked: boolean;
   keyRevoked: boolean;
+  /** How many times the gateway has asked identity about a session or a key: each heartbeat asks once per seat. */
+  readonly checks: { session: number; key: number };
 };
 
 function flippingPort(): FlippingPort {
   const state = { sessionRevoked: false, keyRevoked: false };
+  const checks = { session: 0, key: 0 };
   return {
+    checks,
     get sessionRevoked() {
       return state.sessionRevoked;
     },
@@ -41,9 +45,11 @@ function flippingPort(): FlippingPort {
       state.keyRevoked = v;
     },
     async getSession(): Promise<OwnershipSnapshot> {
+      checks.session += 1;
       return { id: SESSION, userId: USER, revoked: state.sessionRevoked };
     },
     async getApiKey(): Promise<OwnershipSnapshot> {
+      checks.key += 1;
       return { id: KEY, userId: USER, revoked: state.keyRevoked };
     },
   };
@@ -135,19 +141,7 @@ describe('drop-copy stream drops when the API key is revoked', () => {
   }
 
   async function untilOpen(seat: { opened: boolean; closed: { code: number } | null }): Promise<void> {
-    await new Promise<void>((resolve) => {
-      const tick = setInterval(() => {
-        if (seat.opened || seat.closed) {
-          clearTimeout(timer);
-          clearInterval(tick);
-          resolve();
-        }
-      }, 10);
-      const timer = setTimeout(() => {
-        clearInterval(tick);
-        resolve();
-      }, 500);
-    });
+    await vi.waitFor(() => expect(seat.opened || seat.closed !== null).toBe(true), { timeout: 500 });
   }
 
   it('live key upgrades; revoked key refuses with 401', async () => {
@@ -160,12 +154,15 @@ describe('drop-copy stream drops when the API key is revoked', () => {
   });
 
   it('a still-live key stays open across heartbeats', async () => {
-    const { port: listen } = await boot(flippingPort(), 40);
+    const port = flippingPort();
+    const { port: listen } = await boot(port, 40);
     const token = await access(KEY);
     const seat = connect(listen, token);
     await untilOpen(seat);
     expect(seat.opened).toBe(true);
-    await new Promise<void>((resolve) => setTimeout(resolve, 200));
+    const asked = port.checks.key;
+    await vi.waitFor(() => expect(port.checks.key).toBeGreaterThanOrEqual(asked + 3), { timeout: 2_000 });
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(seat.closed).toBeNull();
     seat.ws.terminate();
   });
@@ -178,14 +175,7 @@ describe('drop-copy stream drops when the API key is revoked', () => {
     await untilOpen(seat);
     expect(seat.opened).toBe(true);
     port.keyRevoked = true;
-    await new Promise<void>((resolve) => {
-      if (seat.closed) {
-        resolve();
-        return;
-      }
-      seat.ws.once('close', () => resolve());
-      setTimeout(resolve, 2_000);
-    });
+    await vi.waitFor(() => expect(seat.closed).not.toBeNull(), { timeout: 2_000 });
     expect(seat.closed).not.toBeNull();
     expect(seat.closed!.code).toBe(CLOSE_UNAUTHORIZED);
     seat.ws.terminate();
@@ -203,16 +193,11 @@ describe('drop-copy stream drops when the API key is revoked', () => {
     expect(sessionSeat.opened).toBe(true);
     expect(keySeat.opened).toBe(true);
     port.keyRevoked = true;
-    await new Promise<void>((resolve) => {
-      if (keySeat.closed) {
-        resolve();
-        return;
-      }
-      keySeat.ws.once('close', () => resolve());
-      setTimeout(resolve, 2_000);
-    });
+    await vi.waitFor(() => expect(keySeat.closed).not.toBeNull(), { timeout: 2_000 });
     expect(keySeat.closed?.code).toBe(CLOSE_UNAUTHORIZED);
-    await new Promise<void>((resolve) => setTimeout(resolve, 200));
+    const asked = port.checks.session;
+    await vi.waitFor(() => expect(port.checks.session).toBeGreaterThanOrEqual(asked + 3), { timeout: 2_000 });
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(sessionSeat.closed).toBeNull();
     sessionSeat.ws.terminate();
     keySeat.ws.terminate();
@@ -226,14 +211,7 @@ describe('drop-copy stream drops when the API key is revoked', () => {
     await untilOpen(seat);
     expect(seat.opened).toBe(true);
     port.sessionRevoked = true;
-    await new Promise<void>((resolve) => {
-      if (seat.closed) {
-        resolve();
-        return;
-      }
-      seat.ws.once('close', () => resolve());
-      setTimeout(resolve, 2_000);
-    });
+    await vi.waitFor(() => expect(seat.closed).not.toBeNull(), { timeout: 2_000 });
     expect(seat.closed).not.toBeNull();
     expect(seat.closed!.code).toBe(CLOSE_UNAUTHORIZED);
     seat.ws.terminate();

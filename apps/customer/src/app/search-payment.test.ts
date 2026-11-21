@@ -23,7 +23,7 @@ const api = (answer: ApiResult<unknown>) => {
   const query = (async (...args: unknown[]) => {
     calls.push(args);
     return answer;
-  }) as unknown as ApiClient['query'];
+  }) as ApiClient['query'];
   return { client: { query }, calls };
 };
 const refused = (status: number, code?: string): ApiResult<unknown> => ({

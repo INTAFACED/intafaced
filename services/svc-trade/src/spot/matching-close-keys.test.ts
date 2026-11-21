@@ -8,7 +8,14 @@ import {
   type ServiceAuthMode,
   type ServiceSigner,
 } from '@intafaced/contracts';
-import { bindMatchingCloseS2s, closePositionOnMatching, createMatchingClient, postClosePosition } from './matching-close.js';
+import {
+  bindMatchingCloseS2s,
+  closePositionOnMatching,
+  createMatchingClient,
+  getNetPosition,
+  postClosePosition,
+  readNetPositionOnMatching,
+} from './matching-close.js';
 import { createMatchingClient as createPlainMatchingClient } from './matching-client.js';
 import { env } from '../env.js';
 
@@ -70,6 +77,17 @@ const calls: Array<(s2s?: { signer: ServiceSigner; mode: ServiceAuthMode }) => P
       bindMatchingCloseS2s(undefined);
     }
   },
+  // The position read the close is sized from (#4591): the same three routes.
+  (s2s) => getNetPosition('http://matching.test', SECRET, 'm-1', USER, s2s),
+  (s2s) => createMatchingClient('http://matching.test', SECRET, s2s).netPosition('m-1', USER),
+  async (s2s) => {
+    bindMatchingCloseS2s(s2s);
+    try {
+      return await readNetPositionOnMatching(createPlainMatchingClient('http://matching.test', SECRET), 'm-1', USER);
+    } finally {
+      bindMatchingCloseS2s(undefined);
+    }
+  },
 ];
 
 afterEach(() => {
@@ -119,6 +137,9 @@ describe('svc-trade -> svc-matching position close with its own key', () => {
       'POST /markets/m-1/positions/close',
       'POST /markets/m-1/positions/close',
       'POST /markets/m-1/positions/close',
+      `GET /markets/m-1/positions/${USER}`,
+      `GET /markets/m-1/positions/${USER}`,
+      `GET /markets/m-1/positions/${USER}`,
     ]);
     for (const s of sent) {
       // Moved to another path, another method, or another body: refused.

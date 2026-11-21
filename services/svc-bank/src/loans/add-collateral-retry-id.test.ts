@@ -66,22 +66,29 @@ describe('addCollateral pins eventId before MAX+1 sequence allocation', () => {
     expect(body).toMatch(/eventId/);
     expect(body).toMatch(/bank\.event_id_required/);
     expect(body).not.toMatch(/randomUUID/);
-    const lookupAt = body.indexOf('collateralEventById');
-    const nextAt = body.indexOf('nextCollateralSequence');
-    expect(lookupAt).toBeGreaterThan(-1);
-    expect(nextAt).toBeGreaterThan(lookupAt);
+    // No sequence is allocated here, outside any lock: lockCollateral takes it under the loan lock.
+    expect(body).toMatch(/collateralEventById/);
+    expect(body).not.toMatch(/nextCollateralSequence/);
     expect(src).toMatch(/FROM bank\.loan_collateral_events WHERE id =/);
   });
 
-  it('lockCollateral posts the claimed row sequence after ON CONFLICT (id)', () => {
+  it('lockCollateral re-reads by id and takes MAX+1 under the loan lock, and posts the claimed row sequence', () => {
     const src = readFileSync(join(here, 'loan-service.ts'), 'utf8');
     const lockAt = src.indexOf('private async lockCollateral(');
     const relAt = src.indexOf('private async releaseCollateral(', lockAt);
     const body = src.slice(lockAt, relAt);
     expect(lockAt).toBeGreaterThan(-1);
-    expect(body).toMatch(/ON CONFLICT \(id\) DO NOTHING/);
-    expect(body).not.toMatch(/ON CONFLICT \(loan_id, sequence\)/);
-    expect(body).toMatch(/let postSequence = sequence/);
+    // ON CONFLICT (id) alone raises 23505 on loan_collateral_events_seq_idx when two calls race.
+    const lockRowAt = body.indexOf('FROM bank.loans WHERE id = ${loan.id} FOR UPDATE');
+    const byIdAt = body.indexOf('FROM bank.loan_collateral_events WHERE id = ${eventId}');
+    const maxAt = body.indexOf('MAX(sequence) + 1');
+    const insertAt = body.indexOf('INSERT INTO bank.loan_collateral_events');
+    expect(lockRowAt).toBeGreaterThan(-1);
+    expect(byIdAt).toBeGreaterThan(lockRowAt);
+    expect(maxAt).toBeGreaterThan(byIdAt);
+    expect(insertAt).toBeGreaterThan(maxAt);
+    expect(body).toMatch(/ON CONFLICT DO NOTHING/);
+    expect(body).not.toMatch(/ON CONFLICT \(id\)/);
     expect(body).toMatch(/postSequence = Number\(row\.sequence\)/);
     expect(body).toMatch(/sequence: postSequence/);
   });
@@ -288,35 +295,13 @@ describe('LoanService.addCollateral — timed-out retry is one lock', () => {
       const locksAtOpen = lockCount(ledger);
       const eventId = randomUUID();
 
-      type Sequencer = { nextCollateralSequence: (loanId: string) => Promise<number> };
-      const loans = bank.loans as unknown as Sequencer;
-      if (typeof loans.nextCollateralSequence !== 'function') {
-        throw new Error('nextCollateralSequence missing — overlap harness cannot force distinct sequences');
-      }
-      const origNext = loans.nextCollateralSequence.bind(bank.loans);
-      let nextHits = 0;
-      let firstAtNext!: () => void;
-      const firstReachedNext = new Promise<void>((resolve) => {
-        firstAtNext = resolve;
+      // The first call to reach the ledger is held there, its claim row committed and not yet settled. The
+      // second call then claims: it waits on the loan lock, finds the row by id, and re-drives the same
+      // idempotent post (ledger key loanId:sequence).
+      let firstAtPost!: () => void;
+      const firstReachedPost = new Promise<void>((resolve) => {
+        firstAtPost = resolve;
       });
-      let bothAtNext!: () => void;
-      const bothReachedNext = new Promise<void>((resolve) => {
-        bothAtNext = resolve;
-      });
-      let loserMayAllocate!: () => void;
-      const loserAllowed = new Promise<void>((resolve) => {
-        loserMayAllocate = resolve;
-      });
-      loans.nextCollateralSequence = async (loanId: string) => {
-        const place = ++nextHits;
-        if (place === 1) firstAtNext();
-        if (place === 2) bothAtNext();
-        await bothReachedNext;
-        if (place === 1) return origNext(loanId);
-        await loserAllowed;
-        return origNext(loanId);
-      };
-
       const innerPost = ledger.post.bind(ledger);
       let firstTopUpSeen = false;
       let releaseFirstPost!: () => void;
@@ -326,17 +311,17 @@ describe('LoanService.addCollateral — timed-out retry is one lock', () => {
       ledger.post = async (request) => {
         if (!firstTopUpSeen && isTopUpLock(request)) {
           firstTopUpSeen = true;
-          loserMayAllocate();
+          firstAtPost();
           await firstPostHeld;
         }
         return innerPost(request);
       };
 
       const arrivingFirst = bank.loans.addCollateral({ loanId: opened.loan.id, eventId, amount: amt('1'), now: NOW });
-      await firstReachedNext;
+      await firstReachedPost;
       const arrivingSecond = bank.loans.addCollateral({ loanId: opened.loan.id, eventId, amount: amt('1'), now: NOW });
       const [first, second] = heldCaller === 'first' ? [arrivingFirst, arrivingSecond] : [arrivingSecond, arrivingFirst];
-      // The held post belongs to whichever call reaches the sequencer first.
+      // The held post belongs to whichever call reaches the ledger first.
       // Waiting for a named caller can wait on that very post under CI scheduling.
       // The other retry can finish the shared claim; release the held post once
       // either caller completes, then compare both receipts and all money facts.

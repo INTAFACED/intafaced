@@ -1,10 +1,11 @@
 import { useId, useMemo, useState, type FormEvent } from 'react';
-import { apiKeyCallsOutputSchema, type ApiKeyCallsInput, type ApiKeyCallsOutput } from '@intafaced/contracts/api-keys';
+import { type ApiKeyCallsInput, type ApiKeyCallsOutput } from '@intafaced/contracts/api-keys';
+import { IDENTITY_DEVELOPER_KEYS_CALLS } from '@intafaced/contracts/identity-developer-keys-procedures';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 
 const copy = defineCopy('api-key-call-log', {
   title: 'Call log',
@@ -34,7 +35,7 @@ export const CALL_LOG_STATUSES = [200, 201, 204, 400, 401, 403, 404, 409, 422, 4
 type Filter = Pick<ApiKeyCallsInput, 'status' | 'from' | 'to'>;
 
 export const readKeyCalls = (api: ApiClient, keyId: string, filter: Filter, signal: AbortSignal): Promise<ApiResult<ApiKeyCallsOutput>> =>
-  api.query('identity', 'developerKeys.calls', { keyId, limit: CALL_LOG_LIMIT, ...filter }, apiKeyCallsOutputSchema, { signal });
+  api.call(IDENTITY_DEVELOPER_KEYS_CALLS, { keyId, limit: CALL_LOG_LIMIT, ...filter }, { signal });
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 

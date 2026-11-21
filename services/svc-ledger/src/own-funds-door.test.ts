@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { createServiceSigner, createServiceVerifier, type Keyring, type ServiceName } from '@intafaced/contracts';
 import { parseAmount as amt } from '@intafaced/ledger-client';
-import { LEDGER_DOOR_CALLERS } from './door-callers.js';
+import { LEDGER_DOOR_CALLERS } from '@intafaced/ledger-client/gate';
 import { registerS2sHttp } from './s2s-http.js';
 import type { LedgerService } from './service.js';
 
@@ -43,7 +43,7 @@ async function mount(asked: { feeRevenue: unknown[]; other: number }) {
         };
       },
     },
-  ) as unknown as LedgerService;
+  ) as LedgerService;
   const app = Fastify({ logger: false });
   registerS2sHttp(app, ledger, SHARED, {
     bodyBind: 'require',

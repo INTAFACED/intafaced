@@ -1,9 +1,13 @@
+import type { VenueStatements } from './venue/venue-statements.js';
+import { attachApiKeyRotationRoutes, type ApiKeyRotationClient } from './account/api-key-rotation-rest.js';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, tradeTier, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
 import { attachConvertRestRoutes, type ConvertRestPort } from './convert/convert-rest.js';
 import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
 import { refuseLeadOrder, type LeadOrderGate } from './copy/lead-api.js';
+import { CopyError } from './copy/errors.js';
+import type { LeadTrading } from './copy/lead-trading.js';
 import { attachCopyExportRoute } from './copy/copy-export-rest.js';
 import { attachAlgoRestRoutes, type AlgoRestPort } from './algo/algo-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
@@ -96,17 +100,24 @@ import { createBodyRefusal } from './create-body-refusal.js';
 import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from './spot/matching-client.js';
 import { privateRead, privateWith, privateWrite, publicRead } from './route-inventory.js';
 import { attachGridRestRoutes } from './grid/grid-rest.js';
-import { attachUserVenueRoutes } from './venue/user-venue-rest.js';
+import { attachUserVenueRoutes, type UserVenueRestDeps } from './venue/user-venue-rest.js';
+import type { VenueAdlAcks } from './venue/venue-adl-acks.js';
 import { attachAgentAccountRoutes } from './venue/agent-account-rest.js';
+import type { AgentActivity } from './venue/agent-order-calls.js';
+import type { OwnAgentRebalance } from './venue/own-agent-rebalance.js';
 import { attachOwnAgentTradingRoutes } from './venue/own-agent-trading-rest.js';
+import { attachProtectionRoutes } from './venue/protections-rest.js';
+import type { VenueProtections } from './venue/protections.js';
+import { attachSpotConditionalRoutes } from './venue/spot-conditionals-rest.js';
+import type { VenueSpotConditionals } from './venue/spot-conditionals.js';
 import { attachLiveRunRoutes } from './quant/live-run/rest.js';
 import type { LiveRuns } from './quant/live-run/live-runs.js';
 import type { OwnAgentTrading } from './venue/own-agent-trading.js';
 import type { AgentAccounts } from './venue/agent-account.js';
 import type { AgentOrders } from './venue/agent-orders.js';
-import type { UserVenueDoor } from './venue/user-venue-door.js';
 import type { UserVenueRouter } from './venue/venue-router.js';
 import type { VenueSellQuotes } from './venue/venue-sell-quotes.js';
+import type { VenueConverts } from './venue/venue-convert.js';
 import type { GridService } from './grid/grid-service.js';
 
 /**
@@ -195,6 +206,8 @@ function isSpotOrderType(type: string): type is (typeof SPOT_ORDER_TYPES)[number
 const ORDER_ID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface PrivateRestDeps {
+  /** A key's own rotation request, passed to identity (account/api-key-rotation-rest.ts, J-developer-07 #3). */
+  apiKeyRotation?: ApiKeyRotationClient;
   /** Shared EDGE_PRINCIPAL_SECRET — same value tRPC uses. */
   edgeSecret: string;
   edgeTrust?: EdgeTrust;
@@ -211,22 +224,42 @@ export interface PrivateRestDeps {
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
   /** The lead API's own check before the ordinary order path (`copy/lead-api.ts`). Absent: the lead API answers 503. */
   leadOrderGate?: LeadOrderGate;
+  /** A listed lead's web orders with the lead switch (copy/lead-trading.ts); absent: the switch refuses `trade.copy_unavailable`. */
+  leadTrading?: Pick<LeadTrading, 'decide' | 'record'>;
   /** The spot grid bot service behind `/api/v1/bots/grid` (J-copy-bots-otc-19). Omitted: every grid door answers 503. */
   grid?: GridService;
   /** The B1 user-venue door; `null` or absent when TRADE_USER_VENUE_URL is unset (status answers `{ enabled: false }`). */
   userVenue?: UserVenueRouter | null;
   /** The owner's market price protection, TRADE_MARKET_SLIPPAGE_CAP_BPS (null when blank), as `/venue/best-prices` answers it. */
   userVenueSlippageCapBps?: number | null;
+  /** The owner's spread limit for a venue spot market order, TRADE_MARKET_SPREAD_LIMIT_BPS (null when blank). */
+  userVenueSpreadLimitBps?: number | null;
   /** J-agents-21's agent account beside the door (src/venue/agent-account.ts); null when the door is off. */
   agentAccounts?: AgentAccounts | null;
   /** The assistant's trade path on its agent account (J-agents-21 #6 #7 #10). Off with the door. */
   agentOrders?: AgentOrders | null;
+  /** The assistant connection's Activity (J-agents-21 #11). Off with the door. */
+  agentActivity?: AgentActivity | null;
   /** A person's own agent trading their venue sub-account under an allowance (J-agents-08 #3 to #7). Off with the door. */
   ownAgentTrading?: OwnAgentTrading | null;
+  /** The Portfolio planner's rebalance of that sub-account, proposed, approved or rejected (J-agents-18 #1 #2). Off with the door. */
+  ownAgentRebalance?: OwnAgentRebalance | null;
+  /** A position's protections on the person's own venue account (J-derivatives-03); off with the door. */
+  venueProtections?: VenueProtections | null;
+  /** Conditional spot orders on the person's own venue account (J-cex-spot-08); off with the door. */
+  venueSpotConditionals?: VenueSpotConditionals | null;
   /** Live strategy runs (J-algo-dev-07); null with the user-venue door off. */
   liveRuns?: LiveRuns | null;
   /** Convert's sell quotes priced by the venue (J-cex-spot-17 #8); absent with the door. */
   venueSellQuotes?: VenueSellQuotes | null;
+  /** Convert on the customer's own venue account (J-cex-spot-11); absent, its routes refuse `trade.venue_convert_unwired`. */
+  venueConverts?: VenueConverts | null;
+  /** The statement export on the venue's own records (J-cex-spot-07 #5). Absent: its routes answer 503. */
+  venueStatements?: VenueStatements | null;
+  /** Each person's acknowledged version of a venue's auto-deleveraging rules (J-derivatives-07 #5). */
+  venueAdlAcks?: VenueAdlAcks | null;
+  /** One person's builder fees on one venue account with their ledger transactions (J-derivatives-12 #4). */
+  venueBuilderFees?: UserVenueRestDeps['builderFeesOf'];
   /** The algo engine's calls (CB-execution-08). Absent: every `/api/v1/algo` door answers 503 `trade.algo_unavailable`. */
   algo?: AlgoRestPort;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
@@ -275,7 +308,7 @@ export interface PrivateRestDeps {
   orderFills?(principal: Principal, orderId: string, limit: number): Promise<FillRecord[]>;
   /**
    * Every fill of several of the caller's orders, keyed by order id, so an order's `cost`, `average` and `fee` are what
-   * its fills paid (#4677). Unset: the order wire keeps its price × filled estimate.
+   * its fills paid. Unset: the order wire keeps its price × filled estimate.
    */
   ordersFills?(principal: Principal, orderIds: readonly string[]): Promise<ReadonlyMap<string, readonly FillRecord[]>>;
   /** Every amend and replace of one order, oldest first. Unset mounts a typed 503, never an empty list. */
@@ -452,10 +485,10 @@ export interface PrivateRestDeps {
  * FIELDS A CALLER MAY NOT SET, BECAUSE THEY MOVE MONEY.
  *
  * `docs/adr/2026-08-05-futures-risk-and-mark-law.md`: a price that moves money
- * is never supplied by the party it pays. These used to be read straight off the
+ * is never supplied by the party it pays. Were these read straight off the
  * request — `entryPrice` from the POST body, `exitPrice` from the DELETE query —
- * and `exitPrice` alone decided the realised PnL that `futuresRealizeProfit`
- * then paid out of a house pot.
+ * `exitPrice` alone would decide the realised PnL that `futuresRealizeProfit`
+ * then pays out of a house pot.
  *
  * Presence is REFUSED, not ignored. Silently substituting the real mark would
  * give a caller different behaviour from the one they asked for and no way to
@@ -612,7 +645,7 @@ export function presentCcxtOrderCost(order: OrderRecord, fills?: readonly Pick<F
 }
 
 /**
- * What an order's fills paid (#4677): `cost` Σ quote, `average` cost ÷ filled, `fee` Σ fee when every fill paid it in
+ * What an order's fills paid: `cost` Σ quote, `average` cost ÷ filled, `fee` Σ fee when every fill paid it in
  * one asset (else null, with each asset's sum in `fees`). Fills that do not add up to the order's filled quantity (a
  * fill not yet landed) state nothing: all null, never a partial sum. `null` fills (a failed read) state nothing too.
  */
@@ -641,7 +674,7 @@ export function presentCcxtOrderPaid(
 }
 
 /**
- * The caller's fills of these orders, read once, so the wire states what each order paid (#4677). No reader: undefined
+ * The caller's fills of these orders, read once, so the wire states what each order paid. No reader: undefined
  * (the wire keeps its estimate). A failed read states nothing rather than failing the orders read: each filled order's
  * cost, average and fee read null.
  */
@@ -1347,6 +1380,16 @@ function presentReplaceOutcome(outcome: ReplaceOrderOutcome, originalSymbol: str
  * Returns null when the error is not one we recognise, so the caller rethrows
  * and it surfaces as a real 500 rather than a relabelled retry instruction.
  */
+/**
+ * The lead switch a listed lead's order carries (`lead: true` or `false`, J-copy-bots-otc-04): undefined when the body
+ * has none, so every other order is untouched. Anything but a boolean reads as no switch.
+ */
+function readLeadSwitch(body: unknown): boolean | undefined {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  const lead = (body as Record<string, unknown>).lead;
+  return typeof lead === 'boolean' ? lead : undefined;
+}
+
 function sendDomainError(reply: FastifyReply, err: unknown): FastifyReply | null {
   if (err instanceof OpenOrdersLimitUnsetError) {
     return sendCcxt(reply, badRequest(err.message, err.code));
@@ -1406,6 +1449,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   attachAlgoRestRoutes(app, deps.algo, { requirePrincipal, requireTradeJurisdiction });
   attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
   attachStatementRoutes(app, deps.statements, requirePrincipal);
+  attachApiKeyRotationRoutes(app, deps.apiKeyRotation, requirePrincipal);
 
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.
@@ -1437,7 +1481,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   const agentKeyConfined = agentOrders ? (p: Principal) => agentOrders.confined(p) : undefined;
   attachUserVenueRoutes(app, deps.userVenue ?? null, {
     requirePrincipal,
-    // The venue holds the person's own funds, not ours: the trading checks' clear (`trd`) opens it, as OWNER 258 (4)
+    // The venue holds the person's own funds, not ours: the trading checks' clear (`trd`) opens it, as the owner
     // decided. Every custodial route above keeps reading the approved level alone.
     requireTradeJurisdiction: (req, reply, principal) => requireTradeJurisdiction(req, reply, principal, tradeTier(principal)),
     // J-derivatives-01 #2: the same region and level check, read as a reason on the gated list instead of a refusal.
@@ -1446,12 +1490,40 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return decision.allowed ? null : { code: decision.code, message: decision.reason };
     },
     slippageCapBps: deps.userVenueSlippageCapBps ?? null,
+    spreadLimitBps: deps.userVenueSpreadLimitBps ?? null,
     sellQuotes: deps.venueSellQuotes ?? null,
+    converts: deps.venueConverts ?? null,
+    venueStatements: deps.venueStatements ?? null,
+    venueAdlAcks: deps.venueAdlAcks ?? null,
+    builderFeesOf: deps.venueBuilderFees ?? null,
     agentKeyConfined,
   });
-  attachAgentAccountRoutes(app, deps.agentAccounts ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined }, agentOrders);
-  attachOwnAgentTradingRoutes(app, deps.ownAgentTrading ?? null, { requirePrincipal, requireTradeJurisdiction, agentKeyConfined });
+  attachAgentAccountRoutes(
+    app,
+    deps.agentAccounts ?? null,
+    { requirePrincipal, requireTradeJurisdiction, agentKeyConfined },
+    agentOrders,
+    deps.agentActivity ?? null,
+  );
+  attachOwnAgentTradingRoutes(
+    app,
+    deps.ownAgentTrading ?? null,
+    { requirePrincipal, requireTradeJurisdiction, agentKeyConfined },
+    deps.ownAgentRebalance ?? null,
+  );
   attachLiveRunRoutes(app, deps.liveRuns ?? null, {
+    requirePrincipal,
+    requireTradeJurisdiction,
+    agentKeyConfined,
+    regionOf: (req) => contextFrom(req).region,
+  });
+  attachProtectionRoutes(app, deps.venueProtections ?? null, {
+    requirePrincipal,
+    requireTradeJurisdiction,
+    agentKeyConfined,
+    regionOf: (req) => contextFrom(req).region,
+  });
+  attachSpotConditionalRoutes(app, deps.venueSpotConditionals ?? null, {
     requirePrincipal,
     requireTradeJurisdiction,
     agentKeyConfined,
@@ -2215,8 +2287,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   /**
    * Close a position at the CURRENT MARK.
    *
-   * `?exitPrice=` used to be required here and was the whole realised PnL — the
-   * trader named the number the platform paid them. It is now refused.
+   * `?exitPrice=` is refused: were it read, it would be the whole realised PnL —
+   * the trader would name the number the platform paid them.
    */
   app.delete<{ Params: { id: string }; Querystring: Record<string, string | undefined> }>(
     '/api/v1/positions/:id',
@@ -2944,7 +3016,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         if (wire.executionOutcome !== null) {
           results.push({ ...base, status: 'unknown', order: wire, evidence: wire.executionOutcome });
         } else if (order.status === 'open' || order.status === 'pending' || order.status === 'recovery_required') {
-          // The order stays with its hold until a fill the engine matched lands (#6874): not a success to re-place on.
+          // The order stays with its hold until a fill the engine matched lands: not a success to re-place on.
           results.push({
             ...base,
             status: 'unknown',
@@ -3066,6 +3138,36 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;
+    }
+
+    // A listed lead's order sent with the lead switch (J-copy-bots-otc-04 #5 to #7): decided and recorded under its own
+    // order id before it is placed, so a refusal places nothing and a not-lead order is never copied (copy/lead-trading.ts).
+    const leadSwitch = readLeadSwitch(rawBody);
+    if (leadSwitch !== undefined) {
+      try {
+        if (!deps.leadTrading) throw new CopyError('lead trading is not mounted', 'trade.copy_unavailable');
+        // A web order names its market by symbol; the order id is keyed by the market's id, as the stop path keys it.
+        const marketId = input.marketId ?? icebergMarketId ?? (await deps.marketBySymbol(parsed.data.symbol))?.id;
+        if (!marketId) throw new TradeError(`market ${parsed.data.symbol} not found`, 'trade.market_not_found');
+        if (!input.clientOrderId) throw new CopyError('a lead trade needs its client order id', 'trade.copy_unavailable');
+        const ask = {
+          orderId: orderIdFor(principal.userId, marketId, input.clientOrderId),
+          symbol: parsed.data.symbol,
+          side: parsed.data.side,
+          price: parsed.data.price ? parseAmount(parsed.data.price) : null,
+          amount: parseAmount(parsed.data.amount),
+          iceberg: displayQty !== null,
+          lead: leadSwitch,
+        };
+        const decision = await deps.leadTrading.decide(principal, ask);
+        if (decision) await deps.leadTrading.record(principal, ask, decision);
+      } catch (err) {
+        // A lead refusal names its own code, as the order's other refusals do: nothing is held or placed.
+        if (err instanceof CopyError) return sendCcxt(reply, badRequest(err.message, err.code));
+        const sent = sendDomainError(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
     }
 
     try {
@@ -3489,10 +3591,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     const order = deps.findClientOrder
       ? await deps.findClientOrder(principal, { marketId: market.id, symbol, clientOrderId: req.params.clientOrderId })
       : null;
-    if (!order) {
-      throw new TradeError('order not found', 'trade.order_not_found');
-      return null;
-    }
+    // Not found throws: both callers answer it through sendDomainError as a 404 trade.order_not_found.
+    if (!order) throw new TradeError('order not found', 'trade.order_not_found');
     return order;
   }
 

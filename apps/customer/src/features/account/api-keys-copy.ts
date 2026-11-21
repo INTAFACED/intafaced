@@ -169,6 +169,8 @@ const messages = {
     'An agent key cannot hold refund, payout, withdrawal or settings permissions. Remove them and try again. Nothing was created.',
   accountOwn: 'This account',
   'refused.identity.delegated_refused': 'Sign in on this device. An API key or a sub-account cannot make keys.',
+  'refused.identity.account_frozen_self':
+    'You froze this account, so no new API key can be made. Nothing was created. Reactivate it in Security first.',
   colActions: 'Actions',
   revoke: 'Revoke',
   revokeTitle: 'Revoke this key',

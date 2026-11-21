@@ -1,8 +1,7 @@
 /** Browser hop for certificate designs and the issued list. Same-origin BFF only; the CSRF nonce is fetched per change. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { CertDeskReply, CertDesignsView, IssuedCertsView } from './cert-designs-model';
-
-const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+import { isRecord } from '@intafaced/contracts/guards';
 
 async function read<T>(query: string, ok: (body: Record<string, unknown>) => boolean): Promise<T | null> {
   try {

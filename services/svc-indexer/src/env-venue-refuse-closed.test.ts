@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SECRET = 's'.repeat(32);
@@ -75,9 +76,7 @@ describe('svc-indexer INDEXER_VENUE_ADDRESS refuse-closed', () => {
 
   it('compose empty-passes INDEXER_VENUE_ADDRESS', () => {
     const compose = readFileSync(COMPOSE, 'utf8');
-    const match = compose.match(/^  svc-indexer:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-    if (!match) throw new Error('svc-indexer service block missing from docker-compose.apps.yml');
-    const block = match[0];
+    const block = composeServiceBlock(compose, 'svc-indexer');
     expect(block).toMatch(/INDEXER_VENUE_ADDRESS:\s*\$\{INDEXER_VENUE_ADDRESS:-\}/);
     expect(block).not.toMatch(/INDEXER_VENUE_ADDRESS:.*0x0116/);
   });

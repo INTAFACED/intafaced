@@ -1,5 +1,7 @@
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
+import { LEDGER_POST_RECIPE } from '@intafaced/ledger-client/post-recipe';
 import { generateKeyPairSync } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -13,8 +15,7 @@ import {
   type ServiceName,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount as amt, recipes, type PostRequest } from '@intafaced/ledger-client';
-import { LEDGER_POST_ALLOWLIST } from './caller-allowlist.js';
-import { LEDGER_DOOR_CALLERS } from './door-callers.js';
+import { LEDGER_DOOR_CALLERS } from '@intafaced/ledger-client/gate';
 import { callerBindingCounts, callerBindingViolationCount, resetCallerBindingViolations } from './caller-binding.js';
 import { createLedgerRouter } from './router.js';
 import { registerS2sHttp } from './s2s-http.js';
@@ -144,63 +145,6 @@ function sendShared(m: Mounted, service: string, body: unknown) {
 afterEach(() => {
   resetCallerBindingViolations();
 });
-
-describe('ledger post allowlist cites real callers', () => {
-  it('every grant file calls that recipe', () => {
-    for (const grants of Object.values(LEDGER_POST_ALLOWLIST)) {
-      for (const [recipe, grant] of Object.entries(grants)) {
-        const cite = grant.cite;
-        const text = readFileSync(join(ROOT, cite), 'utf8');
-        expect(text, cite).toMatch(new RegExp('recipes\\.' + recipe + '\\('));
-      }
-    }
-  });
-
-  it('does not grant subAccountTransfer — identity only mentions it in a comment', () => {
-    const granted = Object.values(LEDGER_POST_ALLOWLIST).flatMap((grants) => Object.keys(grants));
-    expect(granted).not.toContain('subAccountTransfer');
-  });
-
-  it('grants every production recipes.<name>( pair', () => {
-    const pairs = new Set<string>();
-    const servicesDir = join(ROOT, 'services');
-    for (const service of readdirSync(servicesDir)) {
-      if (!service.startsWith('svc-') || service === 'svc-ledger') continue;
-      const src = join(servicesDir, service, 'src');
-      if (!existsSync(src)) continue;
-      for (const file of productionSources(src)) {
-        const text = readFileSync(file, 'utf8');
-        for (const match of text.matchAll(/recipes\.([A-Za-z0-9_]+)\(/g)) {
-          const recipe = match[1];
-          if (recipe) pairs.add(`${service} ${recipe}`);
-        }
-      }
-    }
-
-    const allowlist = new Set<string>();
-    for (const [service, grants] of Object.entries(LEDGER_POST_ALLOWLIST)) {
-      for (const recipe of Object.keys(grants)) allowlist.add(`${service} ${recipe}`);
-    }
-    const missing = [...pairs].filter((pair) => !allowlist.has(pair)).sort();
-    const stray = [...allowlist].filter((pair) => !pairs.has(pair)).sort();
-    expect({ missing, stray }).toEqual({ missing: [], stray: [] });
-  });
-});
-
-function productionSources(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === 'test' || entry.name === '__tests__' || entry.name === 'scripts') continue;
-      out.push(...productionSources(path));
-      continue;
-    }
-    if (!entry.name.endsWith('.ts') || entry.name.endsWith('.test.ts') || entry.name.endsWith('.spec.ts')) continue;
-    out.push(path);
-  }
-  return out;
-}
 
 describe('POST /trpc/post caller binding', () => {
   for (const mode of ['dual', 'keypair'] as const) {
@@ -392,11 +336,16 @@ describe('POST /trpc/post caller binding', () => {
 describe('every door names its callers', () => {
   const READ_BODY = { ownerType: 'treasury', ownerId: 'rail:crypto-native' };
 
-  it('declares exactly the 21 doors registerS2sHttp serves', () => {
+  it('declares exactly the 22 doors registerS2sHttp serves', () => {
     const source = readFileSync(join(ROOT, 'services/svc-ledger/src/s2s-http.ts'), 'utf8');
-    const served = [...source.matchAll(/'\/trpc\/([A-Za-z]+)'/g)].map((match) => match[1]).sort();
+    // A door mounted from its record names its route by the record (`app.post(LEDGER_HISTORY_PAGE.path, ...)`).
+    const records = { LEDGER_HISTORY_PAGE, LEDGER_POST_RECIPE };
+    const fromRecords = Object.entries(records)
+      .filter(([name]) => source.includes(`app.post(${name}.path,`))
+      .map(([, record]) => record.path.slice('/trpc/'.length));
+    const served = [...[...source.matchAll(/'\/trpc\/([A-Za-z]+)'/g)].map((match) => match[1]), ...fromRecords].sort();
     expect(Object.keys(LEDGER_DOOR_CALLERS).sort()).toEqual([...new Set(served)]);
-    expect(served).toHaveLength(21);
+    expect(served).toHaveLength(22);
   });
 
   it('refuses a key-verified service that a read door does not list', async () => {

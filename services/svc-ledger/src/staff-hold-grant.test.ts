@@ -3,8 +3,7 @@ import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { createServiceSigner, createServiceVerifier, type Keyring, type ServiceName } from '@intafaced/contracts';
 import { formatAmount, parseAmount as amt, recipes, type PostRequest } from '@intafaced/ledger-client';
-import { LEDGER_POST_ALLOWLIST, grantFor, modulesFor } from './caller-allowlist.js';
-import { LEDGER_DOOR_CALLERS } from './door-callers.js';
+import { LEDGER_POST_ALLOWLIST, grantFor, modulesFor, LEDGER_DOOR_CALLERS } from '@intafaced/ledger-client/gate';
 import { registerS2sHttp } from './s2s-http.js';
 import type { LedgerService } from './service.js';
 

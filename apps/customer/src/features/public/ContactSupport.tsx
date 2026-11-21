@@ -1,9 +1,7 @@
-import { useSession } from '../session/session';
-import { useSupportContact } from '../more/support-contact';
-import { supportMailto } from '../more/support-desk';
+import { useSession } from '../session';
+import { chatCopy, supportMailto, useSupportContact } from '../more';
 import { contactCopy } from './contact-copy';
-import { chatCopy } from '../more/support-chat-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 /**
  * How to reach a person without signing in. The support service only takes requests from a signed-in account and has no public

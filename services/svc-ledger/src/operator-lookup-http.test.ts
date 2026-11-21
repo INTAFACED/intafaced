@@ -49,7 +49,7 @@ async function seeded(opts: { failAccess?: boolean; failRead?: boolean; lie?: bo
     },
     readBookingRecord: async (id: string) =>
       id === tx.id ? { seq: '1', bookedAt: tx.postedAt.toISOString(), reference: tx.id, event: null } : null,
-  } as unknown as LedgerService;
+  } as LedgerService;
   const app: FastifyInstance = Fastify({ logger: false });
   registerOperatorHttp(app, ledger, tokens, stubApprovalConsumer(CONFIRM));
   await app.ready();

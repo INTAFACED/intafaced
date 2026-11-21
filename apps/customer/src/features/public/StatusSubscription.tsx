@@ -12,7 +12,7 @@ import {
   type StatusPage,
 } from './status';
 import { statusSubscribeCopy } from './status-subscribe-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 import './status-page.css';
 
 type View = ContractData<typeof statusSubscriptionGet>;

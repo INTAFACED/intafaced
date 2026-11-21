@@ -94,7 +94,7 @@ describe('locked campaign reward bound to its posted lock (Postgres)', () => {
       post: (req: PostRequest) => engine.post(req),
       getTxByKey: (key: string) => engine.getTxByKey(key),
       balance: (ref: Parameters<PostgresLedger['balance']>[0]) => engine.balance(ref),
-    } as unknown as LedgerService;
+    } as LedgerService;
     // A rewards engine funded the way production funds it, and another reward's pot holding 500.
     await engine.post(recipes.deposit({ userId: PAYER, assetId: 'USDT', amount: amt('5000'), rail: 'test', railRef: 'pot' }));
     await engine.post(

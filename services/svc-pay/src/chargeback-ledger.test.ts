@@ -8,6 +8,7 @@ import {
   parseAmount as amt,
   recipes,
   railBoundary,
+  type LedgerClient,
 } from '@intafaced/ledger-client';
 import {
   chargebackKeys,
@@ -224,4 +225,44 @@ describe('postDisputeOpening — ledger-client only', () => {
     expect(opened.ledgerWire).toBe('refused');
     expect(opened.ledgerRefuse?.code).toBe(CHARGEBACK_LEDGER_UNCOVERED_CODE);
   });
+});
+
+describe('chargeback posts check the ledger receipt', () => {
+  /** A ledger that answers every post with an earlier, unrelated transaction: the foreign receipt the check exists for. */
+  async function foreignReceiptLedger(): Promise<LedgerClient> {
+    const inner = new MemoryLedger();
+    const foreign = await inner.post(
+      recipes.paymentCapture({
+        paymentId: 'pay-foreign',
+        merchantId: MERCHANT,
+        assetId: 'USDT',
+        amount: amt('5'),
+        rail: RAIL,
+        railRef: 'ch_pay-foreign',
+      }),
+    );
+    return Object.assign(Object.create(inner) as LedgerClient, { post: async () => foreign });
+  }
+  const open = {
+    disputeId: 'dsp-foreign',
+    paymentId: PAYMENT,
+    merchantId: MERCHANT,
+    merchantUserId: MERCHANT_USER,
+    assetId: 'USDT',
+    rail: RAIL,
+    fromClearing: amt('10'),
+    fromMerchantBalance: amt('0'),
+  };
+  const short = { disputeId: 'dsp-foreign', paymentId: PAYMENT, merchantId: MERCHANT, assetId: 'USDT', rail: RAIL, amount: amt('3') };
+  const cases: [string, (ledger: LedgerClient) => Promise<unknown>][] = [
+    ['opening', (l) => postDisputeOpening(l, open)],
+    ['shortfall', (l) => postDisputeShortfall(l, short)],
+    ['won', (l) => postDisputeWon(l, open)],
+    ['shortfall recovered', (l) => postDisputeShortfallRecovered(l, short)],
+  ];
+  for (const [name, post] of cases) {
+    it(`refuses a foreign receipt for the ${name} post instead of reading it as booked`, async () => {
+      await expect(post(await foreignReceiptLedger())).rejects.toMatchObject({ code: 'pay.ledger_receipt_mismatch' });
+    });
+  }
 });

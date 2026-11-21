@@ -17,7 +17,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { registerOperatorHttp } from './operator-http.js';
 import { stubApprovalConsumer } from './ledger/action-approval-consume.js';
-import { RECIPE_REQUIRED_CODE } from './recipe-gate.js';
+import { RECIPE_REQUIRED_CODE } from '@intafaced/ledger-client/gate';
 import { registerS2sHttp } from './s2s-http.js';
 import type { LedgerService } from './service.js';
 

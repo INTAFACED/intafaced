@@ -1,4 +1,12 @@
 import { keyRateLimitSchema } from '@intafaced/contracts/api-rate-limits';
+import {
+  IDENTITY_ME,
+  IDENTITY_USERS_PAYEE_CARD,
+  IDENTITY_USERS_RESOLVE_HANDLE,
+  IDENTITY_USERS_SEARCH_PAYEES,
+} from '@intafaced/contracts/identity-handles';
+import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal, signedInUser } from './record-refusal.js';
 import { SecurityLockError } from './auth/security-lock.js';
 import { SignInChallengeError, type SignInAdmission, type SignInChallengeService } from './auth/signin-challenge.js';
 import { createKycLevelsRouter } from './kyc/levels-router.js';
@@ -28,16 +36,14 @@ import {
   kycPoaSubmissionSchema,
   kycPoaSubmitInputSchema,
 } from '@intafaced/contracts/identity-kyc-poa';
+import { kycProfileDraftExactSchema, kycProfileSaveStepInputSchema } from '@intafaced/contracts/identity-kyc-profile';
 import {
-  kycDocumentTypesInputSchema,
-  kycDocumentTypesSchema,
-  kycProfileDraftSchema,
-  kycProfileSaveStepInputSchema,
-  kycProfileSchema,
-  kycProfileStartInputSchema,
-  kycProfileSubmitInputSchema,
-  kycProfileUploadInputSchema,
-} from '@intafaced/contracts/identity-kyc-profile';
+  IDENTITY_KYC_DOCUMENT_TYPES_READ,
+  IDENTITY_KYC_PROFILE_READ,
+  IDENTITY_KYC_PROFILE_START,
+  IDENTITY_KYC_PROFILE_SUBMIT,
+  IDENTITY_KYC_PROFILE_UPLOAD,
+} from '@intafaced/contracts/identity-kyc-profile-procedures';
 import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
 import {
   kycTradingChecksResultSchema,
@@ -45,7 +51,15 @@ import {
   kycTradingChecksSchema,
 } from '@intafaced/contracts/identity-kyc-trading-checks';
 import { z } from 'zod';
-import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
+import {
+  router,
+  publicProcedure,
+  personProcedure,
+  protectedProcedure,
+  scopedProcedure,
+  serviceProcedure,
+  TRPCError,
+} from '@intafaced/contracts';
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
 import { signInChallengeProofSchema, signInChallengeSchema } from '@intafaced/contracts/identity-signin-challenge';
@@ -157,6 +171,7 @@ import { createProfileRouter } from './profile/profile-router.js';
 import type { AccountChange } from './account/account-router.js';
 import { createAccountRouter } from './account/account-router.js';
 import { createCompromiseRouter } from './account/compromise-router.js';
+import { createSafetyRouter } from './account/safety-router.js';
 import { createAccountClosureRouter } from './closure/closure-router.js';
 import type { AccountClosureService } from './closure/closure-service.js';
 import { createSubAccountFeatureProcedures } from './sub-accounts/sub-account-features-router.js';
@@ -182,6 +197,12 @@ function canonicalBase64(raw: string): Buffer {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
   return bytes;
 }
+
+/** Guided verification's named refusals: a `KycProfileError` the router sent with its code, other than an unreadable draft (a fault). */
+const kycProfileRefusal: RefusalOf = (err) =>
+  err instanceof TRPCError && err.cause instanceof KycProfileError && err.cause.code !== 'kyc.profile_unreadable'
+    ? { code: err.cause.code, error: err }
+    : undefined;
 
 export function toTrpcError(err: unknown): TRPCError {
   // Already shaped for the wire — do not re-wrap.
@@ -597,6 +618,9 @@ export function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     case 'auth.sub_account_cap_unset':
       // Owner number unpublished — not a 401 (no identity) or 403 (known, not allowed).
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+    case 'identity.screening_unset':
+      // The owner's blocked-countries list is not set: the deployment's, never the person's (J-identity-22 #1).
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     case 'auth.webauthn_unconfigured':
     case 'auth.totp_key_missing':
@@ -1077,9 +1101,9 @@ export function createIdentityRouter(
      */
     waitlist?: WaitlistService;
     /**
-     * Per-caller budget for `users.resolveHandle`. Defaults to 30 per minute,
-     * process-local. Injected so tests can pin the clock and a shared store can
-     * replace it later.
+     * Per-caller budget for the people lookups (`resolveHandle`, `searchPayees`),
+     * 30 per minute. index.ts wires the shared Postgres one
+     * (`PgHandleLookupLimiter`); absent, a process-local one serves light tests.
      */
     handleLookupLimiter?: HandleLookupLimiterPort;
     /**
@@ -1091,6 +1115,8 @@ export function createIdentityRouter(
     profile?: ProfileService;
     /** Email and phone change. Absent → those doors refuse closed. */
     account?: AccountChange;
+    /** The owner's least number of step-up extras (`IDENTITY_EXTRA_CONTROLS_MIN`). Absent or null → setting extras refuses. */
+    extraControlsMin?: number | null;
     /** Account closure. Absent → the door refuses `identity.close_disabled`. */
     closure?: AccountClosureService;
     /** Sub-account delete. Absent → `subAccounts.delete` refuses `identity.sub_account_check_unavailable`. */
@@ -1325,13 +1351,16 @@ export function createIdentityRouter(
      * The caller's own handle (Receive screen, account menu). Self-only: the
      * user id comes from the session, there is no input.
      */
-    me: protectedProcedure
-      .output(z.object({ userId: z.string().guid(), handle: z.string(), emailVerified: z.boolean() }))
-      .query(async ({ ctx }) => {
-        const view = await auth.selfView(ctx.principal.userId);
+    me: mountRecord(
+      IDENTITY_ME,
+      async ({ ctx }) => {
+        const userId = signedInUser(ctx);
+        const view = await auth.selfView(userId);
         if (view === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
-        return { userId: ctx.principal.userId, handle: view.handle, emailVerified: view.emailVerified };
-      }),
+        return { userId, handle: view.handle, emailVerified: view.emailVerified };
+      },
+      codedRefusal,
+    ),
 
     /**
      * The caller's TEST staff role on a local or test stack (`IDENTITY_STAFF_TEST_ROSTER`), for the console's admission.
@@ -1346,7 +1375,11 @@ export function createIdentityRouter(
     }),
 
     profile: createProfileRouter(options.profile, options.antiPhishing),
-    account: createAccountRouter(options.account, createCompromiseRouter(auth, privilegedUserIds)),
+    account: createAccountRouter(
+      options.account,
+      createCompromiseRouter(auth, privilegedUserIds),
+      createSafetyRouter(auth, privilegedUserIds, () => options.extraControlsMin ?? null),
+    ),
     accountClosure: createAccountClosureRouter(options.closure),
 
     users: router({
@@ -1362,17 +1395,12 @@ export function createIdentityRouter(
        * frozen, closed and undiscoverable (to anyone but their owner) handles
        * all answer `{ found: false }`; a per-caller
        * budget (30/min) refuses bulk probing with 429. Sessions only: an API
-       * key may not probe the handle space.
+       * key may not probe the handle space. The token must carry `identity:read`,
+       * so a narrow token (svc-ws mints a `trade:read`-only one on recovery) cannot.
        */
-      resolveHandle: protectedProcedure
-        .input(z.object({ handle: z.string().max(64) }))
-        .output(
-          z.discriminatedUnion('found', [
-            z.object({ found: z.literal(false) }),
-            z.object({ found: z.literal(true), userId: z.string().guid(), handle: z.string(), self: z.boolean() }),
-          ]),
-        )
-        .query(async ({ ctx, input }) => {
+      resolveHandle: mountRecord(
+        IDENTITY_USERS_RESOLVE_HANDLE,
+        async ({ ctx, input }) => {
           if (ctx.principal.kid) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Handle lookup needs a signed-in session' });
           }
@@ -1391,23 +1419,19 @@ export function createIdentityRouter(
           // Discoverability off (PP-send-request-03): the same miss as an unknown handle for everyone but the owner.
           if (!hit.discoverable && !self) return { found: false as const };
           return { found: true as const, userId: hit.userId, handle: hit.handle, self };
-        }),
+        },
+        codedRefusal,
+      ),
 
       /**
        * The payee card for an account a handle lookup or a pay code has already named (J-pay-01 #2): the name the person
        * chose for their profile (null when none) and the month they joined (the member badge). Keyed by the user id
        * those answers carry, so it is no way to find anyone. A frozen, closed or unknown account, and one that turned
-       * "find me by my handle" off (to anyone but its owner), answer `{ found: false }`. Sessions only.
+       * "find me by my handle" off (to anyone but its owner), answer `{ found: false }`. Sessions with `identity:read` only.
        */
-      payeeCard: protectedProcedure
-        .input(z.object({ userId: z.string().guid() }))
-        .output(
-          z.discriminatedUnion('found', [
-            z.object({ found: z.literal(false) }),
-            z.object({ found: z.literal(true), name: z.string().nullable(), memberSince: z.string().regex(/^\d{4}-\d{2}$/) }),
-          ]),
-        )
-        .query(async ({ ctx, input }) => {
+      payeeCard: mountRecord(
+        IDENTITY_USERS_PAYEE_CARD,
+        async ({ ctx, input }) => {
           if (ctx.principal.kid) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee card needs a signed-in session' });
           }
@@ -1415,30 +1439,18 @@ export function createIdentityRouter(
           if (!card) return { found: false as const };
           if (!card.discoverable && input.userId !== ctx.principal.userId) return { found: false as const };
           return { found: true as const, name: card.name, memberSince: card.memberSince };
-        }),
+        },
+        codedRefusal,
+      ),
 
       /**
        * Find a person by exact email or exact phone. Same budget and the same
-       * miss as `resolveHandle`. A hit requires that person's consent flag.
+       * miss as `resolveHandle`, and the same `identity:read` gate. A hit requires that person's consent flag.
        * The email and the phone are never in the answer.
        */
-      searchPayees: protectedProcedure
-        .input(
-          z
-            .object({
-              email: z.string().max(320).optional(),
-              phone: z.string().max(32).optional(),
-            })
-            .strict()
-            .refine((value) => (value.email !== undefined) !== (value.phone !== undefined), 'Send an email or a phone, not both'),
-        )
-        .output(
-          z.discriminatedUnion('found', [
-            z.object({ found: z.literal(false) }),
-            z.object({ found: z.literal(true), userId: z.string().guid(), handle: z.string(), self: z.boolean() }),
-          ]),
-        )
-        .query(async ({ ctx, input }) => {
+      searchPayees: mountRecord(
+        IDENTITY_USERS_SEARCH_PAYEES,
+        async ({ ctx, input }) => {
           if (ctx.principal.kid) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee search needs a signed-in session' });
           }
@@ -1454,7 +1466,9 @@ export function createIdentityRouter(
           const hit = await auth.searchPayee(email !== undefined ? { email } : { phone: phone as string });
           if (!hit) return { found: false as const };
           return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
-        }),
+        },
+        codedRefusal,
+      ),
 
       /**
        * Opt in to being found by email or phone, and store the phone people
@@ -2016,9 +2030,12 @@ export function createIdentityRouter(
           return { ok: true as const };
         }),
 
-      logoutAll: protectedProcedure.output(z.object({ revoked: z.number() })).mutation(async ({ ctx }) => ({
-        revoked: await auth.logoutAll(ctx.principal.userId),
-      })),
+      // The signed-in person only: an API key or a sub-account token must not sign its owner out everywhere.
+      logoutAll: personProcedure()
+        .output(z.object({ revoked: z.number() }))
+        .mutation(async ({ ctx }) => ({
+          revoked: await auth.logoutAll(ctx.principal.userId),
+        })),
 
       /**
        * Change the signed-in user's password. User sessions only (an API key or
@@ -2897,16 +2914,17 @@ export function createIdentityRouter(
        * published reads `published: false`, never an empty list that looks like "nothing accepted".
        */
       documentTypes: router({
-        read: scopedProcedure('identity:read')
-          .input(kycDocumentTypesInputSchema)
-          .output(kycDocumentTypesSchema)
-          .query(({ input }) => {
+        read: mountRecord(
+          IDENTITY_KYC_DOCUMENT_TYPES_READ,
+          ({ input }) => {
             try {
               return requireKycProfile().documentTypes(input.country);
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
       }),
 
       /**
@@ -2942,28 +2960,31 @@ export function createIdentityRouter(
           }),
       }),
       profile: router({
-        read: scopedProcedure('identity:read')
-          .output(kycProfileSchema)
-          .query(async ({ ctx }) => {
+        read: mountRecord(
+          IDENTITY_KYC_PROFILE_READ,
+          async ({ ctx }) => {
             try {
               return await requireKycProfile().read(ctx.principal.userId);
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
-        start: scopedProcedure('identity:write')
-          .input(kycProfileStartInputSchema)
-          .output(kycProfileDraftSchema)
-          .mutation(async ({ ctx, input }) => {
+          },
+          kycProfileRefusal,
+        ),
+        start: mountRecord(
+          IDENTITY_KYC_PROFILE_START,
+          async ({ ctx, input }) => {
             try {
               return await requireKycProfile().start(ctx.principal.userId, input.tier);
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
         saveStep: scopedProcedure('identity:write')
           .input(kycProfileSaveStepInputSchema)
-          .output(kycProfileDraftSchema)
+          .output(kycProfileDraftExactSchema)
           .mutation(async ({ ctx, input }) => {
             try {
               return await requireKycProfile().saveStep(ctx.principal.userId, input);
@@ -2971,10 +2992,9 @@ export function createIdentityRouter(
               throw toTrpcError(err);
             }
           }),
-        upload: scopedProcedure('identity:write')
-          .input(kycProfileUploadInputSchema)
-          .output(kycProfileDraftSchema)
-          .mutation(async ({ ctx, input }) => {
+        upload: mountRecord(
+          IDENTITY_KYC_PROFILE_UPLOAD,
+          async ({ ctx, input }) => {
             try {
               const bytes = canonicalBase64(input.bytesBase64);
               return await requireKycProfile().upload(ctx.principal.userId, {
@@ -2985,17 +3005,20 @@ export function createIdentityRouter(
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
-        submit: scopedProcedure('identity:write')
-          .input(kycProfileSubmitInputSchema)
-          .output(z.object({ recordId: z.string().uuid(), documentCheck: z.literal('not_connected') }))
-          .mutation(async ({ ctx, input }) => {
+          },
+          kycProfileRefusal,
+        ),
+        submit: mountRecord(
+          IDENTITY_KYC_PROFILE_SUBMIT,
+          async ({ ctx, input }) => {
             try {
               return await requireKycProfile().submit(ctx.principal.userId, input.version);
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
       }),
 
       /**
@@ -3378,6 +3401,7 @@ export function createIdentityRouter(
             requireNonEmptyIpAllowlist: z.boolean().optional(),
             ipAllowlist: z.array(z.string()).optional(),
             rateLimit: keyRateLimitSchema.nullable().optional(),
+            apiVersionDefault: z.string().nullable().optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -3398,6 +3422,7 @@ export function createIdentityRouter(
               ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
               ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
               ...(result.rateLimit === undefined ? {} : { rateLimit: result.rateLimit }),
+              ...(result.apiVersionDefault === undefined ? {} : { apiVersionDefault: result.apiVersionDefault }),
             };
           } catch (err) {
             throw toTrpcError(err);

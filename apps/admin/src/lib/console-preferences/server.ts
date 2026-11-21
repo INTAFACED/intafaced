@@ -8,11 +8,8 @@ import {
   type Preferences,
   type PreferencesSetInput,
 } from '@intafaced/contracts/ops-console-preferences';
-import type { OpsRead } from '@/lib/console-announcements/model';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { opsReadOf } from '@/lib/desk/ops-read';
-import { writeRefusalOf } from '@/lib/desk/write-refusal';
-import type { RefusalView } from '@/lib/desk/refusal-copy';
+import type { OpsRead } from '@/lib/console-announcements';
+import { founderCall, opsReadOf, writeRefusalOf, type FounderCallContext, type RefusalView } from '@/lib/desk';
 
 export type PreferencesView = OpsRead<Preferences>;
 

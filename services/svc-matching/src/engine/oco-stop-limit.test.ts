@@ -38,7 +38,7 @@ const buyOco = (extra: Record<string, unknown>): EngineOrder =>
     takeProfit: A('100'),
     stopLoss: A('120'),
     ...extra,
-  }) as unknown as EngineOrder;
+  }) as EngineOrder;
 
 /** Asks: 0.1 at 121 (the print that triggers the stop) and 1 at 130 (the thin liquidity behind it). */
 function seeded(): OrderBook {

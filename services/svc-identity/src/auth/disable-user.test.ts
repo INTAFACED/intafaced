@@ -54,7 +54,7 @@ function store(users: UserRow[], keys: KeyRow[]) {
     },
     users,
     keys,
-  }) as unknown as Parameters<typeof disableUser>[0] & { writes: number; users: UserRow[]; keys: KeyRow[] };
+  }) as Parameters<typeof disableUser>[0] & { writes: number; users: UserRow[]; keys: KeyRow[] };
 }
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

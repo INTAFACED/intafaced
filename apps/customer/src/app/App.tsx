@@ -27,9 +27,14 @@ const loadPublic = () => import('../features/public/PublicRoutes').then((m) => (
 const loadProtocol = () => import('../features/protocol/ProtocolRoutes').then((m) => ({ default: m.ProtocolRoutes }));
 const loadWeb3Shell = () => import('./Web3Shell').then((m) => ({ default: m.Web3Shell }));
 const PublicRoutes = lazy(loadPublic);
+// A backtest result shared by link (AL-report-03) loads only when one is opened.
+const SharedResultRoute = lazy(() => import('../features/quant/SharedResultRoute'));
 const ProtocolRoutes = lazy(loadProtocol);
 const Web3Shell = lazy(loadWeb3Shell);
 const DevFeatures = lazy(() => import('./DevFeatures').then((m) => ({ default: m.DevFeatures })));
+// The Volt kit (intafaced issue 9302): every building block in the chosen look, for the owner's one approval. It opens only
+// at `/kit`, which no room or menu links to.
+const VoltKit = lazy(() => import('./kit/VoltKit'));
 
 class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
@@ -95,6 +100,7 @@ export function App() {
   const { session, restoring, restoreFailed, retryRestore } = useSession();
   const dev = isDevBuild();
   const devFeatures = dev && path === '/dev/features';
+  const voltKit = !room && path === '/kit';
   const hidden = hiddenFeatureFor(path, search);
   // One redirect rule per render, in this order: an alias row, signed-in `/`. No path is redirected for being hidden, in any
   // build, so the Docker image opens exactly what `vite dev` opens.
@@ -115,15 +121,17 @@ export function App() {
     const coin = /^\/coin\/([A-Za-z0-9]+)\/?$/.exec(path)?.[1];
     const page = devFeatures
       ? 'Hidden features'
-      : pair
-        ? `${pair} · Spot`
-        : coin
-          ? t('{name} price', { name: coin.toUpperCase() })
-          : room
-            ? roomTitle(room, requestedLocale)
-            : t('Page not found');
+      : voltKit
+        ? 'Volt kit'
+        : pair
+          ? `${pair} · Spot`
+          : coin
+            ? t('{name} price', { name: coin.toUpperCase() })
+            : room
+              ? roomTitle(room, requestedLocale)
+              : t('Page not found');
     document.title = `${page} · INTAFACED`;
-  }, [path, room, requestedLocale, devFeatures]);
+  }, [path, room, requestedLocale, devFeatures, voltKit]);
   function followLink(event: MouseEvent<HTMLDivElement>) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = event.target instanceof Element ? event.target.closest('a') : null;
@@ -146,7 +154,7 @@ export function App() {
     !isQuantPreviewPath(path);
   // Someone signed out who opens a new support request gets the same form with an email field (SP-tickets-01), and live chat
   // as a guest (SP-chat-01), in the public frame, once the boot refresh says there is no session.
-  const guestRequest = (path === '/support/new' || path === '/support/chat') && !session && !restoring && !restoreFailed;
+  const guestRequest = (path === '/support/new' || path === '/support/chat') && !session && !restoreFailed;
   // Start downloading the room's code before it can render: a signed-in room waits for the boot refresh, and the
   // Web3 frame and its rooms are two chunks that would otherwise load one after the other. A signed-out visitor to
   // a private room only sees "Sign in", so nothing is fetched for it.
@@ -176,8 +184,12 @@ export function App() {
         <DevFeatures />
       </Suspense>
     );
-  // A private room never paints, and never shows "Sign in to continue", until the boot refresh has answered.
-  else if (needsSession && !session && restoring) body = fallback;
+  else if (voltKit)
+    body = (
+      <Suspense fallback={fallback}>
+        <VoltKit />
+      </Suspense>
+    );
   // The service did not answer: the cookie is untouched, so offer Retry instead of pretending the person is signed out.
   else if (needsSession && !session && restoreFailed)
     body = (
@@ -211,15 +223,16 @@ export function App() {
         </Page>
       </div>
     );
-  // `/` sends a signed-in person to /home, so it waits for the boot refresh instead of flashing the signed-out landing page.
-  const content = redirectTo ? null : path === '/' && restoring && !session ? (
+  // No room renders until the boot refresh has answered (issue 8658): a room that opens signed in and signed out would
+  // otherwise draw its signed-out view and run its reads as signed out, then swap. The rooms never read `restoring`.
+  const content = redirectTo ? null : restoring ? (
     fallback
   ) : room?.area === 'public' || guestRequest ? (
     <div className="legacy-room">
       {ribbon}
       <SessionNotice />
       <Suspense fallback={fallback}>
-        <PublicRoutes path={path} />
+        <PublicRoutes path={path} SharedResult={SharedResultRoute} />
       </Suspense>
     </div>
   ) : room?.area === 'team' ? (

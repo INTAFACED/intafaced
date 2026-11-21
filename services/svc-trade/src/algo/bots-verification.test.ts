@@ -66,9 +66,9 @@ describe('bot verification gate (CB-bots-10)', () => {
       market: explode,
       input: explode,
       verification: { policy: { mode: 'required', level: 'full' }, tier: 'basic' },
-    } as unknown as AlgoCreateGateInput;
+    } as AlgoCreateGateInput;
     await expect(gateAlgoCreate(ctx)).rejects.toMatchObject({ code: 'trade.bots_verification_insufficient' });
-    const blank = { ...ctx, verification: { policy: { mode: 'required', level: null }, tier: 'full' } } as unknown as AlgoCreateGateInput;
+    const blank = { ...ctx, verification: { policy: { mode: 'required', level: null }, tier: 'full' } } as AlgoCreateGateInput;
     await expect(gateAlgoCreate(blank)).rejects.toMatchObject({ code: 'trade.bots_verification_level_not_set' });
   });
 });

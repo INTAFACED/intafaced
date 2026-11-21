@@ -1,0 +1,1213 @@
+{
+  "callers": [
+    {
+      "path": "run.background.askMore",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "run.background.get",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "run.background.pause",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "run.background.resume",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "run.background.start",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "run.background.stop",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "run.complete",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "run.events",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "run.get",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "run.list",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "run.trace",
+      "type": "query",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "run.background.askMore": {
+      "runId": "33333333-3333-4333-8333-333333333333",
+      "text": "x"
+    },
+    "run.background.get": {
+      "runId": "33333333-3333-4333-8333-333333333333"
+    },
+    "run.background.pause": {
+      "runId": "33333333-3333-4333-8333-333333333333"
+    },
+    "run.background.resume": {
+      "runId": "33333333-3333-4333-8333-333333333333"
+    },
+    "run.background.start": {
+      "sessionId": "33333333-3333-4333-8333-333333333333",
+      "requestId": "xxxxxxxx",
+      "task": "x",
+      "ask": "x",
+      "steps": 1,
+      "notice": "inapp"
+    },
+    "run.background.stop": {
+      "runId": "33333333-3333-4333-8333-333333333333"
+    },
+    "run.complete": {
+      "sessionId": "33333333-3333-4333-8333-333333333333",
+      "requestId": "xxxxxxxx",
+      "task": "x",
+      "messages": [
+        {
+          "role": "user",
+          "content": "x"
+        }
+      ]
+    },
+    "run.events": {
+      "runId": "33333333-3333-4333-8333-333333333333",
+      "limit": 1
+    },
+    "run.get": {
+      "runId": "33333333-3333-4333-8333-333333333333"
+    },
+    "run.list": {
+      "sessionId": "33333333-3333-4333-8333-333333333333",
+      "limit": 1
+    },
+    "run.trace": {
+      "sessionId": "33333333-3333-4333-8333-333333333333",
+      "requestId": "x"
+    }
+  },
+  "answers": {
+    "run.background.askMore valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.askMore valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.askMore valid execute": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.session_run_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.askMore valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.askMore valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.askMore absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.askMore absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.askMore absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.askMore absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.askMore absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.askMore wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.askMore wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.askMore wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.askMore wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.askMore wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.askMore empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.askMore empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.askMore empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"text\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.askMore empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.askMore empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.askMore extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.askMore extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.askMore extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.askMore extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.askMore extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.askMore\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.get valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.get extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.pause valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.pause valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.pause valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.pause valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.pause valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.pause absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.pause absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.pause absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.pause absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.pause absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.pause wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.pause wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.pause wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.pause wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.pause wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.pause empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.pause empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.pause empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.pause empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.pause empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.pause extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.pause extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.pause extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.pause extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.pause extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.pause\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.resume valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.resume valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.resume valid execute": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"agents.identity.owner_freeze_unread\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.identity.owner_freeze_unread\"}}}}"
+    },
+    "run.background.resume valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.resume valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.resume absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.resume absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.resume absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.resume absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.resume absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.resume wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.resume wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.resume wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.resume wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.resume wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.resume empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.resume empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.resume empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.resume empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.resume empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.resume extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.resume extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.resume extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.resume extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.resume extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.resume\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.start valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.start valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.start valid execute": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.session_run_unset\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.start valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.start valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.start absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.start absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.start absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.start absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.start absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.start wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.start wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.start wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.start wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.start wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.start empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.start empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.start empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"requestId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"task\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"ask\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"steps\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"inapp\\\",\\n      \\\"email\\\",\\n      \\\"sms\\\",\\n      \\\"push\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"notice\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"inapp\\\\\\\"|\\\\\\\"email\\\\\\\"|\\\\\\\"sms\\\\\\\"|\\\\\\\"push\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.start empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.start empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.start extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.start extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.start extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.start extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.start extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.start\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.stop valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.stop valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.stop valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.stop valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.stop valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.stop absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.stop absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.stop absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.stop absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.stop absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.stop wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.stop wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.stop wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.stop wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.stop wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.stop empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.stop empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.stop empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.stop empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.stop empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.background.stop extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.stop extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.stop extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.background.stop extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.background.stop extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.background.stop\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.complete valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.complete valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.complete valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.complete valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.complete valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.complete absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.complete absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.complete absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.complete absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.complete absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.complete wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.complete wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.complete wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.complete wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.complete wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.complete empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.complete empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.complete empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"requestId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"task\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"messages\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.complete empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.complete empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.complete extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.complete extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.complete extra-key execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.complete extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "run.complete extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"run.complete\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "run.events valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.events extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.events\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"runId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.get extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.get\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"limit\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.list extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.list\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"agents.error.engine_unavailable\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"requestId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"requestId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"requestId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"requestId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    },
+    "run.trace extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"run.trace\",\"requestId\":\"<request>\"}}}"
+    }
+  }
+}

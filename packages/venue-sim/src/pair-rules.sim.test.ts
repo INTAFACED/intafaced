@@ -150,4 +150,19 @@ describe('TEST venue simulator: a spot market publishes and enforces its own rul
       'order_below_venue_min',
     );
   });
+
+  it("values a market order at the book's middle, not its worst-price bound: a market sell bounded at one tick still clears the smallest order (J-cex-spot-17 #8, #8205)", async () => {
+    const { sim, account } = await world();
+    sim.deposit(account, 'RUL', a('1'), 'deposit:test-chain:0xrules-trader:1');
+    const market = (side: 'buy' | 'sell', amount: string, price: string, k: string): PlaceUserOrderIntent => ({
+      ...order('RUL-USDC', side, amount, price, k),
+      type: 'market',
+      timeInForce: 'IOC',
+    });
+    // 0.2 at the middle (100) is 20 USDC, above the 10 minimum, though 0.2 at the one-tick bound is 0.02.
+    expect((await sim.preview(account, market('sell', '0.2', '0.1', 'order:t:rul:mkt-sell'))).value).toBeTruthy();
+    // 0.05 at the middle is 5 USDC: still below the minimum, whatever the bound.
+    const small = await refusal(() => sim.preview(account, market('buy', '0.05', '1000', 'order:t:rul:mkt-small')));
+    expect(small.code).toBe('order_below_venue_min');
+  });
 });

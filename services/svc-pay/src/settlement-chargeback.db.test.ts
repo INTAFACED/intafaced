@@ -6,16 +6,12 @@ import postgres from 'postgres';
 import { founderDisputeListSchema } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import {
-  InsufficientFundsError,
   merchantClearing,
   type LedgerClient,
   MemoryLedger,
   formatAmount,
-  insuranceFund,
   merchantProceeds,
   parseAmount as amt,
-  railBoundary,
-  userAvailable,
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -24,7 +20,7 @@ import { PostgresDisputeCaseStore } from './fraud/dispute-case-store.js';
 import { memoryPayoutDestinations } from './merchant-payout-destination.js';
 import { createFounderMerchantReads } from './namespaces/founder-merchant-reads.js';
 import { listControlAudit } from './control/audit.js';
-import { PayError, PayService, type PaymentView } from './payment-service.js';
+import { PayService, type PaymentView } from './payment-service.js';
 import { truncatePayForTest } from './payment-events-test-reset.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
 import { RailRegistry } from './rails/registry.js';

@@ -1,11 +1,21 @@
 import type { Sql } from 'postgres';
-import { LedgerError, formatAmount, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import {
+  LedgerError,
+  bankTransferKey,
+  formatAmount,
+  parseAmount,
+  recipes,
+  userAvailable,
+  type Amount,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { assertAutoInvestBatchLimit } from '../job-batch-limit.js';
 import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { assertAutoInvestListLimit } from '../owner-list-limit.js';
 import type { EarnService } from '../earn/earn-service.js';
 import type { RoundUpOutcome } from '../cards/card-service.js';
+import { partnerAccountFor, partnerCustodyMismatch, type PartnerAccountRef, type PartnerBank } from '../partner/partner-bank.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { withMoneySpan } from '../tracing.js';
 import { bookedTransferMatches } from '../transfers/booked-transfer.js';
@@ -385,7 +395,13 @@ export class AutoInvestService {
    * Kill switch, no rule, and exact-multiple captures are skips. Failures
    * become `refused` with a named code — same posture as cashback.
    */
-  async applyRoundUp(input: { userId: string; assetId: string; authorizationId: string; captured: Amount }): Promise<RoundUpOutcome> {
+  async applyRoundUp(input: {
+    userId: string;
+    assetId: string;
+    authorizationId: string;
+    captured: Amount;
+    partnerHeld?: boolean;
+  }): Promise<RoundUpOutcome> {
     if (!this.enabled) {
       return { status: 'skipped', amount: 0n, reason: 'bank.auto_invest_disabled' };
     }
@@ -430,14 +446,29 @@ export class AutoInvestService {
         let runId: string;
         if (claimed.length === 0) {
           const existing = await this.sql<
-            Array<{ id: string; status: AutoInvestRunStatus; position_id: string | null; ledger_tx_id: string | null }>
+            Array<{
+              id: string;
+              status: AutoInvestRunStatus;
+              position_id: string | null;
+              ledger_tx_id: string | null;
+              partner_move_id: string | null;
+            }>
           >`
-            SELECT id, status, position_id, ledger_tx_id FROM bank.auto_invest_runs
+            SELECT id, status, position_id, ledger_tx_id, partner_move_id FROM bank.auto_invest_runs
              WHERE rule_id = ${rule.id}::uuid AND client_run_id = ${clientRunId}
           `;
           const prior = existing[0];
           if (prior?.status === 'settled' && rule.targetSpaceId && prior.ledger_tx_id) {
             return { status: 'settled', amount: spare, spaceId: rule.targetSpaceId, ledgerTxId: prior.ledger_tx_id };
+          }
+          if (prior?.status === 'settled' && rule.targetSpaceId && prior.partner_move_id) {
+            return {
+              status: 'settled',
+              amount: spare,
+              spaceId: rule.targetSpaceId,
+              ledgerTxId: null,
+              partnerMoveId: prior.partner_move_id,
+            };
           }
           if (prior?.status === 'settled' && prior.position_id) {
             return { status: 'settled', amount: spare, positionId: prior.position_id };
@@ -452,9 +483,21 @@ export class AutoInvestService {
           runId = claimed[0]!.id;
         }
 
-        if (rule.targetSpaceId) return this.roundUpIntoSpace(rule, rule.targetSpaceId, runId, clientRunId, spare);
+        if (rule.targetSpaceId) {
+          return this.roundUpIntoSpace(rule, rule.targetSpaceId, runId, clientRunId, spare, input.partnerHeld === true);
+        }
 
         const now = new Date();
+        // A savings deposit pays from our own book. A capture the card partner made, or a person whose bank money the
+        // partner holds, has nothing on that book to round up from: refused by name, and nothing posts to the ledger.
+        if (input.partnerHeld || this.spaces.custody?.bankFor(rule.userId)) {
+          await this.sql`
+            UPDATE bank.auto_invest_runs
+               SET status = 'rejected', rejection_code = 'bank.partner_custody_mismatch', settled_at = ${now}
+             WHERE id = ${runId}::uuid AND status IN ('pending', 'rejected')
+          `;
+          return { status: 'refused', amount: spare, reason: 'bank.partner_custody_mismatch' };
+        }
         try {
           const position = await this.earn.deposit({
             poolId: rule.targetPoolId!,
@@ -502,9 +545,13 @@ export class AutoInvestService {
     runId: string,
     transferId: string,
     spare: Amount,
+    cardPartnerHeld: boolean,
   ): Promise<RoundUpOutcome> {
     const now = new Date();
     try {
+      // The card partner took the payment from money the partner holds, and the bank's own book of this person must say
+      // the same: a capture at the partner never rounds up on the ledger, nor the other way round. Refused, nothing moves.
+      if (cardPartnerHeld !== (this.spaces.custody.bankFor(rule.userId) !== null)) throw partnerCustodyMismatch();
       // The rule made the account's primary space; a capture only reads it.
       const primary = await this.spaces.findPrimary(rule.userId, rule.assetId);
       if (!primary) throw new BankError(`No ${rule.assetId} account to round up from`, 'bank.space_not_found');
@@ -516,6 +563,9 @@ export class AutoInvestService {
       if (to.assetId !== rule.assetId) {
         throw new BankError(`Round-up asset ${rule.assetId} does not match space asset ${to.assetId}`, 'bank.asset_mismatch');
       }
+      const partner = this.spaces.custody.bankFor(rule.userId);
+      if (partner)
+        return await this.roundUpAtPartner(partner, runId, transferId, spaceId, partnerAccountFor(from), partnerAccountFor(to), spare);
       const fromAccount = accountForSpace(from);
       const toAccount = accountForSpace(to);
       const tx = await this.ledger.post(
@@ -555,6 +605,40 @@ export class AutoInvestService {
       `;
       return { status: 'refused', amount: spare, reason: code };
     }
+  }
+
+  /**
+   * Spare change into a space the partner bank holds (OWNER 226): ONE partner move from the account into the space under
+   * the same business key as the ledger path (`bank.transfer.own:roundup:<rule>:<authorization>:0`), and nothing posted
+   * to the ledger. The partner answers a reused key with the move it made, so the same capture re-driven moves once.
+   *
+   * If this crashes exactly here, after the partner moved and before the run is marked settled, nobody's funds are
+   * stranded: the money is in the person's own space at the partner, and the next drive of this run finds the move under
+   * the key and settles on it. A move under the key that is not this one (other spaces or amount) leaves the run pending.
+   */
+  private async roundUpAtPartner(
+    partner: PartnerBank,
+    runId: string,
+    transferId: string,
+    spaceId: string,
+    from: PartnerAccountRef,
+    to: PartnerAccountRef,
+    spare: Amount,
+  ): Promise<RoundUpOutcome> {
+    const key = bankTransferKey('own', transferId, 0);
+    const same = (a: PartnerAccountRef, b: PartnerAccountRef) =>
+      a.userId === b.userId && a.assetId === b.assetId && a.spaceId === b.spaceId;
+    const prior = await partner.moveByKey(key);
+    const moved = prior ?? (await partner.move({ key, from, to, amount: spare }));
+    if (!same(moved.from, from) || !same(moved.to, to) || moved.amount !== spare) {
+      return { status: 'refused', amount: spare, reason: 'bank.ledger_outcome_unknown' };
+    }
+    await this.sql`
+      UPDATE bank.auto_invest_runs
+         SET status = 'settled', partner_move_id = ${moved.id}, rejection_code = NULL, settled_at = ${new Date()}
+       WHERE id = ${runId}::uuid
+    `;
+    return { status: 'settled', amount: spare, spaceId, ledgerTxId: null, partnerMoveId: moved.id };
   }
 
   /** The person's own live named space of `assetId`. Another person's space reads as not found. */

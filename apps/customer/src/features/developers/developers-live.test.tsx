@@ -8,7 +8,7 @@ import { findRoom } from '../../app/navigation';
 import { ChangelogList, UpcomingView } from './ChangelogPages';
 import { StatusView } from './StatusPage';
 import { developersRoute } from './developers-model';
-import { entrySchema, statusFeedSchema, type ChangelogEntry, type StatusFeed } from './developers-api';
+import { entrySchema, statusFeedSchema, type ChangelogEntry, type StatusFeed } from '../../shared/notify-reads';
 
 const entry = (over: Partial<ChangelogEntry> & { log?: Partial<NonNullable<ChangelogEntry['changelog']>> | null }): ChangelogEntry => {
   const { log, ...rest } = over;

@@ -115,12 +115,19 @@ runs:
       run: node tooling/ci/assert-test-db-env.mjs
 
     # NATS with JetStream ON. A `services:` container cannot take a command, so it would run with JetStream off,
-    # while every service here publishes and consumes through JetStream. Mirrors `nats` in docker-compose.yml.
+    # while every service here publishes and consumes through JetStream. Mirrors `nats` in docker-compose.yml. The
+    # binary comes from the pinned, cached release (.github/actions/nats-server), not a Docker Hub pull (#7239).
+    - name: Get a nats-server binary
+      uses: ./.github/actions/nats-server
+      with:
+        path: ${{ runner.temp }}/nats-server
+
     - name: Local NATS with JetStream (§10 event bus)
       shell: bash
       run: |
-        docker run -d --name intafaced-ci-nats -p 4222:4222 -p 8222:8222 nats:2.10-alpine \
-          --jetstream --http_port=8222 --name=intafaced-ci-nats
+        mkdir -p "$RUNNER_TEMP/nats-js"
+        nohup "$RUNNER_TEMP/nats-server" -p 4222 --jetstream --store_dir "$RUNNER_TEMP/nats-js" --http_port=8222 \
+          --name=intafaced-ci-nats > "$RUNNER_TEMP/nats.log" 2>&1 &
         for _ in $(seq 1 30); do
           if curl -sf http://127.0.0.1:8222/healthz >/dev/null; then
             echo "nats answering on 4222, JetStream enabled"
@@ -129,7 +136,7 @@ runs:
           sleep 1
         done
         echo "::error::NATS never answered — the JetStream bus suite cannot run"
-        docker logs intafaced-ci-nats || true
+        cat "$RUNNER_TEMP/nats.log" || true
         exit 1
 
     # A throwaway EVM for svc-protocol, started with `docker run` because service containers cannot take the

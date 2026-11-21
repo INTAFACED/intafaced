@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { createTranslator } from '@intafaced/i18n';
 import {
   guestVerificationEraseInputSchema,
@@ -197,7 +197,7 @@ export class GuestVerificationService {
     return this.options.now?.() ?? new Date();
   }
 
-  private async expire(tx: Sql, producer: Producer, businessKey: string): Promise<void> {
+  private async expire(tx: Queryable, producer: Producer, businessKey: string): Promise<void> {
     await tx`UPDATE notify.guest_verifications SET status = 'unresolved', code = 'guest.acceptance_unknown', lease_until = NULL,
       updated_at = now()
       WHERE producer = ${producer} AND business_key = ${businessKey} AND status = 'attempting' AND lease_until <= clock_timestamp()`;

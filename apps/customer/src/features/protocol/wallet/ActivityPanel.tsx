@@ -5,7 +5,7 @@ import { Button, DataTable, Dialog, EmptyState, Panel } from '../../../shared/ui
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import type { ApiResult } from '../../../shared/api';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi } from '../api';
 import { createExplorerApi, type ExplorerAddressTxsPage } from '../explorer/explorer-api';
 import { walletCopy } from './copy';

@@ -1,7 +1,7 @@
 import { findRoom, roomDescription, roomTitle } from '../../app/navigation';
-import { useSession } from '../session/session';
-import { useSupportContact } from '../more/support-contact';
-import { supportMailto } from '../more/support-desk';
+import { BreakingChangesNotice } from '../developers';
+import { useSession } from '../session';
+import { supportMailto, useSupportContact } from '../more';
 import { ContactSupport } from './ContactSupport';
 import { NoticeDetail, NoticeFeed } from './NoticeFeed';
 import { doorSummaries } from './public-catalogue';
@@ -10,7 +10,7 @@ import { usePartnerSettings } from './partner-settings';
 import { useAppStoreLink } from './app-store-link';
 import { pagesCopy } from './public-pages-copy';
 import { publicCopy } from './public-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 /**
  * /partner: where a partnership enquiry goes. The form is on the invitation site at the founders' join address; this page
@@ -100,6 +100,7 @@ export function NoticePage({ detail = false, id = null }: { detail?: boolean; id
         <h1>{copy.t('noticeTitle')}</h1>
       </header>
       {detail ? <NoticeDetail id={id} /> : <NoticeFeed />}
+      {detail ? null : <BreakingChangesNotice />}
       {detail && (
         <a className="text-link" href="/notice">
           ← {copy.t('noticeBack')}

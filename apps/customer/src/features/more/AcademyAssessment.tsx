@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
-  academyQuizAttemptSchema,
-  academyQuizReviewSchema,
-  type AcademyQuiz,
-  type AcademyQuizAttempt,
-  type AcademyQuizReview,
-} from '@intafaced/contracts/academy-catalogue';
+  ACADEMY_ASSESSMENT_ANSWER,
+  ACADEMY_ASSESSMENT_CURRENT,
+  ACADEMY_ASSESSMENT_FINISH,
+  ACADEMY_ASSESSMENT_REVIEW,
+  ACADEMY_ASSESSMENT_START,
+} from '@intafaced/contracts/academy-learner-procedures';
+import { type AcademyQuiz, type AcademyQuizAttempt, type AcademyQuizReview } from '@intafaced/contracts/academy-catalogue';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, Loading } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyCodeOf, academyRefusalKey, readAttempts, readQuiz, type Attempt } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { formatMoment } from './academy-lms';
@@ -325,7 +326,7 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
       setSecondsLeft(next && next.result === null ? next.secondsLeft : null);
       // A hidden result has no review to read until its date.
       if (next?.result && !next.result.hidden) {
-        void api.query('academy', 'assessment.review', { attemptId: next.attemptId }, academyQuizReviewSchema).then((r) => {
+        void api.call(ACADEMY_ASSESSMENT_REVIEW, { attemptId: next.attemptId }).then((r) => {
           if (live.current && r.ok) setReview(r.data);
         });
         void refresh();
@@ -342,7 +343,7 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
 
   // A refresh or another device: the open attempt comes back with the same deadline and the answers saved so far.
   useEffect(() => {
-    void api.query('academy', 'assessment.current', { slug: quiz.slug }, academyQuizAttemptSchema.nullable()).then((r) => {
+    void api.call(ACADEMY_ASSESSMENT_CURRENT, { slug: quiz.slug }).then((r) => {
       if (!live.current) return;
       if (!r.ok) return setProblem(r);
       if (r.data) {
@@ -369,10 +370,9 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
   const finish = (attemptId: string, byClock = false) =>
     run(async () => {
       await saves.current;
-      let done = await api.mutate('academy', 'assessment.finish', { attemptId }, academyQuizAttemptSchema);
+      let done = await api.call(ACADEMY_ASSESSMENT_FINISH, { attemptId });
       // Finishing twice scores once, so a lost reply is settled by asking again.
-      if (!done.ok && done.reason === 'uncertain')
-        done = await api.mutate('academy', 'assessment.finish', { attemptId }, academyQuizAttemptSchema);
+      if (!done.ok && done.reason === 'uncertain') done = await api.call(ACADEMY_ASSESSMENT_FINISH, { attemptId });
       if (!live.current) return;
       if (!done.ok) return setProblem(done);
       setTimeUp(byClock);
@@ -395,10 +395,10 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
 
   const start = () =>
     run(async () => {
-      let started = await api.mutate('academy', 'assessment.start', { slug: quiz.slug }, academyQuizAttemptSchema);
+      let started = await api.call(ACADEMY_ASSESSMENT_START, { slug: quiz.slug });
       if (!started.ok && started.reason === 'uncertain') {
         // The reply was lost: Academy may have opened the attempt. Reading it back returns that same attempt.
-        const open = await api.query('academy', 'assessment.current', { slug: quiz.slug }, academyQuizAttemptSchema.nullable());
+        const open = await api.call(ACADEMY_ASSESSMENT_CURRENT, { slug: quiz.slug });
         if (open.ok && open.data) started = { ok: true, data: open.data };
       }
       if (!live.current) return;
@@ -417,7 +417,7 @@ function TimedQuiz({ quiz, onFinished }: { quiz: AcademyQuiz; onFinished?: () =>
     setProblem(null);
     const mine = ++latestSave.current;
     saves.current = saves.current.then(async () => {
-      const saved = await api.mutate('academy', 'assessment.answer', { attemptId, questionId, choiceId }, academyQuizAttemptSchema);
+      const saved = await api.call(ACADEMY_ASSESSMENT_ANSWER, { attemptId, questionId, choiceId });
       if (!live.current) return;
       if (saved.ok) {
         // Only the newest save's reply speaks for the screen; an earlier one would show answers from before it.

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { AccountDetailsPanel } from './AccountDetails';
 import { accountHomeCopy } from './account-home-copy';
 import { funds, useBankRead } from './components';

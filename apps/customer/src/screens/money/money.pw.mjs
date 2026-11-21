@@ -292,13 +292,13 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
     ),
   );
   expect([...tops].sort((a, b) => a - b)).toEqual(tops);
-  // Geometry: container 1224, hero 48/58.
+  // Geometry: container 1224, hero 56/56 (Volt's wide figure, 4rem at the computer).
   expect(Math.round((await root.boundingBox()).width)).toBe(1224);
   expect(
     await page
       .locator('[data-slot="hero-number"]')
       .evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
-  ).toBe('48px/58px');
+  ).toBe('56px/56px');
 
   // Plain words only, and every money figure has a money shape.
   expect(await root.innerText()).not.toMatch(forbidden);
@@ -506,16 +506,23 @@ test('the bank cannot list accounts: the page carries on without that section', 
 
 test('Your spaces lists a named account only while it holds something; the picker still offers every one', async ({ page }) => {
   const empty = { ...spaces()[0], kind: 'named', id: 'sp-empty-test', name: 'Empty TEST', balance: '0' };
-  const unread = { ...spaces()[0], kind: 'named', id: 'sp-unread-test', name: 'Unread TEST', balance: 'not-a-number' };
-  await mock(page, { bank: { 'spaces.list': () => [...spaces(), empty, unread] } });
+  await mock(page, { bank: { 'spaces.list': () => [...spaces(), empty] } });
   await open(page);
-  // A known zero is left out; a balance that cannot be read stays listed, shown as unknown.
+  // A known zero is left out of the list, and still offered in the picker.
   const rows = await texts(page.getByTestId('money-accounts__row'));
-  expect(rows.slice(0, 2)).toEqual(['Rent300 USDT', 'Long term0.04 BTC']);
-  expect(rows).toHaveLength(3);
-  expect(rows[2]).toContain('Unread TEST');
+  expect(rows).toEqual(['Rent300 USDT', 'Long term0.04 BTC']);
   await expect(page.getByTestId('money-accounts__row').filter({ hasText: 'Empty TEST' })).toHaveCount(0);
   await expect(page.getByLabel('Accounts shown').locator('option', { hasText: 'Empty TEST' })).toHaveCount(1);
+});
+
+test('a spaces answer with a balance that is not a decimal is not read: no account is shown from it', async ({ page }) => {
+  // svc-bank's own output (the spaces.list record) never sends one; the page reads with the same record and refuses it.
+  const unread = { ...spaces()[0], kind: 'named', id: 'sp-unread-test', name: 'Unread TEST', balance: 'not-a-number' };
+  await mock(page, { bank: { 'spaces.list': () => [...spaces(), unread] } });
+  await open(page);
+  await expectHero(page, '$12,481.91');
+  await expect(page.locator('#accounts')).toHaveCount(0);
+  await expect(page.getByText('Unread TEST')).toHaveCount(0);
 });
 
 test('hidden balances show bullets, prices and shares stay, and the choice is remembered', async ({ page }) => {
@@ -624,7 +631,7 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
   ).toBe('32px/40px');
   expect(await seen(page.locator('#crypto > [data-testid="money-table"] thead th'))).toEqual([
     'Coin',
-    'Amount',
+    'Amount · Value',
     'Price',
     'Value',
     'Today',
@@ -736,7 +743,8 @@ test('Simple Money has no Available and In orders columns', async ({ page }) => 
   await open(page);
   expect(await seen(page.locator('#crypto > [data-testid="money-table"] thead th'))).toEqual([
     'Coin',
-    'Amount',
+    // Volt keeps the column head on one line
+    'Amount · Value',
     'Price',
     'Value',
     'Today',

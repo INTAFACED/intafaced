@@ -13,7 +13,7 @@ import { ADDRESS_SHAPE } from '../routes';
 import { QuickTicket } from './QuickTicket';
 import { InfoUpdate } from './InfoUpdate';
 import { TabList } from './TabList';
-import { useApi, useSession } from '../../session/session';
+import { useApi, useSession } from '../../session';
 import { useAccountTokenWatchlist, type ListWrite } from '../watch/account-lists';
 import { tokensCopy, type TokensTranslate } from './copy';
 import { exactUnits, isoTime, percentFromBps, shortAddress } from './format';

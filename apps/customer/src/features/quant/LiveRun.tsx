@@ -4,9 +4,9 @@ import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field } from '../../shared/ui';
-import { venueBalanceSchema, venueFillSchema, venueOrderSchema, venuePositionSchema } from '../trade/venue-api';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { venueBalanceSchema, venueFillSchema, venueOrderSchema, venuePositionSchema } from '../trade';
+import { Read, Select } from '../more';
+import { useApi } from '../session';
 import { liveRunCopy } from './live-run-copy';
 
 // hand-declared-ok: svc-trade's live-run answers (src/quant/live-run/rest.ts) have no browser-safe schema in @intafaced/contracts; the venue rows reuse trade/venue-api's.
@@ -45,8 +45,12 @@ const runSchema = z.object({
   createdAt: iso,
   startedAt: iso.nullable(),
   test: z.boolean(),
+  /** The risk desk's halt standing on the strategy (J-algo-dev-11): no new order; Liquidate still passes. */
+  halt: z
+    .object({ reason: z.string(), scope: z.enum(['one', 'all']), haltedAt: iso })
+    .nullable()
+    .optional(),
 });
-type Run = z.infer<typeof runSchema>;
 const orderSchema = z.object({
   seq: z.number(),
   actionKey: z.string(),
@@ -90,6 +94,8 @@ const KNOWN = new Set([
   'quant.stop_unavailable',
   'quant.nothing_to_liquidate',
   'quant.run_not_found',
+  'quant.strategy_halted',
+  'quant.halt_unavailable',
 ]);
 type Refusal = { code: string | null; message: string };
 const refusalOf = (res: Extract<ApiResult<unknown>, { ok: false }>): Refusal => ({
@@ -129,7 +135,10 @@ export function LiveRuns() {
                   <td>
                     {r.strategyName} · {t('version', { version: r.strategyVersion })}
                   </td>
-                  <td>{t(`state_${r.state}`)}</td>
+                  <td data-testid="live-run-row-state" data-state={r.state} data-halted={r.halt ? 'true' : 'false'}>
+                    {t(`state_${r.state}`)}
+                    {r.halt ? ` · ${t('haltedShort')}` : ''}
+                  </td>
                   <td className="numeric">{r.startedAt ? timeText(r.startedAt) : '—'}</td>
                   <td>
                     <a href={`/quant/live/${encodeURIComponent(r.runId)}`}>{t('open')}</a>
@@ -208,6 +217,11 @@ function RunBody({ d, onChange }: { d: Detail; onChange: () => void }) {
           </dd>
         </div>
       </dl>
+      {d.halt ? (
+        <p role="status" data-testid="live-run-halted" data-scope={d.halt.scope}>
+          {t('haltedNotice', { reason: d.halt.reason })}
+        </p>
+      ) : null}
       {d.endReason === 'account_frozen' ? (
         <p role="status" data-testid="live-run-frozen">
           {t('frozenNotice')}

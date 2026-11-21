@@ -1,4 +1,5 @@
 import type { SupportAttachmentKey } from '@intafaced/contracts';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * The attachment limits and the state of the five pieces an attach needs, as svc-support returns them
@@ -70,10 +71,6 @@ export interface AttachmentStatus {
   readonly limits: AttachmentLimits;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
 const isKey = (v: unknown): v is SupportAttachmentKey => typeof v === 'string' && (ATTACHMENT_KEYS as readonly string[]).includes(v);
 const positiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= INT_MAX;
 
@@ -98,19 +95,9 @@ export function readAttachmentLimits(raw: unknown): AttachmentLimits | null {
   return { maxBytes, allowedTypes: allowedTypes as readonly string[] | null, maxCount, missing, revision, updatedAt };
 }
 
-export function readAttachmentStatus(raw: unknown): AttachmentStatus | null {
-  if (!isRecord(raw) || Object.keys(raw).sort().join(',') !== 'limits,pieces') return null;
-  const limits = readAttachmentLimits(raw.limits);
-  if (!limits || !Array.isArray(raw.pieces) || raw.pieces.length !== ATTACHMENT_KEYS.length) return null;
-  const pieces: AttachmentPiece[] = [];
-  for (let i = 0; i < ATTACHMENT_KEYS.length; i += 1) {
-    const p: unknown = raw.pieces[i];
-    if (!isRecord(p) || Object.keys(p).sort().join(',') !== 'key,set') return null;
-    if (p.key !== ATTACHMENT_KEYS[i] || typeof p.set !== 'boolean') return null;
-    pieces.push({ key: ATTACHMENT_KEYS[i]!, set: p.set });
-  }
-  return { pieces, limits };
-}
+/** The desk lists the five pieces in the order an attach needs them, each once. */
+export const piecesInOrder = (status: AttachmentStatus): boolean =>
+  status.pieces.length === ATTACHMENT_KEYS.length && status.pieces.every((piece, i) => piece.key === ATTACHMENT_KEYS[i]);
 
 export type AttachmentDrafts = Readonly<Record<AttachmentSetting, string>>;
 

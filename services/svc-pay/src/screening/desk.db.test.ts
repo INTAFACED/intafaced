@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
+import { type Principal } from '@intafaced/auth';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import type { Sql, TransactionSql } from 'postgres';
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
@@ -95,7 +95,7 @@ describe('screening desk (real Postgres)', () => {
     const g = guards();
     try {
       await g.beforeUserMoneyWithdrawal!({
-        tx: (over.tx ?? db.sql) as unknown as Sql,
+        tx: (over.tx ?? db.sql) as Sql,
         userId: over.userId ?? USER,
         assetId: 'USDT',
         amount: over.amount ?? 5n * 10n ** 18n,

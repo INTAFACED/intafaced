@@ -28,6 +28,24 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'The trading rulebook customers read: versions, history, and a new version with a second founder.',
   },
   {
+    id: 'feeds',
+    href: '/trade-ops/feeds',
+    label: 'Market feeds',
+    job: "Each market's candle stream: age, last tick, delayed or stale past the owner's ages; candle gaps and the feed event journal.",
+  },
+  {
+    id: 'charts-metrics',
+    href: '/trade-ops/charts/metrics',
+    label: 'Charts metrics',
+    job: 'Chart opens, alerts, saved layouts and indicator use: real counts, or what is missing to count them.',
+  },
+  {
+    id: 'alert-engine',
+    href: '/trade-ops/alerts',
+    label: 'Alert engine',
+    job: 'Evaluation lag, firings today, and alert deliveries and failures per channel.',
+  },
+  {
     id: 'charts-settings',
     href: '/trade-ops/charts/settings',
     label: 'Charts settings',
@@ -92,6 +110,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     href: '/trade-ops/routing',
     label: 'Routing',
     job: 'Our users’ orders routed to each venue: volume and our builder fees as each venue reports them; house exposure none.',
+  },
+  {
+    id: 'builder-account',
+    href: '/trade-ops/builder-account',
+    label: 'Builder account',
+    job: 'Our builder address’s account mode at each venue beside the mode required for builder fees; its alerts.',
   },
   {
     id: 'adapters',

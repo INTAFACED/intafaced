@@ -7,7 +7,7 @@ import {
   type ConsoleSettablePolicyActionType,
 } from '@intafaced/contracts/action-approval-policy';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { ChangePolicyRoom } from './room';
 import '../desk.css';
 

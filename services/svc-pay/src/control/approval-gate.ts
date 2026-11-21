@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
@@ -89,7 +90,7 @@ export async function voidStaleApprovalsBounded(pool: Sql, payload: PayoutPayloa
   try {
     await pool.begin(async (t) => {
       await t`SET LOCAL lock_timeout = '2s'`;
-      await voidStaleApprovals(t as unknown as Sql, payload, currentHash);
+      await voidStaleApprovals(t, payload, currentHash);
     });
   } catch {
     // Refused already; nothing to undo.
@@ -97,7 +98,7 @@ export async function voidStaleApprovalsBounded(pool: Sql, payload: PayoutPayloa
 }
 
 /** Void live approvals for the settlement that are bound to a different payload. Idempotent. */
-export async function voidStaleApprovals(pool: Sql, payload: PayoutPayload, currentHash: string): Promise<string[]> {
+export async function voidStaleApprovals(pool: Queryable, payload: PayoutPayload, currentHash: string): Promise<string[]> {
   const voided = await pool<Array<{ id: string }>>`
     UPDATE pay.control_payout_approvals
        SET status = 'voided', void_reason = 'amount, rail or destination changed after the request', decided_at = now()

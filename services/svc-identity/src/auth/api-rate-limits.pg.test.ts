@@ -347,7 +347,7 @@ const migrations = readdirSync(drizzleDir)
       expect((await fake.exchangeApiKey(live.secret)).rateLimit).toEqual({ tier: 'granted', burst: 60, refillPerMinute: 2400 });
       const blank = {
         exchangeApiKey: fake.exchangeApiKey,
-      } as unknown as AuthService;
+      } as AuthService;
       installApiKeyRateExchange(blank, db.sql, null);
       expect((await blank.exchangeApiKey(live.secret)).rateLimit).toBeNull();
     });
