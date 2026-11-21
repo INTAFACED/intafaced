@@ -71,7 +71,8 @@ For each part, in the PR:
    types (`pnpm --filter <package> typecheck`) and lint (`pnpm lint <files>`) pass.
 3. **One planted break per part**: for one rewritten test, break the behaviour it now checks in the code under test
    (not the test), run it, and show it fails; restore. Paste the command and the failing line in the PR.
-4. Every deleted site names its guard, and that guard's test passes.
+4. Every deleted site names its guard, and that guard's test passes. A part that removes assertions carries a
+   `Test-change:` line in its PR body naming each one's guard (`tooling/ci/test-diff-guard.mjs` reads it at push).
 
 ## 5. The fences
 
