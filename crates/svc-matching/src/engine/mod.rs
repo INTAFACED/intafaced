@@ -7,7 +7,7 @@
 //! belongs to their slices, and the door owes an order that needs one (`door::book`).
 //!
 //! The market modes (halt, maintenance, prelaunch, reduce-only, post-only, expiry, delisting, the venue halt) and dead
-//! sessions are switched by the `venue` slice's doors. Here they are read back from the journal on a cold start and
+//! sessions are switched by the `venue` slice's calls (`venue`). Here they are also read back from the journal on a cold start and
 //! every submit and amend is gated on them, as the base engine gates them.
 
 pub mod reconcile;

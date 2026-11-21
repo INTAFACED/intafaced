@@ -201,7 +201,7 @@ const RESTING: &str = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 /// The engine `wire-replay.test.ts` builds: a journal and a bus in memory, the clock, no snapshots. `set` starts where
 /// its seed left the TypeScript engine: the market opened and one sell resting. The seed is those two records, read
-/// back by a cold start, so the books begin as the TypeScript's did without a venue door this port does not serve yet.
+/// back by a cold start, so the books begin as the TypeScript's did.
 fn engine(setup: &str) -> MatchingEngine {
     let mut journal = MemoryJournal::new();
     if setup == "set" {
@@ -491,6 +491,16 @@ fn the_door_answers_every_recorded_request_it_decides_as_the_typescript_does() {
         unreached.is_empty(),
         "routes the recording never reaches: {unreached:?}"
     );
+    // A slice the door serves owes nothing, ever.
+    for s in Slice::ALL.into_iter().filter(|s| s.is_served()) {
+        let n = owed.get(&s).copied().unwrap_or(0);
+        assert_eq!(
+            n,
+            0,
+            "slice {} is served and still owes {n} answers",
+            s.name()
+        );
+    }
     if let Some(s) = strict.as_deref().and_then(slice_of) {
         let n = owed.get(&s).copied().unwrap_or(0);
         assert_eq!(n, 0, "slice {} still owes {n} answers", s.name());

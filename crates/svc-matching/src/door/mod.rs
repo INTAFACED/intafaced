@@ -57,6 +57,12 @@ impl Slice {
         Slice::Operator,
     ];
 
+    /// Whether the port serves this slice's doors. The door answers them; the wire replay fails while any owes an
+    /// answer.
+    pub fn is_served(self) -> bool {
+        matches!(self, Slice::Book | Slice::Venue)
+    }
+
     /// The slice's name in `PORT.md`.
     pub fn name(self) -> &'static str {
         match self {
@@ -685,7 +691,7 @@ impl MatchingDoor {
             Ok(parsed) => parsed,
             Err(refused) => return answer(refused),
         };
-        if !matches!(route.slice, Slice::Book | Slice::Venue) {
+        if !route.slice.is_served() {
             return Outcome::Owed(route.slice);
         }
         let param = |name: &str| {

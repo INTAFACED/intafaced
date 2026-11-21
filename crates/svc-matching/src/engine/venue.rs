@@ -2,10 +2,12 @@
 //! `prelaunch`, `open`, `expire`, `delist` and their reverses), the venue halt (`haltAll`, `resumeAll`), a dead session
 //! (`sessionDead`), and the open surveillance evidence (`surveillance-persist.ts`).
 //!
-//! The TypeScript layers three modules over each switch, outermost first: `rulebook-refuse.ts` (an emergency action
-//! names its operator and its evidence; a delisting names an owner policy), `cod-fence.ts` (two distinct operators on
-//! the halts) and the base engine (two distinct operators on every market switch, one operator on the venue halt).
-//! [`MatchingEngine::switch`] runs the same gates in the same order and answers what the first that refuses answers.
+//! The TypeScript layers up to three modules over each switch. As `index.ts` composes them, outermost first:
+//! `cod-fence.ts` on the four halts (two distinct operators; it installs last, its import-time install deferred by its
+//! import cycle with `engine.ts`), `rulebook-refuse.ts` on the halts, the expiry and the delisting (an emergency action
+//! names its operator and its evidence; a delisting names an owner policy), and the base engine (two distinct operators
+//! on every market switch, one operator on the venue halt). [`MatchingEngine::switch`] runs the same gates in the same
+//! order and answers what the first that refuses answers.
 
 use std::collections::HashSet;
 
@@ -118,14 +120,16 @@ pub fn read_operator_id(raw: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn missing_operator() -> Reject {
+    Reject::new(
+        MISSING_OPERATOR,
+        "operator identity is required; the engine does not invent a caller",
+    )
+}
+
 /// `operatorRefuse`.
 pub fn operator_refuse(operator_id: Option<&str>) -> Option<Reject> {
-    operator_id.is_none().then(|| {
-        Reject::new(
-            MISSING_OPERATOR,
-            "operator identity is required; the engine does not invent a caller",
-        )
-    })
+    operator_id.is_none().then(missing_operator)
 }
 
 /// `dualControlRefuse`: two distinct operator identities.
@@ -317,6 +321,26 @@ impl MatchingEngine {
     ) -> Result<SwitchResult, EngineError> {
         let operator = read_operator_id(cmd.operator_id.as_deref());
         let confirm = read_operator_id(cmd.confirm_operator_id.as_deref());
+        let dual = || {
+            let refused = dual_control_refuse(operator.as_deref(), confirm.as_deref());
+            refused.map(|r| {
+                self.refused_switch(
+                    switch,
+                    market_id,
+                    operator.clone(),
+                    Some(confirm.clone()),
+                    r,
+                )
+            })
+        };
+        // cod-fence.ts, on the four halts: two distinct operators.
+        let halts = matches!(
+            switch,
+            Switch::Halt | Switch::Resume | Switch::HaltAll | Switch::ResumeAll
+        );
+        if halts && let Some(r) = dual() {
+            return Ok(r);
+        }
         // rulebook-refuse.ts: the operator, then the evidence or the delisting's policy.
         if switch.emergency() || switch == Switch::Delist {
             if let Some(r) = operator_refuse(operator.as_deref()) {
@@ -342,17 +366,20 @@ impl MatchingEngine {
                 return Ok(self.refused_switch(switch, market_id, operator, None, r));
             }
         }
-        // cod-fence.ts (the halts) and the base engine (every market switch): two distinct operators. The venue
-        // halt's base asks one, but cod-fence asks two before it.
-        let refused = dual_control_refuse(operator.as_deref(), confirm.as_deref());
-        let (Some(operator), None) = (operator.clone(), refused.clone()) else {
-            let r = refused.unwrap_or_else(|| {
-                Reject::new(
-                    MISSING_OPERATOR,
-                    "operator identity is required; the engine does not invent a caller",
-                )
-            });
-            return Ok(self.refused_switch(switch, market_id, operator, Some(confirm), r));
+        // The base engine: two distinct operators on every market switch (the venue halt's base asks one, but
+        // cod-fence asked two before it).
+        if let Some(r) = dual() {
+            return Ok(r);
+        }
+        // Past the dual-control gate the operator is named.
+        let Some(operator) = operator else {
+            return Ok(self.refused_switch(
+                switch,
+                market_id,
+                None,
+                Some(confirm),
+                missing_operator(),
+            ));
         };
         let at = self.now_iso((self.clock)());
         let mut record: Vec<(String, Json)> = vec![("kind".into(), Json::str(switch.kind()))];
