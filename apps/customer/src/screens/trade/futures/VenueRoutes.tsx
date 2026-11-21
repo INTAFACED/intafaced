@@ -4,6 +4,7 @@ import { Button, DataTable, Dialog } from '../../../shared/ui';
 import { displayAmount, parseAmount } from '../../../shared/money';
 import { usePolled } from '../../../features/protocol/wallet/use-polled';
 import {
+  draftId,
   keys,
   leverageTimes,
   sumDecimals,
@@ -301,6 +302,23 @@ export function routeWhy(t: RoutesT, route: RoutePreview): string {
 
 type Step = 'review' | 'approval' | 'declined';
 
+/**
+ * Brings a refusal into view inside the dialog as it appears, so the person who pressed Approve reads why it failed rather
+ * than a line cut off below the dialog's fold (J-derivatives-30 #5).
+ */
+const reveal = (el: HTMLElement | null) => el?.scrollIntoView?.({ block: 'nearest' });
+
+/**
+ * The venue's own reason when it refused our approval because the wallet already holds the most active builder approvals
+ * it allows (J-derivatives-30 #5), at prepare or at submit; null for any other answer.
+ */
+function approvalLimit(result: ActionResult | null): string | null {
+  if (result?.kind === 'refused' && result.code === 'trade.venue.builder_approval_limit') return result.message;
+  if (result?.kind === 'outcome' && !result.outcome.accepted && result.outcome.refusal.code === 'builder_approval_limit')
+    return result.outcome.refusal.detail;
+  return null;
+}
+
 /** The routed Review of one order: the venue chosen, why, and Confirm (approval first where needed, then the order). */
 export function RoutedReview({
   title,
@@ -338,6 +356,8 @@ export function RoutedReview({
   const [step, setStep] = useState<Step>('review');
   const [busy, setBusy] = useState(false);
   const [approving, setApproving] = useState<ActionResult | null>(null);
+  // The draft this review's builder approval is asked under: a new review after a revoke asks a new one (J-derivatives-30 #4).
+  const [approvalDraft] = useState(() => draftId());
   const [result, setResult] = useState<ActionResult | null>(null);
   const fee = status.builder?.feeBps ?? null;
   const approvedAmount = approval.data && 'value' in approval.data ? approval.data.value : null;
@@ -371,7 +391,10 @@ export function RoutedReview({
     try {
       const answer = await run(
         { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
-        { actionKey: keys.builderApproval(owner, status.builder.address, status.builder.feeBps, chosen.venueId), venueId: chosen.venueId },
+        {
+          actionKey: keys.builderApproval(owner, status.builder.address, status.builder.feeBps, chosen.venueId, approvalDraft),
+          venueId: chosen.venueId,
+        },
       );
       setApproving(answer);
       approval.reload();
@@ -513,7 +536,13 @@ export function RoutedReview({
             >
               {t('Decline')}
             </Button>
-            <OutcomeLine result={approving} owner={owner} venueId={chosen.venueId} />
+            {approvalLimit(approving) ? (
+              <p className="failure" role="alert" data-testid="venue-route-approval-limit" ref={reveal}>
+                {t('Approval limit words', { venue: chosen.displayName, detail: approvalLimit(approving) ?? '' })}
+              </p>
+            ) : (
+              <OutcomeLine result={approving} owner={owner} venueId={chosen.venueId} />
+            )}
           </section>
         ) : null}
         {step === 'declined' && chosen ? (
