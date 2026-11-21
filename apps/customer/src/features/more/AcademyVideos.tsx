@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { z } from 'zod';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Panel } from '../../shared/ui';
@@ -9,8 +8,7 @@ import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyPaths, lessonHrefFor, isAcademyPath } from './academy-lms';
 import { AcademyRefusal, pathLabel } from './AcademyLmsParts';
 import { AcademyVideoPlayer } from './AcademyVideoPlayer';
-
-const video = z.object({ slug: z.string(), title: z.string(), path: z.string() });
+import { ACADEMY_VIDEOS } from '@intafaced/contracts/academy-videos-procedures';
 
 /** Video library: recordings grouped by path, the player for the chosen one, and a way back to the matching lesson. */
 export function AcademyVideos() {
@@ -18,7 +16,7 @@ export function AcademyVideos() {
     { userId } = useSession();
   const { t, Copy } = copy.useCopy();
   const [selected, setSelected] = useState(new URLSearchParams(window.location.search).get('video') ?? '');
-  const list = useResource((signal) => api.query('academy', 'videos', undefined, z.array(video), { signal }), `videos:${userId}`);
+  const list = useResource((signal) => api.call(ACADEMY_VIDEOS, undefined, { signal }), `videos:${userId}`);
   return (
     <div className="more-columns">
       <Panel title={copyText('academy.video.library')}>
