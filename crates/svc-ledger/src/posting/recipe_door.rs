@@ -12,11 +12,12 @@
 //! 6. the reply is checked against the record's output (`postRecipeReply`); a reply that breaks it is the ledger's
 //!    fault, a 500.
 //!
-//! The legs are `packages/ledger-client/src/recipes/academy-purchase.ts`'s, held to it case for case by
+//! The legs are `packages/ledger-client/src/recipes/academy-purchase.ts`'s, `charge.ts`'s (`chargeEarn`,
+//! `chargeCollect`) and `recipes/index.ts` `feeCharge`'s (its asset mode), held to them case for case by
 //! `tests/post_recipe_parity.rs` (what the TypeScript door hands its ledger for each recorded body and caller).
 
 use service_kit::json::Json;
-use service_kit::money::{Amount, format_amount, parse_amount};
+use service_kit::money::{Amount, MAX_AMOUNT, format_amount, is_js_whitespace, parse_amount};
 use service_kit::schema::{Outcome as Parsed, Value, js_trim};
 
 use crate::db::Store;
@@ -25,7 +26,13 @@ use crate::posting::Posting;
 use crate::posting::gate::{Caller, grant_for};
 
 /// `POST_RECIPE_NAMES`: the recipes the door posts, in the record's order.
-pub const NAMES: [&str; 2] = ["academyPurchase", "academyPurchaseRefund"];
+pub const NAMES: [&str; 5] = [
+    "academyPurchase",
+    "academyPurchaseRefund",
+    "feeCharge",
+    "chargeEarn",
+    "chargeCollect",
+];
 
 /// `ACADEMY_PURCHASE_MODULE`.
 const ACADEMY: &str = "academy";
@@ -215,6 +222,12 @@ fn build(named: &str, input: &Json) -> Result<Request, String> {
         Some(Json::String(s)) => s.as_str(),
         _ => "",
     };
+    match named {
+        "feeCharge" => return fee_charge(input),
+        "chargeEarn" => return charge_earn(input),
+        "chargeCollect" => return charge_collect(input),
+        _ => {}
+    }
     // `parseAmount(i.amount)` runs before the recipe, so a figure the book cannot hold is refused first.
     let amount = parse_amount(text("amount"))?;
     let refund = named == "academyPurchaseRefund";
@@ -387,5 +400,223 @@ fn academy(
             ],
             entries: vec![house("debit"), at_place("credit")],
         }
+    })
+}
+
+// ── svc-agents' usage charge (`charge.ts`, `recipes/index.ts` `feeCharge`) ─────────────────────────────────────────
+
+/// A string field of the parsed inputs, or empty.
+fn field<'a>(input: &'a Json, k: &str) -> &'a str {
+    match input.get(k) {
+        Some(Json::String(s)) => s.as_str(),
+        _ => "",
+    }
+}
+
+/// `charge.ts` `MODULE_ID`.
+fn is_module(s: &str) -> bool {
+    let b = s.as_bytes();
+    let ok = |c: &u8| c.is_ascii_lowercase() || c.is_ascii_digit();
+    b.first().is_some_and(ok) && b.iter().skip(1).all(|c| ok(c) || matches!(c, b'_' | b'-'))
+}
+
+/// `charge.ts` `REF`: no whitespace, no `:`.
+fn is_ref(s: &str) -> bool {
+    !s.is_empty() && !s.chars().any(|c| c == ':' || is_js_whitespace(c))
+}
+
+fn require_module(module: &str) -> Result<(), String> {
+    if is_module(module) {
+        Ok(())
+    } else {
+        Err("module must be a lower-case module id".to_owned())
+    }
+}
+
+fn require_user(user_id: &str) -> Result<(), String> {
+    if is_uuid(user_id) {
+        Ok(())
+    } else {
+        Err("userId must be the customer's id as stored (a lowercase UUID)".to_owned())
+    }
+}
+
+fn require_asset(asset_id: &str) -> Result<(), String> {
+    if js_trim(asset_id).is_empty() || js_trim(asset_id) != asset_id {
+        return Err("assetId is required, with no surrounding spaces".to_owned());
+    }
+    Ok(())
+}
+
+fn require_key(key: String) -> Result<String, String> {
+    if key.encode_utf16().count() > KEY_MAX {
+        return Err(format!(
+            "the post key would be longer than {KEY_MAX} characters"
+        ));
+    }
+    Ok(key)
+}
+
+/// `chargeReceivable(module, userId, assetId)`: what one customer owes us for one module's charges.
+fn receivable(
+    module: &str,
+    user_id: &str,
+    asset_id: &str,
+    direction: &'static str,
+    amount: Amount,
+) -> Leg {
+    Leg {
+        owner_type: "treasury",
+        owner_id: format!("charge-receivable:{module}.{user_id}"),
+        asset_id: asset_id.to_owned(),
+        direction,
+        amount,
+    }
+}
+
+/// `houseFees(module, assetId)`.
+fn house_fees(module: &str, asset_id: &str, direction: &'static str, amount: Amount) -> Leg {
+    Leg {
+        owner_type: "house",
+        owner_id: format!("fees:{module}"),
+        asset_id: asset_id.to_owned(),
+        direction,
+        amount,
+    }
+}
+
+/// `feeCharge({ ...i, amount: parseAmount(i.amount) })` in its asset mode: the person's available down, the module's fee
+/// pot up. Custodial: the custody switch refuses it while the layer is off.
+fn fee_charge(input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    if amount <= 0 {
+        return Err("fee amount must be positive".to_owned());
+    }
+    let module = field(input, "module");
+    let asset_id = field(input, "assetId");
+    let reason = match input.get("reason") {
+        Some(Json::String(r)) => r.clone(),
+        _ => "fee.charged".to_owned(),
+    };
+    Ok(Request {
+        idempotency_key: format!("fee:{module}:{}", field(input, "chargeId")),
+        module: module.to_owned(),
+        reason,
+        meta: vec![("mode".to_owned(), Json::str("asset"))],
+        entries: vec![
+            Leg {
+                owner_type: "user",
+                owner_id: field(input, "userId").to_owned(),
+                asset_id: asset_id.to_owned(),
+                direction: "credit",
+                amount,
+            },
+            house_fees(module, asset_id, "debit", amount),
+        ],
+    })
+}
+
+/// `chargeEarn`: the price and the units made the recipe's numbers (the charge they give must fit the book), then the
+/// receivable down and the module's revenue up.
+fn charge_earn(input: &Json) -> Result<Request, String> {
+    let per_unit = parse_amount(input.get("price").map_or("", |p| field(p, "perUnit")))?;
+    let units_text = field(input, "units");
+    let units: Amount = units_text
+        .parse()
+        .map_err(|_| "units must be a whole number, at least one".to_owned())?;
+    // `parseAmount(perUnit * units)`: `fitsColumn`.
+    let amount = per_unit
+        .checked_mul(units)
+        .filter(|a| (-MAX_AMOUNT..=MAX_AMOUNT).contains(a))
+        .ok_or_else(|| "Amount does not fit numeric(38,18)".to_owned())?;
+    let module = field(input, "module");
+    let sale_id = field(input, "saleId");
+    let user_id = field(input, "userId");
+    let asset_id = field(input, "assetId");
+    require_module(module)?;
+    if !is_ref(sale_id) {
+        return Err("saleId must be an id with no spaces or colons".to_owned());
+    }
+    require_user(user_id)?;
+    require_asset(asset_id)?;
+    if units < 1 {
+        return Err("units must be a whole number, at least one".to_owned());
+    }
+    if per_unit < 0 {
+        return Err("the price must be an amount, zero or more".to_owned());
+    }
+    if amount == 0 {
+        return Err("a charge must be above zero; a free sale posts nothing".to_owned());
+    }
+    let member = match input.get("memberUserId") {
+        Some(Json::String(m)) => {
+            require_user(m)?;
+            Some(m.clone())
+        }
+        _ => None,
+    };
+    let key = require_key(format!("charge:earned:{module}:{sale_id}"))?;
+    let mut meta = vec![
+        ("saleId".to_owned(), Json::str(sale_id)),
+        ("userId".to_owned(), Json::str(user_id)),
+        ("perUnit".to_owned(), Json::str(format_amount(per_unit))),
+        ("units".to_owned(), Json::str(units.to_string())),
+    ];
+    if let Some(m) = member {
+        meta.push(("memberUserId".to_owned(), Json::str(m)));
+    }
+    Ok(Request {
+        idempotency_key: key,
+        module: module.to_owned(),
+        reason: "charge.earned".to_owned(),
+        meta,
+        entries: vec![
+            house_fees(module, asset_id, "debit", amount),
+            receivable(module, user_id, asset_id, "credit", amount),
+        ],
+    })
+}
+
+/// `chargeCollect({ ...i, amount: parseAmount(i.amount) })`: what the customer owes comes down; the own-funds place
+/// records the money now ours.
+fn charge_collect(input: &Json) -> Result<Request, String> {
+    let amount = parse_amount(field(input, "amount"))?;
+    let module = field(input, "module");
+    let user_id = field(input, "userId");
+    let asset_id = field(input, "assetId");
+    let payment_id = field(input, "paymentId");
+    require_module(module)?;
+    require_user(user_id)?;
+    require_asset(asset_id)?;
+    if !is_ref(payment_id) {
+        return Err("paymentId must be an id with no spaces or colons".to_owned());
+    }
+    if payment_id.encode_utf16().count() > 128 {
+        return Err("paymentId must be at most 128 characters".to_owned());
+    }
+    if amount <= 0 {
+        return Err("a collected charge must be above zero".to_owned());
+    }
+    let place = place_owner(input.get("to"))?;
+    let key = require_key(format!("charge:collected:{place}:{asset_id}:{payment_id}"))?;
+    Ok(Request {
+        idempotency_key: key,
+        module: module.to_owned(),
+        reason: "charge.collected".to_owned(),
+        meta: vec![
+            ("userId".to_owned(), Json::str(user_id)),
+            ("to".to_owned(), Json::str(place.clone())),
+            ("paymentId".to_owned(), Json::str(payment_id)),
+        ],
+        entries: vec![
+            receivable(module, user_id, asset_id, "debit", amount),
+            Leg {
+                owner_type: "treasury",
+                owner_id: place,
+                asset_id: asset_id.to_owned(),
+                direction: "credit",
+                amount,
+            },
+        ],
     })
 }

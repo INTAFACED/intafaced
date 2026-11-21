@@ -52,7 +52,11 @@ const tsconfigOf = (pkg) => ['tsconfig.test.json', 'tsconfig.json'].find((n) => 
 const tsc = (pkg, config) =>
   parseTsc(
     (({ stdout, stderr }) => stdout + stderr)(
-      spawnSync(BIN('tsc'), ['-p', config, '--noEmit', '--pretty', 'false'], { cwd: pkg, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }),
+      spawnSync(process.execPath, [join(ROOT, 'tooling', 'scripts', 'tsc.mjs'), '-p', config, '--noEmit', '--pretty', 'false'], {
+        cwd: pkg,
+        encoding: 'utf8',
+        maxBuffer: 256 * 1024 * 1024,
+      }),
     ),
   );
 

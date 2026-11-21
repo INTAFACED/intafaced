@@ -30,13 +30,13 @@ import { useAcademyTracking } from './academy-tracking';
 import { ACADEMY_ENROLL_CERT_PATH } from '@intafaced/contracts/academy-learner-procedures';
 import { AcademyRefusal, GuardedButton, pathLabel } from './AcademyLmsParts';
 import { usePreferences } from '../../shared/preferences';
+import { ACADEMY_RESIDENCY_PAY_QUOTE } from '@intafaced/contracts/academy-residency-pay-quote-procedures';
 
 const badge = z.object({
   userId: z.string().guid(),
   isAmbassador: z.boolean(),
   status: z.enum(['active', 'frozen']).nullable(),
 });
-const payQuote = z.object({ status: z.literal('refuse'), payable: z.literal(false), message: z.string(), code: z.string() });
 
 /** Programme depth from real answers: path enrolment, prerequisites, grants, ambassador status and residency pay state. */
 export function AcademyProgrammeOverview({ action }: { action: ProgrammeAction }) {
@@ -365,10 +365,7 @@ function AmbassadorStatus() {
         : Promise.resolve({ ok: true as const, data: null }),
     `ambassador:${userId}`,
   );
-  const pay = useResource(
-    (signal) => api.query('academy', 'residencyPayQuote', undefined, payQuote, { signal }),
-    `residency-pay:${userId}`,
-  );
+  const pay = useResource((signal) => api.call(ACADEMY_RESIDENCY_PAY_QUOTE, undefined, { signal }), `residency-pay:${userId}`);
   return (
     <Panel title={t('ambassadorTitle')}>
       <div className="academy-lms-stack">

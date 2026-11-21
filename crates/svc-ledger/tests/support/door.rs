@@ -109,7 +109,7 @@ pub struct Kit {
     url: String,
     pub store: Store,
     pub log: Captured,
-    signers: Vec<(String, ServiceSigner)>,
+    signers: Vec<(String, Arc<ServiceSigner>)>,
 }
 
 fn pkcs8(seed: &[u8; 32]) -> String {
@@ -155,7 +155,10 @@ impl Kit {
             .map(|(svc, seed)| {
                 (
                     (*svc).to_owned(),
-                    ServiceSigner::new(svc, &format!("{svc}.a"), &pkcs8(seed), &keyring).unwrap(),
+                    Arc::new(
+                        ServiceSigner::new(svc, &format!("{svc}.a"), &pkcs8(seed), &keyring)
+                            .unwrap(),
+                    ),
                 )
             })
             .collect();
@@ -214,6 +217,16 @@ impl Kit {
             log,
             signers,
         }
+    }
+
+    /// `service`'s own key, for a client that signs its own calls (svc-agents' `LedgerHttp`).
+    pub fn signer(&self, service: &str) -> Arc<ServiceSigner> {
+        self.signers
+            .iter()
+            .find(|(s, _)| s == service)
+            .unwrap_or_else(|| panic!("no key for {service}"))
+            .1
+            .clone()
     }
 
     /// The headers `service`'s own key signs this call with: a fresh nonce each time, as the client signs each attempt.
