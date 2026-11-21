@@ -36,13 +36,20 @@ const patternsOf = (records: readonly Named[]) =>
 
 /** Every place in `source` that names a recorded call by its module and path string. */
 function stringNamedCalls(source: string, patterns: ReturnType<typeof patternsOf>): string[] {
-  // Both shapes quote the path, so a source that never mentions it is skipped without running either pattern.
-  return patterns.flatMap((p) => (source.includes(p.path) && (p.byName.test(source) || p.handSchema.test(source)) ? [p.name] : []));
+  // Both shapes put a quote right before and after the path, and a path is only letters, digits, `_`, `.`, `/` and `-`
+  // (checked below), so a quoted path is always one whole run of those characters. One pass collects the runs; a record
+  // whose path is not among them is skipped without running either pattern (a scan per record grew past the time limit).
+  const runs = new Set(source.match(/[\w./-]+/g));
+  return patterns.flatMap((p) => (runs.has(p.path) && (p.byName.test(source) || p.handSchema.test(source)) ? [p.name] : []));
 }
 
 const PATTERNS = patternsOf(CONTRACT_PROCEDURES);
 
 describe('a recorded call is made only by its record', () => {
+  it('reads every recorded path as one run of the characters the quick check collects', () => {
+    expect(PATTERNS.filter((p) => !/^[\w./-]+$/.test(p.path)).map((p) => p.name)).toEqual([]);
+  });
+
   it('finds the hand copies #8841 came from', () => {
     expect(stringNamedCalls(`api.query('bank', 'spaces.list', { limit: 200 }, z.array(s.spaceSchema))`, PATTERNS)).toEqual([
       'bank.spaces.list',
