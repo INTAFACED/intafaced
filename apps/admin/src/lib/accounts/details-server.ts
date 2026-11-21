@@ -1,7 +1,6 @@
 import 'server-only';
 import type { CustomerDetailsResult } from '@intafaced/contracts';
-import type { FounderCallResult } from '@/lib/desk/founder-call';
-import { failureRefusal } from '@/lib/ops-desk/execute';
+import { failureRefusal, type FounderCallResult } from '@/lib/desk';
 import { detailsReply } from './details';
 
 const NO_STORE = { 'cache-control': 'no-store' } as const;

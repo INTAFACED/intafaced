@@ -2,15 +2,14 @@ import { useMemo, type ReactNode } from 'react';
 import { Button, DataTable, EmptyState, Failure, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
-import { useApi, useSession } from '../../session/session';
-import { useVenueMode } from '../../trade/use-venue-mode';
-import { venueApi } from '../../trade/venue-api';
-import { AsOfLine, TestMark } from '../../trade/venue/VenueKit';
+import { useApi, useSession } from '../../session';
+import { AsOfLine, TestMark, useVenueMode, venueApi } from '../../trade';
 import { createProtocolApi } from '../api';
 import { safetyCopy } from './safety-copy';
 import { walletCopy } from './copy';
 import { useWallet } from './WalletProvider';
 import { AccountModePanel } from './AccountModePanel';
+import { isFactoryUnset } from './wallet-text';
 
 /**
  * /wallet/accounts (D-portfolio-wallet-02): the accounts the connected wallet controls on this network, read from the
@@ -165,13 +164,4 @@ function VenueSubAccountList({ owner, venueName, test }: { owner: string; venueN
       )}
     </>
   );
-}
-
-/**
- * svc-protocol's `requireAccountFactoryConfigured` refusal (PRECONDITION_FAILED, no typed code on the wire): named as the
- * factory not being deployed. Every other failure, a region refusal or a network that did not answer included, is shown
- * by the shared Failure, which reads its code.
- */
-export function isFactoryUnset(message: string): boolean {
-  return /factory\/implementation is not configured/i.test(message);
 }

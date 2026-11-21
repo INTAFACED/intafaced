@@ -1010,6 +1010,19 @@
   opacity: 0.6;
 }
 
+/* The soft fill (AreaChart soft): the line's own light, fading to nothing at the base. */
+.lt-chart-area[data-soft] {
+  opacity: 1;
+}
+.lt-chart-soft-top {
+  stop-color: var(--lt-chart-soft, var(--lit-accent));
+  stop-opacity: 0.3;
+}
+.lt-chart-soft-bottom {
+  stop-color: var(--lt-chart-soft, var(--lit-accent));
+  stop-opacity: 0;
+}
+
 .lt-chart-live {
   fill: var(--lit-accent);
 }
@@ -1201,4 +1214,58 @@
 
 .lt-chip[data-returned] .lt-chip-mark {
   background: var(--lit-text-2);
+}
+
+/* ---- QuickSend: the people row, round faces with names under them, after one key that adds a person ---- */
+
+.lt-people ul {
+  display: flex;
+  gap: var(--lit-gap-item);
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: none;
+}
+.lt-person {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  inline-size: 4.5rem;
+  color: var(--lit-text-2);
+  font-size: var(--lit-type-label-size);
+  text-decoration: none;
+  border-radius: var(--lit-radius-tile);
+}
+.lt-person-face {
+  display: grid;
+  place-items: center;
+  inline-size: 3.75rem;
+  block-size: 3.75rem;
+  border-radius: 50%;
+  background: var(--lit-solid-bg-raised);
+  box-shadow: var(--lit-solid-lip);
+  color: var(--lit-text-1);
+  font-weight: 600;
+  font-size: 1.0625rem;
+  letter-spacing: 0.02em;
+}
+.lt-person[data-add] .lt-person-face {
+  background: var(--lit-accent-deep);
+  color: var(--lit-accent);
+  box-shadow: none;
+}
+.lt-person-name {
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lt-person:hover .lt-person-name {
+  color: var(--lit-text-1);
+}
+.lt-person:focus-visible {
+  outline: 2px solid var(--lit-focus);
+  outline-offset: 0.25rem;
 }

@@ -1,20 +1,23 @@
 import {
   QUANT_LIBRARY_TAGS,
-  quantLibraryPageSchema,
-  quantLineageSchema,
-  quantListingPageSchema,
-  quantListingPreviewSchema,
   type QuantLibraryTag,
   type QuantListingPage,
   type QuantListingPreview,
 } from '@intafaced/contracts/quant-library';
+import {
+  QUANT_LIBRARY_BROWSE,
+  QUANT_LIBRARY_CLONE,
+  QUANT_LIBRARY_GET,
+  QUANT_LIBRARY_PREVIEW,
+  QUANT_LIBRARY_REQUEST,
+  QUANT_LIBRARY_REVIEW,
+} from '@intafaced/contracts/quant-library-procedures';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Panel } from '../../shared/ui';
-import { Read, Select, TextArea } from '../more/common';
-import { preservePaperHref } from '../more/trade-context';
-import { useApi } from '../session/session';
+import { Read, Select, TextArea, preservePaperHref } from '../more';
+import { useApi } from '../session';
 import { libraryCopy } from './library-copy';
 import { QuantRooms } from './QuantRooms';
 import { libraryRefusal } from './StrategyPublish';
@@ -82,7 +85,7 @@ function LibraryPage({
   const api = useApi();
   const { t } = libraryCopy.useCopy();
   const page = useResource(
-    (signal) => api.query('quant', 'library.browse', { tag, limit: PAGE, cursor }, quantLibraryPageSchema, { signal }),
+    (signal) => api.call(QUANT_LIBRARY_BROWSE, { tag, limit: PAGE, cursor }, { signal }),
     `quant-library:${tag ?? ''}:${cursor ?? ''}`,
   );
   return (
@@ -128,7 +131,7 @@ export function ListingRoom({ listingId, paper }: { listingId: string; paper: bo
   const { t } = libraryCopy.useCopy();
   const [revision, setRevision] = useState(0);
   const preview = useResource(
-    (signal) => api.query('quant', 'library.preview', { listingId }, quantListingPreviewSchema, { signal }),
+    (signal) => api.call(QUANT_LIBRARY_PREVIEW, { listingId }, { signal }),
     `quant-listing-preview:${listingId}:${revision}`,
   );
   const kept = useLastReady(preview.resource);
@@ -165,12 +168,7 @@ function RequestAccess({ preview, onChange }: { preview: QuantListingPreview; on
   const [failure, setFailure] = useState<Failed | null>(null);
   async function request() {
     setFailure(null);
-    const res = await api.mutate(
-      'quant',
-      'library.request',
-      { listingId: preview.listingId, seq: preview.rows },
-      quantListingPreviewSchema,
-    );
+    const res = await api.call(QUANT_LIBRARY_REQUEST, { listingId: preview.listingId, seq: preview.rows });
     if (!res.ok) return setFailure(res);
     onChange();
   }
@@ -193,10 +191,7 @@ function ListingBody({ listingId, paper }: { listingId: string; paper: boolean }
   const api = useApi();
   const { t } = libraryCopy.useCopy();
   const [revision, setRevision] = useState(0);
-  const page = useResource(
-    (signal) => api.query('quant', 'library.get', { listingId }, quantListingPageSchema, { signal }),
-    `quant-listing:${listingId}:${revision}`,
-  );
+  const page = useResource((signal) => api.call(QUANT_LIBRARY_GET, { listingId }, { signal }), `quant-listing:${listingId}:${revision}`);
   const kept = useLastReady(page.resource);
   if (page.resource.status === 'failed') {
     const named = libraryRefusal(page.resource.failure, t);
@@ -279,7 +274,7 @@ function CloneButton({ listing, paper, onChange }: { listing: QuantListingPage; 
     setNote(null);
     setRefused(null);
     setFailure(null);
-    const res = await api.mutate('quant', 'library.clone', { listingId: listing.listingId }, quantLineageSchema);
+    const res = await api.call(QUANT_LIBRARY_CLONE, { listingId: listing.listingId });
     setBusy(false);
     if (res.ok) {
       setNote(t('cloned'));
@@ -336,7 +331,7 @@ function Reviews({ listing, onChange }: { listing: QuantListingPage; onChange: (
     setNote(null);
     setRefused(null);
     setFailure(null);
-    const res = await api.mutate('quant', 'library.review', { listingId: listing.listingId, text }, quantListingPageSchema);
+    const res = await api.call(QUANT_LIBRARY_REVIEW, { listingId: listing.listingId, text });
     setBusy(false);
     if (res.ok) {
       setNote(t('reviewSaved'));

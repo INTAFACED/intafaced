@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { CATEGORY_CHANNELS, type CategoryPrefRow } from '../../screens/notifications/notify-api';
 import { useCategoryPrefs } from '../../screens/notifications/use-category-prefs';
 import { useBankRead, useSpaces } from './components';

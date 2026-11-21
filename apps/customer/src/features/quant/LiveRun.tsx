@@ -4,9 +4,9 @@ import type { ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field } from '../../shared/ui';
-import { venueBalanceSchema, venueFillSchema, venueOrderSchema, venuePositionSchema } from '../trade/venue-api';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { venueBalanceSchema, venueFillSchema, venueOrderSchema, venuePositionSchema } from '../trade';
+import { Read, Select } from '../more';
+import { useApi } from '../session';
 import { liveRunCopy } from './live-run-copy';
 
 // hand-declared-ok: svc-trade's live-run answers (src/quant/live-run/rest.ts) have no browser-safe schema in @intafaced/contracts; the venue rows reuse trade/venue-api's.

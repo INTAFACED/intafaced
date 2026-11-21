@@ -242,6 +242,27 @@ describe('the bank API (J-bank-24)', () => {
     expect(ledger.journal()).toEqual([]);
   });
 
+  it('concurrent first calls with one dedupe id are one move row and one partner move, and every call gets the move (#8897)', async () => {
+    const { owner, main, savings } = await start();
+    // Each call carries the same dedupe id, so the row's partner_key (its second unique key) is the same too. A loser of the
+    // insert race must read the row that won, never fail on partner_key.
+    for (let round = 0; round < 25; round++) {
+      const q = await owner.bankApi.quoteMove({ fromAccountId: main.id, toAccountId: savings.id, amount: '1' });
+      const dedupeId = `jb24-move-race-${round}`;
+      const moves = await Promise.all(Array.from({ length: 8 }, () => owner.bankApi.move({ quoteId: q.quoteId, dedupeId })));
+      expect(moves.every((m) => m.state === 'completed' && m.dedupeId === dedupeId)).toBe(true);
+      expect(new Set(moves.map((m) => m.partnerMoveId)).size).toBe(1);
+      expect(partner.record(OWNER).moves.filter((m) => m.key === `bank.api.move:${OWNER}:${dedupeId}`)).toHaveLength(1);
+    }
+    const rows = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.api_moves GROUP BY dedupe_id`;
+    expect(rows).toHaveLength(25);
+    expect(rows.every((r) => r.n === 1)).toBe(true);
+    expect((await owner.bankApi.accounts({ type: 'savings', limit: 50 })).items.find((a) => a.id === savings.id)).toMatchObject({
+      balance: '25',
+    });
+    expect(ledger.journal()).toEqual([]);
+  });
+
   it('a payment with no rail is refused rail.bank with its intent row kept; with the rail, instant and ACH are each one partner payment', async () => {
     const { owner, main } = await start();
     const ask = { fromAccountId: main.id, recipient: RECIPIENT, amount: '10' };
@@ -267,6 +288,32 @@ describe('the bank API (J-bank-24)', () => {
     );
     expect(partner.record(OWNER).moves.filter((m) => m.key.startsWith(`pay:${OWNER}:`))).toHaveLength(2);
     expect((await owner.bankApi.accounts({ type: 'standard', limit: 5 })).items[0]).toMatchObject({ balance: '80' });
+    expect(ledger.journal()).toEqual([]);
+  });
+
+  it('concurrent first calls with one idempotency key are one payment row, and every call gets its answer (#8898)', async () => {
+    const { owner, main } = await start();
+    const ask = { fromAccountId: main.id, recipient: RECIPIENT, amount: '10', method: 'instant' as const };
+    // Each call carries the same key, so the row's partner_key (its second unique key) is the same too. A loser of the insert
+    // race must read the row that won, never fail on partner_key.
+    for (let round = 0; round < 25; round++) {
+      const key = `jb24-pay-race-${round}`;
+      const codes = await Promise.all(
+        Array.from({ length: 8 }, () => refused(owner.bankApi.createPayment({ ...ask, idempotencyKey: key }))),
+      );
+      expect(codes).toEqual(Array(8).fill('rail.bank'));
+    }
+    const rows = await sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM bank.api_payments GROUP BY idempotency_key`;
+    expect(rows).toHaveLength(25);
+    expect(rows.every((r) => r.n === 1)).toBe(true);
+
+    await owner.testPartner.set({ bankRail: 'test' });
+    const made = await Promise.all(
+      Array.from({ length: 8 }, () => owner.bankApi.createPayment({ ...ask, idempotencyKey: 'jb24-pay-race-rail' })),
+    );
+    expect(new Set(made.map((p) => p.id)).size).toBe(1);
+    expect(partner.record(OWNER).moves.filter((m) => m.key === `pay:${OWNER}:jb24-pay-race-rail`)).toHaveLength(1);
+    expect((await owner.bankApi.accounts({ type: 'standard', limit: 5 })).items[0]).toMatchObject({ balance: '90' });
     expect(ledger.journal()).toEqual([]);
   });
 

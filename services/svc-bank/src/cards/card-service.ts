@@ -8,6 +8,7 @@ import {
   type CardStatusEvent,
 } from './card-controls.js';
 import { createHash } from 'node:crypto';
+import { z } from 'zod';
 import type { PendingQuery, Row, Sql } from 'postgres';
 import { transaction, type Queryable } from '@intafaced/db';
 import {
@@ -45,6 +46,7 @@ import {
   partnerFiguresAsOf,
   NOT_USED_FOR_CARDS,
   assertPayFromOrder,
+  CARD_CUSTODY_MODES,
   payFromAssets,
   requireSpendAssets,
   type CardCustodyMode,
@@ -66,6 +68,7 @@ import { ProgrammeDecisionStore } from './programme/decision-store.js';
 import { ruleDeclines, ruleWords, threeDsDecision, type ThreeDsResult, type TraceStep } from './programme/rules.js';
 import {
   assertFundingOffered,
+  FUNDING_KINDS,
   fundingOfferStates,
   reconcileProgramme,
   type AppProgrammeFigure,
@@ -99,16 +102,30 @@ interface DisplayMark {
   readonly asOf: Date;
 }
 
-interface FundingRow {
-  client_request_id: string;
-  kind: FundingKind;
-  asset_id: string;
-  amount: string;
-  threshold: string | null;
-  partner_ref: string | null;
-  approved_at: Date | null;
-  created_at: Date;
-}
+/** Values the database itself holds these columns to (a Postgres enum or a CHECK). */
+const CARD_STATUSES = ['active', 'frozen', 'closed'] as const;
+const CARD_DECISIONS = ['approved', 'declined'] as const;
+const EVENT_STATUSES = ['pending', 'settled', 'rejected'] as const;
+const MONEY_BOOKS = ['ledger', 'partner'] as const;
+const SETTLEMENT_KINDS = ['capture', 'reversal'] as const;
+const RATE_QUALITIES = ['mid', 'index', 'last', 'partner'] as const;
+
+const FundingRow = z.object({
+  client_request_id: z.string(),
+  kind: z.enum(FUNDING_KINDS),
+  asset_id: z.string(),
+  amount: z.string(),
+  threshold: z.string().nullable(),
+  partner_ref: z.string().nullable(),
+  approved_at: z.date().nullable(),
+  created_at: z.date(),
+});
+type FundingRow = z.infer<typeof FundingRow>;
+
+/** A query that reads back only a count (`count(*)::int`). */
+const CountRow = z.object({ n: z.number() });
+/** A query that reads back only an id. */
+const IdRow = z.object({ id: z.string() });
 
 /** An answered instruction (one the partner has given its reference for). */
 function toFundingRequest(r: FundingRow): ProgrammeFundingRequest {
@@ -427,7 +444,7 @@ export interface AuthorizationRecord {
   status: 'pending' | 'settled' | 'rejected';
   holdLedgerTxId: string | null;
   /**
-   * WHOSE BOOK HOLDS IT (OWNER 226). `ledger`: the custodial layer, every movement a ledger post. `partner`: the card
+   * WHOSE BOOK HOLDS IT. `ledger`: the custodial layer, every movement a ledger post. `partner`: the card
    * partner holds it from the partner balance, and our ledger posts nothing for it (`partner-card-holds.ts`). Decided once,
    * at the decision, and every later movement of this authorisation follows it, whatever the switch says by then.
    */
@@ -524,7 +541,7 @@ export type RoundUpOutcome =
   | { readonly status: 'settled'; readonly amount: Amount; readonly positionId: string }
   /** Into one of the person's own spaces (BK-pots-02): the space and the own-space transfer that moved it. */
   | { readonly status: 'settled'; readonly amount: Amount; readonly spaceId: string; readonly ledgerTxId: string }
-  /** Into one of the person's own spaces the partner bank holds (OWNER 226): the partner's one move, nothing on the ledger. */
+  /** Into one of the person's own spaces the partner bank holds: the partner's one move, nothing on the ledger. */
   | {
       readonly status: 'settled';
       readonly amount: Amount;
@@ -539,7 +556,7 @@ export type CaptureSettledHook = (event: {
   assetId: string;
   authorizationId: string;
   captured: Amount;
-  /** The card partner captured it (OWNER 226): the spare change may move only where the partner bank holds the money. */
+  /** The card partner captured it: the spare change may move only where the partner bank holds the money. */
   partnerHeld?: boolean;
 }) => Promise<RoundUpOutcome>;
 
@@ -606,7 +623,7 @@ export interface CardServiceOptions {
    */
   readonly threeDSTryLimit?: number | null;
   /**
-   * WHOSE BOOK HOLDS THIS PERSON'S CARD MONEY (OWNER 226), asked once per new authorisation: `ledger` (the custodial
+   * WHOSE BOOK HOLDS THIS PERSON'S CARD MONEY, asked once per new authorisation: `ledger` (the custodial
    * layer, as before), `partner` (the card partner holds it; `partnerHolds` below) or `none` (no partner and the custodial
    * layer off: refused `bank.partner_unset`, nothing written). Absent: always `ledger`, exactly as before.
    */
@@ -796,9 +813,14 @@ export class CardService {
     // The partner first: with no issuer, or the simulator in a live deployment, that is the blocker to name.
     const terms = this.partnerTerms();
     const owner = requireSpendAssets(this.spendAssets);
-    const cards = await this.sql<Array<{ asset_id: string; settlement_asset_id: string }>>`
+    const cards = z
+      .object({ asset_id: z.string(), settlement_asset_id: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT asset_id, settlement_asset_id FROM bank.cards WHERE user_id = ${userId} AND status <> 'closed' ORDER BY created_at, id
-    `;
+    `,
+      );
     const states = payFromAssets(owner, terms, [...new Set(cards.map((r) => r.asset_id))].sort());
     const offered = states.filter((a) => a.state === 'offered').map((a) => a.assetId);
     // One settlement asset to quote in: the one every open card settles in. None, or cards that settle in different
@@ -807,9 +829,14 @@ export class CardService {
     const settlementAssetId = settlements.length === 1 ? settlements[0]! : null;
     const marks = settlementAssetId ? await this.partnerQuotes(offered, settlementAssetId) : new Map<string, DisplayMark>();
     const balances = await this.partnerBalances(userId, offered);
-    const [saved] = await this.sql<Array<{ asset_ids: string[] }>>`
+    const [saved] = z
+      .object({ asset_ids: z.array(z.string()) })
+      .array()
+      .parse(
+        await this.sql`
       SELECT asset_ids FROM bank.card_pay_from_orders WHERE user_id = ${userId}
-    `;
+    `,
+      );
     return {
       test: terms.test,
       custodyMode: terms.custodyMode,
@@ -952,18 +979,25 @@ export class CardService {
     this.assertModuleEnabled();
     this.assertIssuerMayMutate();
     await tx`SELECT pg_advisory_xact_lock(hashtext(${`card-count:${toUserId}`}))`;
-    const [row] = await tx<Array<{ user_id: string; status: string; card_type: 'virtual' | 'physical' }>>`
+    const [row] = z
+      .object({ user_id: z.string(), status: z.string(), card_type: z.enum(['virtual', 'physical']) })
+      .array()
+      .parse(
+        await tx`
       SELECT user_id, status, card_type FROM bank.cards WHERE id = ${cardId} FOR UPDATE
-    `;
+    `,
+      );
     if (!row) throw new BankError(`Card ${cardId} not found`, 'bank.card_not_found');
     if (row.status === 'closed') throw new BankError('A closed card cannot be reassigned (bank.card_not_active)', 'bank.card_not_active');
     if (row.user_id === toUserId)
       throw new BankError('The card already belongs to that cardholder (bank.card_reassign_same)', 'bank.card_reassign_same');
-    const [open] = await tx<Array<{ n: number }>>`
+    const [open] = CountRow.array().parse(
+      await tx`
       SELECT count(*)::int AS n FROM bank.card_authorizations a
        WHERE a.card_id = ${cardId} AND a.decision = 'approved'
          AND NOT EXISTS (SELECT 1 FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.status = 'settled')
-    `;
+    `,
+    );
     if (Number(open?.n ?? 0) > 0) {
       throw new BankError(
         'This card has an authorisation still held for its holder; it can be reassigned once that is captured or given back (bank.card_reassign_open_hold)',
@@ -973,17 +1007,21 @@ export class CardService {
     const limits = this.programmeTerms?.limits ?? null;
     if (limits) await this.assertUnderCount(tx, toUserId, row.card_type, limits[row.card_type]);
     await tx`UPDATE bank.cards SET user_id = ${toUserId}, updated_at = now() WHERE id = ${cardId}`;
-    const [moved] = await tx<CardRow[]>`
+    const [moved] = CardRow.array().parse(
+      await tx`
       SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country FROM bank.cards WHERE id = ${cardId}
-    `;
+    `,
+    );
     return { fromUserId: row.user_id, card: toCard(moved!) };
   }
 
   /** Active or frozen cards of one kind this person holds: what the count limit counts. A closed card is not held. */
   async heldCount(userId: string, cardType: 'virtual' | 'physical', sql: Queryable = this.sql): Promise<number> {
-    const [row] = await sql<Array<{ n: number }>>`
+    const [row] = CountRow.array().parse(
+      await sql`
       SELECT count(*)::int AS n FROM bank.cards WHERE user_id = ${userId} AND card_type = ${cardType} AND status <> 'closed'
-    `;
+    `,
+    );
     return Number(row?.n ?? 0);
   }
 
@@ -1026,7 +1064,11 @@ export class CardService {
         'bank.rewards_issuer_unset',
       );
     }
-    const rows = await this.sql<Array<{ asset_id: string; balance: string }>>`
+    const rows = z
+      .object({ asset_id: z.string(), balance: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT c.asset_id,
              COALESCE(SUM(cb.amount) FILTER (WHERE cb.status = 'settled'), 0)::text AS balance
         FROM bank.cards c
@@ -1036,7 +1078,8 @@ export class CardService {
          AND c.simulated = false
          AND c.issuer = ${this.issuer.programme.id}
        GROUP BY c.asset_id
-    `;
+    `,
+      );
     if (rows.length === 0) {
       throw new BankError(
         'Card rewards are refused. The missing piece is an outside company, the card issuer. A cashback field is not a rewards balance.',
@@ -1117,10 +1160,11 @@ export class CardService {
       // A retried order of a card that already exists is that card, whatever the count says now.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${`card-count:${input.userId}`}))`;
       if (limits) {
-        const already = await tx<Array<{ id: string }>>`SELECT id FROM bank.cards WHERE id = ${input.cardId}`;
+        const already = IdRow.array().parse(await tx`SELECT id FROM bank.cards WHERE id = ${input.cardId}`);
         if (already.length === 0) await this.assertUnderCount(tx, input.userId, cardType, limits[cardType]);
       }
-      return tx<CardRow[]>`
+      return CardRow.array().parse(
+        await tx`
         INSERT INTO bank.cards (
           id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, cashback_bps, per_authorization_limit,
           card_type, shipping_address, activated_at, uses_allowed, design_id, delivery_speed, residence_country
@@ -1135,7 +1179,8 @@ export class CardService {
         )
         ON CONFLICT (issuer, issuer_ref) DO NOTHING
         RETURNING id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country
-    `;
+    `,
+      );
     });
     // A redelivered issue is the same card, not a second one drawing on the same
     // balance. The unique index is what makes that true; this reads it back.
@@ -1152,9 +1197,11 @@ export class CardService {
   }
 
   async card(cardId: string): Promise<CardRecord> {
-    const rows = await this.sql<CardRow[]>`
+    const rows = CardRow.array().parse(
+      await this.sql`
       SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country FROM bank.cards WHERE id = ${cardId}
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) throw new BankError(`Card ${cardId} not found`, 'bank.card_not_found');
     return toCard(row);
@@ -1169,10 +1216,12 @@ export class CardService {
    * caller checks it once, before anything else it does (the console's read checks it before its audit line).
    */
   async cardsPage(userId: string, page: number): Promise<CardRecord[]> {
-    const rows = await this.sql<CardRow[]>`
+    const rows = CardRow.array().parse(
+      await this.sql`
       SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country FROM bank.cards WHERE user_id = ${userId} ORDER BY created_at DESC
        LIMIT ${page}
-    `;
+    `,
+    );
     return rows.map(toCard);
   }
 
@@ -1258,11 +1307,13 @@ export class CardService {
       const raced = await this.operatorCommand(tx, input.clientRequestId);
       if (raced) return this.replayOperatorCommand(raced, input.cardId, input.status, reason);
 
-      const rows = await tx<CardRow[]>`
+      const rows = CardRow.array().parse(
+        await tx`
         SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country
           FROM bank.cards WHERE id = ${input.cardId}
          FOR UPDATE
-      `;
+      `,
+      );
       const row = rows[0];
       if (!row) throw new BankError(`Card ${input.cardId} not found`, 'bank.card_not_found');
       const card = toCard(row);
@@ -1296,11 +1347,13 @@ export class CardService {
     const app = await this.appProgrammeFigures();
     const assets = [...new Set([...app.keys(), ...Object.keys(terms.programmeFigures ?? {})])];
     const marks = terms.fundingAssetId ? await this.displayMarks(assets, terms.fundingAssetId) : new Map<string, DisplayMark>();
-    const requests = await this.sql<FundingRow[]>`
+    const requests = FundingRow.array().parse(
+      await this.sql`
       SELECT client_request_id, kind, asset_id, amount::text AS amount, threshold::text AS threshold, partner_ref, approved_at, created_at
         FROM bank.card_programme_funding_requests WHERE partner_ref IS NOT NULL
        ORDER BY created_at DESC, client_request_id LIMIT 20
-    `;
+    `,
+    );
     return {
       test: terms.test,
       fundingAssetId: terms.fundingAssetId,
@@ -1326,17 +1379,19 @@ export class CardService {
    */
   async payFromReconciliation(): Promise<PayFromReconciliation> {
     const partner = this.partnerHolds;
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        authorization_ref: string;
-        asset_id: string;
-        amount: string;
-        captured: string | null;
-        returned: string | null;
-        refunded: string | null;
-      }>
-    >`
+    const rows = z
+      .object({
+        id: z.string(),
+        authorization_ref: z.string(),
+        asset_id: z.string(),
+        amount: z.string(),
+        captured: z.string().nullable(),
+        returned: z.string().nullable(),
+        refunded: z.string().nullable(),
+      })
+      .array()
+      .parse(
+        await this.sql`
       SELECT a.id, a.authorization_ref, c.funding_asset_id AS asset_id, a.amount::text AS amount,
              (SELECT s.amount::text FROM bank.card_settlements s
                WHERE s.authorization_id = a.id AND s.kind = 'capture' AND s.status = 'settled' ORDER BY s.sequence LIMIT 1) AS captured,
@@ -1348,7 +1403,8 @@ export class CardService {
        WHERE a.pay_from_order IS NOT NULL AND a.money_book = 'partner' AND a.decision = 'approved' AND a.status = 'settled'
        ORDER BY a.decided_at DESC
        LIMIT 1000
-    `;
+    `,
+      );
     const totals = new Map<string, { appSpend: Amount; partnerSpend: Amount; appOpen: Amount; partnerOpen: Amount }>();
     const breaks: PayFromReconciliationBreak[] = [];
     for (const row of rows) {
@@ -1475,10 +1531,12 @@ export class CardService {
   }
 
   private async fundingRow(clientRequestId: string): Promise<FundingRow | null> {
-    const [r] = await this.sql<FundingRow[]>`
+    const [r] = FundingRow.array().parse(
+      await this.sql`
       SELECT client_request_id, kind, asset_id, amount::text AS amount, threshold::text AS threshold, partner_ref, approved_at, created_at
         FROM bank.card_programme_funding_requests WHERE client_request_id = ${clientRequestId}
-    `;
+    `,
+    );
     return r ?? null;
   }
 
@@ -1487,7 +1545,11 @@ export class CardService {
    * every settled capture and reversal against it) and settled captures. Both in the card's funding asset, as the ledger moved them.
    */
   async appProgrammeFigures(): Promise<Map<string, AppProgrammeFigure>> {
-    const rows = await this.sql<Array<{ asset_id: string; held: string; captured: string }>>`
+    const rows = z
+      .object({ asset_id: z.string(), held: z.string(), captured: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT k.asset_id,
              -- What each posted hold still holds: its amount less every settled capture and reversal against it.
              COALESCE(SUM(GREATEST(a.amount - COALESCE((
@@ -1502,7 +1564,8 @@ export class CardService {
         FROM bank.card_authorizations a
         JOIN bank.cards k ON k.id = a.card_id
        GROUP BY k.asset_id
-    `;
+    `,
+      );
     return new Map(rows.map((r) => [r.asset_id, { held: parseAmount(r.held), captured: parseAmount(r.captured) }]));
   }
 
@@ -1521,7 +1584,11 @@ export class CardService {
       test: boolean;
     }>
   > {
-    const rows = await this.sql<Array<{ asset_id: string; held: string; captured: string }>>`
+    const rows = z
+      .object({ asset_id: z.string(), held: z.string(), captured: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT k.asset_id,
              COALESCE(SUM(GREATEST(a.amount - COALESCE((
                SELECT SUM(s.amount) FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.status = 'settled'
@@ -1535,7 +1602,8 @@ export class CardService {
        WHERE k.user_id = ${userId}
        GROUP BY k.asset_id
        ORDER BY k.asset_id
-    `;
+    `,
+      );
     const partner = this.heldByOf(userId) === 'partner' ? this.partnerHolds : null;
     return Promise.all(
       rows.map(async (r) => {
@@ -1560,12 +1628,17 @@ export class CardService {
   }
 
   async countProgramme(): Promise<{ issued: number; active: number; frozen: number }> {
-    const rows = await this.sql<Array<{ issued: number; active: number; frozen: number }>>`
+    const rows = z
+      .object({ issued: z.number(), active: z.number(), frozen: z.number() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT count(*)::int AS issued,
              count(*) FILTER (WHERE status = 'active')::int AS active,
              count(*) FILTER (WHERE status = 'frozen')::int AS frozen
         FROM bank.cards
-    `;
+    `,
+      );
     const row = rows[0];
     return { issued: Number(row?.issued ?? 0), active: Number(row?.active ?? 0), frozen: Number(row?.frozen ?? 0) };
   }
@@ -1574,7 +1647,11 @@ export class CardService {
     from: Date,
     to: Date,
   ): Promise<Array<{ day: string; assetId: string; decision: 'approved' | 'declined'; amount: Amount; count: number }>> {
-    const rows = await this.sql<Array<{ day: string; asset_id: string; decision: 'approved' | 'declined'; amount: string; count: number }>>`
+    const rows = z
+      .object({ day: z.string(), asset_id: z.string(), decision: z.enum(CARD_DECISIONS), amount: z.string(), count: z.number() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT to_char(a.decided_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
              c.asset_id,
              a.decision::text AS decision,
@@ -1584,7 +1661,8 @@ export class CardService {
         JOIN bank.cards c ON c.id = a.card_id
        WHERE a.decided_at >= ${from} AND a.decided_at < ${to}
        GROUP BY 1, 2, 3
-    `;
+    `,
+      );
     return rows.map((row) => ({
       day: row.day,
       assetId: row.asset_id,
@@ -1794,11 +1872,13 @@ export class CardService {
       payloadHash,
     });
     // One token per card and wallet: adding the same card to the same wallet again keeps the first row. The payload is
-    // not kept.
+    // not kept. Both keys name the same row: the audit above binds a provision id to this card and wallet, so a row with
+    // this id is this card's token for this wallet. No conflict target, so a concurrent retry with the same id that loses
+    // on the id key keeps the row that won instead of raising.
     await this.sql`
       INSERT INTO bank.card_wallet_tokens (id, card_id, user_id, wallet)
       VALUES (${input.provisionId}, ${card.id}, ${input.userId}, ${input.wallet})
-      ON CONFLICT (card_id, wallet) DO NOTHING
+      ON CONFLICT DO NOTHING
     `;
     return { payload: provisioned.payload, expiresAt: this.secretExpiresAt() };
   }
@@ -1813,9 +1893,14 @@ export class CardService {
   }): Promise<Array<{ id: string; wallet: 'apple' | 'google'; state: 'added' | 'paused' | 'closed'; addedAt: string }>> {
     this.assertModuleEnabled();
     const card = await this.ownedCard(input.cardId, input.userId);
-    const rows = await this.sql<Array<{ id: string; wallet: 'apple' | 'google'; created_at: Date }>>`
+    const rows = z
+      .object({ id: z.string(), wallet: z.enum(['apple', 'google']), created_at: z.date() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT id, wallet, created_at FROM bank.card_wallet_tokens WHERE card_id = ${card.id} ORDER BY created_at, id
-    `;
+    `,
+      );
     const state = card.status === 'closed' ? 'closed' : card.status === 'frozen' || cardInactive(card) ? 'paused' : 'added';
     return rows.map((r) => ({ id: r.id, wallet: r.wallet, state, addedAt: new Date(r.created_at).toISOString() }));
   }
@@ -1867,8 +1952,12 @@ export class CardService {
         ${card.id}, ${card.cardType === 'physical' ? null : this.clock()}, ${card.usesAllowed ?? null}, ${card.designId ?? null}, ${card.deliverySpeed ?? null},
         ${card.residenceCountry ?? null}
       )
-      ON CONFLICT (id) DO NOTHING
+      ON CONFLICT DO NOTHING
     `;
+    // No conflict target: the issuer ref is the issuer's answer for this card id, so `cards_pkey` and
+    // `cards_issuer_ref_idx` name the same row, and a same-id call that loses the race must read the winner's card
+    // instead of raising 23505 on whichever key Postgres checks first. A row that is not this replacement is
+    // refused just below.
     const created = await this.card(input.replacementId);
     if (created.replacesCardId !== card.id) {
       throw new BankError('This replacement id already belongs to another card', 'bank.card_replace_conflict');
@@ -1930,7 +2019,7 @@ export class CardService {
       return this.redriveHold(card, already);
     }
 
-    // WHOSE BOOK (OWNER 226), decided before anything is written. `none` refuses by name: no partner holds this person's
+    // WHOSE BOOK, decided before anything is written. `none` refuses by name: no partner holds this person's
     // money and the custodial layer is off, so there is nowhere honest to hold it. On the partner path the partner must
     // have said how it holds and what the person has, or nothing is decided: a decline is an answer, and nobody gave one.
     const heldBy = this.heldByOf(card.userId);
@@ -2279,14 +2368,19 @@ export class CardService {
    * refusing a genuine market at a till.
    */
   private async lastAcceptedRate(cardId: string): Promise<{ rate: Amount; acceptedAt: Date } | null> {
-    const rows = await this.sql<Array<{ rate: string; rate_as_of: Date }>>`
+    const rows = z
+      .object({ rate: z.string(), rate_as_of: z.date() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT c.rate::text AS rate, c.rate_as_of
         FROM bank.card_conversions c
         JOIN bank.card_authorizations a ON a.id = c.authorization_id
        WHERE a.card_id = ${cardId} AND c.rate_quality <> 'partner'
        ORDER BY c.created_at DESC
        LIMIT 1
-    `;
+    `,
+      );
     const row = rows[0];
     return row ? { rate: parseAmount(row.rate), acceptedAt: row.rate_as_of } : null;
   }
@@ -2495,7 +2589,7 @@ export class CardService {
     );
   }
 
-  // ── Partner-held authorisations (OWNER 226; `partner-card-holds.ts`) ──────
+  // ── Partner-held authorisations (`partner-card-holds.ts`) ──────
   //
   // IF THE PROCESS DIES EXACTLY HERE, WHOSE FUNDS ARE STRANDED? None of them are in our book: the partner holds the
   // money, and every instruction goes under a key derived from our authorisation id, so a re-drive asks the partner the
@@ -2528,7 +2622,7 @@ export class CardService {
     }
     if (figures.available === null) {
       // The assets the partner says it spends from, when it says: the card's own asset is not among the ones it holds
-      // (J-bank-07 #3, #8410 `ef45f97a`: a TEST card in USDT on a partner that spends from USDC, BTC and USD).
+      // (J-bank-07 #3: a TEST card in USDT on a partner that spends from USDC, BTC and USD).
       const from = this.partnerTerms().spendFrom;
       const spends = from && from.length > 0 ? ` It spends from ${from.join(', ')}; a card in one of those can be held.` : '';
       throw new BankError(
@@ -2647,13 +2741,15 @@ export class CardService {
     await transaction(
       this.sql,
       async (tx) => {
-        const marked = await tx<Array<{ id: string }>>`
+        const marked = IdRow.array().parse(
+          await tx`
           UPDATE bank.card_authorizations
              SET status = 'settled', amount = ${hold.amount}::numeric, partner_hold_ref = ${hold.partnerRef},
                  partner_mode = ${hold.mode}, settled_at = now()
            WHERE id = ${claimed.id} AND status = 'pending'
           RETURNING id
-        `;
+        `,
+        );
         if (!marked[0]) return;
         await tx`
           INSERT INTO bank.card_conversions (
@@ -2681,9 +2777,14 @@ export class CardService {
    */
   private async payFromOrderFor(card: CardRecord): Promise<string[] | null> {
     if (!this.partnerHolds?.holdInOrder) return null;
-    const [saved] = await this.sql<Array<{ asset_ids: string[] }>>`
+    const [saved] = z
+      .object({ asset_ids: z.array(z.string()) })
+      .array()
+      .parse(
+        await this.sql`
       SELECT asset_ids FROM bank.card_pay_from_orders WHERE user_id = ${card.userId}
-    `;
+    `,
+      );
     if (!saved) return null;
     const owner = requireSpendAssets(this.spendAssets);
     const offered = new Set(
@@ -2711,21 +2812,33 @@ export class CardService {
     const claim = await transaction(
       this.sql,
       async (tx) => {
-        const insert = () => tx<Array<{ id: string }>>`
+        const insert = async () =>
+          IdRow.array().parse(
+            await tx`
           INSERT INTO bank.card_settlements (authorization_id, sequence, kind, amount, money_book)
           VALUES (${input.authorization.id}, ${input.sequence}, ${input.kind}, ${formatAmount(input.amount)}::numeric, 'partner')
           ON CONFLICT (authorization_id, sequence) DO NOTHING
           RETURNING id
-        `;
+        `,
+          );
         const fresh = await insert();
         if (fresh[0]) return { id: fresh[0].id, partnerRef: null };
-        const [prior] = await tx<
-          Array<{ id: string; kind: 'capture' | 'reversal'; amount: string; status: string; partner_ref: string | null }>
-        >`
+        const [prior] = z
+          .object({
+            id: z.string(),
+            kind: z.enum(SETTLEMENT_KINDS),
+            amount: z.string(),
+            status: z.string(),
+            partner_ref: z.string().nullable(),
+          })
+          .array()
+          .parse(
+            await tx`
           SELECT id, kind, amount::text AS amount, status, partner_ref FROM bank.card_settlements
            WHERE authorization_id = ${input.authorization.id} AND sequence = ${input.sequence}
            FOR UPDATE
-        `;
+        `,
+          );
         if (prior!.status === 'rejected') {
           await tx`DELETE FROM bank.card_settlements WHERE id = ${prior!.id} AND status = 'rejected'`;
           const again = await insert();
@@ -2914,11 +3027,16 @@ export class CardService {
     const holdKey = partnerCardKey('hold', authorization.id);
     // Pending claims only. A `rejected` one is the partner's answer to that ask (a capture above the hold, a hold already
     // closed): re-sending it would only ask the same question again. A new ask for a different amount retires it.
-    const rows = await this.sql<Array<{ sequence: number; kind: 'capture' | 'reversal'; amount: string }>>`
+    const rows = z
+      .object({ sequence: z.number(), kind: z.enum(SETTLEMENT_KINDS), amount: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT sequence, kind, amount::text AS amount FROM bank.card_settlements
        WHERE authorization_id = ${authorization.id} AND status = 'pending'
        ORDER BY sequence ASC
-    `;
+    `,
+      );
     const resumed: Array<{
       sequence: number;
       kind: 'capture' | 'reversal';
@@ -2986,10 +3104,12 @@ export class CardService {
     if (credit <= 0n) {
       throw new BankError('A refund is an amount above zero. Nothing moved.', 'bank.card_refund_amount_conflict');
     }
-    const [captured] = await this.sql<Array<{ n: number }>>`
+    const [captured] = CountRow.array().parse(
+      await this.sql`
       SELECT 1 AS n FROM bank.card_settlements
        WHERE authorization_id = ${authorization.id} AND sequence = 0 AND kind = 'capture' AND status = 'settled'
-    `;
+    `,
+    );
     if (!captured) {
       throw new BankError(`Authorisation ${input.authorizationRef} has no settled capture to refund`, 'bank.card_refund_nothing_captured');
     }
@@ -2997,17 +3117,27 @@ export class CardService {
     const claim = await transaction(
       this.sql,
       async (tx) => {
-        const fresh = await tx<Array<{ authorization_id: string }>>`
+        const fresh = z
+          .object({ authorization_id: z.string() })
+          .array()
+          .parse(
+            await tx`
           INSERT INTO bank.card_partner_refunds (authorization_id, amount)
           VALUES (${authorization.id}, ${formatAmount(credit)}::numeric)
           ON CONFLICT (authorization_id) DO NOTHING
           RETURNING authorization_id
-        `;
+        `,
+          );
         if (fresh[0]) return { partnerRef: null };
-        const [prior] = await tx<Array<{ amount: string; status: string; partner_ref: string | null }>>`
+        const [prior] = z
+          .object({ amount: z.string(), status: z.string(), partner_ref: z.string().nullable() })
+          .array()
+          .parse(
+            await tx`
           SELECT amount::text AS amount, status, partner_ref FROM bank.card_partner_refunds
            WHERE authorization_id = ${authorization.id} FOR UPDATE
-        `;
+        `,
+          );
         if (prior!.status === 'rejected') {
           // The partner said no and nothing moved: this ask replaces it.
           await tx`
@@ -3073,12 +3203,17 @@ export class CardService {
     const page = assertCardAuthorizationsListLimit(limit);
     const heldBy = this.heldByOf(card.userId);
     const partner = this.partnerHolds;
-    const rows = await this.sql<Array<{ id: string; authorization_ref: string; amount: string }>>`
+    const rows = z
+      .object({ id: z.string(), authorization_ref: z.string(), amount: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT id, authorization_ref, amount::text AS amount FROM bank.card_authorizations
        WHERE card_id = ${card.id} AND money_book = 'partner' AND decision = 'approved' AND partner_hold_ref IS NOT NULL
        ORDER BY decided_at DESC
        LIMIT ${page}
-    `;
+    `,
+      );
     const authorizations: PartnerHeldAuthorization[] = await Promise.all(
       rows.map(async (row) => ({
         authorizationId: row.id,
@@ -3145,11 +3280,16 @@ export class CardService {
     const authorization = await this.requireApprovedAuthorization(card, input.authorizationRef);
     if (authorization.heldBy === 'partner') return this.resumePartnerHeld(authorization);
 
-    const rows = await this.sql<Array<{ sequence: number; kind: 'capture' | 'reversal'; amount: string }>>`
+    const rows = z
+      .object({ sequence: z.number(), kind: z.enum(SETTLEMENT_KINDS), amount: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT sequence, kind, amount::text AS amount FROM bank.card_settlements
        WHERE authorization_id = ${authorization.id} AND status <> 'settled'
        ORDER BY sequence ASC
-    `;
+    `,
+      );
 
     const resumed: Array<{
       sequence: number;
@@ -3290,7 +3430,7 @@ export class CardService {
   }
 
   /**
-   * CASHBACK ON A PARTNER-HELD CAPTURE (launch money model, OWNER 226 and 288; J-bank-13 #7). The card's money is the
+   * CASHBACK ON A PARTNER-HELD CAPTURE (launch money model; J-bank-13 #7). The card's money is the
    * partner's, so nothing is credited in our book or anywhere else here: the cashback is recorded once for the
    * authorisation (`paid_by = 'wallet'`, the rate and tier read now, never re-rated), then handed to the rewards programme,
    * which owes it in USDC (our liability, `rewardOwe`) and pays it to the person's own wallet. If this crashes after the
@@ -3298,12 +3438,12 @@ export class CardService {
    * authorisation sends it, and the programme owes it once by the authorisation's key.
    */
   private async oweWalletCashback(card: CardRecord, authorization: AuthorizationRecord, captured: Amount): Promise<CashbackOutcome> {
-    type Row = { amount: string; paid_by: string; announced_at: Date | null };
+    const Row = z.object({ amount: z.string(), paid_by: z.string(), announced_at: z.date().nullable() });
     const read = async () =>
-      (
-        await this.sql<Row[]>`
+      Row.array().parse(
+        await this.sql`
           SELECT amount::text AS amount, paid_by, announced_at FROM bank.card_cashback WHERE authorization_id = ${authorization.id}
-        `
+        `,
       )[0];
     let row = await read();
     if (!row) {
@@ -3338,26 +3478,29 @@ export class CardService {
 
   /** Hands one recorded, unannounced wallet cashback to the rewards programme. True once it was taken (now or before). */
   private async announceWalletCashback(authorizationId: string): Promise<boolean> {
-    type Row = {
-      authorization_id: string;
-      card_id: string;
-      user_id: string;
-      asset_id: string;
-      amount: string;
-      spend: string;
-      tier: string;
-      rate_bps: number;
-      created_at: Date;
-      announced_at: Date | null;
-    };
-    const [row] = await this.sql<Row[]>`
+    // paid_by = 'wallet' rows hold spend and tier NOT NULL (the card_cashback CHECK), so both are read as present.
+    const Row = z.object({
+      authorization_id: z.string(),
+      card_id: z.string(),
+      user_id: z.string(),
+      asset_id: z.string(),
+      amount: z.string(),
+      spend: z.string(),
+      tier: z.string(),
+      rate_bps: z.number(),
+      created_at: z.date(),
+      announced_at: z.date().nullable(),
+    });
+    const [row] = Row.array().parse(
+      await this.sql`
       SELECT cb.authorization_id, a.card_id, c.user_id, c.asset_id, cb.amount::text AS amount, cb.spend::text AS spend, cb.tier,
              cb.rate_bps, cb.created_at, cb.announced_at
         FROM bank.card_cashback cb
         JOIN bank.card_authorizations a ON a.id = cb.authorization_id
         JOIN bank.cards c ON c.id = a.card_id
        WHERE cb.authorization_id = ${authorizationId} AND cb.paid_by = 'wallet'
-    `;
+    `,
+    );
     if (!row) return false;
     if (row.announced_at) return true;
     if (!this.cashbackEarned) return false;
@@ -3383,13 +3526,19 @@ export class CardService {
   }
 
   private async payCashback(card: CardRecord, authorization: AuthorizationRecord, captured: Amount): Promise<CashbackOutcome> {
-    type CashbackRow = { id: string; status: string; ledger_tx_id: string | null; amount: string; rejection_code: string | null };
+    const CashbackRow = z.object({
+      id: z.string(),
+      status: z.string(),
+      ledger_tx_id: z.string().nullable(),
+      amount: z.string(),
+      rejection_code: z.string().nullable(),
+    });
     const readRow = async () =>
-      (
-        await this.sql<CashbackRow[]>`
+      CashbackRow.array().parse(
+        await this.sql`
           SELECT id, status, ledger_tx_id, amount::text AS amount, rejection_code
             FROM bank.card_cashback WHERE authorization_id = ${authorization.id}
-        `
+        `,
       )[0];
 
     // A row already claimed for this authorisation is the decision: its amount, never a re-rate.
@@ -3441,22 +3590,32 @@ export class CardService {
    * The amount is the one stored on the row.
    */
   private async earnMissingCashback(card: CardRecord, authorization: AuthorizationRecord): Promise<void> {
-    const [capture] = await this.sql<Array<{ amount: string }>>`
+    const [capture] = z
+      .object({ amount: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT s.amount::text AS amount FROM bank.card_settlements s
        WHERE s.authorization_id = ${authorization.id} AND s.sequence = 0 AND s.kind = 'capture' AND s.status = 'settled'
          AND NOT EXISTS (SELECT 1 FROM bank.card_cashback cb WHERE cb.authorization_id = s.authorization_id)
-    `;
+    `,
+      );
     if (capture) await this.payCashback(card, authorization, parseAmount(capture.amount));
   }
 
   private async retryPendingCashback(card: CardRecord, authorizationId: string): Promise<void> {
-    const rows = await this.sql<Array<{ id: string; amount: string }>>`
+    const rows = z
+      .object({ id: z.string(), amount: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT id, amount::text AS amount
         FROM bank.card_cashback
        WHERE authorization_id = ${authorizationId}
          AND status = 'pending'
          AND paid_by = 'ledger'
-    `;
+    `,
+      );
     for (const row of rows) {
       await this.postCashbackReward(card, authorizationId, row.id, parseAmount(row.amount));
     }
@@ -3579,18 +3738,20 @@ export class CardService {
     const programme = this.issuer.programme;
     // The same rule a capture uses, asked of a card of this programme.
     const paying = this.rewardsIssuerConnected({ issuer: programme.id, simulated: programme.simulated } as CardRecord);
-    const rows = await this.sql<
-      Array<{
-        authorization_id: string;
-        card_id: string;
-        amount: string;
-        status: string;
-        rejection_code: string | null;
-        ledger_tx_id: string | null;
-        paid_by: 'ledger' | 'wallet';
-        announced_at: Date | null;
-      }>
-    >`
+    const rows = z
+      .object({
+        authorization_id: z.string(),
+        card_id: z.string(),
+        amount: z.string(),
+        status: z.string(),
+        rejection_code: z.string().nullable(),
+        ledger_tx_id: z.string().nullable(),
+        paid_by: z.enum(['ledger', 'wallet']),
+        announced_at: z.date().nullable(),
+      })
+      .array()
+      .parse(
+        await this.sql`
       SELECT cb.authorization_id, a.card_id, cb.amount::text AS amount, cb.status, cb.rejection_code, cb.ledger_tx_id,
              cb.paid_by, cb.announced_at
         FROM bank.card_cashback cb
@@ -3599,9 +3760,14 @@ export class CardService {
        WHERE c.user_id = ${userId} AND c.asset_id = ${rates.assetId}
        ORDER BY cb.created_at DESC
        LIMIT 50
-    `;
+    `,
+      );
     // The totals over every reward record, not the 50 listed.
-    const [totals] = await this.sql<Array<{ paid: string; unpaid: string; refused: string; to_wallet: string }>>`
+    const [totals] = z
+      .object({ paid: z.string(), unpaid: z.string(), refused: z.string(), to_wallet: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT COALESCE(SUM(cb.amount) FILTER (WHERE cb.paid_by = 'ledger' AND cb.status = 'settled'), 0)::text AS paid,
              COALESCE(SUM(cb.amount) FILTER (WHERE cb.paid_by = 'ledger' AND cb.status = 'pending'), 0)::text AS unpaid,
              COALESCE(SUM(cb.amount) FILTER (WHERE cb.paid_by = 'ledger' AND cb.status = 'rejected'), 0)::text AS refused,
@@ -3610,7 +3776,8 @@ export class CardService {
         JOIN bank.card_authorizations a ON a.id = cb.authorization_id
         JOIN bank.cards c ON c.id = a.card_id
        WHERE c.user_id = ${userId} AND c.asset_id = ${rates.assetId}
-    `;
+    `,
+      );
     return {
       tier,
       rateBps: rates.rates[tier] ?? null,
@@ -3652,17 +3819,16 @@ export class CardService {
     limit?: number,
   ): Promise<Array<AuthorizationRecord & { refund: CardRefundLine | null; settled: PartnerSettledLine }>> {
     const page = assertCardAuthorizationsListLimit(limit);
-    const rows = await this.sql<
-      Array<
-        AuthorizationRow & {
-          refund_amount: string | null;
-          refund_status: CardRefundLine['status'] | null;
-          refund_at: Date | null;
-          captured_amount: string | null;
-          returned_amount: string | null;
-        }
-      >
-    >`
+    const rows = AuthorizationRow.extend({
+      refund_amount: z.string().nullable(),
+      refund_status: z.enum(EVENT_STATUSES).nullable(),
+      refund_at: z.date().nullable(),
+      captured_amount: z.string().nullable(),
+      returned_amount: z.string().nullable(),
+    })
+      .array()
+      .parse(
+        await this.sql`
       SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.merchant, a.merchant_country, a.channel, a.recurring, a.decision, a.decline_code, a.status,
              a.hold_ledger_tx_id, a.money_book, a.partner_hold_ref, a.partner_mode, a.pay_from_order, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of,
@@ -3677,7 +3843,8 @@ export class CardService {
        WHERE a.card_id = ${cardId}
        ORDER BY a.decided_at DESC
        LIMIT ${page}
-    `;
+    `,
+      );
     return rows.map((row) => ({
       ...toAuthorization(row),
       refund:
@@ -3698,16 +3865,18 @@ export class CardService {
    */
   async recurringOf(cardId: string, limit?: number): Promise<CardRecurringMerchant[]> {
     const page = assertCardAuthorizationsListLimit(limit);
-    const rows = await this.sql<
-      Array<{
-        merchant: string | null;
-        merchant_country: string | null;
-        payments: number;
-        first_at: Date;
-        last_at: Date;
-        last_amount: string;
-      }>
-    >`
+    const rows = z
+      .object({
+        merchant: z.string().nullable(),
+        merchant_country: z.string().nullable(),
+        payments: z.number(),
+        first_at: z.date(),
+        last_at: z.date(),
+        last_amount: z.string(),
+      })
+      .array()
+      .parse(
+        await this.sql`
       SELECT a.merchant, a.merchant_country, count(*)::int AS payments, min(a.decided_at) AS first_at, max(a.decided_at) AS last_at,
              (array_agg(a.amount::text ORDER BY a.decided_at DESC))[1] AS last_amount
         FROM bank.card_authorizations a
@@ -3715,7 +3884,8 @@ export class CardService {
        GROUP BY a.merchant, a.merchant_country
        ORDER BY max(a.decided_at) DESC
        LIMIT ${page}
-    `;
+    `,
+      );
     return rows.map((r) => ({
       merchant: r.merchant,
       merchantCountry: r.merchant_country,
@@ -3728,7 +3898,10 @@ export class CardService {
 
   /** One authorisation by id, for the operator read (BK-cops-01). Null when there is none; never writes. */
   async authorizationById(authorizationId: string): Promise<(AuthorizationRecord & { userId: string; assetId: string }) | null> {
-    const rows = await this.sql<Array<AuthorizationRow & { user_id: string; card_asset_id: string }>>`
+    const rows = AuthorizationRow.extend({ user_id: z.string(), card_asset_id: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.merchant, a.merchant_country, a.channel, a.recurring, a.decision, a.decline_code, a.status,
              a.hold_ledger_tx_id, a.money_book, a.partner_hold_ref, a.partner_mode, a.pay_from_order, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of,
@@ -3737,16 +3910,22 @@ export class CardService {
         JOIN bank.cards k ON k.id = a.card_id
         LEFT JOIN bank.card_conversions c ON c.authorization_id = a.id
        WHERE a.id = ${authorizationId}
-    `;
+    `,
+      );
     const row = rows[0];
     // `amount` is in the card's funding asset (see `AuthorizationRecord.amount`), which is `bank.cards.asset_id`.
     return row ? { ...toAuthorization(row), userId: row.user_id, assetId: row.card_asset_id } : null;
   }
 
   async cashbackFor(authorizationId: string): Promise<{ amount: Amount; status: string; rejectionCode: string | null } | null> {
-    const rows = await this.sql<Array<{ amount: string; status: string; rejection_code: string | null }>>`
+    const rows = z
+      .object({ amount: z.string(), status: z.string(), rejection_code: z.string().nullable() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT amount, status, rejection_code FROM bank.card_cashback WHERE authorization_id = ${authorizationId}
-    `;
+    `,
+      );
     const row = rows[0];
     return row ? { amount: parseAmount(row.amount), status: row.status, rejectionCode: row.rejection_code } : null;
   }
@@ -3754,21 +3933,25 @@ export class CardService {
   // ── Internals ──────────────────────────────────────────────────────────────
 
   private async cardByIssuerRef(issuer: string, issuerRef: string): Promise<CardRow | undefined> {
-    const rows = await this.sql<CardRow[]>`
+    const rows = CardRow.array().parse(
+      await this.sql`
       SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country FROM bank.cards WHERE issuer = ${issuer} AND issuer_ref = ${issuerRef}
-    `;
+    `,
+    );
     return rows[0];
   }
 
   private async authorizationByRef(cardId: string, authorizationRef: string): Promise<AuthorizationRecord | null> {
-    const rows = await this.sql<AuthorizationRow[]>`
+    const rows = AuthorizationRow.array().parse(
+      await this.sql`
       SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.merchant, a.merchant_country, a.channel, a.recurring, a.decision, a.decline_code, a.status,
              a.hold_ledger_tx_id, a.money_book, a.partner_hold_ref, a.partner_mode, a.pay_from_order, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of
         FROM bank.card_authorizations a
         LEFT JOIN bank.card_conversions c ON c.authorization_id = a.id
        WHERE a.card_id = ${cardId} AND a.authorization_ref = ${authorizationRef}
-    `;
+    `,
+    );
     const row = rows[0];
     return row ? toAuthorization(row) : null;
   }
@@ -3818,10 +4001,15 @@ export class CardService {
     kind: 'capture' | 'reversal',
   ): Promise<AuthorizationRecord> {
     const authorization = await this.requireApprovedAuthorization(card, authorizationRef);
-    const rows = await this.sql<Array<{ status: string; kind: 'capture' | 'reversal' }>>`
+    const rows = z
+      .object({ status: z.string(), kind: z.enum(SETTLEMENT_KINDS) })
+      .array()
+      .parse(
+        await this.sql`
       SELECT status, kind FROM bank.card_settlements
        WHERE authorization_id = ${authorization.id} AND sequence = 0
-    `;
+    `,
+      );
     const claim = rows[0];
     if (claim?.status === 'settled') {
       throw new BankError(`Authorisation ${authorizationRef} has already been settled`, 'bank.card_authorization_closed');
@@ -3877,7 +4065,8 @@ export class CardService {
           // back whole counts as a use: a captured payment, and a hold still open. So the last allowed use is held from
           // the moment it is approved, and a second authorisation in flight declines rather than racing it.
           await tx`SELECT id FROM bank.cards WHERE id = ${input.card.id} FOR UPDATE`;
-          const [used] = await tx<Array<{ n: number }>>`
+          const [used] = CountRow.array().parse(
+            await tx`
             SELECT count(*)::int AS n
               FROM bank.card_authorizations a
              WHERE a.card_id = ${input.card.id}
@@ -3886,13 +4075,15 @@ export class CardService {
                  SELECT 1 FROM bank.card_settlements s
                   WHERE s.authorization_id = a.id AND s.sequence = 0 AND s.kind = 'reversal' AND s.status = 'settled'
                )
-          `;
+          `,
+          );
           if (Number(used?.n ?? 0) >= usesAllowed) {
             decision = 'declined';
             declineCode = 'bank.card_use_limit_reached';
           }
         }
-        const claimed = await tx<Array<{ id: string }>>`
+        const claimed = IdRow.array().parse(
+          await tx`
           INSERT INTO bank.card_authorizations (card_id, authorization_ref, amount, merchant_category, merchant, merchant_country, channel, recurring, decision, decline_code, status, money_book, pay_from_order)
           VALUES (
             ${input.card.id}, ${input.input.authorizationRef}, ${formatAmount(input.fundingAmount)}::numeric,
@@ -3901,7 +4092,8 @@ export class CardService {
           )
           ON CONFLICT (card_id, authorization_ref) DO NOTHING
           RETURNING id
-        `;
+        `,
+        );
 
         const row = claimed[0];
         // Lost the race, or a redelivery that slipped past the read above. The
@@ -3942,12 +4134,17 @@ export class CardService {
     const claim = await transaction(
       this.sql,
       async (tx) => {
-        const rows = await tx<Array<{ id: string; ledger_tx_id: string | null }>>`
+        const rows = z
+          .object({ id: z.string(), ledger_tx_id: z.string().nullable() })
+          .array()
+          .parse(
+            await tx`
           INSERT INTO bank.card_settlements (authorization_id, sequence, kind, amount)
           VALUES (${input.authorization.id}, ${input.sequence}, ${input.kind}, ${formatAmount(input.amount)}::numeric)
           ON CONFLICT (authorization_id, sequence) DO NOTHING
           RETURNING id, ledger_tx_id
-        `;
+        `,
+          );
         if (rows.length > 0) {
           return {
             claimed: true as const,
@@ -3958,12 +4155,21 @@ export class CardService {
             status: 'pending' as const,
           };
         }
-        const existing = await tx<
-          Array<{ id: string; ledger_tx_id: string | null; amount: string; kind: 'capture' | 'reversal'; status: string }>
-        >`
+        const existing = z
+          .object({
+            id: z.string(),
+            ledger_tx_id: z.string().nullable(),
+            amount: z.string(),
+            kind: z.enum(SETTLEMENT_KINDS),
+            status: z.string(),
+          })
+          .array()
+          .parse(
+            await tx`
           SELECT id, ledger_tx_id, amount::text AS amount, kind, status FROM bank.card_settlements
            WHERE authorization_id = ${input.authorization.id} AND sequence = ${input.sequence}
-        `;
+        `,
+          );
         const prior = existing[0]!;
         const priorAmount = parseAmount(prior.amount);
         // A rejected full capture sits on sequence 0 with kind `capture` and
@@ -3972,22 +4178,26 @@ export class CardService {
         // Retire the failed claim and insert a new one. A different amount is
         // left for the conflict check below, which must still see the old row.
         if (prior.kind !== input.kind && prior.status === 'rejected' && priorAmount === input.amount) {
-          const removed = await tx<Array<{ id: string }>>`
+          const removed = IdRow.array().parse(
+            await tx`
             DELETE FROM bank.card_settlements
              WHERE id = ${prior.id} AND status = 'rejected' AND kind = ${prior.kind}
             RETURNING id
-          `;
+          `,
+          );
           if (removed.length === 0) {
             throw new BankError(
               `Settlement ${input.sequence} on this authorisation was claimed as ${prior.kind}, not ${input.kind}`,
               'bank.card_settlement_kind_conflict',
             );
           }
-          const inserted = await tx<Array<{ id: string }>>`
+          const inserted = IdRow.array().parse(
+            await tx`
             INSERT INTO bank.card_settlements (authorization_id, sequence, kind, amount)
             VALUES (${input.authorization.id}, ${input.sequence}, ${input.kind}, ${formatAmount(input.amount)}::numeric)
             RETURNING id
-          `;
+          `,
+          );
           return {
             claimed: true as const,
             id: inserted[0]!.id,
@@ -4154,13 +4364,22 @@ export class CardService {
     sql: Queryable,
     clientRequestId: string,
   ): Promise<{ card_id: string; target_status: string; reason: string; result_status: string; frozen_by: string | null } | null> {
-    const rows = await sql<
-      Array<{ card_id: string; target_status: string; reason: string; result_status: string; frozen_by: string | null }>
-    >`
+    const rows = z
+      .object({
+        card_id: z.string(),
+        target_status: z.string(),
+        reason: z.string(),
+        result_status: z.string(),
+        frozen_by: z.string().nullable(),
+      })
+      .array()
+      .parse(
+        await sql`
       SELECT card_id, target_status, reason, result_status, frozen_by
         FROM bank.card_operator_commands
        WHERE client_request_id = ${clientRequestId}
-    `;
+    `,
+      );
     return rows[0] ?? null;
   }
 
@@ -4184,9 +4403,11 @@ export class CardService {
   }
 
   private async cardOrNull(cardId: string): Promise<CardRecord | null> {
-    const rows = await this.sql<CardRow[]>`
+    const rows = CardRow.array().parse(
+      await this.sql`
       SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country FROM bank.cards WHERE id = ${cardId}
-    `;
+    `,
+    );
     const row = rows[0];
     return row ? toCard(row) : null;
   }
@@ -4198,16 +4419,23 @@ export class CardService {
     kind: 'set_limits' | 'set_channels',
     hash: string,
   ): Promise<'new' | 'replay'> {
-    const inserted = await tx<Array<{ id: string }>>`
+    const inserted = IdRow.array().parse(
+      await tx`
       INSERT INTO bank.card_commands (id, card_id, kind, payload_hash)
       VALUES (${commandId}, ${cardId}, ${kind}, ${hash})
       ON CONFLICT (id) DO NOTHING
       RETURNING id
-    `;
+    `,
+    );
     if (inserted.length > 0) return 'new';
-    const rows = await tx<Array<{ card_id: string; kind: string; payload_hash: string }>>`
+    const rows = z
+      .object({ card_id: z.string(), kind: z.string(), payload_hash: z.string() })
+      .array()
+      .parse(
+        await tx`
       SELECT card_id, kind, payload_hash FROM bank.card_commands WHERE id = ${commandId}
-    `;
+    `,
+      );
     const row = rows[0];
     if (!row || row.card_id !== cardId || row.kind !== kind || row.payload_hash !== hash) {
       throw new BankError('This command id was already used for a different card change', 'bank.card_command_conflict');
@@ -4221,9 +4449,14 @@ export class CardService {
     kind: 'pan_reveal' | 'pin_reveal' | 'pin_set' | 'wallet_provision',
     payloadHash: string,
   ): Promise<boolean> {
-    const rows = await this.sql<Array<{ card_id: string; kind: string; payload_hash: string }>>`
+    const rows = z
+      .object({ card_id: z.string(), kind: z.string(), payload_hash: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT card_id, kind, payload_hash FROM bank.card_secret_audits WHERE id = ${id}
-    `;
+    `,
+      );
     const row = rows[0];
     if (!row) return false;
     if (row.card_id !== cardId || row.kind !== kind || row.payload_hash !== payloadHash) {
@@ -4239,16 +4472,23 @@ export class CardService {
     kind: 'pan_reveal' | 'pin_reveal' | 'pin_set' | 'wallet_provision';
     payloadHash: string;
   }): Promise<void> {
-    const inserted = await this.sql<Array<{ id: string }>>`
+    const inserted = IdRow.array().parse(
+      await this.sql`
       INSERT INTO bank.card_secret_audits (id, card_id, user_id, kind, payload_hash)
       VALUES (${input.id}, ${input.cardId}, ${input.userId}, ${input.kind}, ${input.payloadHash})
       ON CONFLICT (id) DO NOTHING
       RETURNING id
-    `;
+    `,
+    );
     if (inserted.length > 0) return;
-    const rows = await this.sql<Array<{ card_id: string; kind: string; payload_hash: string }>>`
+    const rows = z
+      .object({ card_id: z.string(), kind: z.string(), payload_hash: z.string() })
+      .array()
+      .parse(
+        await this.sql`
       SELECT card_id, kind, payload_hash FROM bank.card_secret_audits WHERE id = ${input.id}
-    `;
+    `,
+      );
     const row = rows[0];
     if (!row || row.card_id !== input.cardId || row.kind !== input.kind || row.payload_hash !== input.payloadHash) {
       throw new BankError('This command id was already used for a different card change', 'bank.card_command_conflict');
@@ -4262,7 +4502,11 @@ export class CardService {
    */
   private async approvedSpend(cardId: string, since: Date, channel?: CardChannel): Promise<Amount> {
     const rows = channel
-      ? await this.sql<Array<{ total: string }>>`
+      ? z
+          .object({ total: z.string() })
+          .array()
+          .parse(
+            await this.sql`
           SELECT COALESCE(SUM(COALESCE(
                    (SELECT c.settlement_amount FROM bank.card_conversions c
                      WHERE c.authorization_id = a.id AND c.rate_quality = 'partner'),
@@ -4273,8 +4517,13 @@ export class CardService {
              AND status <> 'rejected'
              AND decided_at >= ${since}
              AND channel = ${channel}
-        `
-      : await this.sql<Array<{ total: string }>>`
+        `,
+          )
+      : z
+          .object({ total: z.string() })
+          .array()
+          .parse(
+            await this.sql`
           SELECT COALESCE(SUM(COALESCE(
                    (SELECT c.settlement_amount FROM bank.card_conversions c
                      WHERE c.authorization_id = a.id AND c.rate_quality = 'partner'),
@@ -4284,7 +4533,8 @@ export class CardService {
              AND decision = 'approved'
              AND status <> 'rejected'
              AND decided_at >= ${since}
-        `;
+        `,
+          );
     return parseAmount(rows[0]?.total ?? '0');
   }
 
@@ -4316,12 +4566,14 @@ export class CardService {
 
   /** Captured payments on this card so far: what a single-use or n-use card has used. */
   async usesMade(cardId: string): Promise<number> {
-    const [row] = await this.sql<Array<{ n: number }>>`
+    const [row] = CountRow.array().parse(
+      await this.sql`
       SELECT count(*)::int AS n
         FROM bank.card_settlements s
         JOIN bank.card_authorizations a ON a.id = s.authorization_id
        WHERE a.card_id = ${cardId} AND s.sequence = 0 AND s.kind = 'capture' AND s.status = 'settled'
-    `;
+    `,
+    );
     return Number(row?.n ?? 0);
   }
 
@@ -4331,7 +4583,11 @@ export class CardService {
    * report reverses nothing twice.
    */
   private async reverseOpenHolds(card: CardRecord): Promise<void> {
-    const open = await this.sql<Array<{ authorization_ref: string; money_book: 'ledger' | 'partner' }>>`
+    const open = z
+      .object({ authorization_ref: z.string(), money_book: z.enum(MONEY_BOOKS) })
+      .array()
+      .parse(
+        await this.sql`
       SELECT a.authorization_ref, a.money_book
         FROM bank.card_authorizations a
        WHERE a.card_id = ${card.id}
@@ -4341,7 +4597,8 @@ export class CardService {
          -- own key (or the recovery job re-drives it) and is never raced here.
          AND NOT EXISTS (SELECT 1 FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.sequence = 0)
        ORDER BY a.decided_at
-    `;
+    `,
+      );
     for (const row of open) {
       if (row.money_book === 'ledger') {
         await this.reverse({ cardId: card.id, authorizationRef: row.authorization_ref });
@@ -4362,12 +4619,14 @@ export class CardService {
 
   /** Whether a sequence-0 claim (capture or release, any status) exists on this authorisation: a durable trace of the ask. */
   private async releaseClaimed(authorizationRef: string, cardId: string): Promise<boolean> {
-    const [row] = await this.sql<Array<{ n: number }>>`
+    const [row] = CountRow.array().parse(
+      await this.sql`
       SELECT count(*)::int AS n
         FROM bank.card_settlements s
         JOIN bank.card_authorizations a ON a.id = s.authorization_id
        WHERE a.card_id = ${cardId} AND a.authorization_ref = ${authorizationRef} AND s.sequence = 0
-    `;
+    `,
+    );
     return Number(row?.n ?? 0) > 0;
   }
 
@@ -4424,78 +4683,85 @@ export class CardService {
    * same change at once change it once, so a hook hears it once.
    */
   private async updateStatus(tx: Queryable, cardId: string, set: PendingQuery<Row[]>, status: CardRecord['status']): Promise<boolean> {
-    const [old] = await tx<Array<{ status: string }>>`
+    const [old] = z
+      .object({ status: z.string() })
+      .array()
+      .parse(
+        await tx`
       UPDATE bank.cards c SET ${set}, updated_at = now()
         FROM (SELECT id, status FROM bank.cards WHERE id = ${cardId} FOR UPDATE) o
        WHERE c.id = o.id
       RETURNING o.status
-    `;
+    `,
+      );
     return !!old && old.status !== status;
   }
 }
 
 // ── Row mapping ──────────────────────────────────────────────────────────────
 
-interface CardRow {
-  id: string;
-  user_id: string;
-  asset_id: string;
-  settlement_asset_id: string;
-  issuer: string;
-  simulated: boolean;
-  issuer_ref: string;
-  pan_tail: string;
-  status: CardRecord['status'];
-  cashback_bps: number;
-  per_authorization_limit: string;
-  daily_limit: string | null;
-  monthly_limit: string | null;
-  cash_limit: string | null;
-  channel_online: boolean;
-  channel_contactless: boolean;
-  channel_atm: boolean;
-  channel_abroad: boolean;
-  card_type: string;
-  shipping_address: unknown;
-  replaces_card_id: string | null;
-  replaced_by_card_id: string | null;
-  replace_reason: string | null;
-  frozen_by: string | null;
-  activated_at: Date | null;
-  uses_allowed: number | null;
-  design_id: string | null;
-  delivery_speed: string | null;
-  residence_country: string | null;
-}
+const CardRow = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  asset_id: z.string(),
+  settlement_asset_id: z.string(),
+  issuer: z.string(),
+  simulated: z.boolean(),
+  issuer_ref: z.string(),
+  pan_tail: z.string(),
+  status: z.enum(CARD_STATUSES),
+  cashback_bps: z.number(),
+  per_authorization_limit: z.string(),
+  daily_limit: z.string().nullable(),
+  monthly_limit: z.string().nullable(),
+  cash_limit: z.string().nullable(),
+  channel_online: z.boolean(),
+  channel_contactless: z.boolean(),
+  channel_atm: z.boolean(),
+  channel_abroad: z.boolean(),
+  card_type: z.string(),
+  shipping_address: z.unknown(),
+  replaces_card_id: z.string().nullable(),
+  replaced_by_card_id: z.string().nullable(),
+  replace_reason: z.string().nullable(),
+  frozen_by: z.string().nullable(),
+  activated_at: z.date().nullable(),
+  uses_allowed: z.number().nullable(),
+  design_id: z.string().nullable(),
+  delivery_speed: z.string().nullable(),
+  residence_country: z.string().nullable(),
+});
+type CardRow = z.infer<typeof CardRow>;
 
-interface AuthorizationRow {
-  id: string;
-  card_id: string;
-  authorization_ref: string;
-  amount: string;
-  merchant_category: string | null;
-  merchant?: string | null;
-  merchant_country?: string | null;
-  channel: string;
-  recurring?: boolean;
-  decision: 'approved' | 'declined';
-  decline_code: string | null;
-  status: AuthorizationRecord['status'];
-  hold_ledger_tx_id: string | null;
-  money_book: 'ledger' | 'partner';
-  partner_hold_ref: string | null;
-  partner_mode: CardCustodyMode | null;
-  pay_from_order?: string[] | null;
-  decided_at: Date;
+const AuthorizationRow = z.object({
+  id: z.string(),
+  card_id: z.string(),
+  authorization_ref: z.string(),
+  amount: z.string(),
+  merchant_category: z.string().nullable(),
+  merchant: z.string().nullish(),
+  merchant_country: z.string().nullish(),
+  channel: z.string(),
+  recurring: z.boolean().optional(),
+  decision: z.enum(CARD_DECISIONS),
+  decline_code: z.string().nullable(),
+  status: z.enum(EVENT_STATUSES),
+  hold_ledger_tx_id: z.string().nullable(),
+  money_book: z.enum(MONEY_BOOKS),
+  partner_hold_ref: z.string().nullable(),
+  partner_mode: z.enum(CARD_CUSTODY_MODES).nullable(),
+  pay_from_order: z.array(z.string()).nullish(),
+  decided_at: z.date(),
   /** All NULL together, from the LEFT JOIN, when this card converts nothing. */
-  settlement_asset_id: string | null;
-  settlement_amount: string | null;
-  funding_asset_id: string | null;
-  funding_amount: string | null;
-  rate: string | null;
-  rate_quality: MarkQuality | 'partner' | null;
-  rate_as_of: Date | null;
-}
+  settlement_asset_id: z.string().nullable(),
+  settlement_amount: z.string().nullable(),
+  funding_asset_id: z.string().nullable(),
+  funding_amount: z.string().nullable(),
+  rate: z.string().nullable(),
+  rate_quality: z.enum(RATE_QUALITIES).nullable(),
+  rate_as_of: z.date().nullable(),
+});
+type AuthorizationRow = z.infer<typeof AuthorizationRow>;
 
 function toCard(row: CardRow): CardRecord {
   if (typeof row.simulated !== 'boolean') {

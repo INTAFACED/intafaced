@@ -1,56 +1,21 @@
-import { z } from 'zod';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import {
+  PAY_WITHDRAWAL_CREATE,
+  PAY_WITHDRAWAL_LIMITS,
+  PAY_WITHDRAWAL_NETWORK_RULES,
+  PAY_WITHDRAWAL_QUOTE,
+} from '@intafaced/contracts/pay-withdrawal-procedures';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { decimalSchema, parseAmount } from '../../shared/money';
-import { withdrawalSchema, type WithdrawalRecord } from './withdrawal-reads';
+import { parseAmount } from '../../shared/money';
+import { INTERNAL_RAIL } from './withdraw-destination';
+import type { WithdrawalRecord } from './withdrawal-reads';
 
-// hand-declared-ok: svc-pay declares these answers in its router (`withdrawal.limits`, `withdrawal.quote`), not in a
-// browser-safe @intafaced/contracts export. Amounts are decimal strings, kept as strings and compared as scaled bigints.
-const amount = z
-  .string()
-  .regex(/^\d+(\.\d{1,18})?$/)
-  .pipe(decimalSchema);
-
-/** svc-pay `withdrawal.limits`: the owner-set figures for the caller's tier, what 24 hours used, and the most one send may be now. */
-export const withdrawLimitsSchema = z.object({
-  tier: z.string(),
-  assetId: z.string(),
-  perTx: amount,
-  rolling24h: amount,
-  used24h: amount,
-  remaining: z.object({ perTx: amount, rolling24h: amount }),
-  maxNow: amount,
-});
-export type WithdrawLimits = z.infer<typeof withdrawLimitsSchema>;
-
-/** svc-pay `withdrawal.quote`: the fee parts, net amount, total debit and expiry for one withdrawal. */
-export const withdrawQuoteSchema = z.object({
-  quoteRef: z.string(),
-  assetId: z.string(),
-  networkId: z.string(),
-  amount,
-  feeMode: z.enum(['on_top', 'deducted']),
-  fees: z.array(z.object({ kind: z.string(), amount })),
-  feeTotal: amount,
-  netAmount: amount,
-  totalDebit: amount,
-  feeSource: z.string(),
-  quotedAt: z.string().datetime({ offset: true }),
-  expiresAt: z.string().datetime({ offset: true }),
-  expired: z.boolean(),
-  acceptedBy: z.string().nullable(),
-});
-export type WithdrawQuote = z.infer<typeof withdrawQuoteSchema>;
-
-/** svc-pay `withdrawal.networkRules` (W-withdraw-02): the owner's minimum, maximum and step for one asset on one network, and its tag rule. */
-export const withdrawNetworkRulesSchema = z.object({
-  assetId: z.string(),
-  networkId: z.string(),
-  minimum: amount,
-  maximum: amount,
-  step: amount,
-  tag: z.enum(['none', 'required']),
-});
-export type WithdrawNetworkRules = z.infer<typeof withdrawNetworkRulesSchema>;
+// svc-pay `withdrawal.limits`, `withdrawal.quote`, `withdrawal.networkRules` and `withdrawal.create` (W-withdraw-02), each by
+// its record (`@intafaced/contracts/pay-withdrawal-procedures`). Amounts are decimal strings, kept as strings and compared as
+// scaled bigints.
+export type WithdrawLimits = ProcedureOutput<typeof PAY_WITHDRAWAL_LIMITS>;
+export type WithdrawQuote = ProcedureOutput<typeof PAY_WITHDRAWAL_QUOTE>;
+export type WithdrawNetworkRules = ProcedureOutput<typeof PAY_WITHDRAWAL_NETWORK_RULES>;
 
 /** Where an amount stands against a network's rules: inside them, or the rule it breaks. A malformed amount is the field's to say. */
 export function rulesProblem(value: string, rules: WithdrawNetworkRules): 'nrBelow' | 'nrAbove' | 'nrOffStep' | null {
@@ -78,14 +43,14 @@ export const WALLET_RAIL = 'crypto-native';
 export function createWithdrawSend(api: ApiClient) {
   return {
     limits(assetId: string, signal?: AbortSignal): Promise<ApiResult<WithdrawLimits>> {
-      return api.query('pay', 'withdrawal.limits', { assetId }, withdrawLimitsSchema, { signal });
+      return api.call(PAY_WITHDRAWAL_LIMITS, { assetId }, { signal });
     },
     networkRules(assetId: string, networkId: string, signal?: AbortSignal): Promise<ApiResult<WithdrawNetworkRules>> {
-      return api.query('pay', 'withdrawal.networkRules', { assetId, networkId }, withdrawNetworkRulesSchema, { signal });
+      return api.call(PAY_WITHDRAWAL_NETWORK_RULES, { assetId, networkId }, { signal });
     },
     /** Stores a quote under `quoteRef` and moves nothing. The same reference and terms read the same quote back. */
     quote(input: { quoteRef: string; assetId: string; networkId: string; amount: string }): Promise<ApiResult<WithdrawQuote>> {
-      return api.mutate('pay', 'withdrawal.quote', input, withdrawQuoteSchema);
+      return api.call(PAY_WITHDRAWAL_QUOTE, input);
     },
     /**
      * The send itself, with the short step-up token as this one call's bearer. The network and the accepted quote go with it
@@ -93,9 +58,8 @@ export function createWithdrawSend(api: ApiClient) {
      * fee with the amount, so what leaves the balance is the quote's total debit.
      */
     send(input: WithdrawSend, token: string): Promise<ApiResult<WithdrawalRecord>> {
-      return api.mutate(
-        'pay',
-        'withdrawal.create',
+      return api.call(
+        PAY_WITHDRAWAL_CREATE,
         {
           assetId: input.assetId,
           amount: input.amount,
@@ -105,7 +69,23 @@ export function createWithdrawSend(api: ApiClient) {
           networkId: input.networkId,
           quoteRef: input.quoteRef,
         },
-        withdrawalSchema,
+        { bearer: token },
+      );
+    },
+    /** A send to another account on the platform (W-withdraw-14): no network and no quote, settled inside at once. */
+    sendInside(
+      input: { assetId: string; amount: string; ref: string; clientRef: string },
+      token: string,
+    ): Promise<ApiResult<WithdrawalRecord>> {
+      return api.call(
+        PAY_WITHDRAWAL_CREATE,
+        {
+          assetId: input.assetId,
+          amount: input.amount,
+          railId: INTERNAL_RAIL,
+          destination: { kind: 'crypto', ref: input.ref },
+          clientRef: input.clientRef,
+        },
         { bearer: token },
       );
     },

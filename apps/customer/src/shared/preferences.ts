@@ -180,10 +180,37 @@ export function currentPreferences() {
   return snapshot;
 }
 
+const SCHEME_KEY = 'intafaced.look.scheme';
+
+/** A query switch remembered on this device (`?<param>=<value>`; `?<param>=<off>` forgets it). */
+function remembered<T extends string>(search: string, param: string, key: string, values: readonly T[], off: string): T | null {
+  const asked = new URLSearchParams(search).get(param);
+  try {
+    if (asked !== null && (values as readonly string[]).includes(asked)) {
+      localStorage.setItem(key, asked);
+      return asked as T;
+    }
+    if (asked === off) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    const kept = localStorage.getItem(key);
+    return kept !== null && (values as readonly string[]).includes(kept) ? (kept as T) : null;
+  } catch {
+    return asked !== null && (values as readonly string[]).includes(asked) ? (asked as T) : null;
+  }
+}
+
+/** `light` only when the light preview (`?scheme=light`) was asked for on this device; dark otherwise. */
+export function resolvePreviewScheme(search: string = typeof location === 'undefined' ? '' : location.search): 'light' | 'dark' {
+  return remembered(search, 'scheme', SCHEME_KEY, ['light'] as const, 'dark') ?? 'dark';
+}
+
 /**
  * The theme the app draws. Light is out of scope, so every stored value (`light`, `system`, or an old `light` from an
- * earlier build) still renders dark; the stored value is kept untouched, ready for the day light ships.
+ * earlier build) still renders dark; the stored value is kept untouched, ready for the day light ships. The one way to
+ * see light is the look's preview switch (`?scheme=light`, look.ts), asked for on this device.
  */
 export function useResolvedTheme(_theme: Preferences['theme']): 'light' | 'dark' {
-  return 'dark';
+  return resolvePreviewScheme();
 }

@@ -1,7 +1,6 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom } from '@/lib/desk/part';
+import { founderCall, type FounderCallContext, partFrom } from '@/lib/desk';
 import { NOTIFY, anyData, loadPublishApprovals, reply } from './incidents-server';
 import {
   readAnnouncements,

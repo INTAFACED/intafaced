@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
+import { z } from 'zod';
 import type {
   SupportAccountGrounding,
   SupportCaseFile,
@@ -12,7 +13,15 @@ import type {
   SupportTicketEventKind,
   SupportTicketStatus,
 } from '@intafaced/contracts';
-import { SUPPORT_KB_STORED_BODY_KEY, SUPPORT_KB_STORED_TITLE_KEY } from '@intafaced/contracts';
+import {
+  SUPPORT_KB_STORED_BODY_KEY,
+  SUPPORT_KB_STORED_TITLE_KEY,
+  supportEscalationReasonSchema,
+  supportKbAudienceSchema,
+  supportTicketCategorySchema,
+  supportTicketEventKindSchema,
+  supportTicketStatusSchema,
+} from '@intafaced/contracts';
 import { READER_ACTOR_PREFIX, feedbackRateCutoff, feedbackRequestCopy } from './kb-feedback.js';
 import { assertKbArticle, KbCatalogError, PLATFORM_KB_SPINE, kbVersionOf, toPublicKb } from './kb-catalog.js';
 import { checkTransition, isTerminal } from './lifecycle.js';
@@ -34,7 +43,7 @@ import { checkSupportSettlement } from './settlement-refuse.js';
  * uses when they would rather there were no record. `create`, `setStatus` and
  * `claimTicket` each write ticket and trail together or write neither.
  *
- * `appendEvent` exists for `grounding_read` alone — a pure read with nothing
+ * `appendEvent` exists for the pure reads (`grounding_read`, `charts_lookup`) alone, with nothing
  * else to pair. Escalation is different: the case file and the `escalated`
  * trail row are two halves of one fact, so they go through
  * `putCaseFileWithEscalated` (same transaction). A path that wrote the case
@@ -129,7 +138,7 @@ function assertNoteAuthor(input: AddCommentInput): void {
 export type AppendEventInput = {
   ticketId: string;
   /** Pure read only. Escalation uses `putCaseFileWithEscalated`. */
-  kind: Extract<SupportTicketEventKind, 'grounding_read'>;
+  kind: Extract<SupportTicketEventKind, 'grounding_read' | 'charts_lookup'>;
   actorId: string;
   actorRole: 'user' | 'operator';
   note?: string | null;
@@ -150,11 +159,14 @@ export type SetStatusResult =
 
 /**
  * The trail rows after `expectedSequence` written by someone other than `actorId`, oldest first: what makes a write that
- * names `expectedSequence` stale. An account read (`grounding_read`) changes nothing and does not count.
+ * names `expectedSequence` stale. An account or charts read (`grounding_read`, `charts_lookup`) changes nothing and does not count.
  */
+/** Trail rows that record a read: they change nothing on the ticket. */
+const PURE_READS: ReadonlySet<SupportTicketEventKind> = new Set(['grounding_read', 'charts_lookup']);
+
 export function newerByOthers(events: readonly SupportTicketEvent[], expectedSequence: number, actorId: string): SupportTicketEvent[] {
   return events
-    .filter((row) => row.sequence > expectedSequence && row.actorId !== actorId && row.kind !== 'grounding_read')
+    .filter((row) => row.sequence > expectedSequence && row.actorId !== actorId && !PURE_READS.has(row.kind))
     .sort((a, b) => a.sequence - b.sequence);
 }
 
@@ -262,7 +274,7 @@ export interface SupportStore {
   previewMerge(input: { sourceId: string; survivorId: string }): Promise<MergePreviewResult>;
   /** The merge that closed this request into another, or null. */
   findMergeBySource(sourceId: string): Promise<TicketMergeRecord | null>;
-  /** Non-state-change trail row for a pure read: `grounding_read` only. */
+  /** Non-state-change trail row for a pure read: `grounding_read` or `charts_lookup`. */
   appendEvent(input: AppendEventInput): Promise<SupportTicketEvent>;
   /** The trail, oldest first. Omit `limit` for the full trail (tests / internal dumps). */
   listEvents(ticketId: string, options?: { limit?: number }): Promise<SupportTicketEvent[]>;
@@ -596,28 +608,32 @@ function settlementRefusal(input: {
   return null;
 }
 
-type PgTicket = {
-  id: string;
-  user_id: string;
-  category: SupportTicket['category'];
-  subject: string;
-  body: string;
-  message_headers: string | null;
-  status: SupportTicketStatus;
-  assignee_id: string | null;
-  created_at: Date;
-  updated_at: Date;
-};
+const PgRole = z.enum(['user', 'operator']);
 
-type PgComment = {
-  id: string;
-  ticket_id: string;
-  author_id: string;
-  author_role: 'user' | 'operator';
-  visibility: 'public' | 'internal';
-  body: string;
-  created_at: Date;
-};
+const PgTicket = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  category: supportTicketCategorySchema,
+  subject: z.string(),
+  body: z.string(),
+  message_headers: z.string().nullable(),
+  status: supportTicketStatusSchema,
+  assignee_id: z.string().nullable(),
+  created_at: z.date(),
+  updated_at: z.date(),
+});
+type PgTicket = z.infer<typeof PgTicket>;
+
+const PgComment = z.object({
+  id: z.string(),
+  ticket_id: z.string(),
+  author_id: z.string(),
+  author_role: PgRole,
+  visibility: z.enum(['public', 'internal']),
+  body: z.string(),
+  created_at: z.date(),
+});
+type PgComment = z.infer<typeof PgComment>;
 
 type CreateReceipt = { fingerprint: string; ticket: SupportTicket };
 
@@ -629,11 +645,13 @@ function createFingerprint(input: CreateTicketRow): string {
 }
 
 async function insertTicketWithOpened(tx: TransactionSql, input: CreateTicketRow): Promise<SupportTicket> {
-  const rows = await tx<PgTicket[]>`
+  const rows = PgTicket.array().parse(
+    await tx`
     INSERT INTO support.tickets (user_id, category, subject, body, message_headers, status)
     VALUES (${input.userId}, ${input.category}, ${input.subject}, ${input.body}, ${input.messageHeaders ?? null}, 'open')
     RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
-  `;
+  `,
+  );
   const ticket = ticketFromPg(rows[0]!);
   await insertEvent(tx, { ticketId: ticket.id, kind: 'opened', actorId: input.userId, actorRole: 'user' });
   return ticket;
@@ -666,18 +684,19 @@ function commentFromPg(row: PgComment): SupportComment {
   };
 }
 
-type PgEvent = {
-  id: string;
-  ticket_id: string;
-  sequence: number;
-  kind: SupportTicketEventKind;
-  actor_id: string;
-  actor_role: 'user' | 'operator';
-  from_status: SupportTicketStatus | null;
-  to_status: SupportTicketStatus | null;
-  note: string | null;
-  occurred_at: Date;
-};
+const PgEvent = z.object({
+  id: z.string(),
+  ticket_id: z.string(),
+  sequence: z.number(),
+  kind: supportTicketEventKindSchema,
+  actor_id: z.string(),
+  actor_role: PgRole,
+  from_status: supportTicketStatusSchema.nullable(),
+  to_status: supportTicketStatusSchema.nullable(),
+  note: z.string().nullable(),
+  occurred_at: z.date(),
+});
+type PgEvent = z.infer<typeof PgEvent>;
 
 function eventFromPg(row: PgEvent): SupportTicketEvent {
   return {
@@ -694,15 +713,17 @@ function eventFromPg(row: PgEvent): SupportTicketEvent {
   };
 }
 
-type PgCaseFile = {
-  ticket_id: string;
-  escalated_by: string;
-  reason: SupportCaseFile['reason'];
-  citations: unknown;
-  grounding: unknown;
-  summary: string;
-  created_at: Date;
-};
+/** `citations` and `grounding` are jsonb the service wrote from checked input; they are read back as stored. */
+const PgCaseFile = z.object({
+  ticket_id: z.string(),
+  escalated_by: z.string(),
+  reason: supportEscalationReasonSchema,
+  citations: z.unknown(),
+  grounding: z.unknown(),
+  summary: z.string(),
+  created_at: z.date(),
+});
+type PgCaseFile = z.infer<typeof PgCaseFile>;
 
 function caseFileFromPg(row: PgCaseFile): SupportCaseFile {
   return {
@@ -716,21 +737,23 @@ function caseFileFromPg(row: PgCaseFile): SupportCaseFile {
   };
 }
 
-type PgKb = {
-  id: string;
-  title_key: string;
-  body_key: string;
-  revision: number;
-  published: boolean;
-  updated_at: Date;
-  category?: string | null;
-  tags?: string[] | null;
-  audience?: SupportKbAudience | null;
-  title?: string | null;
-  body?: string | null;
-  language?: string | null;
-  section_id?: string | null;
-};
+/** A head row; the version columns are there only when the query joins the head's version row (which may be missing). */
+const PgKb = z.object({
+  id: z.string(),
+  title_key: z.string(),
+  body_key: z.string(),
+  revision: z.number(),
+  published: z.boolean(),
+  updated_at: z.date(),
+  category: z.string().nullable().optional(),
+  tags: z.array(z.string()).nullable().optional(),
+  audience: supportKbAudienceSchema.nullable().optional(),
+  title: z.string().nullable().optional(),
+  body: z.string().nullable().optional(),
+  language: z.string().nullable().optional(),
+  section_id: z.string().nullable().optional(),
+});
+type PgKb = z.infer<typeof PgKb>;
 
 function topicOn(article: { category?: string | null; tags?: readonly string[] | null }): { category?: string; tags?: string[] } {
   const category = article.category?.trim() ?? '';
@@ -784,29 +807,30 @@ function kbFromPg(row: PgKb): SupportKbArticle {
   });
 }
 
-type PgVersionCarry = {
-  category: string | null;
-  tags: string[] | null;
-  audience: SupportKbAudience;
-  title: string | null;
-  body: string | null;
-  language: string | null;
-  section_id: string | null;
-};
+const PgVersionCarry = z.object({
+  category: z.string().nullable(),
+  tags: z.array(z.string()).nullable(),
+  audience: supportKbAudienceSchema,
+  title: z.string().nullable(),
+  body: z.string().nullable(),
+  language: z.string().nullable(),
+  section_id: z.string().nullable(),
+});
 
-type PgKbVersion = {
-  id: string;
-  title_key: string;
-  body_key: string;
-  version: number;
-  category?: string | null;
-  tags?: string[] | null;
-  audience?: SupportKbAudience | null;
-  title?: string | null;
-  body?: string | null;
-  language?: string | null;
-  section_id?: string | null;
-};
+const PgKbVersion = z.object({
+  id: z.string(),
+  title_key: z.string(),
+  body_key: z.string(),
+  version: z.number(),
+  category: z.string().nullable().optional(),
+  tags: z.array(z.string()).nullable().optional(),
+  audience: supportKbAudienceSchema.nullable().optional(),
+  title: z.string().nullable().optional(),
+  body: z.string().nullable().optional(),
+  language: z.string().nullable().optional(),
+  section_id: z.string().nullable().optional(),
+});
+type PgKbVersion = z.infer<typeof PgKbVersion>;
 
 function kbFromVersionPg(row: PgKbVersion): SupportKbArticle {
   const version = Number(row.version);
@@ -824,25 +848,29 @@ function kbFromVersionPg(row: PgKbVersion): SupportKbArticle {
 
 /** The number the next version row of an article takes: one past every row, draft or not. */
 async function pgNextKbVersion(tx: TransactionSql, id: string): Promise<number> {
-  const [row] = await tx<{ next: number }[]>`
+  const [row] = NextVersionRow.array().parse(
+    await tx`
     SELECT COALESCE(MAX(version), 0) + 1 AS next FROM support.kb_article_versions WHERE id = ${id}
-  `;
+  `,
+  );
   return Number(row!.next);
 }
 
-type PgKbDraft = {
-  id: string;
-  version: number;
-  author_id: string;
-  template_id: string | null;
-  title: string;
-  body: string;
-  language: string;
-  section_id: string;
-  tags: string[] | null;
-  audience: SupportKbAudience;
-  created_at: Date;
-};
+/** A draft row: the service writes its author, title, body, language and section on every draft, though the columns allow null. */
+const PgKbDraft = z.object({
+  id: z.string(),
+  version: z.number(),
+  author_id: z.string(),
+  template_id: z.string().nullable(),
+  title: z.string(),
+  body: z.string(),
+  language: z.string(),
+  section_id: z.string(),
+  tags: z.array(z.string()).nullable(),
+  audience: supportKbAudienceSchema,
+  created_at: z.date(),
+});
+type PgKbDraft = z.infer<typeof PgKbDraft>;
 
 function kbDraftFromPg(row: PgKbDraft): KbDraft {
   return {
@@ -899,12 +927,14 @@ async function pgNewerByOthers(
   expectedSequence: number,
   actorId: string,
 ): Promise<SupportTicketEvent[]> {
-  const rows = await tx<PgEvent[]>`
+  const rows = PgEvent.array().parse(
+    await tx`
     SELECT id, ticket_id, sequence, kind, actor_id, actor_role, from_status, to_status, note, occurred_at
     FROM support.ticket_events
-    WHERE ticket_id = ${ticketId} AND sequence > ${expectedSequence} AND actor_id <> ${actorId} AND kind <> 'grounding_read'
+    WHERE ticket_id = ${ticketId} AND sequence > ${expectedSequence} AND actor_id <> ${actorId} AND kind NOT IN ('grounding_read', 'charts_lookup')
     ORDER BY sequence ASC
-  `;
+  `,
+  );
   return rows.map(eventFromPg);
 }
 
@@ -920,7 +950,12 @@ async function insertEvent(
     note?: string | null;
   },
 ): Promise<SupportTicketEvent> {
-  const rows = await tx<PgEvent[]>`
+  // The next sequence is MAX + 1, so two writers on one ticket must not read MAX at once: the ticket row lock queues
+  // them (a grounding read and a charts lookup opened together each land, numbered in turn, instead of one failing the
+  // (ticket_id, sequence) unique index). A caller that already holds this ticket's row lock takes it again at no cost.
+  await tx`SELECT 1 FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE`;
+  const rows = PgEvent.array().parse(
+    await tx`
     INSERT INTO support.ticket_events (ticket_id, sequence, kind, actor_id, actor_role, from_status, to_status, note)
     SELECT
       ${input.ticketId},
@@ -934,7 +969,8 @@ async function insertEvent(
     FROM support.ticket_events
     WHERE ticket_id = ${input.ticketId}
     RETURNING id, ticket_id, sequence, kind, actor_id, actor_role, from_status, to_status, note, occurred_at
-  `;
+  `,
+  );
   return eventFromPg(rows[0]!);
 }
 
@@ -943,15 +979,16 @@ function mergeNote(direction: 'into' | 'absorbed', otherId: string, reason: stri
   return `${direction === 'into' ? 'merged into' : 'absorbed'} ${otherId}: ${reason}`;
 }
 
-type PgMerge = {
-  source_id: string;
-  survivor_id: string;
-  actor_id: string;
-  reason: string;
-  comments_moved: number;
-  attachments_moved: number;
-  merged_at: Date | string;
-};
+const PgMerge = z.object({
+  source_id: z.string(),
+  survivor_id: z.string(),
+  actor_id: z.string(),
+  reason: z.string(),
+  comments_moved: z.number(),
+  attachments_moved: z.number(),
+  merged_at: z.date(),
+});
+type PgMerge = z.infer<typeof PgMerge>;
 
 function mergeFromPg(row: PgMerge): TicketMergeRecord {
   return {
@@ -1859,6 +1896,61 @@ export class MemorySupportStore implements SupportStore {
   }
 }
 
+/** A stored jsonb receipt: an object the service wrote itself, read back as it was written. */
+function storedObject<T>() {
+  return z.custom<T>((value) => typeof value === 'object' && value !== null);
+}
+
+const NextVersionRow = z.object({ next: z.number() });
+const IdRow = z.object({ id: z.string() });
+const IntCountRow = z.object({ n: z.number() });
+const CreateReceiptRow = z.object({ result: z.object({ fingerprint: z.string(), ticket: storedObject<SupportTicket>() }) });
+const CommentReceiptRow = z.object({ result: z.object({ fingerprint: z.string(), comment: storedObject<SupportComment>() }) });
+const AnyReceiptRow = z.object({ result: z.unknown() });
+const CloseReceiptRow = z.object({ result: storedObject<CloseByOwnerResult>() });
+const RateReceiptRow = z.object({ result: storedObject<RateByOwnerResult>() });
+const FeedbackReceiptRow = z.object({ result: storedObject<RecordFeedbackResult>() });
+const AttachReceiptRow = z.object({ result: z.object({ attachment: storedObject<AttachmentMeta>() }) });
+const TicketOwnerStatusRow = z.object({ id: z.string(), user_id: z.string(), status: supportTicketStatusSchema });
+const TicketStatusRow = z.object({ status: supportTicketStatusSchema });
+const TicketStatusCategoryRow = z.object({ status: supportTicketStatusSchema, category: supportTicketCategorySchema });
+const TicketOwnerRow = z.object({ user_id: z.string() });
+const TicketOwnerAssigneeRow = z.object({ user_id: z.string(), assignee_id: z.string().nullable() });
+const MergeCountsRow = z.object({
+  comments: z.number(),
+  files: z.number(),
+  rated: z.boolean(),
+  filed: z.boolean(),
+  merged: z.boolean(),
+});
+const CaseReasonRow = z.object({ reason: supportEscalationReasonSchema });
+const AudienceRow = z.object({ audience: supportKbAudienceSchema });
+const CreatedAtRow = z.object({ created_at: z.date() });
+const KbHistoryPgRow = z.object({
+  version: z.number(),
+  draft: z.boolean(),
+  author_id: z.string().nullable(),
+  title: z.string().nullable(),
+  audience: supportKbAudienceSchema,
+  live: z.boolean(),
+  created_at: z.date(),
+  source_revision: z.number().nullable(),
+});
+const KbAudienceChangeRow = z.object({
+  article_id: z.string(),
+  from_audience: supportKbAudienceSchema,
+  to_audience: supportKbAudienceSchema,
+  from_revision: z.number(),
+  to_revision: z.number(),
+  actor_id: z.string(),
+  created_at: z.date(),
+});
+const RatedTicketRow = z.object({ ticket_id: z.string() });
+const KbHeadRow = z.object({ revision: z.number(), published: z.boolean() });
+const KbVoteRow = z.object({ helpful: z.boolean(), ticket_id: z.string().nullable() });
+const KbFeedbackSummaryRow = z.object({ article_id: z.string(), version: z.number(), helpful: z.number(), unhelpful: z.number() });
+const SearchMissRow = z.object({ query: z.string(), created_at: z.date() });
+
 /**
  * Postgres store — shared across replicas. Claim is one UPDATE that only
  * succeeds when assignee is null or already self (idempotent re-claim).
@@ -1876,11 +1968,13 @@ export class PostgresSupportStore implements SupportStore {
     return this.sql.begin(async (tx) => {
       // Two submissions of one key serialise here; the second then reads the first's receipt.
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`support.create:${input.userId.length}:${input.userId}:${input.clientRequestId}`}, 0))`;
-      const prior = await tx<{ result: CreateReceipt }[]>`
+      const prior = CreateReceiptRow.array().parse(
+        await tx`
         SELECT result FROM support.write_receipts
         WHERE procedure = 'support.create' AND actor_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
         LIMIT 1
-      `;
+      `,
+      );
       if (prior[0]) {
         if (prior[0].result.fingerprint !== fingerprint) throw new Error('support.idempotency_conflict');
         return prior[0].result.ticket;
@@ -1895,55 +1989,67 @@ export class PostgresSupportStore implements SupportStore {
   }
 
   async openIdsByUser(userId: string): Promise<string[]> {
-    const rows = await this.sql<{ id: string }[]>`
+    const rows = IdRow.array().parse(
+      await this.sql`
       SELECT id FROM support.tickets WHERE user_id = ${userId} AND status NOT IN ('resolved', 'closed')
-    `;
+    `,
+    );
     return rows.map((r) => r.id);
   }
 
   async listByUser(userId: string, options?: { limit?: number }): Promise<SupportTicket[]> {
     const rows =
       options?.limit === undefined
-        ? await this.sql<PgTicket[]>`
+        ? PgTicket.array().parse(
+            await this.sql`
             SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
             FROM support.tickets
             WHERE user_id = ${userId}
             ORDER BY created_at DESC
-          `
-        : await this.sql<PgTicket[]>`
+          `,
+          )
+        : PgTicket.array().parse(
+            await this.sql`
             SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
             FROM support.tickets
             WHERE user_id = ${userId}
             ORDER BY created_at DESC
             LIMIT ${options.limit}
-          `;
+          `,
+          );
     return rows.map(ticketFromPg);
   }
 
   async listAll(options?: { limit?: number }): Promise<SupportTicket[]> {
     const rows =
       options?.limit === undefined
-        ? await this.sql<PgTicket[]>`
+        ? PgTicket.array().parse(
+            await this.sql`
             SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
             FROM support.tickets
             ORDER BY created_at DESC
-          `
-        : await this.sql<PgTicket[]>`
+          `,
+          )
+        : PgTicket.array().parse(
+            await this.sql`
             SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
             FROM support.tickets
             ORDER BY created_at DESC
             LIMIT ${options.limit}
-          `;
+          `,
+          );
     return rows.map(ticketFromPg);
   }
 
   async findById(ticketId: string): Promise<SupportTicket | null> {
-    const rows = await this.sql<PgTicket[]>`
+    const rows = PgTicket.array().parse(
+      await this.sql`
       SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
       FROM support.tickets
       WHERE id = ${ticketId}
       LIMIT 1
-    `;
+    `,
+    );
     return rows[0] ? ticketFromPg(rows[0]) : null;
   }
 
@@ -1951,23 +2057,27 @@ export class PostgresSupportStore implements SupportStore {
     assertNoteAuthor(input);
     const procedure = commentProcedure(input);
     return this.sql.begin(async (tx): Promise<AddCommentResult> => {
-      const locked = await tx<PgTicket[]>`
+      const locked = PgTicket.array().parse(
+        await tx`
         SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
         FROM support.tickets
         WHERE id = ${input.ticketId}
         FOR UPDATE
-      `;
+      `,
+      );
       if (!locked[0]) return { status: 'refuse', reason: 'not_found' };
       const existing = ticketFromPg(locked[0]);
       const fingerprint = commentFingerprint(input);
       if (input.clientRequestId !== undefined) {
         // One key used on two requests at once serialises here, not only on the ticket lock.
         await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${procedure}:${input.authorId.length}:${input.authorId}:${input.clientRequestId}`}, 0))`;
-        const prior = await tx<{ result: CommentReceipt }[]>`
+        const prior = CommentReceiptRow.array().parse(
+          await tx`
           SELECT result FROM support.write_receipts
           WHERE procedure = ${procedure} AND actor_id = ${input.authorId} AND client_request_id = ${input.clientRequestId}
           LIMIT 1
-        `;
+        `,
+        );
         if (prior[0]) {
           if (prior[0].result.fingerprint !== fingerprint) return { status: 'refuse', reason: 'idempotency_conflict' };
           return { status: 'ok', comment: receiptComment(prior[0].result.comment), ticket: existing, reopened: false, replay: true };
@@ -1983,17 +2093,21 @@ export class PostgresSupportStore implements SupportStore {
       }
       if (input.userCap === null && input.authorRole === 'user') return { status: 'refuse', reason: 'cap_unset' };
       if (input.userCap !== undefined && input.userCap !== null && input.authorRole === 'user') {
-        const counted = await tx<{ n: number }[]>`
+        const counted = IntCountRow.array().parse(
+          await tx`
           SELECT count(*)::int AS n FROM support.comments WHERE ticket_id = ${input.ticketId} AND author_role = 'user'
-        `;
+        `,
+        );
         if ((counted[0]?.n ?? 0) >= input.userCap) return { status: 'refuse', reason: 'cap_reached' };
       }
 
-      const comments = await tx<PgComment[]>`
+      const comments = PgComment.array().parse(
+        await tx`
         INSERT INTO support.comments (ticket_id, author_id, author_role, visibility, body)
         VALUES (${input.ticketId}, ${input.authorId}, ${input.authorRole}, ${input.visibility ?? 'public'}, ${input.body})
         RETURNING id, ticket_id, author_id, author_role, visibility, body, created_at
-      `;
+      `,
+      );
       if (input.clientRequestId !== undefined) {
         const receipt: CommentReceipt = { fingerprint, comment: commentFromPg(comments[0]!) };
         await tx`
@@ -2007,25 +2121,31 @@ export class PostgresSupportStore implements SupportStore {
       const reopened = existing.status === 'resolved' && input.authorRole === 'user';
       const resumed = (existing.status === 'pending' || existing.status === 'on_hold') && input.authorRole === 'user';
       const rows = reopened
-        ? await tx<PgTicket[]>`
+        ? PgTicket.array().parse(
+            await tx`
             UPDATE support.tickets
             SET status = 'open', assignee_id = NULL, updated_at = now()
             WHERE id = ${input.ticketId}
             RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
-          `
+          `,
+          )
         : resumed
-          ? await tx<PgTicket[]>`
+          ? PgTicket.array().parse(
+              await tx`
             UPDATE support.tickets
             SET status = 'open', updated_at = now()
             WHERE id = ${input.ticketId}
             RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
-          `
-          : await tx<PgTicket[]>`
+          `,
+            )
+          : PgTicket.array().parse(
+              await tx`
             UPDATE support.tickets
             SET updated_at = now()
             WHERE id = ${input.ticketId}
             RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
-          `;
+          `,
+            );
       if (!rows[0]) return { status: 'refuse', reason: 'not_found' };
 
       if (resumed) {
@@ -2065,19 +2185,23 @@ export class PostgresSupportStore implements SupportStore {
     const withInternal = options?.withInternal === true;
     const rows =
       options?.limit === undefined
-        ? await this.sql<PgComment[]>`
+        ? PgComment.array().parse(
+            await this.sql`
             SELECT id, ticket_id, author_id, author_role, visibility, body, created_at
             FROM support.comments
             WHERE ticket_id = ${ticketId} AND (visibility = 'public' OR ${withInternal})
             ORDER BY created_at ASC
-          `
-        : await this.sql<PgComment[]>`
+          `,
+          )
+        : PgComment.array().parse(
+            await this.sql`
             SELECT id, ticket_id, author_id, author_role, visibility, body, created_at
             FROM support.comments
             WHERE ticket_id = ${ticketId} AND (visibility = 'public' OR ${withInternal})
             ORDER BY created_at ASC
             LIMIT ${options.limit}
-          `;
+          `,
+          );
     return rows.map(commentFromPg);
   }
 
@@ -2099,28 +2223,34 @@ export class PostgresSupportStore implements SupportStore {
    * once the lock is held. No ledger write and no amount.
    */
   async findMergeBySource(sourceId: string): Promise<TicketMergeRecord | null> {
-    const rows = await this.sql<PgMerge[]>`
+    const rows = PgMerge.array().parse(
+      await this.sql`
       SELECT source_id, survivor_id, actor_id, reason, comments_moved, attachments_moved, merged_at
       FROM support.ticket_merges WHERE source_id = ${sourceId}
-    `;
+    `,
+    );
     return rows[0] ? mergeFromPg(rows[0]) : null;
   }
 
   async previewMerge(input: { sourceId: string; survivorId: string }): Promise<MergePreviewResult> {
-    const rows = await this.sql<{ id: string; user_id: string; status: SupportTicketStatus }[]>`
+    const rows = TicketOwnerStatusRow.array().parse(
+      await this.sql`
       SELECT id, user_id, status FROM support.tickets WHERE id IN (${input.sourceId}, ${input.survivorId})
-    `;
+    `,
+    );
     const source = rows.find((r) => r.id === input.sourceId);
     const survivor = rows.find((r) => r.id === input.survivorId);
     if (!source || !survivor) return { status: 'refuse', reason: 'not_found' };
-    const [counts] = await this.sql<{ comments: number; files: number; rated: boolean; filed: boolean; merged: boolean }[]>`
+    const [counts] = MergeCountsRow.array().parse(
+      await this.sql`
       SELECT
         (SELECT count(*)::int FROM support.comments WHERE ticket_id = ${input.sourceId}) AS comments,
         (SELECT count(*)::int FROM support.ticket_attachments WHERE ticket_id = ${input.sourceId}) AS files,
         EXISTS (SELECT 1 FROM support.ticket_ratings WHERE ticket_id = ${input.sourceId}) AS rated,
         EXISTS (SELECT 1 FROM support.case_files WHERE ticket_id = ${input.sourceId}) AS filed,
         EXISTS (SELECT 1 FROM support.ticket_merges WHERE source_id = ${input.sourceId} AND survivor_id = ${input.survivorId}) AS merged
-    `;
+    `,
+    );
     return {
       status: 'ok',
       allowed: mergeAllowed({ status: source.status, userId: source.user_id }, { status: survivor.status, userId: survivor.user_id }),
@@ -2136,17 +2266,21 @@ export class PostgresSupportStore implements SupportStore {
     return this.sql.begin(async (tx): Promise<MergeTicketsResult> => {
       // Lower id first, so two merges over the same pair in opposite directions cannot wait on each other.
       const ids = [input.sourceId, input.survivorId].sort();
-      const locked = await tx<{ id: string; user_id: string; status: SupportTicketStatus }[]>`
+      const locked = TicketOwnerStatusRow.array().parse(
+        await tx`
         SELECT id, user_id, status FROM support.tickets WHERE id IN (${ids[0]!}, ${ids[1]!}) ORDER BY id FOR UPDATE
-      `;
+      `,
+      );
       const source = locked.find((r) => r.id === input.sourceId);
       const survivor = locked.find((r) => r.id === input.survivorId);
       if (!source || !survivor) return { status: 'refuse', reason: 'not_found' };
 
-      const [prior] = await tx<PgMerge[]>`
+      const [prior] = PgMerge.array().parse(
+        await tx`
         SELECT source_id, survivor_id, actor_id, reason, comments_moved, attachments_moved, merged_at
         FROM support.ticket_merges WHERE source_id = ${input.sourceId}
-      `;
+      `,
+      );
       if (prior) {
         return prior.survivor_id === input.survivorId
           ? { status: 'ok', merge: mergeFromPg(prior), replay: true }
@@ -2160,11 +2294,13 @@ export class PostgresSupportStore implements SupportStore {
       const files = await tx`UPDATE support.ticket_attachments SET ticket_id = ${input.survivorId} WHERE ticket_id = ${input.sourceId}`;
       await tx`UPDATE support.tickets SET status = 'closed', updated_at = now() WHERE id = ${input.sourceId}`;
       await tx`UPDATE support.tickets SET updated_at = now() WHERE id = ${input.survivorId}`;
-      const [row] = await tx<PgMerge[]>`
+      const [row] = PgMerge.array().parse(
+        await tx`
         INSERT INTO support.ticket_merges (source_id, survivor_id, actor_id, reason, comments_moved, attachments_moved)
         VALUES (${input.sourceId}, ${input.survivorId}, ${input.operatorId}, ${input.reason}, ${comments.count}, ${files.count})
         RETURNING source_id, survivor_id, actor_id, reason, comments_moved, attachments_moved, merged_at
-      `;
+      `,
+      );
       const base = { actorId: input.operatorId, actorRole: 'operator' as const };
       await insertEvent(tx, { ...base, ticketId: input.sourceId, kind: 'merged', note: mergeNote('into', input.survivorId, input.reason) });
       await insertEvent(tx, {
@@ -2187,9 +2323,11 @@ export class PostgresSupportStore implements SupportStore {
 
   async setStatus(input: SetStatusInput): Promise<SetStatusResult> {
     return this.sql.begin(async (tx): Promise<SetStatusResult> => {
-      const current = await tx<{ status: SupportTicketStatus; category: SupportTicket['category'] }[]>`
+      const current = TicketStatusCategoryRow.array().parse(
+        await tx`
         SELECT status, category FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
-      `;
+      `,
+      );
       const from = current[0]?.status;
       const category = current[0]?.category;
       if (!from || !category) return { status: 'refuse', reason: 'not_found' };
@@ -2199,9 +2337,11 @@ export class PostgresSupportStore implements SupportStore {
         if (newer.length > 0) return { status: 'refuse', reason: 'stale', newer };
       }
 
-      const reasonRows = await tx<{ reason: SupportCaseFile['reason'] }[]>`
+      const reasonRows = CaseReasonRow.array().parse(
+        await tx`
         SELECT reason FROM support.case_files WHERE ticket_id = ${input.ticketId}
-      `;
+      `,
+      );
       const settle = settlementRefusal({
         toStatus: input.status,
         category,
@@ -2215,12 +2355,14 @@ export class PostgresSupportStore implements SupportStore {
         return { status: 'refuse', reason: check.reason === 'same_status' ? 'same_status' : 'illegal_transition' };
       }
 
-      const rows = await tx<PgTicket[]>`
+      const rows = PgTicket.array().parse(
+        await tx`
         UPDATE support.tickets
         SET status = ${input.status}, updated_at = now()
         WHERE id = ${input.ticketId}
         RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
-      `;
+      `,
+      );
       if (!rows[0]) return { status: 'refuse', reason: 'not_found' };
 
       await insertEvent(tx, {
@@ -2251,12 +2393,14 @@ export class PostgresSupportStore implements SupportStore {
     if (!operatorId) return { status: 'refuse', reason: 'invalid_operator' };
 
     return this.sql.begin(async (tx): Promise<ClaimResult> => {
-      const locked = await tx<PgTicket[]>`
+      const locked = PgTicket.array().parse(
+        await tx`
         SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
         FROM support.tickets
         WHERE id = ${input.ticketId}
         FOR UPDATE
-      `;
+      `,
+      );
       if (!locked[0]) return { status: 'refuse', reason: 'not_found' };
       const existing = ticketFromPg(locked[0]);
 
@@ -2271,7 +2415,8 @@ export class PostgresSupportStore implements SupportStore {
         return { status: 'ok', ticket: existing };
       }
 
-      const claimed = await tx<PgTicket[]>`
+      const claimed = PgTicket.array().parse(
+        await tx`
         UPDATE support.tickets
         SET
           assignee_id = ${operatorId},
@@ -2281,7 +2426,8 @@ export class PostgresSupportStore implements SupportStore {
           AND status IN ('open', 'pending')
           AND (assignee_id IS NULL OR assignee_id = ${operatorId})
         RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
-      `;
+      `,
+      );
       // Holding FOR UPDATE, this should always return a row when the checks
       // above passed. Zero rows means another writer slipped past — treat as
       // lost claim rather than inventing trail.
@@ -2307,20 +2453,24 @@ export class PostgresSupportStore implements SupportStore {
     const operatorId = input.operatorId?.trim() ?? '';
     if (!operatorId) return { status: 'refuse', reason: 'invalid_operator' };
     return this.sql.begin(async (tx): Promise<ClaimResult> => {
-      const locked = await tx<PgTicket[]>`
+      const locked = PgTicket.array().parse(
+        await tx`
         SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
         FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
-      `;
+      `,
+      );
       if (!locked[0]) return { status: 'refuse', reason: 'not_found' };
       const existing = ticketFromPg(locked[0]);
       if (existing.status !== 'open' && existing.status !== 'pending') return { status: 'refuse', reason: 'not_queueable' };
       if (existing.assigneeId !== operatorId) return { status: 'refuse', reason: 'not_assignee' };
-      const released = await tx<PgTicket[]>`
+      const released = PgTicket.array().parse(
+        await tx`
         UPDATE support.tickets
         SET assignee_id = NULL, updated_at = now()
         WHERE id = ${input.ticketId} AND assignee_id = ${operatorId}
         RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
-      `;
+      `,
+      );
       if (!released[0]) return { status: 'refuse', reason: 'not_assignee' };
       await insertEvent(tx, {
         ticketId: input.ticketId,
@@ -2338,22 +2488,26 @@ export class PostgresSupportStore implements SupportStore {
     const assigneeId = input.assigneeId?.trim() ?? '';
     if (!operatorId || !assigneeId) return { status: 'refuse', reason: 'invalid_operator' };
     return this.sql.begin(async (tx): Promise<ClaimResult> => {
-      const locked = await tx<PgTicket[]>`
+      const locked = PgTicket.array().parse(
+        await tx`
         SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
         FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
-      `;
+      `,
+      );
       if (!locked[0]) return { status: 'refuse', reason: 'not_found' };
       const existing = ticketFromPg(locked[0]);
       if (existing.status !== 'open' && existing.status !== 'pending') return { status: 'refuse', reason: 'not_queueable' };
       if (existing.assigneeId === assigneeId) return { status: 'ok', ticket: existing };
-      const assigned = await tx<PgTicket[]>`
+      const assigned = PgTicket.array().parse(
+        await tx`
         UPDATE support.tickets
         SET assignee_id = ${assigneeId},
             status = CASE WHEN status = 'open' THEN 'pending' ELSE status END,
             updated_at = now()
         WHERE id = ${input.ticketId}
         RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
-      `;
+      `,
+      );
       if (!assigned[0]) return { status: 'refuse', reason: 'not_found' };
       await insertEvent(tx, {
         ticketId: input.ticketId,
@@ -2387,24 +2541,29 @@ export class PostgresSupportStore implements SupportStore {
   async listEvents(ticketId: string, options?: { limit?: number }): Promise<SupportTicketEvent[]> {
     const rows =
       options?.limit === undefined
-        ? await this.sql<PgEvent[]>`
+        ? PgEvent.array().parse(
+            await this.sql`
             SELECT id, ticket_id, sequence, kind, actor_id, actor_role, from_status, to_status, note, occurred_at
             FROM support.ticket_events
             WHERE ticket_id = ${ticketId}
             ORDER BY sequence ASC
-          `
-        : await this.sql<PgEvent[]>`
+          `,
+          )
+        : PgEvent.array().parse(
+            await this.sql`
             SELECT id, ticket_id, sequence, kind, actor_id, actor_role, from_status, to_status, note, occurred_at
             FROM support.ticket_events
             WHERE ticket_id = ${ticketId}
             ORDER BY sequence ASC
             LIMIT ${options.limit}
-          `;
+          `,
+          );
     return rows.map(eventFromPg);
   }
 
   async putCaseFile(caseFile: SupportCaseFile): Promise<SupportCaseFile> {
-    const rows = await this.sql<PgCaseFile[]>`
+    const rows = PgCaseFile.array().parse(
+      await this.sql`
       INSERT INTO support.case_files (ticket_id, escalated_by, reason, citations, grounding, summary)
       VALUES (
         ${caseFile.ticketId},
@@ -2415,7 +2574,8 @@ export class PostgresSupportStore implements SupportStore {
         ${caseFile.summary}
       )
       RETURNING ticket_id, escalated_by, reason, citations, grounding, summary, created_at
-    `;
+    `,
+    );
     return caseFileFromPg(rows[0]!);
   }
 
@@ -2432,14 +2592,17 @@ export class PostgresSupportStore implements SupportStore {
     note: string;
   }): Promise<PutCaseFileWithEscalatedResult> {
     return this.sql.begin(async (tx): Promise<PutCaseFileWithEscalatedResult> => {
-      const current = await tx<{ status: SupportTicketStatus }[]>`
+      const current = TicketStatusRow.array().parse(
+        await tx`
         SELECT status FROM support.tickets WHERE id = ${input.caseFile.ticketId} FOR UPDATE
-      `;
+      `,
+      );
       const from = current[0]?.status;
       if (!from) return { status: 'refuse', reason: 'not_found' };
       if (isTerminal(from)) return { status: 'refuse', reason: 'terminal' };
 
-      const rows = await tx<PgCaseFile[]>`
+      const rows = PgCaseFile.array().parse(
+        await tx`
         INSERT INTO support.case_files (ticket_id, escalated_by, reason, citations, grounding, summary)
         VALUES (
           ${input.caseFile.ticketId},
@@ -2450,7 +2613,8 @@ export class PostgresSupportStore implements SupportStore {
           ${input.caseFile.summary}
         )
         RETURNING ticket_id, escalated_by, reason, citations, grounding, summary, created_at
-      `;
+      `,
+      );
       await insertEvent(tx, {
         ticketId: input.caseFile.ticketId,
         kind: 'escalated',
@@ -2463,20 +2627,23 @@ export class PostgresSupportStore implements SupportStore {
   }
 
   async latestCaseFile(ticketId: string): Promise<SupportCaseFile | null> {
-    const rows = await this.sql<PgCaseFile[]>`
+    const rows = PgCaseFile.array().parse(
+      await this.sql`
       SELECT ticket_id, escalated_by, reason, citations, grounding, summary, created_at
       FROM support.case_files
       WHERE ticket_id = ${ticketId}
       ORDER BY created_at DESC
       LIMIT 1
-    `;
+    `,
+    );
     return rows[0] ? caseFileFromPg(rows[0]) : null;
   }
 
   async listPublishedKb(options?: { limit?: number; audiences?: readonly SupportKbAudience[] }): Promise<SupportKbArticle[]> {
     // The audience filter and the page are one query, so a hidden article takes no place in a page.
     const audiences = options?.audiences ? [...options.audiences] : null;
-    const rows = await this.sql<PgKb[]>`
+    const rows = PgKb.array().parse(
+      await this.sql`
       SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags, v.audience,
              v.title, v.body, v.language, v.section_id
       FROM support.kb_articles AS a
@@ -2485,40 +2652,47 @@ export class PostgresSupportStore implements SupportStore {
         AND (${audiences}::text[] IS NULL OR COALESCE(v.audience, 'public') = ANY(${audiences}::text[]))
       ORDER BY a.id
       ${options?.limit === undefined ? this.sql`` : this.sql`LIMIT ${options.limit}`}
-    `;
+    `,
+    );
     return rows.map(kbFromPg);
   }
 
   async getPublishedKb(id: string): Promise<SupportKbArticle | null> {
-    const rows = await this.sql<PgKb[]>`
+    const rows = PgKb.array().parse(
+      await this.sql`
       SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags, v.audience,
              v.title, v.body, v.language, v.section_id
       FROM support.kb_articles AS a
       LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
       WHERE a.id = ${id} AND a.published = true
       LIMIT 1
-    `;
+    `,
+    );
     return rows[0] ? kbFromPg(rows[0]) : null;
   }
 
   async listKbVersions(id: string): Promise<SupportKbArticle[]> {
-    const rows = await this.sql<PgKbVersion[]>`
+    const rows = PgKbVersion.array().parse(
+      await this.sql`
       SELECT id, title_key, body_key, version, category, tags, audience, title, body, language, section_id
       FROM support.kb_article_versions
       WHERE id = ${id} AND NOT draft
       ORDER BY version
-    `;
+    `,
+    );
     return rows.map(kbFromVersionPg);
   }
 
   async putKbRevision(input: PutKbRevisionInput): Promise<PutKbRevisionResult> {
     return this.sql.begin(async (tx): Promise<PutKbRevisionResult> => {
-      const locked = await tx<PgKb[]>`
+      const locked = PgKb.array().parse(
+        await tx`
         SELECT id, title_key, body_key, revision, published, updated_at
         FROM support.kb_articles
         WHERE id = ${input.id}
         FOR UPDATE
-      `;
+      `,
+      );
       const current = locked[0] ? kbFromPg(locked[0]) : null;
 
       if (input.published) {
@@ -2530,22 +2704,26 @@ export class PostgresSupportStore implements SupportStore {
         const text = textColumns(input.text ?? {});
         if (input.text) {
           // The section is read under a share lock in this transaction, so a retire cannot slip in before the version lands.
-          const [open] = await tx<{ id: string }[]>`
+          const [open] = IdRow.array().parse(
+            await tx`
             SELECT s.id FROM support.kb_sections s JOIN support.kb_categories c ON c.id = s.category_id
             WHERE s.id = ${input.text.sectionId} AND NOT s.retired AND NOT c.retired
             FOR SHARE OF s, c
-          `;
+          `,
+          );
           if (!open) return { status: 'refuse', reason: 'section_unknown' };
         }
         // Drafts (SP-kb-01) sit above the head, so a new version takes the number after every row, draft or not.
         const next = await pgNextKbVersion(tx, input.id);
         if (!current) {
           if (input.baseRevision !== 0) return { status: 'refuse', reason: 'revision_stale' };
-          const rows = await tx<PgKb[]>`
+          const rows = PgKb.array().parse(
+            await tx`
             INSERT INTO support.kb_articles (id, title_key, body_key, revision, published)
             VALUES (${input.id}, ${input.titleKey}, ${input.bodyKey}, ${next}, true)
             RETURNING id, title_key, body_key, revision, published, updated_at
-          `;
+          `,
+          );
           await tx`
             INSERT INTO support.kb_article_versions
               (id, version, title_key, body_key, category, tags, audience, title, body, language, section_id)
@@ -2557,7 +2735,8 @@ export class PostgresSupportStore implements SupportStore {
           return { status: 'ok', article: toPublicKb({ ...kbFromPg(rows[0]!), ...topic, ...input.text }) };
         }
         if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
-        const rows = await tx<PgKb[]>`
+        const rows = PgKb.array().parse(
+          await tx`
           UPDATE support.kb_articles
           SET title_key = ${input.titleKey},
               body_key = ${input.bodyKey},
@@ -2566,13 +2745,16 @@ export class PostgresSupportStore implements SupportStore {
               updated_at = now()
           WHERE id = ${input.id} AND revision = ${input.baseRevision}
           RETURNING id, title_key, body_key, revision, published, updated_at
-        `;
+        `,
+        );
         if (!rows[0]) return { status: 'refuse', reason: 'revision_stale' };
         const bumped = kbFromPg(rows[0]);
         // A new body keeps who may read it; only setKbAudience changes that.
-        const heldAudience = await tx<{ audience: SupportKbAudience }[]>`
+        const heldAudience = AudienceRow.array().parse(
+          await tx`
           SELECT audience FROM support.kb_article_versions WHERE id = ${input.id} AND version = ${input.baseRevision}
-        `;
+        `,
+        );
         const audience = heldAudience[0]?.audience ?? 'public';
         await tx`
           INSERT INTO support.kb_article_versions
@@ -2587,23 +2769,27 @@ export class PostgresSupportStore implements SupportStore {
 
       if (!current) return { status: 'refuse', reason: 'invalid' };
       if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
-      const prev = await tx<PgVersionCarry[]>`
+      const prev = PgVersionCarry.array().parse(
+        await tx`
         SELECT category, tags, audience, title, body, language, section_id
         FROM support.kb_article_versions
         WHERE id = ${input.id} AND version = ${current.revision}
-      `;
+      `,
+      );
       const carried = topicOn(prev[0] ?? {});
       const carriedText = textOn(prev[0] ?? {});
       const text = textColumns(carriedText);
       const next = await pgNextKbVersion(tx, input.id);
-      const rows = await tx<PgKb[]>`
+      const rows = PgKb.array().parse(
+        await tx`
         UPDATE support.kb_articles
         SET revision = ${next},
             published = false,
             updated_at = now()
         WHERE id = ${input.id} AND revision = ${input.baseRevision}
         RETURNING id, title_key, body_key, revision, published, updated_at
-      `;
+      `,
+      );
       if (!rows[0]) return { status: 'refuse', reason: 'revision_stale' };
       const hidden = kbFromPg(rows[0]);
       // 0008 refuses a revision change that has no matching version row.
@@ -2631,20 +2817,24 @@ export class PostgresSupportStore implements SupportStore {
 
   async setKbAudience(input: SetKbAudienceStoreInput): Promise<SetKbAudienceResult> {
     return this.sql.begin(async (tx): Promise<SetKbAudienceResult> => {
-      const locked = await tx<PgKb[]>`
+      const locked = PgKb.array().parse(
+        await tx`
         SELECT id, title_key, body_key, revision, published, updated_at
         FROM support.kb_articles
         WHERE id = ${input.id}
         FOR UPDATE
-      `;
+      `,
+      );
       if (!locked[0]) return { status: 'refuse', reason: 'invalid' };
       const current = kbFromPg(locked[0]);
       if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
-      const prev = await tx<PgVersionCarry[]>`
+      const prev = PgVersionCarry.array().parse(
+        await tx`
         SELECT category, tags, audience, title, body, language, section_id
         FROM support.kb_article_versions
         WHERE id = ${input.id} AND version = ${current.revision}
-      `;
+      `,
+      );
       const from = prev[0]?.audience ?? 'public';
       const carried = topicOn(prev[0] ?? {});
       const carriedText = textOn(prev[0] ?? {});
@@ -2652,13 +2842,15 @@ export class PostgresSupportStore implements SupportStore {
       if (from === input.audience)
         return { status: 'ok', article: toPublicKb({ ...current, ...carried, audience: from, ...carriedText }), changed: false };
       const next = await pgNextKbVersion(tx, input.id);
-      const rows = await tx<PgKb[]>`
+      const rows = PgKb.array().parse(
+        await tx`
         UPDATE support.kb_articles
         SET revision = ${next},
             updated_at = now()
         WHERE id = ${input.id} AND revision = ${input.baseRevision}
         RETURNING id, title_key, body_key, revision, published, updated_at
-      `;
+      `,
+      );
       if (!rows[0]) return { status: 'refuse', reason: 'revision_stale' };
       const bumped = kbFromPg(rows[0]);
       // 0008 refuses a revision change that has no matching version row; the keys and topic are copied unchanged.
@@ -2692,20 +2884,25 @@ export class PostgresSupportStore implements SupportStore {
         await tx`SELECT id FROM support.kb_articles WHERE id = ${input.id} FOR UPDATE`;
         const next = await pgNextKbVersion(tx, input.id);
         if (input.baseRevision !== next - 1) return { status: 'refuse', reason: 'revision_stale' };
-        const [open] = await tx<{ id: string }[]>`
+        const [open] = IdRow.array().parse(
+          await tx`
           SELECT s.id FROM support.kb_sections s JOIN support.kb_categories c ON c.id = s.category_id
           WHERE s.id = ${input.sectionId} AND NOT s.retired AND NOT c.retired
           FOR SHARE OF s, c
-        `;
+        `,
+        );
         if (!open) return { status: 'refuse', reason: 'section_unknown' };
-        const [held] = await tx<{ audience: SupportKbAudience }[]>`
+        const [held] = AudienceRow.array().parse(
+          await tx`
           SELECT v.audience FROM support.kb_articles a
           JOIN support.kb_article_versions v ON v.id = a.id AND v.version = a.revision
           WHERE a.id = ${input.id}
-        `;
+        `,
+        );
         const audience = held?.audience ?? 'public';
         const tags = input.tags.length > 0 ? tx.json([...input.tags]) : null;
-        const [row] = await tx<{ created_at: Date }[]>`
+        const [row] = CreatedAtRow.array().parse(
+          await tx`
           INSERT INTO support.kb_article_versions
             (id, version, title_key, body_key, tags, audience, title, body, language, section_id, draft, author_id, template_id)
           VALUES (
@@ -2713,7 +2910,8 @@ export class PostgresSupportStore implements SupportStore {
             ${input.title}, ${input.body}, ${input.language}, ${input.sectionId}, true, ${input.authorId}, ${input.templateId}
           )
           RETURNING created_at
-        `;
+        `,
+        );
         return {
           status: 'ok',
           draft: {
@@ -2739,34 +2937,27 @@ export class PostgresSupportStore implements SupportStore {
   }
 
   async getKbDraft(id: string, revision: number): Promise<KbDraft | null> {
-    const [row] = await this.sql<PgKbDraft[]>`
+    const [row] = PgKbDraft.array().parse(
+      await this.sql`
       SELECT id, version, author_id, template_id, title, body, language, section_id, tags, audience, created_at
       FROM support.kb_article_versions
       WHERE id = ${id} AND version = ${revision} AND draft
-    `;
+    `,
+    );
     return row ? kbDraftFromPg(row) : null;
   }
 
   async listKbHistory(id: string): Promise<KbHistoryRow[]> {
-    const rows = await this.sql<
-      {
-        version: number;
-        draft: boolean;
-        author_id: string | null;
-        title: string | null;
-        audience: SupportKbAudience;
-        live: boolean;
-        created_at: Date | null;
-        source_revision: number | null;
-      }[]
-    >`
+    const rows = KbHistoryPgRow.array().parse(
+      await this.sql`
       SELECT v.version, v.draft, v.author_id, v.title, v.audience, v.created_at, v.source_revision,
              COALESCE(a.published AND a.revision = v.version, false) AS live
       FROM support.kb_article_versions v
       LEFT JOIN support.kb_articles a ON a.id = v.id
       WHERE v.id = ${id}
       ORDER BY v.version
-    `;
+    `,
+    );
     return rows.map((r) => ({
       revision: Number(r.version),
       draft: r.draft,
@@ -2793,23 +2984,29 @@ export class PostgresSupportStore implements SupportStore {
     return this.sql.begin(async (tx): Promise<PublishKbDraftResult> => {
       // An article with only drafts has no head row to lock, so writes to one article take its advisory lock too.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${'support.kb:' + input.id}))`;
-      const locked = await tx<PgKb[]>`
+      const locked = PgKb.array().parse(
+        await tx`
         SELECT id, title_key, body_key, revision, published, updated_at FROM support.kb_articles WHERE id = ${input.id} FOR UPDATE
-      `;
-      const [row] = await tx<PgKbDraft[]>`
+      `,
+      );
+      const [row] = PgKbDraft.array().parse(
+        await tx`
         SELECT id, version, author_id, template_id, title, body, language, section_id, tags, audience, created_at
         FROM support.kb_article_versions
         WHERE id = ${input.id} AND version = ${input.revision} AND draft
-      `;
+      `,
+      );
       if (!row) return { status: 'refuse', reason: 'draft_unknown' };
       const next = await pgNextKbVersion(tx, input.id);
       if (next !== input.revision + 1) return { status: 'refuse', reason: 'revision_stale' };
       const draft = kbDraftFromPg(row);
-      const [open] = await tx<{ id: string }[]>`
+      const [open] = IdRow.array().parse(
+        await tx`
         SELECT s.id FROM support.kb_sections s JOIN support.kb_categories c ON c.id = s.category_id
         WHERE s.id = ${draft.sectionId} AND NOT s.retired AND NOT c.retired
         FOR SHARE OF s, c
-      `;
+      `,
+      );
       if (!open) return { status: 'refuse', reason: 'section_unknown' };
       const tags = draft.tags.length > 0 ? tx.json([...draft.tags]) : null;
       await tx`
@@ -2823,18 +3020,22 @@ export class PostgresSupportStore implements SupportStore {
         )
       `;
       const head = locked[0]
-        ? await tx<PgKb[]>`
+        ? PgKb.array().parse(
+            await tx`
             UPDATE support.kb_articles
             SET title_key = ${SUPPORT_KB_STORED_TITLE_KEY}, body_key = ${SUPPORT_KB_STORED_BODY_KEY},
                 revision = ${next}, published = true, updated_at = now()
             WHERE id = ${input.id}
             RETURNING id, title_key, body_key, revision, published, updated_at
-          `
-        : await tx<PgKb[]>`
+          `,
+          )
+        : PgKb.array().parse(
+            await tx`
             INSERT INTO support.kb_articles (id, title_key, body_key, revision, published)
             VALUES (${input.id}, ${SUPPORT_KB_STORED_TITLE_KEY}, ${SUPPORT_KB_STORED_BODY_KEY}, ${next}, true)
             RETURNING id, title_key, body_key, revision, published, updated_at
-          `;
+          `,
+          );
       return {
         status: 'ok',
         article: toPublicKb({
@@ -2851,20 +3052,12 @@ export class PostgresSupportStore implements SupportStore {
   }
 
   async listKbAudienceChanges(articleId: string): Promise<KbAudienceChange[]> {
-    const rows = await this.sql<
-      {
-        article_id: string;
-        from_audience: SupportKbAudience;
-        to_audience: SupportKbAudience;
-        from_revision: number;
-        to_revision: number;
-        actor_id: string;
-        created_at: Date;
-      }[]
-    >`
+    const rows = KbAudienceChangeRow.array().parse(
+      await this.sql`
       SELECT article_id, from_audience, to_audience, from_revision, to_revision, actor_id, created_at
       FROM support.kb_audience_changes WHERE article_id = ${articleId} ORDER BY to_revision
-    `;
+    `,
+    );
     return rows.map((r) => ({
       articleId: r.article_id,
       fromAudience: r.from_audience,
@@ -2877,34 +3070,42 @@ export class PostgresSupportStore implements SupportStore {
   }
 
   async readReceipt(procedure: string, actorId: string, clientRequestId: string): Promise<unknown | null> {
-    const rows = await this.sql<{ result: unknown }[]>`
+    const rows = AnyReceiptRow.array().parse(
+      await this.sql`
       SELECT result FROM support.write_receipts
       WHERE procedure = ${procedure} AND actor_id = ${actorId} AND client_request_id = ${clientRequestId}
       LIMIT 1
-    `;
+    `,
+    );
     return rows[0]?.result ?? null;
   }
 
   async closeByOwner(input: { userId: string; ticketId: string; clientRequestId: string }): Promise<CloseByOwnerResult> {
     return this.sql.begin(async (tx): Promise<CloseByOwnerResult> => {
-      const locked = await tx<PgTicket[]>`
+      const locked = PgTicket.array().parse(
+        await tx`
         SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
         FROM support.tickets
         WHERE id = ${input.ticketId}
         FOR UPDATE
-      `;
-      const prior = await tx<{ result: CloseByOwnerResult }[]>`
+      `,
+      );
+      const prior = CloseReceiptRow.array().parse(
+        await tx`
         SELECT result FROM support.write_receipts
         WHERE procedure = 'support.close' AND actor_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
         LIMIT 1
-      `;
+      `,
+      );
       if (prior[0]) return prior[0].result;
 
       if (!locked[0] || locked[0].user_id !== input.userId) return { status: 'refuse', reason: 'not_found' };
       const ticket = ticketFromPg(locked[0]);
-      const reasonRows = await tx<{ reason: SupportCaseFile['reason'] }[]>`
+      const reasonRows = CaseReasonRow.array().parse(
+        await tx`
         SELECT reason FROM support.case_files WHERE ticket_id = ${input.ticketId}
-      `;
+      `,
+      );
       const settle = settlementRefusal({
         toStatus: 'closed',
         category: ticket.category,
@@ -2918,12 +3119,14 @@ export class PostgresSupportStore implements SupportStore {
         return { status: 'refuse', reason: check.reason === 'same_status' ? 'same_status' : 'illegal_transition' };
       }
 
-      const rows = await tx<PgTicket[]>`
+      const rows = PgTicket.array().parse(
+        await tx`
         UPDATE support.tickets
         SET status = 'closed', updated_at = now()
         WHERE id = ${input.ticketId}
         RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
-      `;
+      `,
+      );
       if (!rows[0]) return { status: 'refuse', reason: 'not_found' };
       await insertEvent(tx, {
         ticketId: input.ticketId,
@@ -2951,26 +3154,32 @@ export class PostgresSupportStore implements SupportStore {
     clientRequestId: string;
   }): Promise<RateByOwnerResult> {
     return this.sql.begin(async (tx): Promise<RateByOwnerResult> => {
-      const locked = await tx<PgTicket[]>`
+      const locked = PgTicket.array().parse(
+        await tx`
         SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
         FROM support.tickets
         WHERE id = ${input.ticketId}
         FOR UPDATE
-      `;
-      const prior = await tx<{ result: RateByOwnerResult }[]>`
+      `,
+      );
+      const prior = RateReceiptRow.array().parse(
+        await tx`
         SELECT result FROM support.write_receipts
         WHERE procedure = 'support.rate' AND actor_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
         LIMIT 1
-      `;
+      `,
+      );
       if (prior[0]) return prior[0].result;
       if (!locked[0] || locked[0].user_id !== input.userId) return { status: 'refuse', reason: 'not_found' };
 
-      const existing = await tx<PgRating[]>`
+      const existing = PgRating.array().parse(
+        await tx`
         SELECT ticket_id, user_id, score, note, created_at, client_request_id
         FROM support.ticket_ratings
         WHERE ticket_id = ${input.ticketId}
         LIMIT 1
-      `;
+      `,
+      );
       if (existing[0]) {
         if (existing[0].client_request_id === input.clientRequestId) {
           return { status: 'ok', rating: ratingFromPg(existing[0]) };
@@ -2985,11 +3194,13 @@ export class PostgresSupportStore implements SupportStore {
       const note = input.note ?? null;
       if (note != null && note.length > RATING_NOTE_MAX) return { status: 'refuse', reason: 'note' };
 
-      const rows = await tx<PgRating[]>`
+      const rows = PgRating.array().parse(
+        await tx`
         INSERT INTO support.ticket_ratings (ticket_id, user_id, score, note, client_request_id)
         VALUES (${input.ticketId}, ${input.userId}, ${input.score}, ${note}, ${input.clientRequestId})
         RETURNING ticket_id, user_id, score, note, created_at, client_request_id
-      `;
+      `,
+      );
       const ok: RateByOwnerResult = { status: 'ok', rating: ratingFromPg(rows[0]!) };
       await tx`
         INSERT INTO support.write_receipts (procedure, actor_id, client_request_id, result)
@@ -3000,32 +3211,40 @@ export class PostgresSupportStore implements SupportStore {
   }
 
   async listRatedTicketIdsFor(userId: string): Promise<string[]> {
-    const rows = await this.sql<{ ticket_id: string }[]>`
+    const rows = RatedTicketRow.array().parse(
+      await this.sql`
       SELECT ticket_id FROM support.ticket_ratings WHERE user_id = ${userId}
-    `;
+    `,
+    );
     return rows.map((row) => row.ticket_id);
   }
 
   async listRatings(): Promise<TicketRating[]> {
-    const rows = await this.sql<PgRating[]>`
+    const rows = PgRating.array().parse(
+      await this.sql`
       SELECT ticket_id, user_id, score, note, created_at, client_request_id
       FROM support.ticket_ratings
-    `;
+    `,
+    );
     return rows.map(ratingFromPg);
   }
 
   async readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult> {
-    const ticket = await this.sql<{ user_id: string }[]>`
+    const ticket = TicketOwnerRow.array().parse(
+      await this.sql`
       SELECT user_id FROM support.tickets WHERE id = ${input.ticketId} LIMIT 1
-    `;
+    `,
+    );
     if (!ticket[0]) return { status: 'refuse', reason: 'not_found' };
     if (!input.asOperator && ticket[0].user_id !== input.userId) return { status: 'refuse', reason: 'not_found' };
-    const rows = await this.sql<PgRating[]>`
+    const rows = PgRating.array().parse(
+      await this.sql`
       SELECT ticket_id, user_id, score, note, created_at, client_request_id
       FROM support.ticket_ratings
       WHERE ticket_id = ${input.ticketId}
       LIMIT 1
-    `;
+    `,
+    );
     return { status: 'ok', rating: rows[0] ? ratingFromPg(rows[0]) : null };
   }
 
@@ -3042,32 +3261,41 @@ export class PostgresSupportStore implements SupportStore {
   }): Promise<RecordAttachmentResult> {
     const actor = input.operatorId ?? input.userId;
     return this.sql.begin(async (tx): Promise<RecordAttachmentResult> => {
-      const locked = await tx<{ user_id: string; assignee_id: string | null }[]>`
+      const locked = TicketOwnerAssigneeRow.array().parse(
+        await tx`
         SELECT user_id, assignee_id FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
-      `;
-      const prior = await tx<{ result: { attachment: AttachmentMeta } }[]>`
+      `,
+      );
+      const prior = AttachReceiptRow.array().parse(
+        await tx`
         SELECT result FROM support.write_receipts
         WHERE procedure = 'support.attach' AND actor_id = ${actor} AND client_request_id = ${input.clientRequestId}
         LIMIT 1
-      `;
+      `,
+      );
       if (prior[0]) {
         // The receipt holds what was first answered; the file's state since is read live.
-        const [live] = await tx<PgAttachment[]>`
+        const [live] = PgAttachment.array().parse(
+          await tx`
           SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
           FROM support.ticket_attachments WHERE id = ${prior[0].result.attachment.id}
-        `;
+        `,
+        );
         return { status: 'ok', attachment: live ? attachmentFromPg(live) : prior[0].result.attachment, replay: true };
       }
       if (!locked[0] || locked[0].user_id !== input.userId) return { status: 'refuse', reason: 'not_found' };
       if (input.operatorId !== undefined && locked[0].assignee_id !== input.operatorId) return { status: 'refuse', reason: 'not_found' };
       // The ticket row is locked, so two files racing for the last place cannot both be taken.
-      const [held] = await tx<{ n: number }[]>`
+      const [held] = IntCountRow.array().parse(
+        await tx`
         SELECT count(*)::int AS n FROM support.ticket_attachments
         WHERE ticket_id = ${input.ticketId} AND scan_state <> 'blocked'
-      `;
+      `,
+      );
       if ((held?.n ?? 0) >= input.maxCount) return { status: 'refuse', reason: 'count_reached' };
 
-      const rows = await tx<PgAttachment[]>`
+      const rows = PgAttachment.array().parse(
+        await tx`
         INSERT INTO support.ticket_attachments (id, ticket_id, owner_id, client_request_id, store_key, content_type, byte_length, scan_state, uploaded_by)
         VALUES (
           ${input.id},
@@ -3081,7 +3309,8 @@ export class PostgresSupportStore implements SupportStore {
           ${input.operatorId ?? null}
         )
         RETURNING id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
-      `;
+      `,
+      );
       const attachment = attachmentFromPg(rows[0]!);
       await tx`
         INSERT INTO support.write_receipts (procedure, actor_id, client_request_id, result)
@@ -3092,13 +3321,15 @@ export class PostgresSupportStore implements SupportStore {
   }
 
   async readAttachment(input: { userId: string; attachmentId: string; asOperator: boolean }): Promise<ReadAttachmentResult> {
-    const rows = await this.sql<(PgAttachment & { assignee_id: string | null })[]>`
+    const rows = PgAttachmentWithAssignee.array().parse(
+      await this.sql`
       SELECT a.id, a.ticket_id, a.owner_id, a.content_type, a.byte_length, a.store_key, a.scan_state, a.uploaded_by, a.created_at, t.assignee_id
       FROM support.ticket_attachments AS a
       JOIN support.tickets AS t ON t.id = a.ticket_id
       WHERE a.id = ${input.attachmentId}
       LIMIT 1
-    `;
+    `,
+    );
     const row = rows[0];
     if (!row) return { status: 'refuse', reason: 'not_found' };
     if (row.owner_id === input.userId) return { status: 'ok', attachment: attachmentFromPg(row) };
@@ -3112,53 +3343,65 @@ export class PostgresSupportStore implements SupportStore {
       UPDATE support.ticket_attachments SET scan_state = ${input.state}
       WHERE id = ${input.attachmentId} AND scan_state = 'scanning'
     `;
-    const rows = await this.sql<PgAttachment[]>`
+    const rows = PgAttachment.array().parse(
+      await this.sql`
       SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
       FROM support.ticket_attachments WHERE id = ${input.attachmentId}
-    `;
+    `,
+    );
     return rows[0] ? attachmentFromPg(rows[0]) : null;
   }
 
   async listAttachmentsFor(ticketId: string, limit: number): Promise<AttachmentMeta[]> {
-    const rows = await this.sql<PgAttachment[]>`
+    const rows = PgAttachment.array().parse(
+      await this.sql`
       SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
       FROM support.ticket_attachments WHERE ticket_id = ${ticketId}
       ORDER BY created_at, id LIMIT ${limit}
-    `;
+    `,
+    );
     return rows.map(attachmentFromPg);
   }
 
   async listScanningAttachments(limit: number): Promise<AttachmentMeta[]> {
-    const rows = await this.sql<PgAttachment[]>`
+    const rows = PgAttachment.array().parse(
+      await this.sql`
       SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
       FROM support.ticket_attachments WHERE scan_state = 'scanning'
       ORDER BY created_at, id LIMIT ${limit}
-    `;
+    `,
+    );
     return rows.map(attachmentFromPg);
   }
 
   async recordKbFeedback(input: RecordKbFeedbackInput): Promise<RecordFeedbackResult> {
     return this.sql.begin(async (tx): Promise<RecordFeedbackResult> => {
-      const prior = await tx<{ result: RecordFeedbackResult }[]>`
+      const prior = FeedbackReceiptRow.array().parse(
+        await tx`
         SELECT result FROM support.write_receipts
         WHERE procedure = 'support.kbFeedback' AND actor_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
         LIMIT 1
-      `;
+      `,
+      );
       if (prior[0]) return prior[0].result;
 
       // One reader at a time, so two votes cannot both pass a rate check.
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`support.kbFeedback:${input.userId}`}, 0))`;
 
-      const head = await tx<{ revision: number; published: boolean }[]>`
+      const head = KbHeadRow.array().parse(
+        await tx`
         SELECT revision, published FROM support.kb_articles WHERE id = ${input.articleId} FOR UPDATE
-      `;
+      `,
+      );
       if (!head[0] || head[0].published !== true) return { status: 'refuse', reason: 'not_published' };
       const version = Number(head[0].revision);
-      const existing = await tx<{ helpful: boolean; ticket_id: string | null }[]>`
+      const existing = KbVoteRow.array().parse(
+        await tx`
         SELECT helpful, ticket_id FROM support.kb_feedback
         WHERE user_id = ${input.userId} AND article_id = ${input.articleId} AND version = ${version}
         LIMIT 1
-      `;
+      `,
+      );
       if (existing[0]) {
         return {
           status: 'ok',
@@ -3183,10 +3426,12 @@ export class PostgresSupportStore implements SupportStore {
       if (input.rate === 'unset') return { status: 'refuse', reason: 'rate_unset' };
       if (input.rate) {
         const cutoff = feedbackRateCutoff(now, input.rate.windowSeconds);
-        const recent = await tx<{ n: number }[]>`
+        const recent = IntCountRow.array().parse(
+          await tx`
           SELECT count(*)::int AS n FROM support.kb_feedback
           WHERE user_id = ${input.userId} AND created_at > ${cutoff}::timestamptz
-        `;
+        `,
+        );
         if (Number(recent[0]?.n ?? 0) >= input.rate.limit) return { status: 'refuse', reason: 'rate_exceeded' };
       }
 
@@ -3233,7 +3478,8 @@ export class PostgresSupportStore implements SupportStore {
   }
 
   async listKbFeedbackSummary(limit: number): Promise<KbFeedbackCount[]> {
-    const rows = await this.sql<{ article_id: string; version: number; helpful: number; unhelpful: number }[]>`
+    const rows = KbFeedbackSummaryRow.array().parse(
+      await this.sql`
       SELECT article_id, version,
         count(*) FILTER (WHERE helpful)::int AS helpful,
         count(*) FILTER (WHERE NOT helpful)::int AS unhelpful
@@ -3241,7 +3487,8 @@ export class PostgresSupportStore implements SupportStore {
       GROUP BY article_id, version
       ORDER BY article_id, version
       LIMIT ${limit}
-    `;
+    `,
+    );
     return rows.map((row) => ({
       articleId: row.article_id,
       version: Number(row.version),
@@ -3258,18 +3505,22 @@ export class PostgresSupportStore implements SupportStore {
   }
 
   async listSearchMisses(limit: number): Promise<KbSearchMiss[]> {
-    const rows = await this.sql<{ query: string; created_at: Date }[]>`
+    const rows = SearchMissRow.array().parse(
+      await this.sql`
       SELECT query, created_at FROM support.kb_search_misses
       ORDER BY created_at DESC, id DESC
       LIMIT ${limit}
-    `;
+    `,
+    );
     return rows.map((row) => ({ query: row.query, at: toIso(row.created_at), resultCount: 0 as const }));
   }
 
   async hasSearchClick(clientRequestId: string): Promise<boolean> {
-    const rows = await this.sql<{ n: number }[]>`
+    const rows = IntCountRow.array().parse(
+      await this.sql`
       SELECT 1 AS n FROM support.kb_search_clicks WHERE client_request_id = ${clientRequestId} LIMIT 1
-    `;
+    `,
+    );
     return rows.length > 0;
   }
 
@@ -3282,14 +3533,15 @@ export class PostgresSupportStore implements SupportStore {
   }
 }
 
-type PgRating = {
-  ticket_id: string;
-  user_id: string;
-  score: number;
-  note: string | null;
-  created_at: Date;
-  client_request_id: string;
-};
+const PgRating = z.object({
+  ticket_id: z.string(),
+  user_id: z.string(),
+  score: z.number(),
+  note: z.string().nullable(),
+  created_at: z.date(),
+  client_request_id: z.string(),
+});
+type PgRating = z.infer<typeof PgRating>;
 
 function ratingFromPg(row: PgRating): TicketRating {
   return {
@@ -3301,17 +3553,19 @@ function ratingFromPg(row: PgRating): TicketRating {
   };
 }
 
-type PgAttachment = {
-  id: string;
-  ticket_id: string;
-  owner_id: string;
-  content_type: string;
-  byte_length: number;
-  store_key: string;
-  scan_state: AttachmentScanState;
-  uploaded_by: string | null;
-  created_at: Date;
-};
+const PgAttachment = z.object({
+  id: z.string(),
+  ticket_id: z.string(),
+  owner_id: z.string(),
+  content_type: z.string(),
+  byte_length: z.number(),
+  store_key: z.string(),
+  scan_state: z.enum(['scanning', 'clean', 'blocked']),
+  uploaded_by: z.string().nullable(),
+  created_at: z.date(),
+});
+type PgAttachment = z.infer<typeof PgAttachment>;
+const PgAttachmentWithAssignee = PgAttachment.extend({ assignee_id: z.string().nullable() });
 
 function attachmentFromPg(row: PgAttachment): AttachmentMeta {
   return {

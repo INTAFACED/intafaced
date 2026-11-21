@@ -1,11 +1,16 @@
-import { quantApprovalStateSchema, type QuantApprovalState } from '@intafaced/contracts/quant-research';
-import { quantApprovalPolicySchema } from '@intafaced/contracts/quant-research';
+import {
+  QUANT_APPROVAL_DECIDE,
+  QUANT_APPROVAL_GET,
+  QUANT_APPROVAL_POLICY_SET,
+  QUANT_APPROVAL_REQUEST,
+} from '@intafaced/contracts/quant-approval-procedures';
+import type { QuantApprovalState } from '@intafaced/contracts/quant-research';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field } from '../../shared/ui';
-import { Read } from '../more/common';
-import { useApi } from '../session/session';
+import { Read } from '../more';
+import { useApi } from '../session';
 import { researchCopy } from './research-copy';
 import { refusalCode, useLastReady } from './StrategyTeam';
 
@@ -22,7 +27,7 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
   const { t } = researchCopy.useCopy();
   const [revision, setRevision] = useState(0);
   const state = useResource(
-    (signal) => api.query('quant', 'approval.get', { strategyId }, quantApprovalStateSchema, { signal }),
+    (signal) => api.call(QUANT_APPROVAL_GET, { strategyId }, { signal }),
     `quant-approval:${strategyId}:${revision}`,
   );
   const kept = useLastReady(state.resource);
@@ -63,16 +68,11 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
             disabled={busy}
             onClick={() =>
               void act(() =>
-                api.mutate(
-                  'quant',
-                  'approval.policy.set',
-                  {
-                    required: data.policy.required !== true,
-                    // A business key: this change from the policy as read, so a second press of the same change is one row.
-                    idempotencyKey: `from:${data.policy.setAt ?? 'unset'}:to:${data.policy.required !== true}`,
-                  },
-                  quantApprovalPolicySchema,
-                ),
+                api.call(QUANT_APPROVAL_POLICY_SET, {
+                  required: data.policy.required !== true,
+                  // A business key: this change from the policy as read, so a second press of the same change is one row.
+                  idempotencyKey: `from:${data.policy.setAt ?? 'unset'}:to:${data.policy.required !== true}`,
+                }),
               )
             }
           >
@@ -85,16 +85,7 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
         {owner && (
           <Button
             disabled={busy}
-            onClick={() =>
-              void act(() =>
-                api.mutate(
-                  'quant',
-                  'approval.request',
-                  { strategyId: data.strategyId, strategyVersion: data.version },
-                  quantApprovalStateSchema,
-                ),
-              )
-            }
+            onClick={() => void act(() => api.call(QUANT_APPROVAL_REQUEST, { strategyId: data.strategyId, strategyVersion: data.version }))}
           >
             {t('apRequest', { version: data.version })}
           </Button>
@@ -134,12 +125,12 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
               disabled={busy}
               onClick={() =>
                 void act(() =>
-                  api.mutate(
-                    'quant',
-                    'approval.decide',
-                    { strategyId: data.strategyId, approvalId: pending.approvalId, decision: 'approved', reason },
-                    quantApprovalStateSchema,
-                  ),
+                  api.call(QUANT_APPROVAL_DECIDE, {
+                    strategyId: data.strategyId,
+                    approvalId: pending.approvalId,
+                    decision: 'approved',
+                    reason,
+                  }),
                 )
               }
             >
@@ -150,12 +141,12 @@ export function ApprovalPanel({ strategyId, owner }: { strategyId: string; owner
               disabled={busy}
               onClick={() =>
                 void act(() =>
-                  api.mutate(
-                    'quant',
-                    'approval.decide',
-                    { strategyId: data.strategyId, approvalId: pending.approvalId, decision: 'rejected', reason },
-                    quantApprovalStateSchema,
-                  ),
+                  api.call(QUANT_APPROVAL_DECIDE, {
+                    strategyId: data.strategyId,
+                    approvalId: pending.approvalId,
+                    decision: 'rejected',
+                    reason,
+                  }),
                 )
               }
             >

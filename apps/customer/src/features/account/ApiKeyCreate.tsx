@@ -3,7 +3,7 @@ import type { ApiKeyCreateOutput, ApiKeyList, ApiKeyScopeEntry } from '@intaface
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { KeySafety } from './ApiKeys';
 import type { Subaccount } from './subaccount-guards';

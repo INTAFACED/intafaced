@@ -1193,6 +1193,49 @@ describe('maker/checker dual control with ledger holds', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
+  it('two runs of one payroll at once record it once and both get the row that won (#8892)', async () => {
+    const account = await bank.business.createAccount({
+      accountId: randomUUID(),
+      name: 'Ops Co',
+      assetId: 'USDT',
+      spendThreshold: amt('1000'),
+      creatorUserId: MAKER,
+    });
+    const primary = await bank.spaces.ensurePrimary(MAKER, 'USDT');
+    const alice = await bank.spaces.ensurePrimary(CHECKER, 'USDT');
+    const bob = await bank.spaces.create({ userId: MAKER, assetId: 'USDT', name: 'Contractor' });
+    await fund(MAKER, 'USDT', '1000');
+
+    // Each round races 8 copies of one payroll. Before the fix the losers' insert
+    // raised 23505 on business_payroll_runs_ledger_tx_id_key instead of absorbing.
+    for (let round = 0; round < 10; round += 1) {
+      const payrollId = randomUUID();
+      const input = {
+        payrollId,
+        accountId: account.id,
+        actorUserId: MAKER,
+        fromSpaceId: primary.id,
+        recipients: [
+          { toSpaceId: alice.id, amount: amt('4') },
+          { toSpaceId: bob.id, amount: amt('1') },
+        ],
+      };
+      const runs = await Promise.all(Array.from({ length: 8 }, () => bank.business.runPayroll(input)));
+      const txIds = new Set(runs.map((run) => run.ledgerTxId));
+      expect(txIds.size).toBe(1);
+      expect(runs.every((run) => run.payrollId === payrollId && run.recipients.length === 2)).toBe(true);
+      const stored = await sql<Array<{ n: string }>>`
+        SELECT count(*)::text AS n FROM bank.business_payroll_lines WHERE payroll_id = ${payrollId}::uuid
+      `;
+      expect(stored[0]!.n).toBe('2');
+    }
+    // Paid once per payroll: 10 rounds of 5.
+    expect(await availableOf(MAKER, 'USDT')).toBe('950');
+    expect(formatAmount(await bank.spaces.balanceOf(alice))).toBe('40');
+    expect(formatAmount(await bank.spaces.balanceOf(bob))).toBe('10');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
   it('a matching payroll retry completes lines that are not all visible yet', async () => {
     const account = await bank.business.createAccount({
       accountId: randomUUID(),

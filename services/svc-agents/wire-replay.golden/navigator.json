@@ -1,0 +1,1524 @@
+{
+  "callers": [
+    {
+      "path": "navigator.ask",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "navigator.grounded",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "navigator.invokeDataTool",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "navigator.onchain.bind",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "navigator.onchain.binding",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "navigator.onchain.revoke",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "navigator.onchain.signer",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "navigator.orders",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "navigator.policy",
+      "type": "query",
+      "caller": "public"
+    },
+    {
+      "path": "navigator.runSession",
+      "type": "mutation",
+      "caller": "scope"
+    },
+    {
+      "path": "navigator.selectTools",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "navigator.stage1Guardrail",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "navigator.tierGate",
+      "type": "query",
+      "caller": "scope"
+    },
+    {
+      "path": "navigator.trading",
+      "type": "query",
+      "caller": "scope"
+    }
+  ],
+  "inputs": {
+    "navigator.ask": {
+      "sessionId": "33333333-3333-4333-8333-333333333333",
+      "requestId": "x",
+      "text": "x"
+    },
+    "navigator.grounded": {
+      "plane": "live"
+    },
+    "navigator.invokeDataTool": {
+      "tool": "x",
+      "plane": "live"
+    },
+    "navigator.onchain.bind": {
+      "chainId": 1,
+      "account": "x",
+      "specHash": "x",
+      "targets": ["x"],
+      "selectors": ["x"]
+    },
+    "navigator.onchain.binding": {
+      "chainId": 1,
+      "account": "x"
+    },
+    "navigator.onchain.revoke": {
+      "chainId": 1,
+      "account": "x"
+    },
+    "navigator.onchain.signer": {
+      "chainId": 1
+    },
+    "navigator.orders": {
+      "sessionId": "33333333-3333-4333-8333-333333333333"
+    },
+    "navigator.policy": null,
+    "navigator.runSession": {
+      "plane": "live",
+      "asks": []
+    },
+    "navigator.selectTools": {
+      "plane": "live",
+      "candidates": [],
+      "tools": []
+    },
+    "navigator.stage1Guardrail": null,
+    "navigator.tierGate": {},
+    "navigator.trading": null
+  },
+  "answers": {
+    "navigator.ask valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.ask valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.ask valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"runtime.session is not a function\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.ask valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.ask valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.ask absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.ask absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.ask absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.ask absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.ask absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.ask wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.ask wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.ask wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.ask wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.ask wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.ask empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.ask empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.ask empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"requestId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"text\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.ask empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.ask empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.ask extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.ask extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.ask extra-key execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"runtime.session is not a function\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.ask extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.ask extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.ask\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.grounded valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"plane\":\"dark\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.grounded valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"plane\":\"dark\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.grounded valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"plane\":\"dark\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.grounded valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"plane\":\"dark\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.grounded absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.grounded\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.grounded extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"plane\":\"dark\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.grounded extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"plane\":\"dark\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.grounded extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"plane\":\"dark\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.grounded extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"plane\":\"dark\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.invokeDataTool valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refuse\",\"tool\":\"x\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"audit\":{\"sequence\":0,\"kind\":\"tool_call\",\"status\":\"refused\",\"tool\":\"x\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\",\"occurredAt\":\"2026-11-19T00:00:00.000Z\"}}}}"
+    },
+    "navigator.invokeDataTool valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refuse\",\"tool\":\"x\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"audit\":{\"sequence\":0,\"kind\":\"tool_call\",\"status\":\"refused\",\"tool\":\"x\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\",\"occurredAt\":\"2026-11-19T00:00:00.000Z\"}}}}"
+    },
+    "navigator.invokeDataTool valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refuse\",\"tool\":\"x\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"audit\":{\"sequence\":0,\"kind\":\"tool_call\",\"status\":\"refused\",\"tool\":\"x\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\",\"occurredAt\":\"2026-11-19T00:00:00.000Z\"}}}}"
+    },
+    "navigator.invokeDataTool valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"result\":{\"status\":\"refuse\",\"tool\":\"x\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"audit\":{\"sequence\":0,\"kind\":\"tool_call\",\"status\":\"refused\",\"tool\":\"x\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\",\"occurredAt\":\"2026-11-19T00:00:00.000Z\"}}}}"
+    },
+    "navigator.invokeDataTool absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tool\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.invokeDataTool extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.invokeDataTool\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.bind valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.bind valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.bind valid execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  },\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{64}$/\\\",\\n    \\\"path\\\": [\\n      \\\"specHash\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{64}$/\\\"\\n  },\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"targets\\\",\\n      0\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  },\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{8}$/\\\",\\n    \\\"path\\\": [\\n      \\\"selectors\\\",\\n      0\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{8}$/\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.bind valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.bind valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.onchain.bind absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.bind absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.bind absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.bind absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.bind absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.onchain.bind wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.bind wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.bind wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.bind wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.bind wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.onchain.bind empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.bind empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.bind empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"chainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"specHash\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"targets\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"selectors\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.bind empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.bind empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.onchain.bind extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.bind extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.bind extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  },\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{64}$/\\\",\\n    \\\"path\\\": [\\n      \\\"specHash\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{64}$/\\\"\\n  },\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"targets\\\",\\n      0\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  },\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{8}$/\\\",\\n    \\\"path\\\": [\\n      \\\"selectors\\\",\\n      0\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{8}$/\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.bind extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.bind extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.bind\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.onchain.binding valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding valid read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding valid execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding valid admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding valid key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"chainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"chainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"chainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"chainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.binding extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.binding\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.revoke valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.revoke valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.revoke valid execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.revoke valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.revoke valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.onchain.revoke absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.revoke absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.revoke absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.revoke absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.revoke absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.onchain.revoke wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.revoke wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.revoke wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.revoke wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.revoke wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.onchain.revoke empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.revoke empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.revoke empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"chainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.revoke empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.revoke empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.onchain.revoke extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.revoke extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.revoke extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"origin\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_format\\\",\\n    \\\"format\\\": \\\"regex\\\",\\n    \\\"pattern\\\": \\\"/^0x[0-9a-fA-F]{40}$/\\\",\\n    \\\"path\\\": [\\n      \\\"account\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid string: must match pattern /^0x[0-9a-fA-F]{40}$/\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.revoke extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.onchain.revoke extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.revoke\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.onchain.signer valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer valid read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.onchain_chain_unsupported\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.onchain_chain_unsupported\"}}}}"
+    },
+    "navigator.onchain.signer valid execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.onchain_chain_unsupported\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.onchain_chain_unsupported\"}}}}"
+    },
+    "navigator.onchain.signer valid admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.onchain_chain_unsupported\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.onchain_chain_unsupported\"}}}}"
+    },
+    "navigator.onchain.signer valid key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.onchain_chain_unsupported\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.onchain_chain_unsupported\"}}}}"
+    },
+    "navigator.onchain.signer absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"chainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"chainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"chainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"chainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.onchain.signer extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.onchain_chain_unsupported\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.onchain_chain_unsupported\"}}}}"
+    },
+    "navigator.onchain.signer extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.onchain_chain_unsupported\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.onchain_chain_unsupported\"}}}}"
+    },
+    "navigator.onchain.signer extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.onchain_chain_unsupported\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.onchain_chain_unsupported\"}}}}"
+    },
+    "navigator.onchain.signer extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"agents.onchain_chain_unsupported\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.onchain.signer\",\"requestId\":\"<request>\",\"cause\":{\"code\":\"agents.onchain_chain_unsupported\"}}}}"
+    },
+    "navigator.orders valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders valid read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"runtime.session is not a function\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders valid execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"runtime.session is not a function\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders valid admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"runtime.session is not a function\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders valid key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"runtime.session is not a function\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"sessionId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders extra-key read": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"runtime.session is not a function\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders extra-key execute": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"runtime.session is not a function\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders extra-key admin": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"runtime.session is not a function\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.orders extra-key key": {
+      "status": 500,
+      "body": "{\"error\":{\"message\":\"runtime.session is not a function\",\"code\":-32603,\"data\":{\"code\":\"INTERNAL_SERVER_ERROR\",\"httpStatus\":500,\"stack\":\"<stack>\",\"path\":\"navigator.orders\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.policy valid anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy absent anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy absent read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy absent execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy absent admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy absent key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy wrong-type anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy wrong-type read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy wrong-type execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy wrong-type admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy wrong-type key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy empty anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy extra-key anon": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.policy extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"moneyWriteTools\":[\"ledger.post\",\"ledger.hold\",\"pay.refund\",\"pay.capture\",\"bank.transfer\",\"bank.withdraw\",\"bank.loan\",\"trade.order\",\"trade.place\",\"trade.amend\",\"trade.cancel\",\"p2p.release\"],\"moneyDeny\":{\"tools\":12,\"hasLedgerPost\":1,\"hasTradeOrder\":1,\"hasBankTransfer\":1},\"moneyDenyStatusLine\":\"tools=12 ledger_post=1 trade_order=1 bank_transfer=1\",\"moneyDenyExport\":\"tools,ledger_post,trade_order,bank_transfer\\n12,1,1,1\",\"moneyDenyBilledAmount\":\"0\",\"darkPlaneRefuse\":{\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"},\"liveAllowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}"
+    },
+    "navigator.runSession valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.runSession valid read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.runSession valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\",\"unanswered\":[],\"metering\":{\"sessionId\":null,\"billedAmount\":\"0\",\"assetId\":\"fixture-asset\",\"sessionClosed\":false,\"settlements\":[]}}}}"
+    },
+    "navigator.runSession valid admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.runSession valid key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.runSession absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.runSession absent read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.runSession absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.runSession absent admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.runSession absent key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.runSession wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.runSession wrong-type read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.runSession wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.runSession wrong-type admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.runSession wrong-type key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.runSession empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.runSession empty read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.runSession empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"asks\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.runSession empty admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.runSession empty key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.runSession extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.runSession extra-key read": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.runSession extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.runSession extra-key admin": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" is required\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.denied\",\"cause\":{\"code\":\"scope.denied\"}}}}"
+    },
+    "navigator.runSession extra-key key": {
+      "status": 403,
+      "body": "{\"error\":{\"message\":\"Scope \\\"agents:execute\\\" requires an interactive session and cannot be used from an API key\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"navigator.runSession\",\"requestId\":\"<request>\",\"intafacedCode\":\"scope.interactive_only\",\"cause\":{\"code\":\"scope.interactive_only\"}}}}"
+    },
+    "navigator.selectTools valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.selectTools valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.selectTools valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.selectTools valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.selectTools absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools empty read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"candidates\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tools\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools empty execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"candidates\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tools\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools empty admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"candidates\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tools\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools empty key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"invalid_value\\\",\\n    \\\"values\\\": [\\n      \\\"live\\\",\\n      \\\"dark\\\"\\n    ],\\n    \\\"path\\\": [\\n      \\\"plane\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid option: expected one of \\\\\\\"live\\\\\\\"|\\\\\\\"dark\\\\\\\"\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"candidates\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"array\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"tools\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected array, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.selectTools\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.selectTools extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.selectTools extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.selectTools extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.selectTools extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"trade_plane_dark\",\"userMessageKey\":\"agents.navigator.unavailable\"}}}"
+    },
+    "navigator.stage1Guardrail valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.stage1Guardrail\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.stage1Guardrail valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.stage1Guardrail\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.stage1Guardrail absent read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail absent execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail absent admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail absent key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.stage1Guardrail\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.stage1Guardrail wrong-type read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail wrong-type execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail wrong-type admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail wrong-type key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.stage1Guardrail\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.stage1Guardrail empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.stage1Guardrail\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.stage1Guardrail extra-key read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail extra-key execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail extra-key admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.stage1Guardrail extra-key key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"agentId\":\"navigator\",\"version\":1,\"tools\":[{\"name\":\"trade.quote\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"trade.markets.list\",\"module\":\"trade\",\"mode\":\"read\",\"requiresApproval\":false},{\"name\":\"identity.session.read\",\"module\":\"identity\",\"mode\":\"read\",\"requiresApproval\":false}],\"limits\":{\"maxActionsPerSession\":60,\"maxOutputTokensPerCall\":4096,\"maxSpendPerSession\":\"1\",\"allowedModules\":[\"trade\",\"identity\",\"agents\"],\"allowedTasks\":[\"navigator.plan\",\"navigator.tool_select\"]}}}}"
+    },
+    "navigator.tierGate valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate valid read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.navigator.tier_closed\"}}}"
+    },
+    "navigator.tierGate valid execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.navigator.tier_closed\"}}}"
+    },
+    "navigator.tierGate valid admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.navigator.tier_closed\"}}}"
+    },
+    "navigator.tierGate valid key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.navigator.tier_closed\"}}}"
+    },
+    "navigator.tierGate absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate absent read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate absent execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate absent admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate absent key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate wrong-type read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate wrong-type execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate wrong-type admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate wrong-type key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate empty read": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.navigator.tier_closed\"}}}"
+    },
+    "navigator.tierGate empty execute": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.navigator.tier_closed\"}}}"
+    },
+    "navigator.tierGate empty admin": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.navigator.tier_closed\"}}}"
+    },
+    "navigator.tierGate empty key": {
+      "status": 200,
+      "body": "{\"result\":{\"data\":{\"status\":\"refuse\",\"reason\":\"tier_law_blank\",\"userMessageKey\":\"agents.navigator.tier_closed\"}}}"
+    },
+    "navigator.tierGate extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate extra-key read": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate extra-key execute": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate extra-key admin": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.tierGate extra-key key": {
+      "status": 400,
+      "body": "{\"error\":{\"message\":\"[\\n  {\\n    \\\"code\\\": \\\"unrecognized_keys\\\",\\n    \\\"keys\\\": [\\n      \\\"extra\\\"\\n    ],\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Unrecognized key: \\\\\\\"extra\\\\\\\"\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"navigator.tierGate\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading valid anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading valid read": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading valid execute": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading valid admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading valid key": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading absent anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading absent read": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading absent execute": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading absent admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading absent key": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading wrong-type anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading wrong-type read": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading wrong-type execute": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading wrong-type admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading wrong-type key": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading empty anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading empty read": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading empty execute": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading empty admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading empty key": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading extra-key anon": {
+      "status": 401,
+      "body": "{\"error\":{\"message\":\"Authentication required\",\"code\":-32001,\"data\":{\"code\":\"UNAUTHORIZED\",\"httpStatus\":401,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading extra-key read": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading extra-key execute": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading extra-key admin": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    },
+    "navigator.trading extra-key key": {
+      "status": 412,
+      "body": "{\"error\":{\"message\":\"agents.capability_unavailable\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"navigator.trading\",\"requestId\":\"<request>\"}}}"
+    }
+  }
+}

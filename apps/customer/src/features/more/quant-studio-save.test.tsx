@@ -1,9 +1,12 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it, vi } from 'vitest';
+import { QUANT_SANDBOX_RUN } from '@intafaced/contracts/quant-sandbox-procedures';
+import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
 
-const { query, mutate } = vi.hoisted(() => ({
+const { query, mutate, call } = vi.hoisted(() => ({
   query: vi.fn(() => new Promise(() => undefined)),
   mutate: vi.fn(() => new Promise(() => undefined)),
+  call: vi.fn((_record: { name: string }, _input: unknown) => new Promise(() => undefined)),
 }));
 
 // Server rendering has no browser store; read the stored preferences once.
@@ -14,7 +17,7 @@ vi.mock('../../shared/preferences', async (original) => {
 // The room reads the signed-in session; give it a service that records every call.
 vi.mock('../session/session', async (original) => {
   const real = await original<typeof import('../session/session')>();
-  const api = { query, mutate, canWrite: () => true };
+  const api = { query, mutate, call, canWrite: () => true };
   const session = { api, userId: 'a0000000-0000-4000-8000-000000000001', session: null };
   return { ...real, useSession: () => session as unknown as ReturnType<typeof real.useSession>, useApi: () => api as never };
 });
@@ -22,6 +25,7 @@ import { Quant } from './Quant';
 
 it('Backtest has no shared library, asks for a Studio strategy and makes no list call', () => {
   query.mockClear();
+  call.mockClear();
   vi.stubGlobal('location', {
     pathname: '/quant/backtest',
     search: '',
@@ -33,12 +37,15 @@ it('Backtest has no shared library, asks for a Studio strategy and makes no list
   vi.unstubAllGlobals();
   expect(html).toContain('Create a strategy in Studio first');
   expect(html).not.toContain('Use this strategy');
-  expect(query.mock.calls.map((call) => (call as unknown[])[1])).not.toContain('studio.list');
+  expect(query.mock.calls.map((made) => (made as unknown[])[1])).not.toContain('studio.list');
+  // studio.list is called by its record: no call names it either.
+  expect(call.mock.calls.map(([record]) => record.name)).not.toContain(QUANT_STUDIO_LIST.name);
 });
 
 it('Studio offers Save to library, sends nothing until the rules are complete, and reads the account library', () => {
   query.mockClear();
   mutate.mockClear();
+  call.mockClear();
   vi.stubGlobal('location', {
     pathname: '/quant/studio',
     search: '',
@@ -55,4 +62,5 @@ it('Studio offers Save to library, sends nothing until the rules are complete, a
   expect(html).toContain('Your strategy library');
   expect(html).not.toMatch(/Saving to a library is off/);
   expect(mutate).not.toHaveBeenCalled();
+  expect(call.mock.calls.map(([record]) => record.name)).not.toContain(QUANT_SANDBOX_RUN.name);
 });

@@ -144,9 +144,11 @@ export async function placeBuybackIocBuy(svc: TradeServiceInternal, input: Buyba
       ${hold.assetId}, ${formatAmount(hold.amount)}::numeric, ${0}, ${REGULAR_FEE_TIER}, ${false}, ${false},
       ${JSON.stringify(lifecycleProof)}::text::jsonb, ${attribution.sessionId}, ${attribution.apiKeyId}
     )
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT DO NOTHING
     RETURNING id
   `;
+  // No conflict target: the id and (user, market, run id) both name this one row (orderIdFor), and Postgres absorbs a
+  // racing clash only on the key a target names, so a target would let the loser raise 23505 on the other key.
   if (inserted.length === 0) {
     throw new TradeError(`buyback run ${clientOrderId} is being placed by another call`, BUYBACK_IN_FLIGHT);
   }

@@ -187,11 +187,20 @@ export const academyOutlineLimitsSchema = z.object({
   maxItems: z.number().int().positive().nullable(),
 });
 
+/** A topic a course is filed under (AC-articles-01; the Learn hub below holds the rest of the topic calls). */
+export const academyTopicSchema = z.object({
+  id: z.string().guid(),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  createdAt: isoInstant,
+});
+export type AcademyTopic = z.infer<typeof academyTopicSchema>;
+
 /** `admin.course`: one course with its outline, the owner's outline limits and its history, newest first. */
 export const academyCourseDetailSchema = z.object({
   course: academyCourseSchema,
   /** AC-articles-01: the topics the course is filed under, by name. */
-  topics: z.array(z.lazy(() => academyTopicSchema)),
+  topics: z.array(academyTopicSchema),
   outline: z.array(academyOutlineSectionSchema),
   limits: academyOutlineLimitsSchema,
   events: z.array(academyCourseEventSchema),
@@ -477,13 +486,6 @@ export const academySetItemCaptionsResultSchema = z.discriminatedUnion('outcome'
  * some of them. The topic list is read up to the owner's limit (`ACADEMY_TOPICS_LIST_LIMIT`; blank refuses
  * `academy.topics_list_limit_unset`).
  */
-export const academyTopicSchema = z.object({
-  id: z.string().guid(),
-  slug: z.string().min(1),
-  name: z.string().min(1),
-  createdAt: isoInstant,
-});
-export type AcademyTopic = z.infer<typeof academyTopicSchema>;
 
 /**
  * The hub's one featured slot holds a course lesson or a curriculum item (`admin.setFeatured`), never both; choosing

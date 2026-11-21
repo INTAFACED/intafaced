@@ -1,5 +1,5 @@
 /** Browser hop for the identity keys desk. Same-origin BFF only; no credential is held here. */
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { KeysView } from './keys-server';
 import type { KeyState } from './keys-model';
 import { isRecord } from '@intafaced/contracts/guards';

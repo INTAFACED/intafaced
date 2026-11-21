@@ -53,6 +53,7 @@
  *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
  *   node tooling/scripts/local-test-stack.mjs age-task-progress <email> <campaignId> <days>   TEST fixture: a task campaign's counted events happened days earlier
  *   node tooling/scripts/local-test-stack.mjs token-params   TEST fixture: svc-token's blank emission settings get the TEST profile values
+ *   node tooling/scripts/local-test-stack.mjs seed-notice <email> <tradeId> [--count <n>]   TEST fixture: an old-style escrow notice (or n of them)
  *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label> [--count <n>] [--failure-code <code>]   TEST fixture: a withdrawal in that state, sent and failed included (or n requested ones)
  *
  * Rules this file keeps (AGENTS.md "Money"):
@@ -96,6 +97,7 @@ import {
   writeStackRecords,
 } from './local-test-facts.mjs';
 import { reduceMaps } from './journey-reach.mjs';
+import { codeReachDir, nodeServiceReach } from './service-reach.mjs';
 import { runMvnSync } from './mvn-run.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
@@ -337,7 +339,7 @@ const SECRET_NAMES = [
   'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
   'identitySigninChallenge', // identity's key for sign-in challenge tokens and the per-address failure count (I-signin-sessions-30)
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
-  'notifyVerifyCode', // notify's TEST key for address-confirmation codes, set only with the TEST email stand-in (LOCAL_STACK_NOTIFY_EMAIL=on)
+  'notifyVerifyCode', // notify's TEST key for address-confirmation codes, set only with the TEST email or push stand-in (LOCAL_STACK_NOTIFY_EMAIL=on, LOCAL_STACK_NOTIFY_PUSH=on)
   'notifySupportService', // svc-support's own secret for svc-notify's guest verification door (NOTIFY_SUPPORT_SERVICE_SECRET on both)
   'supportGuestAddress', // svc-support's key that seals a guest's email address (SUPPORT_GUEST_ADDRESS_KEY, 32 bytes as hex)
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
@@ -750,13 +752,11 @@ const BACKEND_PKGS = [
   'svc-agents',
   'svc-p2p',
   'svc-notify',
-  'svc-academy',
   'svc-support',
   'svc-market',
   'svc-blueprint',
   'svc-quant',
   'svc-execution',
-  'svc-tax',
   'svc-mining-pool',
   'svc-ops',
   'svc-protocol',
@@ -771,11 +771,11 @@ function gitHead() {
   return r.stdout.trim();
 }
 
-/** Runs `pnpm args` with its output in logs/<label>.log; `spawner` is spawnSync or spawn. */
-function pnpmRun(spawner, args, label, extraEnv) {
+/** Runs `pnpm args` (or `cmd args`) with its output in logs/<label>.log; `spawner` is spawnSync or spawn. */
+function pnpmRun(spawner, args, label, extraEnv, cmd = 'pnpm') {
   const logPath = path.join(P.logs, `${label}.log`);
   const fd = fs.openSync(logPath, 'w', 0o600);
-  const result = spawner('pnpm', args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
+  const result = spawner(cmd, args, { cwd: REPO, env: { ...baseEnv(), ...extraEnv }, stdio: ['ignore', fd, fd] });
   const failed = (status) => {
     const tail = fs.readFileSync(logPath, 'utf8').split('\n').slice(-25).join('\n');
     fail(`${label} failed (exit ${status}). Log: ${logPath}\n${tail}`);
@@ -795,9 +795,9 @@ process.on('exit', () => {
   for (const child of livePnpm) child.kill('SIGTERM');
 });
 
-/** runPnpm without blocking, so several can run side by side. */
-function runPnpmAsync(args, label, extraEnv = {}) {
-  const { fd, result: child, failed } = pnpmRun(spawn, args, label, extraEnv);
+/** runPnpm without blocking, so several can run side by side. `cmd` runs another program the same way (a Rust service's binary). */
+function runPnpmAsync(args, label, extraEnv = {}, cmd = 'pnpm') {
+  const { fd, result: child, failed } = pnpmRun(spawn, args, label, extraEnv, cmd);
   livePnpm.add(child);
   return new Promise((resolve) => {
     let finished = false;
@@ -1152,11 +1152,110 @@ function javaBin() {
   return path.join(ensureToolchain(javaTools()).JAVA_HOME, 'bin', 'java');
 }
 
+// ── Rust services (svc-tax, svc-academy) ───────────────────────────────────
+
+/** The stack's Rust services: each `local-stack-services/<name>.mjs` that says `rust: true` runs `crates/svc-<name>`. */
+function rustServices() {
+  return serviceDefs(PLAN_SECRETS)
+    .filter((d) => d.rust)
+    .map((d) => d.name);
+}
+const rustCrate = (name, repo = REPO) => path.join(repo, 'crates', `svc-${name}`);
+/** A Rust service's release binary, copied beside its crate (dist/ is ignored by git, so the journeys' shared build carries it). */
+export const rustBin = (name) => path.join(rustCrate(name), 'dist', `svc-${name}`);
+const rustBinInputsFile = (name) => path.join(rustCrate(name), 'dist', 'stack-bin-inputs.sha256');
+
+/** The crates a crate's manifest names by path (`service-kit = { path = "../service-kit" }`), itself first, each once. */
+function crateAndPathDeps(dir, seen = new Set()) {
+  const resolved = path.resolve(dir);
+  if (seen.has(resolved) || !fs.existsSync(path.join(resolved, 'Cargo.toml'))) return [...seen];
+  seen.add(resolved);
+  const manifest = fs.readFileSync(path.join(resolved, 'Cargo.toml'), 'utf8');
+  for (const m of manifest.matchAll(/path\s*=\s*"([^"]+)"/g)) crateAndPathDeps(path.join(resolved, m[1]), seen);
+  return [...seen];
+}
+
+/**
+ * A hash of everything a Rust service's binary is built from: the workspace manifest, lockfile and toolchain, the crate,
+ * and each crate it names by path (svc-academy and svc-tax both build on `crates/service-kit`).
+ */
+export function rustBinInputs(name, repo = REPO) {
+  const walk = (dir) =>
+    fs.existsSync(dir)
+      ? fs
+          .readdirSync(dir, { withFileTypes: true })
+          .flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]))
+      : [];
+  const files = [
+    path.join(repo, 'Cargo.toml'),
+    path.join(repo, 'Cargo.lock'),
+    path.join(repo, 'rust-toolchain.toml'),
+    ...crateAndPathDeps(rustCrate(name, repo)).flatMap((crate) => [
+      path.join(crate, 'Cargo.toml'),
+      ...walk(path.join(crate, 'src')),
+      ...walk(path.join(crate, 'migrations')),
+    ]),
+  ]
+    .filter((f) => fs.existsSync(f))
+    .sort();
+  const hash = crypto.createHash('sha256');
+  for (const f of files) hash.update(path.relative(repo, f)).update('\0').update(fs.readFileSync(f)).update('\0');
+  return hash.digest('hex');
+}
+
+/** cargo from the caller's PATH (rustup's proxy, which installs the toolchain rust-toolchain.toml pins), else ~/.cargo/bin. */
+function cargoBin(names) {
+  const found = spawnSync('sh', ['-c', 'command -v cargo'], { encoding: 'utf8' }).stdout.trim();
+  if (found) return found;
+  const own = path.join(os.homedir(), '.cargo', 'bin', 'cargo');
+  if (fs.existsSync(own)) return own;
+  return fail(
+    `${names.map((n) => `svc-${n}`).join(' and ')} ${names.length === 1 ? 'is' : 'are'} Rust and cargo is not installed: install rustup (https://rustup.rs), then start again`,
+  );
+}
+
+/** Builds each Rust service's release binary whose inputs changed since its last build (all of them on --rebuild), in one cargo run. */
+function ensureRustBinaries(rebuild) {
+  const stale = rustServices()
+    .map((name) => ({ name, want: rustBinInputs(name) }))
+    .filter(({ name, want }) => {
+      const file = rustBinInputsFile(name);
+      const have = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : '';
+      return rebuild || !fs.existsSync(rustBin(name)) || have !== want;
+    });
+  if (stale.length === 0) return;
+  const names = stale.map((s) => s.name);
+  say(`  build: ${names.map((n) => `svc-${n}`).join(', ')} (Rust)…`);
+  const cargo = cargoBin(names);
+  const target = path.join(STATE, 'cargo-target');
+  const logPath = path.join(P.logs, 'build-rust.log');
+  const fd = fs.openSync(logPath, 'w', 0o600);
+  const r = spawnSync(cargo, ['build', '--release', '--locked', ...names.flatMap((n) => ['-p', `svc-${n}`])], {
+    cwd: REPO,
+    // The caller's PATH as well: rustup's proxy finds its toolchains through it and through RUSTUP_HOME/CARGO_HOME.
+    env: { ...baseEnv(), PATH: `${path.dirname(cargo)}:${process.env.PATH ?? ''}:${PNPM_PATH}`, CARGO_TARGET_DIR: target },
+    stdio: ['ignore', fd, fd],
+  });
+  fs.closeSync(fd);
+  for (const { name, want } of stale) {
+    const built = path.join(target, 'release', `svc-${name}`);
+    if (r.status !== 0 || !fs.existsSync(built)) {
+      const tail = fs.readFileSync(logPath, 'utf8').split('\n').slice(-25).join('\n');
+      fail(`svc-${name} did not build (see ${logPath})\n${tail}`);
+    }
+    fs.mkdirSync(path.dirname(rustBin(name)), { recursive: true });
+    fs.copyFileSync(built, rustBin(name));
+    fs.chmodSync(rustBin(name), 0o755);
+    fs.writeFileSync(rustBinInputsFile(name), `${want}\n`);
+  }
+}
+
 /** `admin: false` leaves the founder console alone (the journeys' shared build, whose public artifact must not carry it). */
 function ensureBuilt(rebuild, { admin = true } = {}) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
   ensureFixJar(rebuild);
+  ensureRustBinaries(rebuild);
   const { head, edits, stamp, override, missing, backend } = buildPlan(rebuild, act);
   if (override) say(`  build: customer app is ${act.dir} (override); not building it`);
   if (backend === 'none') {
@@ -1228,9 +1327,13 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
 // one per core (they were 19 runs of about a second each, one after another).
 async function migrate(secrets, schemas = SCHEMAS) {
   await inPool(schemas, os.availableParallelism(), (s) =>
-    runPnpmAsync(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
-      DATABASE_URL: dbUrl(`svc_${s}`, secrets),
-    }),
+    // A Rust service (svc-tax, svc-academy) is a binary that applies its own schema's migrations (`svc-<name> migrate`);
+    // the rest are Node packages.
+    rustServices().includes(serviceOfSchema(s))
+      ? runPnpmAsync(['migrate'], `migrate-${s}`, { DATABASE_URL: dbUrl(`svc_${s}`, secrets) }, rustBin(serviceOfSchema(s)))
+      : runPnpmAsync(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
+          DATABASE_URL: dbUrl(`svc_${s}`, secrets),
+        }),
   );
   say(`  migrations: ${schemas.length ? schemas.join(', ') : 'none needed'} applied (idempotent)`);
 }
@@ -1803,9 +1906,17 @@ async function startNodeService(def) {
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
-  // A Java service (svc-fix) runs its shaded jar (ensureFixJar) on a Java runtime (javaBin); every other one is Node.
-  const argv = def.java ? [javaBin(), '-cp', FIX_JAR, def.java.main] : [process.execPath, entry];
-  const pid = startProc(def.name, argv, env, path.join(REPO, 'services', `svc-${def.name}`), { build });
+  // A Java service (svc-fix) runs its shaded jar (ensureFixJar) on a Java runtime (javaBin); a Rust one (svc-tax,
+  // svc-academy) runs its binary (ensureRustBinaries); every other one is Node.
+  // A Node service records which of its own files ran, for the touched-journeys map (service-reach.mjs).
+  const node = !def.java && !def.rust ? nodeServiceReach(codeReachDir(STATE), def.name, env) : null;
+  const argv = def.java
+    ? [javaBin(), '-cp', FIX_JAR, def.java.main]
+    : def.rust
+      ? [rustBin(def.name)]
+      : [process.execPath, ...node.flags, entry];
+  const cwd = def.rust ? rustCrate(def.name) : path.join(REPO, 'services', `svc-${def.name}`);
+  const pid = startProc(def.name, argv, node ? node.env : env, cwd, { build });
   if (def.name === 'ops') {
     // Which founder pair svc-ops read at start, so a later start can tell when the pair changed.
     const procs = readProcs();
@@ -1841,7 +1952,8 @@ async function cmdSecondWorker([name, action]) {
   let port = SECOND_WORKER_PORT_BASE;
   while (await portOpen(port)) port += 1;
   const entry = path.join(REPO, 'services', `svc-${name}`, 'dist', def.entry ?? 'index.js');
-  const pid = startProc(worker, [process.execPath, entry], { ...env, HTTP_PORT: String(port) }, path.join(REPO, 'services', `svc-${name}`));
+  const node = nodeServiceReach(codeReachDir(STATE), worker, { ...env, HTTP_PORT: String(port) });
+  const pid = startProc(worker, [process.execPath, ...node.flags, entry], node.env, path.join(REPO, 'services', `svc-${name}`));
   await waitHealthy(worker, `http://${HOST}:${port}/health`, pid);
   say(`  ${worker}: running on port ${port} (pid ${pid})`);
 }
@@ -2162,6 +2274,22 @@ async function indexerHalt() {
   }
 }
 
+/**
+ * One health read for the table: a stack process that is still running and gave no answer at all (status 0, a busy
+ * runner) is read again for up to `windowMs` before it counts as DOWN, as a start waits for its own late service
+ * (#8434). Any HTTP answer counts at once, and a process that is gone is DOWN at once. Before this, one late read of
+ * svc-matching failed `restart academy` while matching kept running (journeys run 44566531740, J-academy-11 #3, #9088).
+ */
+export async function settledHealth(read, { alive, windowMs = 20_000, pauseMs = 500, now = Date.now, pause = sleep }) {
+  const t0 = now();
+  let r = await read();
+  while (r.status === 0 && alive() && now() - t0 < windowMs) {
+    await pause(pauseMs);
+    r = await read();
+  }
+  return r;
+}
+
 async function healthTable({ gateMarket = false } = {}) {
   const procs = readProcs();
   const rows = [];
@@ -2185,7 +2313,7 @@ async function healthTable({ gateMarket = false } = {}) {
   rows.push(['nats', `${PORTS.nats}/${PORTS.natsMonitor}`, procs.nats?.pid ?? '-', nats.status === 200 ? 'ok' : 'DOWN']);
   const chain = testChain();
   for (const n of serviceNames()) {
-    const r = await httpGet(`${urlOf(n)}/health`, 2500);
+    const r = await settledHealth(() => httpGet(`${urlOf(n)}/health`, 2500), { alive: () => ownedAlive(procs[n]) });
     const halted = r.status === 200 && n === 'indexer' ? await indexerHalt() : null;
     // A service the start leaves out on purpose (absentWhy) reads "absent", which doesn't fail the start; DOWN still does.
     const absent = r.status !== 200 ? absentWhy(n, chain) : null;
@@ -2782,8 +2910,9 @@ function cmdPlan(flags) {
     port: Number(d.env().HTTP_PORT),
     url: `http://${HOST}:${d.env().HTTP_PORT}`,
     schema: SCHEMAS.find((s) => serviceOfSchema(s) === d.name) ?? null,
-    // A Java service is built as its jar (ensureFixJar), not as a Node package.
+    // A Java service is built as its jar (ensureFixJar), a Rust one as its binary (ensureRustBinaries), not as a Node package.
     java: Boolean(d.java),
+    rust: Boolean(d.rust),
     running: ownedAlive(procs[d.name]),
     // Started on the build on disk now; false means a start would restart it onto the newer build (verify doctor reads it).
     onCurrentBuild: onCurrentBuild(procs[d.name], currentBuild('backendBuild')),
@@ -3432,12 +3561,37 @@ function cmdExpireStaffHolds(args) {
  * svc-notify wrote it before PR 5435 moved its targets (`href` `/p2p/trades/<tradeId>`). Rows stored then are never
  * rewritten, so the customer app must still open them (J-home-ia-05 #2). It writes the notice row only: no trade, no
  * escrow, no event, and it moves no value. The same person and trade id is the same row, stored again as new and unread.
+ * `--count <n>` (1-300) stores n such rows instead, for trade ids `<tradeId>-1` to `<tradeId>-n`: a full inbox, so a journey
+ * can see the bell reach its cap and the inbox page past its page size (J-home-ia-05 #1, #3).
  */
 function cmdSeedNotice(args) {
   const [who, tradeId] = args;
-  if (!who || !tradeId) fail('usage: node tooling/scripts/local-test-stack.mjs seed-notice <email-or-userId> <tradeId>', 2);
+  if (!who || !tradeId) fail('usage: node tooling/scripts/local-test-stack.mjs seed-notice <email-or-userId> <tradeId> [--count <n>]', 2);
   if (!/^[A-Za-z0-9-]{4,64}$/.test(tradeId)) fail('tradeId must be 4-64 letters, digits or dashes', 2);
   const { secrets, userId } = localFixturePerson(who);
+  const at = args.indexOf('--count');
+  if (at !== -1) {
+    const count = Number(args[at + 1]);
+    if (!Number.isInteger(count) || count < 1 || count > 300) fail('--count must be a whole number from 1 to 300', 2);
+    const stored = psql(
+      secrets,
+      `INSERT INTO notify.notifications (user_id, kind, title_key, body_key, params, href, severity, source_subject, source_idempotency_key)
+       SELECT :'uid', 'p2p.escrow.locked', 'notify.p2p.escrow.locked.title', 'notify.p2p.escrow.locked.body',
+              jsonb_build_object('tradeId', :'tid' || '-' || n), '/p2p/trades/' || :'tid' || '-' || n, 'action',
+              'intafaced.p2p.escrow.locked', 'local-test-old-link:' || :'tid' || '-' || n
+         FROM generate_series(1, :'n'::int) AS n
+       ON CONFLICT (user_id, source_subject, source_idempotency_key)
+         DO UPDATE SET href = EXCLUDED.href, read_at = NULL, created_at = now()
+       RETURNING 1`,
+      { db: DB_NAME, user: 'svc_notify', password: secrets.pgService, vars: { uid: userId, tid: tradeId, n: String(count) }, tuples: true },
+    )
+      .trim()
+      .split('\n')
+      .filter((line) => line.trim() === '1').length;
+    if (stored !== count) fail(`${stored} of ${count} notices were stored for ${who}`);
+    say(`  ${count} notices for ${who} link /p2p/trades/${tradeId}-1 to -${count}, as stored before PR 5435 (LOCAL TEST fixture)`);
+    return;
+  }
   const id = psql(
     secrets,
     `INSERT INTO notify.notifications (user_id, kind, title_key, body_key, params, href, severity, source_subject, source_idempotency_key)

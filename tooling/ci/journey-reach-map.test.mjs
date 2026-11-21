@@ -1024,7 +1024,11 @@ test('customerImporters on this repository: who loads a style sheet, the buildâ€
       rmSync(dir, { recursive: true, force: true });
     }
   }
-  assert.deepEqual(importers[`${SRC}/app/room-templates.ts`], [], 'only its unit test imports it; a scaffold reads it as text');
+  assert.deepEqual(
+    importers[`${SRC}/app/room-templates.ts`],
+    [`${SRC}/app/volt-count.ts`],
+    'the Volt count imports it; its unit test and the scaffold that reads it as text load nothing',
+  );
   for (const f of computed) assert.match(f, /^apps\/customer\/src\//);
   assert.equal(importers[`${SRC}/features/pay/portal/w3c2.pw.mjs`], undefined, 'a Playwright file in the source is a test');
   for (const [f, v] of Object.entries(importers)) {
@@ -1154,16 +1158,17 @@ test('planted: the seal accepts a run of exactly the selected journeys, and fail
   });
   assert.equal(broken.ok, false);
   assert.match(broken.lines.join('\n'), /J-tax-01#1: failing, not in the baseline/);
-  // The same change with the map off or stale needs the full run, so the targeted run no longer seals it.
+  // The same change with the map off or stale runs its bounded set (the CANARY; journey-touch.mjs pullPick), never the
+  // full suite, so the run of the map's picks no longer seals it.
   const stale = await sealWith({
     files,
     runs: [ghRun(1)],
     reports: { 1: { states: {}, ran: [POPUP, TAX] } },
-    verdict: async () => ({ ...clean, missing: [BANK, BOTH] }),
+    verdict: async () => clean,
     mainRuns: [],
   });
   assert.equal(stale.ok, false);
-  assert.match(stale.lines.join('\n'), /full run: it changes what can reach any journey .*couldn't be read/);
+  assert.match(stale.lines.join('\n'), /touched journeys: .*couldn't be read.*the CANARY; main's full run after the merge judges the rest/);
 });
 
 // ---- The committed map is public: only repository paths, service directories, journey names and run facts ----

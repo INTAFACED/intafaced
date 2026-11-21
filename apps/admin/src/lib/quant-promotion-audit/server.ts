@@ -1,7 +1,6 @@
 import 'server-only';
 import { quantPromotionAuditSchema, type QuantPromotionAudit } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, partFrom, type Part, type PartLabels } from '@/lib/desk';
 
 /**
  * The promotion audit on the quant desk (AL-lifecycle-01, J-algo-dev-13 #3), as the signed-in founder: every gate

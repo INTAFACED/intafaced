@@ -1,12 +1,9 @@
 import {
   QUANT_FEE_ROLES,
-  quantAccountRulesSchema,
   QUANT_FILL_TIMINGS,
   QUANT_SPLIT_PRESETS,
   QUANT_VERDICT_CRITERIA,
   quantOutOfSampleFrom,
-  quantBacktestFeeSchema,
-  quantBacktestResultSchema,
   quantStrategyHeadSchema,
   quantStrategyListOutputSchema,
   type QuantBacktestResult,
@@ -16,16 +13,16 @@ import {
   type QuantStrategyHead,
 } from '@intafaced/contracts/quant-algo';
 import { DATAFEED_INTERVAL_MS } from '@intafaced/contracts/datafeed';
+import { QUANT_BACKTEST_ACCOUNT_RULES, QUANT_BACKTEST_FEE, QUANT_BACKTEST_START } from '@intafaced/contracts/quant-backtest-procedures';
+import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
 import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
+import { parsesAs, type ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Field, Loading, Panel, Tabs } from '../../shared/ui';
 import { QuotaAwareFailure } from './quota-refusal';
-import { downloadCsv } from '../more/depth-csv';
-import { utcInput } from '../more/quant-analysis';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { downloadCsv, utcInput, Read, Select } from '../more';
+import { useApi } from '../session';
 import { equityGeometry, tradesCsv, tradesCsvName } from './backtest-chart';
 import { backtestCopy } from './backtest-copy';
 import { ReportTab, ShareTab, type CreatedShare } from './ReportShare';
@@ -82,7 +79,7 @@ export function BacktestRoom() {
   const api = useApi();
   const { t } = backtestCopy.useCopy();
   const list = useResource(
-    (signal) => api.query('quant', 'studio.list', { limit: STRATEGY_PAGE }, page, { signal }),
+    (signal) => api.call(QUANT_STUDIO_LIST, { limit: STRATEGY_PAGE }, { signal, accept: parsesAs(page) }),
     'quant-backtest-strategies',
   );
   const [strategyId, setStrategyId] = useState('');
@@ -140,24 +137,19 @@ export function BacktestRoom() {
     setBusy(true);
     setRefusal(null);
     setFailure(null);
-    const res = await api.mutate(
-      'quant',
-      'backtest.start',
-      {
-        strategyId: strategy.id,
-        strategyVersion: strategy.version,
-        cash,
-        // A field the browser cannot read as a UTC minute is sent as typed, and the service names it.
-        from: utcInput(from) ?? from,
-        to: utcInput(to) ?? to,
-        fillTiming,
-        costs: { feeRole, slippageBps: slippage, delayBars: delay },
-        ...(split ? { split: { preset: split, ...(split === 'custom' ? { outOfSampleFrom: utcInput(oosFrom) ?? oosFrom } : {}) } } : {}),
-        ...(enforceHoldout ? { enforceHoldout: true } : {}),
-        ...(onMargin ? { simulatedAccount: { leverage } } : {}),
-      },
-      quantBacktestResultSchema,
-    );
+    const res = await api.call(QUANT_BACKTEST_START, {
+      strategyId: strategy.id,
+      strategyVersion: strategy.version,
+      cash,
+      // A field the browser cannot read as a UTC minute is sent as typed, and the service names it.
+      from: utcInput(from) ?? from,
+      to: utcInput(to) ?? to,
+      fillTiming,
+      costs: { feeRole, slippageBps: slippage, delayBars: delay },
+      ...(split ? { split: { preset: split, ...(split === 'custom' ? { outOfSampleFrom: utcInput(oosFrom) ?? oosFrom } : {}) } } : {}),
+      ...(enforceHoldout ? { enforceHoldout: true } : {}),
+      ...(onMargin ? { simulatedAccount: { leverage } } : {}),
+    });
     setBusy(false);
     if (res.ok) {
       setResult(res.data);
@@ -383,10 +375,7 @@ function SplitPreview(props: { from: string; to: string; preset: QuantSplitPrese
 function AccountRules() {
   const api = useApi();
   const { t } = backtestCopy.useCopy();
-  const rules = useResource(
-    (signal) => api.query('quant', 'backtest.accountRules', undefined, quantAccountRulesSchema, { signal }),
-    'quant-account-rules',
-  );
+  const rules = useResource((signal) => api.call(QUANT_BACKTEST_ACCOUNT_RULES, undefined, { signal }), 'quant-account-rules');
   return (
     <Read resource={rules.resource} retry={rules.reload}>
       {(data) => (
@@ -411,10 +400,7 @@ function AccountRules() {
 function FeeLedger({ symbol }: { symbol: string }) {
   const api = useApi();
   const { t } = backtestCopy.useCopy();
-  const fee = useResource(
-    (signal) => api.query('quant', 'backtest.fee', { symbol }, quantBacktestFeeSchema, { signal }),
-    `quant-fee:${symbol}`,
-  );
+  const fee = useResource((signal) => api.call(QUANT_BACKTEST_FEE, { symbol }, { signal }), `quant-fee:${symbol}`);
   return (
     <div data-testid="quant-fee-ledger">
       <Read resource={fee.resource} retry={fee.reload}>

@@ -46,8 +46,9 @@
  * and mining_pool.shares, and compose gives it DATABASE_URL.
  * svc-quant is listed: it ships drizzle SQL for the paper strategy library,
  * and compose gives it DATABASE_URL.
- * svc-tax is listed: it ships drizzle SQL for tax.basis_overrides,
- * and compose gives it DATABASE_URL.
+ * svc-tax and svc-academy are absent: each is a Rust binary in its own image, and
+ * compose's svc-tax-migrate and svc-academy-migrate run its `migrate` command the
+ * same way, as its own role (svc_tax, svc_academy), once.
  * svc-campaigns is listed: it ships drizzle SQL for seasons, drops and their claims,
  * and compose gives it DATABASE_URL.
  */
@@ -68,12 +69,10 @@ const SERVICES = [
   ['svc-indexer', 'indexer'],
   ['svc-notify', 'notify'],
   ['svc-support', 'support'],
-  ['svc-academy', 'academy'],
   ['svc-market', 'market'],
   ['svc-mining-pool', 'mining_pool'],
   ['svc-ops', 'ops'],
   ['svc-quant', 'quant'],
-  ['svc-tax', 'tax'],
   ['svc-campaigns', 'campaigns'],
 ];
 

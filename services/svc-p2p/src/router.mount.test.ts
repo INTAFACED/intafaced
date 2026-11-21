@@ -1006,6 +1006,70 @@ describe('svc-p2p mount — merchant API access', () => {
     await expect(caller.offers.list({ limit: 50 })).resolves.toEqual([]);
   });
 
+  it('refuses a key without approved standing on every merchant door that needs it, and still answers it on apiAccess', async () => {
+    const keyCtx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read', 'p2p:write'] }));
+    const caller = createP2pRouter(stubP2p(), stubInstruments(), undefined, {}, merchantStub('applied') as never).createCaller(keyCtx);
+    const doors: Array<[string, () => Promise<unknown>]> = [
+      ['presence', () => caller.merchants.presence()],
+      ['setPresence', () => caller.merchants.setPresence({ mode: 'online' })],
+      ['todos', () => caller.merchants.todos({ limit: 20 })],
+      ['stats', () => caller.merchants.stats()],
+      ['advertiserTerms', () => caller.merchants.advertiserTerms()],
+      ['postingEligibility', () => caller.merchants.postingEligibility({ fiatCurrency: 'EUR' })],
+      ['me', () => caller.merchants.me()],
+      ['offerLimits', () => caller.merchants.offerLimits()],
+      ['myOfferCeiling', () => caller.merchants.myOfferCeiling()],
+      ['submitApplication', () => caller.merchants.submitApplication()],
+      ['withdraw', () => caller.merchants.withdraw({ reason: 'Trading less' })],
+    ];
+    for (const [name, call] of doors) {
+      await expect(call(), name).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringMatching(/approved merchant/i) });
+    }
+    // The one door a refused key may still read: why it was refused.
+    await expect(caller.merchants.apiAccess()).resolves.toMatchObject({
+      eligible: false,
+      credential: 'api_key',
+      merchantStatus: 'applied',
+    });
+  });
+
+  it('refuses a key without approved standing on every trade door, before the door reads or moves anything', async () => {
+    const keyCtx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read', 'p2p:write'] }));
+    const caller = createP2pRouter(stubP2p(), stubInstruments(), undefined, {}, merchantStub('applied') as never).createCaller(keyCtx);
+    const tradeId = '44444444-4444-4444-8444-444444444444';
+    const offerId = '33333333-3333-4333-8333-333333333333';
+    const quoteId = '55555555-5555-4555-8555-555555555555';
+    const take = { offerId, amount: '10', method: 'sepa' };
+    const doors: Array<[string, () => Promise<unknown>]> = [
+      ['stepUpWindow', () => caller.trades.stepUpWindow()],
+      ['releaseStepUpWindow', () => caller.trades.releaseStepUpWindow()],
+      ['take', () => caller.trades.take({ ...take, tradeId })],
+      ['contractEscrow', () => caller.trades.contractEscrow({ asset: 'USDC' })],
+      ['attachContractDeal', () => caller.trades.attachContractDeal({ tradeId, dealId: '7' })],
+      ['syncContractDeal', () => caller.trades.syncContractDeal({ tradeId })],
+      ['markFiatSent', () => caller.trades.markFiatSent({ tradeId })],
+      ['confirmReceived', () => caller.trades.confirmReceived({ tradeId })],
+      ['remind', () => caller.trades.remind({ tradeId })],
+      ['reportSensitiveRemark', () => caller.trades.reportSensitiveRemark({ caseId: quoteId, tradeId, remark: 'for crypto' })],
+      ['remarkCase', () => caller.trades.remarkCase({ tradeId })],
+      ['reportMismatch', () => caller.trades.reportMismatch({ tradeId, kind: 'under', amountReceived: '90' })],
+      ['validatePayment', () => caller.trades.validatePayment({ tradeId })],
+      ['cancel', () => caller.trades.cancel({ tradeId })],
+      ['requestCancel', () => caller.trades.requestCancel({ tradeId })],
+      ['get', () => caller.trades.get({ tradeId })],
+      ['list', () => caller.trades.list({ limit: 50 })],
+      ['page', () => caller.trades.page({ limit: 20 })],
+      ['quote', () => caller.trades.quote(take)],
+      ['lockQuote', () => caller.trades.lockQuote({ ...take, quoteId })],
+      ['export', () => caller.trades.export({ from: '2026-11-01', to: '2026-11-20' })],
+      ['receipt', () => caller.trades.receipt({ tradeId })],
+      ['paymentInstrument', () => caller.trades.paymentInstrument({ tradeId })],
+    ];
+    for (const [name, call] of doors) {
+      await expect(call(), name).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringMatching(/approved merchant/i) });
+    }
+  });
+
   it('reports API eligibility from the same current standing that enforces it', async () => {
     const keyCtx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read'] }));
     const sessionCtx = signed(principal({ scopes: ['p2p:read'] }));

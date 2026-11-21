@@ -38,6 +38,11 @@ export const SERVICE_NAMES = [
 ] as const;
 export type ServiceName = (typeof SERVICE_NAMES)[number];
 
+/** Services that serve calls but sign none and receive no S2S call: the ones `SERVICE_NAMES` leaves out. */
+export const UNSIGNED_SERVICE_NAMES = ['svc-blueprint', 'svc-dex', 'svc-indexer', 'svc-protocol'] as const;
+/** Any service a call recorded with `defineProcedure` may be served by. */
+export type ServingServiceName = ServiceName | (typeof UNSIGNED_SERVICE_NAMES)[number];
+
 export type KeyUse = 's2s' | 'principal';
 export interface KeyringEntry {
   /** `<service>.<label>`, so a key id always names its owner. */

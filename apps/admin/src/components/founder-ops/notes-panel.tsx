@@ -1,5 +1,5 @@
 import { Chip } from '@/components/chip';
-import { Card, FailureState, StateBlock } from '@/components/merchants/ui';
+import { Card, FailureState, StateBlock } from '@/components/merchants';
 import type { PayCallResult } from '@/lib/merchants/pay-call';
 import { formatUtc } from '@/lib/merchants/time';
 import type { NotePage } from '@/lib/founder-ops/notes';

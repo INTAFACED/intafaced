@@ -1,16 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  cellOfRow,
-  displayCell,
-  formatBps,
-  formatCell,
-  formatDuration,
-  inputFor,
-  readData,
-  rowCountText,
-  tableCells,
-  withNames,
-} from './model';
+import { cellOfRow } from '@/lib/cell-of-row';
+import { displayCell, formatBps, formatCell, formatDuration, inputFor, readData, rowCountText, tableCells, withNames } from './model';
 import { DESKS, allReads } from './catalog';
 import { listToCsv } from './csv';
 import type { ReadSpec } from './types';

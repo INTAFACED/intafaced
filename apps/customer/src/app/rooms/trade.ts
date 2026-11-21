@@ -7,6 +7,9 @@ import { areaCopy, areaRooms } from './room';
 export const tradeCopy = areaCopy({
   en: {
     'Trading account': 'Trading account',
+    Vaults: 'Vaults',
+    'Vaults on your venue, each with its lock-up and leader’s share, and your money in them':
+      'Vaults on your venue, each with its lock-up and leader’s share, and your money in them',
     'Your trading money on your venue accounts beside your spending money at your partner bank, and moves between them':
       'Your trading money on your venue accounts beside your spending money at your partner bank, and moves between them',
     Positions: 'Positions',
@@ -259,6 +262,13 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     path: '/trade/account',
     title: 'Trading account',
     description: 'Your trading money on your venue accounts beside your spending money at your partner bank, and moves between them',
+    door: 'Trade',
+    area: 'trade',
+  },
+  {
+    path: '/trade/vaults',
+    title: 'Vaults',
+    description: 'Vaults on your venue, each with its lock-up and leader’s share, and your money in them',
     door: 'Trade',
     area: 'trade',
   },

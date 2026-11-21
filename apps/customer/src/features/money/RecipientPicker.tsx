@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Button } from '../../shared/ui';
 import { cleanHandle, resolveHandle } from '../../data/identity';
 import { useActivity } from '../../data/activity';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { filterPayees, forgetPayee, identityChanged, readPayees, recentHandles, rememberPayee, type Payee } from './payees';
 import { recipientCopy } from './recipient-copy';
 import './bank-depth.css';

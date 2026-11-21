@@ -8,7 +8,7 @@ import { PaySection } from '../../components';
 import { DateTime } from '../ui/DateTime';
 import { Gate, ListShell, MoreFooter, SelectField } from '../components';
 import { useCursorList, useMemberNames, useUrlParam, type ListState } from '../hooks';
-import { useSession } from '../../../session/session';
+import { useSession } from '../../../session';
 import { useOptionalMerchantAccess } from '../access/MerchantAccess';
 import { Timeline } from '../ui/Timeline';
 import { actorName } from './account/actors';

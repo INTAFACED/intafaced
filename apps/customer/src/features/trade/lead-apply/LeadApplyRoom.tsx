@@ -5,8 +5,9 @@ import { FlowTemplate, KeyValue, formatMoney } from '@intafaced/ui/lit/templates
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { leadApplyCopy } from './lead-apply-copy';
+import { leadApplicationSchema, leadEligibilitySchema } from '@intafaced/contracts/trade-copy-room';
 
 /**
  * Apply to lead (CB-copy-12), on the flow template. The person's newest application is read from svc-trade
@@ -14,27 +15,9 @@ import { leadApplyCopy } from './lead-apply-copy';
  * the same submit again answers with the same application. Founders decide it in the console's Copy trading desk.
  */
 
-// hand-declared-ok: svc-trade's copy procedures have no browser-safe schema in packages/contracts yet (the Copy room's api.ts declares its own the same way)
-const mineSchema = z.object({
-  applicationId: z.string(),
-  state: z.enum(['submitted', 'under_review', 'approved', 'disapproved']),
-  displayName: z.string(),
-  submittedAt: z.string(),
-  reason: z.string().nullable(),
-  reapplyAfter: z.string().nullable().default(null),
-});
+const mineSchema = leadApplicationSchema;
 type Mine = z.infer<typeof mineSchema>;
-
-// hand-declared-ok: as mineSchema above. What applying to lead is measured by (`copy.leadEligibility`, J-copy-bots-otc-04 #1).
-const decimal = z.string().regex(/^\d+(\.\d+)?$/);
-const eligibilitySchema = z.object({
-  following: z.object({ leaderRef: z.string().nullable(), displayName: z.string() }).nullable(),
-  threshold: decimal.nullable(),
-  venue: z.discriminatedUnion('state', [
-    z.object({ state: z.enum(['off', 'none', 'unreadable']) }),
-    z.object({ state: z.literal('read'), owner: z.string(), test: z.boolean(), usdc: decimal, asOf: z.string() }),
-  ]),
-});
+const eligibilitySchema = leadEligibilitySchema;
 type Eligibility = z.infer<typeof eligibilitySchema>;
 
 type T = ReturnType<typeof leadApplyCopy.useCopy>['t'];

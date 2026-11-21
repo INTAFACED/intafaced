@@ -6,7 +6,7 @@ function json(body: unknown, status = 200): Response {
 }
 
 describe('parseTicker — svc-trade ticker row → wire row', () => {
-  it('maps the 24 h facts and keeps every amount a decimal string', () => {
+  it('maps the 24 h facts and the top of the book, and keeps every amount a decimal string', () => {
     expect(
       parseTicker('BTC/USDT', {
         symbol: 'BTC/USDT',
@@ -18,6 +18,8 @@ describe('parseTicker — svc-trade ticker row → wire row', () => {
         baseVolume: '12.5',
         quoteVolume: '375000',
         bid: '30000',
+        ask: '30001.5',
+        spread: '1.5',
       }),
     ).toEqual({
       symbol: 'BTC/USDT',
@@ -28,6 +30,18 @@ describe('parseTicker — svc-trade ticker row → wire row', () => {
       low: '29000',
       volume: '12.5',
       quoteVolume: '375000',
+      bid: '30000',
+      ask: '30001.5',
+      spread: '1.5',
+    });
+  });
+
+  it('refuses a row whose spread is not a decimal string, and keeps a one-sided book spread-less, never zero', () => {
+    expect(parseTicker('BTC/USDT', { symbol: 'BTC/USDT', spread: 1.5 })).toBeNull();
+    expect(parseTicker('BTC/USDT', { symbol: 'BTC/USDT', bid: '30000', ask: null, spread: null })).toMatchObject({
+      bid: '30000',
+      ask: null,
+      spread: null,
     });
   });
 

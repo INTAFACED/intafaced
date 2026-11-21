@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { useResource } from '../../shared/resource';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { lessonHrefFor, lessonStatus, neighbours, pathProgress, type AcademyPath, type LessonSummary, type Tracking } from './academy-lms';
 import { ProgressBar, StatusChip, pathLabel } from './AcademyLmsParts';

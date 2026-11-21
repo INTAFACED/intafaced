@@ -5,7 +5,7 @@ vi.mock('../../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { AUTH_ERROR_CATALOGUE } from '@intafaced/contracts/auth-errors';
-import { SessionProvider } from '../../session/session';
+import { SessionProvider } from '../../session';
 import { DevelopersRoutes } from '../DevelopersRoutes';
 import { authErrorsCopy, causeKey, fixKey } from './auth-errors-copy';
 

@@ -3,17 +3,17 @@ import {
   QUANT_ALERT_TEMPLATE_MAX,
   quantAlertListSchema,
   quantAlertSchema,
-  quantNotifySettingsSchema,
   type QuantAlert,
   type QuantStrategyDetail,
 } from '@intafaced/contracts/quant-algo';
+import { QUANT_NOTIFY_GET, QUANT_NOTIFY_SET } from '@intafaced/contracts/quant-strategy-settings-procedures';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Loading } from '../../shared/ui';
 import { channelStatus } from '../../screens/notifications/notify-api';
-import { Read, Select, TextArea } from '../more/common';
-import { useApi } from '../session/session';
+import { Read, Select, TextArea } from '../more';
+import { useApi } from '../session';
 import { notifyCopy } from './notify-copy';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -43,7 +43,7 @@ export function StrategyChannels({ strategy }: { strategy: QuantStrategyDetail }
   const { t } = notifyCopy.useCopy();
   const [revision, setRevision] = useState(0);
   const settings = useResource(
-    (signal) => api.query('quant', 'notify.get', { strategyId: strategy.id }, quantNotifySettingsSchema, { signal }),
+    (signal) => api.call(QUANT_NOTIFY_GET, { strategyId: strategy.id }, { signal }),
     `quant-notify:${strategy.id}:${revision}`,
   );
   const status = useResource((signal) => channelStatus(api, signal), 'quant-notify-channel-status');
@@ -70,12 +70,7 @@ export function StrategyChannels({ strategy }: { strategy: QuantStrategyDetail }
             setNote(null);
             setRefused(null);
             setFailure(null);
-            const res = await api.mutate(
-              'quant',
-              'notify.set',
-              { strategyId: strategy.id, channels: [...chosen] },
-              quantNotifySettingsSchema,
-            );
+            const res = await api.call(QUANT_NOTIFY_SET, { strategyId: strategy.id, channels: [...chosen] });
             setBusy(false);
             if (res.ok) {
               setPicked(null);

@@ -1,0 +1,90 @@
+// hand-declared-ok: svc-notify has no browser-safe response schema in packages/contracts; these mirror its router outputs exactly
+/**
+ * The reads of svc-notify shared by the developer pages, the public notices and status pages, funding notices and risk control (module `notify`, tRPC through the edge). All three are public procedures, so
+ * they work signed out. Shapes mirror `services/svc-notify/src/router.ts` (`statusFeedOutput`, `noticeWireOutput`,
+ * `changelogOutput`); a response that does not match is refused, never shown.
+ */
+import { z } from 'zod';
+import { NOTIFY_CHANGELOG_AREA_IDS, notifyNoticeEntrySchema as entrySchema } from '@intafaced/contracts/notify-public-notices';
+import type { ApiClient, ApiResult } from './api';
+
+const impact = z.enum(['none', 'minor', 'major', 'critical']);
+export const STATUS_COMPONENT_IDS = ['api', 'webhooks', 'console'] as const;
+const component = z.enum(STATUS_COMPONENT_IDS);
+const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const statusFeedSchema = z.object({
+  asOf: z.string(),
+  components: z.array(
+    z.object({
+      component,
+      state: z.enum(['unknown', 'maintenance', 'degraded', 'partial_outage', 'major_outage']),
+      basis: z.enum(['incident', 'maintenance', 'no_measurement']),
+      since: z.string().nullable(),
+    }),
+  ),
+  incidents: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      impact: impact.nullable(),
+      components: z.array(component),
+      openedAt: z.string(),
+      resolvedAt: z.string().nullable(),
+      updates: z.array(
+        z.object({ id: z.string(), body: z.string(), impact: impact.nullable(), publishedAt: z.string(), resolves: z.boolean() }),
+      ),
+    }),
+  ),
+  maintenance: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      components: z.array(component),
+      startsAt: z.string().nullable(),
+      endsAt: z.string().nullable(),
+    }),
+  ),
+  history: z.object({
+    basis: z.literal('incident_notices_only'),
+    days: z.array(
+      z.object({
+        date: z.string(),
+        components: z.array(z.object({ component, incidentMinutes: z.number().int().min(0), worstImpact: impact.nullable() })),
+      }),
+    ),
+  }),
+});
+export type StatusFeed = z.infer<typeof statusFeedSchema>;
+
+/** One notice entry and the changelog's areas, from `@intafaced/contracts/notify-public-notices`. */
+export { NOTIFY_CHANGELOG_AREA_IDS as CHANGELOG_AREA_IDS, entrySchema };
+export type ChangelogAreaId = (typeof NOTIFY_CHANGELOG_AREA_IDS)[number];
+export type ChangelogEntry = z.infer<typeof entrySchema>;
+
+const upcomingSchema = z.object({
+  upcoming: z.array(entrySchema),
+  retired: z.array(z.object({ endpoint: z.string(), entryId: z.string().guid(), title: z.string(), releaseOn: day.nullable() })),
+});
+export type UpcomingChanges = z.infer<typeof upcomingSchema>;
+
+export const readStatusFeed = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<StatusFeed>> =>
+  api.query('notify', 'notify.statusFeed', { days: 30 }, statusFeedSchema, { signal });
+
+/** The changelog in the reader's chosen language (`language`, the app's locale code): each entry names the language it is in. */
+export const readChangelog = (
+  api: ApiClient,
+  filter: { area: ChangelogAreaId | null; breaking: boolean },
+  language: string,
+  signal?: AbortSignal,
+): Promise<ApiResult<ChangelogEntry[]>> =>
+  api.query(
+    'notify',
+    'notify.changelog',
+    { limit: 50, language, ...(filter.area ? { area: filter.area } : {}), ...(filter.breaking ? { breaking: true } : {}) },
+    z.array(entrySchema).max(50),
+    { signal },
+  );
+
+export const readUpcomingChanges = (api: ApiClient, language: string, signal?: AbortSignal): Promise<ApiResult<UpcomingChanges>> =>
+  api.query('notify', 'notify.upcomingChanges', { language }, upcomingSchema, { signal });

@@ -6,9 +6,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ZodType } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
-import { CONFLICT, rebaseAndWrite, type RecordIo } from '../watchlists/rebase';
+import { CONFLICT, rebaseAndWrite, type RecordIo } from '../watchlists';
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 

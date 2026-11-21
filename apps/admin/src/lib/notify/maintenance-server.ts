@@ -1,7 +1,6 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom } from '@/lib/desk/part';
+import { founderCall, type FounderCallContext, partFrom } from '@/lib/desk';
 import { readDefinition } from './status-model';
 import { NOTIFY, anyData, loadPublishApprovals, reply } from './incidents-server';
 import { readWindows, type MaintenanceDeskView, type MaintenanceDraftInput, type MaintenanceTarget } from './maintenance-model';

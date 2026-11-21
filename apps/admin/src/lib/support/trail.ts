@@ -7,11 +7,13 @@ export function lastSequence(events: readonly SupportTicketEvent[]): number {
 
 /**
  * The rows someone else wrote after `seen`, oldest first: what made a reply stale. The same rule as svc-support's own
- * check: a person's own rows and an account read (which changes nothing) do not count.
+ * check: a person's own rows and an account or charts read (which change nothing) do not count.
  */
 export function newerByOthers(events: readonly SupportTicketEvent[], seen: number, me: string): SupportTicketEvent[] {
   return events
-    .filter((e) => e.sequence > seen && e.actorId.toLowerCase() !== me.toLowerCase() && e.kind !== 'grounding_read')
+    .filter(
+      (e) => e.sequence > seen && e.actorId.toLowerCase() !== me.toLowerCase() && e.kind !== 'grounding_read' && e.kind !== 'charts_lookup',
+    )
     .sort((a, b) => a.sequence - b.sequence);
 }
 

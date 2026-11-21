@@ -79,7 +79,7 @@
  * exactly what the turbo `typecheck` task already guarantees. Every package's
  * script is now:
  *
- *     tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs
+ *     node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs
  *
  * so `pnpm typecheck`, `pnpm verify` and CI all run it, in parallel, cached, with
  * the dependency graph already resolved. `tooling/ci/gates.mjs` lists it under
@@ -126,19 +126,6 @@ const PINNED = {
 
   // 1 — packages/db
   'packages/db': [[1, "src/db.test.ts | TS2339 | Property 'dbCredentials' does not exist on type 'Config'."]],
-
-  // 7 — services/svc-academy
-  'services/svc-academy': [
-    [
-      2,
-      "src/certs/xp-emit.test.ts | TS2741 | Property 'source' is missing in type '{ userId: string; certId: string; xpDelta: string; idempotencyKey: string; }' but required in type 'XpEarnedIntent'.",
-    ],
-    // bulk-score.test seasonId-required pins retired after calendar-gate type tighten (W6 L02).
-    [
-      3,
-      "src/tournaments/season-lifecycle.test.ts | TS2322 | Type 'SeasonRecord' is not assignable to type '{ id: string; slug: string; title: string; rulesSummary: string; startsAt: Date; endsAt: null; status: 'scheduled'; }'.",
-    ],
-  ],
 
   // 5 — services/svc-agents
   'services/svc-agents': [
@@ -280,7 +267,8 @@ function repoRoot(from) {
 }
 
 const ROOT = repoRoot(process.cwd());
-const TSC = join(ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
+// The repo's one type-check command: incremental, one at a time per project (tooling/scripts/tsc.mjs).
+const TSC = join(ROOT, 'tooling', 'scripts', 'tsc.mjs');
 
 /** `packages/contracts` — the key PINNED uses, on any platform. */
 function keyFor(dir) {
@@ -306,7 +294,7 @@ function normalise(line) {
 }
 
 function run(dir) {
-  const res = spawnSync(process.execPath, [TSC, '-p', 'tsconfig.test.json'], { cwd: dir, encoding: 'utf8' });
+  const res = spawnSync(process.execPath, [TSC, '-p', 'tsconfig.test.json', '--noEmit'], { cwd: dir, encoding: 'utf8' });
   const out = ((res.stdout ?? '') + (res.stderr ?? '')).trim();
 
   const found = new Map();

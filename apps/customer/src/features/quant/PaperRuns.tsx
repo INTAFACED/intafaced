@@ -1,16 +1,11 @@
-import {
-  QUANT_PAPER_LIST_MAX,
-  quantPaperListSchema,
-  quantPaperRunSchema,
-  type QuantPaperRun,
-  type QuantStrategyDetail,
-} from '@intafaced/contracts/quant-algo';
+import { QUANT_PAPER_LIST_MAX, type QuantPaperRun, type QuantStrategyDetail } from '@intafaced/contracts/quant-algo';
+import { QUANT_PAPER_GET, QUANT_PAPER_LIST, QUANT_PAPER_START, QUANT_PAPER_STOP } from '@intafaced/contracts/quant-paper-procedures';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Field, Loading } from '../../shared/ui';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { Read, Select } from '../more';
+import { useApi } from '../session';
 import { paperCopy } from './paper-copy';
 import { QuotaAwareFailure } from './quota-refusal';
 
@@ -32,15 +27,14 @@ export function PaperRuns({ strategy }: { strategy: QuantStrategyDetail }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
   const list = useResource(
-    (signal) =>
-      api.query('quant', 'paper.list', { strategyId: strategy.id, limit: QUANT_PAPER_LIST_MAX }, quantPaperListSchema, { signal }),
+    (signal) => api.call(QUANT_PAPER_LIST, { strategyId: strategy.id, limit: QUANT_PAPER_LIST_MAX }, { signal }),
     `quant-paper:${strategy.id}:${revision}`,
   );
   async function stop(runId: string) {
     if (busy) return;
     setBusy(runId);
     setFailure(null);
-    const res = await api.mutate('quant', 'paper.stop', { runId }, quantPaperRunSchema);
+    const res = await api.call(QUANT_PAPER_STOP, { runId });
     setBusy(null);
     if (!res.ok) return setFailure(res);
     setNote(t('stopped'));
@@ -149,20 +143,15 @@ function StartForm(props: {
     setCashRefusal(null);
     setFeedRefused(false);
     const chosen = Number(version);
-    const res = await api.mutate(
-      'quant',
-      'paper.start',
-      {
-        strategyId: props.strategy.id,
-        strategyVersion: chosen,
-        cash,
-        holdings: [],
-        feed,
-        costs: { feeRole, slippageBps: slippage, delayBars: delay },
-        ordinal: ordinals.get(chosen) ?? 0,
-      },
-      quantPaperRunSchema,
-    );
+    const res = await api.call(QUANT_PAPER_START, {
+      strategyId: props.strategy.id,
+      strategyVersion: chosen,
+      cash,
+      holdings: [],
+      feed,
+      costs: { feeRole, slippageBps: slippage, delayBars: delay },
+      ordinal: ordinals.get(chosen) ?? 0,
+    });
     setBusy(false);
     if (res.ok) return props.onStarted(res.data);
     // `quant.paper_cash_unset — cash — …` names the cash; `feed.market — …` is the outside feed, switched off here.
@@ -249,10 +238,7 @@ function StartForm(props: {
 function PaperRunView({ runId }: { runId: string }) {
   const api = useApi();
   const { t } = paperCopy.useCopy();
-  const run = useResource(
-    (signal) => api.query('quant', 'paper.get', { runId }, quantPaperRunSchema, { signal }),
-    `quant-paper-run:${runId}`,
-  );
+  const run = useResource((signal) => api.call(QUANT_PAPER_GET, { runId }, { signal }), `quant-paper-run:${runId}`);
   return (
     <Read resource={run.resource} retry={run.reload}>
       {(data) => (

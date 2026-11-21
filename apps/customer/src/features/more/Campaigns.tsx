@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { Button, Panel, Tabs } from '../../shared/ui';
 import { TextArea } from './common';
 import { Field } from '../../shared/ui';

@@ -91,10 +91,40 @@ function ownerDayStartingAt(at) {
   return offset < -720 ? offset + 1440 : offset;
 }
 
-/** The follow #1 made, opened on My follows; with none made, the step stops here and says so. */
+/** The follow's copied orders as the service lists them (the detail's Copied orders table reads the same call). */
+async function copiedBy(who, followId) {
+  const { status, body } = await (await api(who)).get(trpc('copy.followPositions', { followId }));
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.result.data.positions;
+}
+
+/**
+ * The follow #1 made, opened on My follows; with none made, the step stops here and says so. A page that comes back
+ * signed out says whether the browser held a refresh cookie and what each sign-in refresh on that load answered.
+ */
 async function myFollow(page) {
   state('followId');
-  return openFollow(page, state('leaderRef'));
+  const refreshes = [];
+  // Only the status and the refusal's code are kept: a 200 carries an access token, which never goes into a report.
+  const seen = async (res) => {
+    if (!res.url().includes('/auth.refresh')) return;
+    const body = res.status() === 200 ? null : await res.json().catch(() => null);
+    const code = body?.error?.data?.cause?.code ?? body?.error?.data?.code ?? '';
+    refreshes.push(`${res.status()}${code ? ` ${String(code).slice(0, 80)}` : ''}`);
+  };
+  // Whether the browser still held a refresh cookie when this load began: a missing cookie and a refused one answer alike.
+  const held = (await page.context().cookies()).some((c) => c.name === 'ifc_rt');
+  page.on('response', seen);
+  try {
+    return await openFollow(page, state('leaderRef'));
+  } catch (err) {
+    if (await page.getByText('You are signed out', { exact: true }).isVisible()) {
+      err.message += `\nthe page came back signed out; a refresh cookie was ${held ? '' : 'not '}held before the load, and its refreshes answered: ${refreshes.join(' | ') || 'none'}`;
+    }
+    throw err;
+  } finally {
+    page.off('response', seen);
+  }
 }
 
 test(`${J} #1 chooses a sizing mode: smart sync and fixed amount offered, multiplier refused; once active the mode is locked`, async ({
@@ -273,6 +303,13 @@ test(`${J} #3 a lead order past the per-contract cap: refused with the cap code,
   await takeBest(leader, 'buy', '0.001', `${J}-3-btc2-${tag}`);
   await leadFill(leader, 'buy', '0.01', `${J}-3-eth-${tag}`, 'ETH/USDT');
   await expect.poll(async () => (await skips(follower, followId)).map((s) => s.reason), { timeout: 60_000 }).toContain('per_contract_cap');
+  // The service lists one BTC copy and one ETH copy before the screen is read; a copy missing here names every reason the
+  // follow skipped, so an empty Copied orders table is told apart from copies that were never placed.
+  await expect(async () => {
+    const markets = (await copiedBy(follower, followId)).map((p) => p.market).sort();
+    const reasons = (await skips(follower, followId)).map((s) => s.reason);
+    expect(markets, `the copies svc-trade lists; the follow's skips: ${reasons.join(', ') || 'none'}`).toEqual(['BTC/USDT', 'ETH/USDT']);
+  }).toPass({ timeout: 30_000 });
   await signIn(page, follower);
   const detail = await myFollow(page);
   await expect(copiedOrders(detail).filter({ hasText: 'ETH/USDT' })).toHaveCount(1);

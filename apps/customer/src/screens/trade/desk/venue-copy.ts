@@ -14,6 +14,15 @@ export const spotVenueCopy = defineCopy('trade.desk.venue', {
   'Worst price': 'Worst price (slippage limit)',
   Amount: 'Amount ({asset})',
   'Time in force': 'Time in force',
+  'Tif engine': 'run by INTAFACED',
+  Expires: 'Expires',
+  'Expiry past': 'Pick a time in the future.',
+  'Expires review': 'Expires',
+  'Expiry engine review':
+    'At the expiry INTAFACED cancels whatever is unfilled on the venue, under your agent permission; the venue then releases its lock.',
+  'Gtd permission':
+    'Good till date needs your agent permission on the venue, once: our engine uses it only to cancel this order at its expiry.',
+  'Gtd placed': 'Placed. Rests on the venue until {at}; then INTAFACED cancels what is unfilled.',
   'Review buy': 'Review buy',
   'Buy asset': 'Buy {asset}',
   'Sell asset': 'Sell {asset}',

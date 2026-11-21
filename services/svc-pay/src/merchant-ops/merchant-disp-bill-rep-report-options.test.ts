@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { EXPORT_KINDS, resolveExportColumns } from './exports.js';
+import { PAY_EXPORT_KINDS } from '@intafaced/contracts';
+import { resolveExportColumns } from './exports.js';
 import { MerchantOpsError } from './errors.js';
 import { assertTimeZone, reportOptions, zonedFilters, zonedMidnight } from './merchant-disp-bill-rep-report-options.js';
 import type { MerchantCaller } from './roles.js';
@@ -65,7 +66,7 @@ describe('M-rep-01 report options', () => {
     for (const role of ['owner', 'admin', 'finance', 'developer', 'viewer'] as const) {
       const o = reportOptions(caller(role));
       expect(o.formats).toEqual(['csv']);
-      expect(o.kinds.map((k) => k.kind)).toEqual([...EXPORT_KINDS]);
+      expect(o.kinds.map((k) => k.kind)).toEqual([...PAY_EXPORT_KINDS]);
       for (const k of o.kinds) expect(k.columns).toEqual(resolveExportColumns(k.kind, role, undefined));
     }
     const viewerFees = reportOptions(caller('viewer')).kinds.find((k) => k.kind === 'fees')!;

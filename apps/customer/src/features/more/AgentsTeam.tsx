@@ -17,11 +17,10 @@ import {
 } from '@intafaced/contracts/agents-team';
 import { ownAgentSchema } from '@intafaced/contracts/agents-own';
 import type { ApiResult, RefusalReason } from '../../shared/api';
-import { businessListSchema } from '../money/business-schema';
 import { Checkbox } from '@intafaced/ui';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Field, Loading, Panel } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { businessListSchema, useApi, useSession } from '../session';
 import { Select } from './common';
 import { StatRow } from './depth-kit';
 import { agentsTeamCopy } from './agents-team-copy';

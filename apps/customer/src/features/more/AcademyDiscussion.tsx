@@ -1,26 +1,29 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { z } from 'zod';
 import {
   ACADEMY_DISCUSSION_GENERAL_TOPIC,
-  academyDiscussionCourseSchema,
-  academyDiscussionAcceptResultSchema,
-  academyDiscussionFollowResultSchema,
-  academyDiscussionImageSchema,
-  academyDiscussionLikeResultSchema,
-  academyDiscussionPostSchema,
-  academyDiscussionReplySchema,
-  academyDiscussionThreadSchema,
-  academyDiscussionTopicsSchema,
   type AcademyDiscussionAuthor,
+  type AcademyDiscussionPost,
   type AcademyDiscussionPostKind,
   type AcademyDiscussionTopic,
 } from '@intafaced/contracts/academy-discussion';
-import { academyReportDiscussionPostResultSchema } from '@intafaced/contracts/academy-team';
+import {
+  ACADEMY_ACCEPT_DISCUSSION_REPLY,
+  ACADEMY_CREATE_DISCUSSION_POST,
+  ACADEMY_DISCUSSION_COURSES,
+  ACADEMY_DISCUSSION_POST_IMAGE,
+  ACADEMY_DISCUSSION_POSTS,
+  ACADEMY_DISCUSSION_THREAD,
+  ACADEMY_DISCUSSION_TOPICS,
+  ACADEMY_FOLLOW_DISCUSSION_POST,
+  ACADEMY_LIKE_DISCUSSION_POST,
+  ACADEMY_REPLY_DISCUSSION_POST,
+  ACADEMY_REPORT_DISCUSSION_POST,
+} from '@intafaced/contracts/academy-learner-procedures';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, Field, Loading, Panel } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyCodeOf, academyRefusalText } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyDiscussionHref, formatMoment } from './academy-lms';
@@ -104,7 +107,7 @@ export function AcademyDiscussionCourses() {
   const { userId } = useSession();
   const { t } = copy.useCopy();
   const list = useResource(
-    (signal) => api.query('academy', 'discussionCourses', { limit: COURSES_PAGE }, z.array(academyDiscussionCourseSchema), { signal }),
+    (signal) => api.call(ACADEMY_DISCUSSION_COURSES, { limit: COURSES_PAGE }, { signal }),
     `discussion-courses:${userId}`,
   );
   return (
@@ -140,14 +143,11 @@ export function AcademyDiscussionPage({ courseSlug }: { courseSlug: string }) {
   const { t } = copy.useCopy();
   const [topicSlug, setTopicSlug] = useState(ACADEMY_DISCUSSION_GENERAL_TOPIC);
   const topics = useResource(
-    (signal) => api.query('academy', 'discussionTopics', { courseSlug }, academyDiscussionTopicsSchema, { signal }),
+    (signal) => api.call(ACADEMY_DISCUSSION_TOPICS, { courseSlug }, { signal }),
     `discussion-topics:${userId}:${courseSlug}`,
   );
   const posts = useResource(
-    (signal) =>
-      api.query('academy', 'discussionPosts', { courseSlug, topicSlug, limit: POSTS_PAGE }, z.array(academyDiscussionPostSchema), {
-        signal,
-      }),
+    (signal) => api.call(ACADEMY_DISCUSSION_POSTS, { courseSlug, topicSlug, limit: POSTS_PAGE }, { signal }),
     `discussion-posts:${userId}:${courseSlug}:${topicSlug}`,
   );
   const topicsData = useSteady(topics.resource, courseSlug);
@@ -218,7 +218,7 @@ function TopicPosts({
 }: {
   courseSlug: string;
   topic: AcademyDiscussionTopic;
-  posts: z.infer<typeof academyDiscussionPostSchema>[] | null;
+  posts: AcademyDiscussionPost[] | null;
   failure: Resource<unknown>;
   retry: () => void;
 }) {
@@ -246,7 +246,7 @@ function TopicPosts({
                     {post.kind === 'question' ? t('discussionKindQuestion') : t('discussionKindDiscussion')}
                   </span>
                   <span data-testid="post-author">{authorText(post.author, t)}</span>
-                  <span>{formatMoment(post.createdAt.toISOString(), language)}</span>
+                  <span>{formatMoment(post.createdAt, language)}</span>
                   <span>{repliesText(post.replies, t)}</span>
                   <span>{likesText(post.likes, t)}</span>
                   {post.acceptedReplyId && <span className="academy-lms-chip">{t('discussionAccepted')}</span>}
@@ -288,12 +288,16 @@ function NewPost({ courseSlug, topic, onSettled }: { courseSlug: string; topic: 
     setOutcome(null);
     try {
       const image = file ? { contentType: file.type || 'application/octet-stream', base64: await base64Of(file) } : null;
-      const sent = await api.mutate(
-        'academy',
-        'createDiscussionPost',
-        { courseSlug, topicSlug: topic.slug, kind, title, body, anonymous, image, clientRequestId: request.current },
-        academyDiscussionPostSchema,
-      );
+      const sent = await api.call(ACADEMY_CREATE_DISCUSSION_POST, {
+        courseSlug,
+        topicSlug: topic.slug,
+        kind,
+        title,
+        body,
+        anonymous,
+        image,
+        clientRequestId: request.current,
+      });
       if (sent.ok) {
         setOutcome({ kind: 'done' });
         setTitle('');
@@ -384,16 +388,16 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
   const { t } = copy.useCopy();
   const { language } = usePreferences();
   const thread = useResource(
-    (signal) => api.query('academy', 'discussionThread', { postId, limit: REPLIES_PAGE }, academyDiscussionThreadSchema, { signal }),
+    (signal) => api.call(ACADEMY_DISCUSSION_THREAD, { postId, limit: REPLIES_PAGE }, { signal }),
     `discussion-thread:${userId}:${postId}`,
   );
   const threadData = useSteady(thread.resource, postId);
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<Outcome | null>(null);
-  const act = async (procedure: string, input: Record<string, unknown>, schema: z.ZodType) => {
+  const act = async (send: () => Promise<ApiResult<unknown>>) => {
     setBusy(true);
     setRefused(null);
-    const done = await api.mutate('academy', procedure, input, schema);
+    const done = await send();
     setBusy(false);
     if (!done.ok) setRefused(done.reason === 'uncertain' ? { kind: 'uncertain' } : { kind: 'refused', failure: done });
     // Whatever the reply said, the page shows what Academy stored.
@@ -420,7 +424,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                       {post.kind === 'question' ? t('discussionKindQuestion') : t('discussionKindDiscussion')}
                     </span>
                     <span data-testid="post-author">{authorText(post.author, t)}</span>
-                    <span>{formatMoment(post.createdAt.toISOString(), language)}</span>
+                    <span>{formatMoment(post.createdAt, language)}</span>
                     <span>{likesText(post.likes, t)}</span>
                   </div>
                   <p lang="und" className="academy-discussion-body">
@@ -432,9 +436,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                       variant="secondary"
                       disabled={busy}
                       aria-pressed={post.following}
-                      onClick={() =>
-                        void act('followDiscussionPost', { postId: post.id, on: !post.following }, academyDiscussionFollowResultSchema)
-                      }
+                      onClick={() => void act(() => api.call(ACADEMY_FOLLOW_DISCUSSION_POST, { postId: post.id, on: !post.following }))}
                     >
                       {post.following ? t('discussionFollowing') : t('discussionFollow')}
                     </Button>
@@ -442,9 +444,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                       variant="secondary"
                       disabled={busy}
                       aria-pressed={post.liked}
-                      onClick={() =>
-                        void act('likeDiscussionPost', { postId: post.id, on: !post.liked }, academyDiscussionLikeResultSchema)
-                      }
+                      onClick={() => void act(() => api.call(ACADEMY_LIKE_DISCUSSION_POST, { postId: post.id, on: !post.liked }))}
                     >
                       {post.liked ? t('discussionLiked') : t('discussionLike')}
                     </Button>
@@ -468,7 +468,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                                 </span>
                               )}
                               <span data-testid="post-author">{authorText(reply.author, t)}</span>
-                              <span>{formatMoment(reply.createdAt.toISOString(), language)}</span>
+                              <span>{formatMoment(reply.createdAt, language)}</span>
                               <span data-testid="reply-likes">{likesText(reply.likes, t)}</span>
                             </div>
                             <p lang="und" className="academy-discussion-body">
@@ -480,7 +480,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                                 disabled={busy}
                                 aria-pressed={reply.liked}
                                 onClick={() =>
-                                  void act('likeDiscussionPost', { postId: reply.id, on: !reply.liked }, academyDiscussionLikeResultSchema)
+                                  void act(() => api.call(ACADEMY_LIKE_DISCUSSION_POST, { postId: reply.id, on: !reply.liked }))
                                 }
                               >
                                 {reply.liked ? t('discussionLiked') : t('discussionLike')}
@@ -490,11 +490,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                                   variant="secondary"
                                   disabled={busy}
                                   onClick={() =>
-                                    void act(
-                                      'acceptDiscussionReply',
-                                      { postId: post.id, replyId: reply.id },
-                                      academyDiscussionAcceptResultSchema,
-                                    )
+                                    void act(() => api.call(ACADEMY_ACCEPT_DISCUSSION_REPLY, { postId: post.id, replyId: reply.id }))
                                   }
                                 >
                                   {t('discussionAccept')}
@@ -534,7 +530,7 @@ function ReportForm({ postId }: { postId: string }) {
   const send = async () => {
     setSending(true);
     setOutcome(null);
-    const sent = await api.mutate('academy', 'reportDiscussionPost', { postId, reason }, academyReportDiscussionPostResultSchema);
+    const sent = await api.call(ACADEMY_REPORT_DISCUSSION_POST, { postId, reason });
     setSending(false);
     if (sent.ok) {
       setFirst(sent.data.reported);
@@ -582,7 +578,7 @@ function PostImage({ postId }: { postId: string }) {
   const { userId } = useSession();
   const { t } = copy.useCopy();
   const image = useResource(
-    (signal) => api.query('academy', 'discussionPostImage', { postId }, academyDiscussionImageSchema.nullable(), { signal }),
+    (signal) => api.call(ACADEMY_DISCUSSION_POST_IMAGE, { postId }, { signal }),
     `discussion-image:${userId}:${postId}`,
   );
   if (image.resource.status === 'loading') return <Loading />;
@@ -620,12 +616,7 @@ function ReplyForm({ postId, onSettled }: { postId: string; onSettled: () => voi
     setSending(true);
     setOutcome(null);
     try {
-      const sent = await api.mutate(
-        'academy',
-        'replyDiscussionPost',
-        { postId, body, anonymous, clientRequestId: request.current },
-        academyDiscussionReplySchema,
-      );
+      const sent = await api.call(ACADEMY_REPLY_DISCUSSION_POST, { postId, body, anonymous, clientRequestId: request.current });
       if (sent.ok) {
         setOutcome({ kind: 'done' });
         setBody('');

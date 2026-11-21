@@ -7,10 +7,11 @@ import { test, expect } from './journey.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { openFounderDesk } from './agents.mjs';
 import { api, EDGE, fromUnits, journeyState, ORIGIN, stackUrl, tool, toUnits } from './stack.mjs';
-import { signedHeaders } from './developer.mjs';
+import { VERSION_PIN, signedHeaders } from './developer.mjs';
 import { browserHoldsPasskey, confirmStepUp, restorePasskey, testPasskey } from './p2p.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import { installTestWallet, testWalletKey } from './test-wallet.mjs';
+import { TEST_VENUE as FIXTURE_VENUE, venueRecord } from './venue.mjs';
 
 // J-agents-21, in the running app (docs/roadmap/journeys.json): I let my own AI assistant trade on a capped account I
 // can revoke. This file holds every step (#1 #2 #3 #4 #5 #6 #8 #9 #10 #11 #12 #13 #14 #16 #17 #18 #19 #7 #15), one test per step,
@@ -123,11 +124,13 @@ async function venue(path, body) {
   expect(res.status, JSON.stringify(json)).toBe(200);
   return json;
 }
+/** A read of the TEST venue's own record for one account, through the venue fixture (`venueRecord`): what the app must equal. */
+const record = (path, { account, ...extra }) => venueRecord(account.owner, path, extra, FIXTURE_VENUE, account.subAccount);
 const venueId = async () => (await venue('/venue')).venue.id;
 const acct = async (owner, subAccount = null) => ({ venueId: await venueId(), owner, subAccount });
 /** The venue's own USDC total for the account, as it reports it. */
 async function venueUsdc(owner, subAccount = null) {
-  const body = await venue('/balances', { account: await acct(owner, subAccount) });
+  const body = await record('/balances', { account: await acct(owner, subAccount) });
   return body.value.find((b) => b.asset === 'USDC')?.total ?? '0';
 }
 const same = (a, b) => toUnits(String(a)) === toUnits(String(b));
@@ -188,7 +191,7 @@ test(`${J} #1 With the owner's agent-account ceiling switched off for one restar
   expect(credited.credited).toBe(true);
   expect(same(await venueUsdc(owner()), '1000')).toBe(true);
 
-  const subsBefore = (await venue('/sub-accounts', { account: await acct(owner()) })).value;
+  const subsBefore = (await record('/sub-accounts', { account: await acct(owner()) })).value;
   restartTrade({ LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_AGENT_ACCOUNT_CEILING: 'off' });
   try {
     const { session } = await person();
@@ -200,7 +203,7 @@ test(`${J} #1 With the owner's agent-account ceiling switched off for one restar
     // No account made: none listed, nothing asked of the venue, nothing moved.
     expect(body200(await session.get(BASE)).accounts).toEqual([]);
     refused(await session.get(`${BASE}/${accountId}`), 404, 'agents.account_unknown');
-    expect((await venue('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
+    expect((await record('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
     expect(same(await venueUsdc(owner()), '1000')).toBe(true);
   } finally {
     restartTrade({ LOCAL_STACK_USER_VENUE: 'on', LOCAL_STACK_AGENT_ACCOUNT_CEILING: null });
@@ -247,7 +250,7 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
   run.write({ passkey: passkey.saved() });
   const ledgerBefore = await session.balances();
   const mainBefore = await venueUsdc(owner());
-  const subsBefore = (await venue('/sub-accounts', { account: await acct(owner()) })).value;
+  const subsBefore = (await record('/sub-accounts', { account: await acct(owner()) })).value;
   const venueInfo = await venue('/venue');
   const venueName = venueInfo.venue.displayName;
   const OWN = `On ${venueName}, the permission your wallet signs lets the assistant trade this agent account and nothing else, so ${venueName} itself holds it to your cap.`;
@@ -327,7 +330,7 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
     expect(testWallet.requests[0].signature).toBeUndefined();
     // No account: none is listed, the venue holds no new sub-account and the main venue account is unchanged.
     expect(body200(await session.get(BASE)).accounts).toEqual([]);
-    expect((await venue('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
+    expect((await record('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
     expect(same(await venueUsdc(owner()), mainBefore)).toBe(true);
     // Its prepared action is never sent afterwards, even signed.
     refused(
@@ -338,7 +341,7 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
       409,
       'agents.account_not_open',
     );
-    expect((await venue('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
+    expect((await record('/sub-accounts', { account: await acct(owner()) })).value).toEqual(subsBefore);
   } finally {
     await context.close();
   }
@@ -382,12 +385,14 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
 
   // A venue sub-account under the person's wallet, with the agent permission on it and not on the main account.
   expect(view.status).toBe('open');
-  const subs = (await venue('/sub-accounts', { account: await acct(owner()) })).value;
+  const subs = (await record('/sub-accounts', { account: await acct(owner()) })).value;
   expect(subs.map((s) => s.subAccount)).toContain(view.subAccount);
-  expect((await venue('/agents', { account: await acct(owner(), view.subAccount) })).value.map((a) => a.address)).toEqual([
+  expect((await record('/agents', { account: await acct(owner(), view.subAccount) })).value.map((a) => a.address)).toEqual([
     approve.intent.agentAddress,
   ]);
-  expect((await venue('/agents', { account: await acct(owner()) })).value.map((a) => a.address)).not.toContain(approve.intent.agentAddress);
+  expect((await record('/agents', { account: await acct(owner()) })).value.map((a) => a.address)).not.toContain(
+    approve.intent.agentAddress,
+  );
   // The agent account reads balance 150.00, as the venue reports it, and cap 200.00.
   const venueSub = await venueUsdc(owner(), view.subAccount);
   expect(same(venueSub, '150.00')).toBe(true);
@@ -397,7 +402,7 @@ test(`${J} #3 Creates an agent account with a cap of TEST 200 USDC and funds it 
   expect(toUnits(mainBefore) - toUnits(await venueUsdc(owner()))).toBe(toUnits('150'));
   // The move was sent once: its venue transfer record is one move of 150 under the signed nonce; sending the same signed
   // bytes again moves nothing more.
-  const transfer = (await venue('/transfer', { account: await acct(owner()), nonce: move.nonce })).value;
+  const transfer = (await record('/transfer', { account: await acct(owner()), nonce: move.nonce })).value;
   expect(transfer).toMatchObject({ subAccount: view.subAccount, direction: 'into_sub_account', asset: 'USDC', status: 'done' });
   expect(same(transfer.amount, '150')).toBe(true);
   refused(
@@ -606,6 +611,7 @@ async function asAssistant(method, route, body, which = 'first') {
     headers: {
       origin: ORIGIN,
       authorization: `Bearer ${agentKey}`,
+      ...VERSION_PIN,
       ...(raw ? { 'content-type': 'application/json' } : {}),
       ...(agentSecret ? signedHeaders(agentSecret, { method, path: route, body: raw ?? '' }) : {}),
     },
@@ -628,11 +634,11 @@ async function asAssistant(method, route, body, which = 'first') {
 /** Everything a step must leave as it was: both venue accounts as the venue reports them, and our ledger. */
 async function everything(session, subAccount = state().subAccount) {
   return {
-    main: (await venue('/balances', { account: await acct(owner()) })).value,
-    mainPositions: (await venue('/positions', { account: await acct(owner()) })).value,
-    sub: (await venue('/balances', { account: await acct(owner(), subAccount) })).value,
-    subPositions: (await venue('/positions', { account: await acct(owner(), subAccount) })).value,
-    subOrders: (await venue('/open-orders', { account: await acct(owner(), subAccount) })).value,
+    main: (await record('/balances', { account: await acct(owner()) })).value,
+    mainPositions: (await record('/positions', { account: await acct(owner()) })).value,
+    sub: (await record('/balances', { account: await acct(owner(), subAccount) })).value,
+    subPositions: (await record('/positions', { account: await acct(owner(), subAccount) })).value,
+    subOrders: (await record('/open-orders', { account: await acct(owner(), subAccount) })).value,
     ledger: await session.balances(),
   };
 }
@@ -669,26 +675,26 @@ test(`${J} #8 The assistant opens a TEST perp position: opened isolated on the a
   expect(res.body).toMatchObject({ state: 'accepted', origin: `agent:${agentKeyId}`, account: { owner: owner(), subAccount } });
 
   // Isolated, on the agent's venue account, as the venue reports it: its setting on the market and its one position.
-  const setting = (await venue('/leverage', { account: await acct(owner(), subAccount), symbol: 'BTC-PERP' })).value;
+  const setting = (await record('/leverage', { account: await acct(owner(), subAccount), symbol: 'BTC-PERP' })).value;
   expect(setting).toMatchObject({ symbol: 'BTC-PERP', leverageBps: 10000, marginMode: 'isolated' });
-  const positions = (await venue('/positions', { account: await acct(owner(), subAccount) })).value;
+  const positions = (await record('/positions', { account: await acct(owner(), subAccount) })).value;
   expect(positions).toHaveLength(1);
   expect(positions[0]).toMatchObject({ symbol: 'BTC-PERP', side: 'long', leverageBps: 10000, marginMode: 'isolated' });
   expect(same(positions[0].size, '0.001')).toBe(true);
   expect(toUnits(positions[0].margin) > 0n).toBe(true);
   // Its margin taken there by the venue: the sub-account's USDC used as margin is exactly the position's margin, and its
   // free USDC fell by exactly that margin and the fees on the venue's own fill, no more.
-  const sub = usdcOf((await venue('/balances', { account: await acct(owner(), subAccount) })).value);
+  const sub = usdcOf((await record('/balances', { account: await acct(owner(), subAccount) })).value);
   expect(toUnits(sub.locked) - toUnits(usdcOf(before.sub).locked)).toBe(toUnits(positions[0].margin));
   // Every fill the agent sub-account has ever had: this one.
-  const fills = (await venue('/fills', { account: await acct(owner(), subAccount), since: '2020-01-01T00:00:00.000Z' })).value;
+  const fills = (await record('/fills', { account: await acct(owner(), subAccount), since: '2020-01-01T00:00:00.000Z' })).value;
   expect(fills.map((f) => [f.symbol, f.side])).toEqual([['BTC-PERP', 'buy']]);
   expect(fills[0].feeAsset).toBe('USDC');
   const fees = toUnits(fills[0].venueFee) + toUnits(fills[0].builderFee);
   expect(toUnits(usdcOf(before.sub).free) - toUnits(sub.free)).toBe(toUnits(positions[0].margin) + fees);
   // And from nowhere else: the main venue account and our ledger are exactly as they were.
-  expect((await venue('/balances', { account: await acct(owner()) })).value).toEqual(before.main);
-  expect((await venue('/positions', { account: await acct(owner()) })).value).toEqual(before.mainPositions);
+  expect((await record('/balances', { account: await acct(owner()) })).value).toEqual(before.main);
+  expect((await record('/positions', { account: await acct(owner()) })).value).toEqual(before.mainPositions);
   expect(await session.balances()).toEqual(before.ledger);
   // The person's own record of it names the assistant's key as its origin.
   const read = body200(
@@ -842,7 +848,7 @@ test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next
   const sub = await acct(owner(), subAccount);
   const agentAddress = body200(await session.get(`${BASE}/${accountId}`)).agentAddress;
   // The perp the assistant opened in #8 is open on the agent account.
-  const positions = (await venue('/positions', { account: sub })).value;
+  const positions = (await record('/positions', { account: sub })).value;
   expect(positions).toHaveLength(1);
   expect(positions[0]).toMatchObject({ symbol: 'BTC-PERP', side: 'long' });
 
@@ -860,10 +866,10 @@ test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next
   );
   expect(rest).toMatchObject({ state: 'accepted', origin: `agent:${agentKeyId}`, account: { owner: owner(), subAccount } });
   const cloid = rest.order.venueClientOrderId;
-  expect((await venue('/open-orders', { account: sub })).value.map((o) => [o.venueClientOrderId, o.status])).toEqual([[cloid, 'open']]);
-  const lockedBefore = toUnits(usdcOf((await venue('/balances', { account: sub })).value).locked);
+  expect((await record('/open-orders', { account: sub })).value.map((o) => [o.venueClientOrderId, o.status])).toEqual([[cloid, 'open']]);
+  const lockedBefore = toUnits(usdcOf((await record('/balances', { account: sub })).value).locked);
   // The venue lists the agent permission behind the assistant's key on the agent account.
-  expect((await venue('/agents', { account: sub })).value.map((x) => x.address.toLowerCase())).toContain(agentAddress);
+  expect((await record('/agents', { account: sub })).value.map((x) => x.address.toLowerCase())).toContain(agentAddress);
 
   // The person revokes the assistant: identity switches its API key off, and the assistant is revoked on the agent account.
   const off = await session.post('/api/identity/trpc/developerKeys.revoke', { keyId: agentKeyId });
@@ -895,9 +901,9 @@ test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next
   expect(revoked.cancels).toEqual([
     { orderKey: `agent:order:${agentKeyId}:revoke-rest`, venueClientOrderId: cloid, symbol: 'BTC-USDC', state: 'cancelled' },
   ]);
-  expect((await venue('/order-by-client-id', { account: sub, venueClientOrderId: cloid })).value).toMatchObject({ status: 'canceled' });
-  expect((await venue('/open-orders', { account: sub })).value).toEqual([]);
-  expect(toUnits(usdcOf((await venue('/balances', { account: sub })).value).locked) < lockedBefore).toBe(true);
+  expect((await record('/order-by-client-id', { account: sub, venueClientOrderId: cloid })).value).toMatchObject({ status: 'canceled' });
+  expect((await record('/open-orders', { account: sub })).value).toEqual([]);
+  expect(toUnits(usdcOf((await record('/balances', { account: sub })).value).locked) < lockedBefore).toBe(true);
 
   // Our copy of the venue agent key is dropped, and the wallet is asked to sign the venue's revoke of that agent: the
   // person's own wallet, on the agent account.
@@ -915,7 +921,7 @@ test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next
   );
   expect(signed.agent).toEqual({ address: agentAddress, onVenue: false });
   expect(signed.next).toBeNull();
-  expect((await venue('/agents', { account: sub })).value.map((x) => x.address.toLowerCase())).not.toContain(agentAddress);
+  expect((await record('/agents', { account: sub })).value.map((x) => x.address.toLowerCase())).not.toContain(agentAddress);
 
   // Once: the revoke again sends nothing more, and still names the one cancel.
   const again = body200(await session.post(`${BASE}/connections/${agentKeyId}/revoke`, {}));
@@ -923,7 +929,7 @@ test(`${J} #12 Revokes the assistant while it has a resting TEST order: the next
   expect(again.next).toBeNull();
 
   // The perp position stays in the agent account, as the venue reports it.
-  expect((await venue('/positions', { account: sub })).value).toEqual(positions);
+  expect((await record('/positions', { account: sub })).value).toEqual(positions);
 });
 
 test(`${J} #13 Presses Close agent account while the perp is still open: refused, naming the open position; nothing changes`, async () => {
@@ -931,9 +937,13 @@ test(`${J} #13 Presses Close agent account while the perp is still open: refused
   const { session } = await person();
   const { accountId, subAccount } = state();
   // The perp the assistant opened in #8 is still open on the agent sub-account.
-  const positions = (await venue('/positions', { account: await acct(owner(), subAccount) })).value;
+  const positions = (await record('/positions', { account: await acct(owner(), subAccount) })).value;
   expect(positions).toHaveLength(1);
-  const before = { positions, sub: await venue('/balances', { account: await acct(owner(), subAccount) }), main: await venueUsdc(owner()) };
+  const before = {
+    positions,
+    sub: await record('/balances', { account: await acct(owner(), subAccount) }),
+    main: await venueUsdc(owner()),
+  };
 
   const res = refused(await session.post(`${BASE}/${accountId}/close`, {}), 409, 'agents.account_close_open_position');
   expect(res).toMatchObject({ symbol: 'BTC-PERP', side: 'long' });
@@ -941,8 +951,8 @@ test(`${J} #13 Presses Close agent account while the perp is still open: refused
   expect(res.message).toContain('BTC-PERP');
   // Nothing changes: the account stays open, the position and both balances are as they were.
   expect(body200(await session.get(`${BASE}/${accountId}`)).status).toBe('open');
-  expect((await venue('/positions', { account: await acct(owner(), subAccount) })).value).toEqual(before.positions);
-  expect((await venue('/balances', { account: await acct(owner(), subAccount) })).value).toEqual(before.sub.value);
+  expect((await record('/positions', { account: await acct(owner(), subAccount) })).value).toEqual(before.positions);
+  expect((await record('/balances', { account: await acct(owner(), subAccount) })).value).toEqual(before.sub.value);
   expect(await venueUsdc(owner())).toBe(before.main);
 });
 
@@ -952,10 +962,10 @@ test(`${J} #14 Closes the perp, moves the agent account's balance back and close
   const { accountId, subAccount } = state();
   const ledgerBefore = await session.balances();
   await onSubAccount(session, { ...PERP, side: 'sell', price: '59900', reduceOnly: true, clientOrderKey: `order:${accountId}:perp:close` });
-  expect((await venue('/positions', { account: await acct(owner(), subAccount) })).value).toEqual([]);
+  expect((await record('/positions', { account: await acct(owner(), subAccount) })).value).toEqual([]);
 
   // Move back what the venue reports free in the sub-account.
-  const left = (await venue('/balances', { account: await acct(owner(), subAccount) })).value.find((b) => b.asset === 'USDC');
+  const left = (await record('/balances', { account: await acct(owner(), subAccount) })).value.find((b) => b.asset === 'USDC');
   expect(toUnits(left.locked)).toBe(0n);
   const mainBefore = await venueUsdc(owner());
   const moveId = randomUUID();
@@ -966,7 +976,7 @@ test(`${J} #14 Closes the perp, moves the agent account's balance back and close
   expect(moveBack.signer).toEqual({ role: 'owner', address: owner() });
   view = body200(await session.post(`${BASE}/${accountId}/submit`, { actionKey: `agent:move:${moveId}`, signature: await sign(moveBack) }));
   expect(view.moves.find((m) => m.moveId === moveId).state).toBe('done');
-  const moved = (await venue('/transfer', { account: await acct(owner()), nonce: moveBack.nonce })).value;
+  const moved = (await record('/transfer', { account: await acct(owner()), nonce: moveBack.nonce })).value;
   expect(moved).toMatchObject({ direction: 'out_of_sub_account', status: 'done' });
   expect(toUnits(await venueUsdc(owner())) - toUnits(mainBefore)).toBe(toUnits(moved.amount));
   expect(toUnits(await venueUsdc(owner(), subAccount))).toBe(0n);
@@ -1027,7 +1037,7 @@ test(`${J} #17 The assistant sends an order above the per-order cap, then one ab
   const { second } = state();
   const { agentKeyId } = await assistantKey('second');
   const before = await everything(session, second.subAccount);
-  const leverageBefore = (await venue('/leverage', { account: await acct(owner(), second.subAccount), symbol: 'BTC-PERP' })).value;
+  const leverageBefore = (await record('/leverage', { account: await acct(owner(), second.subAccount), symbol: 'BTC-PERP' })).value;
 
   // Above the per-order cap: TEST 0.001 BTC at 60100 is 60.10 USDC, over the person's cap of 50 (inside the funding cap
   // and the owner's largest assistant order).
@@ -1068,7 +1078,9 @@ test(`${J} #17 The assistant sends an order above the per-order cap, then one ab
   for (const key of [`agent:order:${agentKeyId}:over-size`, `agent:order:${agentKeyId}:over-leverage`]) {
     refused(await session.get(`/api/v1/venue/orders/by-key?actionKey=${encodeURIComponent(key)}`), 404, 'trade.venue_action_unknown');
   }
-  expect((await venue('/leverage', { account: await acct(owner(), second.subAccount), symbol: 'BTC-PERP' })).value).toEqual(leverageBefore);
+  expect((await record('/leverage', { account: await acct(owner(), second.subAccount), symbol: 'BTC-PERP' })).value).toEqual(
+    leverageBefore,
+  );
   expect(await everything(session, second.subAccount)).toEqual(before);
 });
 
@@ -1087,7 +1099,7 @@ test(`${J} #18 The agent account's loss for the day reaches the daily-loss cap: 
   );
   const since = new Date();
   since.setUTCHours(0, 0, 0, 0);
-  const todays = async () => (await venue('/fills', { account: subAcct, since: since.toISOString() })).value;
+  const todays = async () => (await record('/fills', { account: subAcct, since: since.toISOString() })).value;
   /** The day's loss from the venue's own fills: realised results less every fee (each in USDC on this perp). */
   const lossOf = (fills) => {
     let result = 0n;
@@ -1275,6 +1287,7 @@ test(`${J} #19 Connects the assistant with an expiry longer than the venue allow
         origin: ORIGIN,
         authorization: `Bearer ${valid.key}`,
         'content-type': 'application/json',
+        ...VERSION_PIN,
         ...(valid.signingSecret ? signedHeaders(valid.signingSecret, { method: 'POST', path: route, body: raw }) : {}),
       },
       body: raw,
@@ -1410,10 +1423,10 @@ test(`${J} #7 The assistant buys TEST spot through the MCP server's order tool: 
 
   // The fill is on the agent's venue account, as the venue reports it: its order filled there, its fills there, and the
   // sub-account's BTC rose by exactly what filled less the venue's fee in BTC, its USDC fell by exactly what was paid.
-  const venueOrder = (await venue('/order-by-client-id', { account: sub, venueClientOrderId: cloid })).value;
+  const venueOrder = (await record('/order-by-client-id', { account: sub, venueClientOrderId: cloid })).value;
   expect(venueOrder).toMatchObject({ symbol: 'BTC-USDC', side: 'buy', status: 'filled' });
   expect(same(venueOrder.filled, '0.0005')).toBe(true);
-  const fills = (await venue('/fills', { account: sub, since })).value.filter((f) => f.venueClientOrderId === cloid);
+  const fills = (await record('/fills', { account: sub, since })).value.filter((f) => f.venueClientOrderId === cloid);
   expect(fills.length > 0).toBe(true);
   let gotBtc = 0n;
   let paidUsdc = 0n;

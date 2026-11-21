@@ -3,7 +3,7 @@ import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { formatDateTime } from './portal/ui/format';
-import { StepUpConfirm } from '../money/StepUpConfirm';
+import { StepUpConfirm } from '../money';
 import { payCopy } from './copy';
 import { PayAmount, PayDetails, ReviewedAction } from './components';
 import { CounterpartyName } from './P2PCounterparty';

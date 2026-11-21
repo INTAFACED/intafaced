@@ -13,16 +13,22 @@ const input: GuestNotificationSendInput = {
   message: { kind: 'enquiry_acknowledgement' },
 };
 describe('bounded exact-body guest ingress', () => {
-  it('uses real HTTP POSTs and v2 bytes for send, get and erasure, with bound receipts', async () => {
-    const calls: string[] = [];
+  it('uses real HTTP POSTs and v2 bytes for send, get and erasure, with bound receipts, on a starved event loop', async () => {
+    // A starved runner can hold this process past the client's 3 s bound, so the client gets a longer one here,
+    // and the fixture records what it saw and always answers instead of throwing inside its handler.
+    const calls: { url: string; method: string; authenticated: ReturnType<typeof verifyServiceHeaders> }[] = [];
     const server = createServer(async (request, response) => {
       const chunks: Buffer[] = [];
       for await (const chunk of request) chunks.push(Buffer.from(chunk));
       const bytes = Buffer.concat(chunks);
       const authenticated = verifyServiceHeaders(request.headers, secret, { mode: 'require', rawBody: { retained: true, bytes } });
-      expect(authenticated).toMatchObject({ service: 'svc-ops', scheme: 'v2', rejected: null });
-      expect(request.method).toBe('POST');
-      calls.push(request.url!);
+      calls.push({ url: request.url!, method: request.method!, authenticated });
+      response.setHeader('content-type', 'application/json');
+      if (authenticated.service !== 'svc-ops' || request.method !== 'POST') {
+        response.statusCode = 401;
+        response.end(JSON.stringify({ error: { message: 'fixture.unauthenticated' } }));
+        return;
+      }
       const wire = JSON.parse(bytes.toString('utf8'));
       let data: unknown = {
         notificationId: randomUUID(),
@@ -34,20 +40,32 @@ describe('bounded exact-body guest ingress', () => {
         reference: 'fixture-ref',
       };
       if (request.url!.endsWith('eraseSubmission')) data = { ...wire, erasedCount: 1, erasedAt: '2026-10-10T12:00:02Z' };
-      response.setHeader('content-type', 'application/json');
       response.end(JSON.stringify({ result: { data } }));
     });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('fixture address missing');
     try {
-      const client = createOutreachNotificationClient({ notifyUrl: `http://127.0.0.1:${address.port}`, secret });
-      expect((await client.send(input))?.status).toBe('accepted');
+      const client = createOutreachNotificationClient({ notifyUrl: `http://127.0.0.1:${address.port}`, secret, timeoutMs: 20_000 });
+      const sent = client.send(input);
+      // Hold the event loop past the production 3 s bound, as the loaded runner did.
+      const starvedUntil = Date.now() + 3_500;
+      while (Date.now() < starvedUntil);
+      expect((await sent)?.status).toBe('accepted');
       expect((await client.get(input.businessKey))?.businessKey).toBe(input.businessKey);
       const erase = { requestId: randomUUID(), submissionId: input.submissionId };
       expect(await client.eraseSubmission(erase)).toMatchObject({ ...erase, erasedCount: 1 });
-      expect(calls).toEqual(['/trpc/guestNotifications.send', '/trpc/guestNotifications.get', '/trpc/guestNotifications.eraseSubmission']);
+      for (const call of calls) {
+        expect(call.authenticated).toMatchObject({ service: 'svc-ops', scheme: 'v2', rejected: null });
+        expect(call.method).toBe('POST');
+      }
+      expect(calls.map((call) => call.url)).toEqual([
+        '/trpc/guestNotifications.send',
+        '/trpc/guestNotifications.get',
+        '/trpc/guestNotifications.eraseSubmission',
+      ]);
     } finally {
+      server.closeAllConnections();
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     }
   });

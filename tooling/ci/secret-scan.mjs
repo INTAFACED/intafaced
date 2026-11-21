@@ -503,6 +503,49 @@ const TRACKED_FILES = new Set(tracked());
 const isPlaceholder = (value) => PLACEHOLDER_VALUES.some((p) => p.test(value.trim()));
 
 /**
+ * The call records' published schema (`packages/contracts/procedures/<service>.schema.json`, written by `procedures:write`,
+ * never by hand) holds two things that sit under credential-shaped key names and are public, and only these are let through,
+ * only in those files:
+ *   · a sample input whose field is `token` or `key` and whose value is an EVM ADDRESS (a token contract, a session key's
+ *     address): exactly 20 bytes of hex (`0x` + 40). Key material is 32 bytes or more (a private key is `0x` + 64), so a
+ *     key pasted there is still a finding, and so is any other key name holding 20 bytes of hex;
+ *   · a refusal code (`amm.identical_tokens`: a dotted `<area>.<code>` name) mapped to the tRPC status it is sent with,
+ *     matched whole against the fixed set tRPC sends, never a prefix or a pattern.
+ * Every other file, and every other key, is judged as before.
+ */
+const RECORD_SCHEMA = /^packages\/contracts\/procedures\/svc-[a-z0-9-]+\.schema\.json$/;
+const RECORD_ADDRESS_FIELDS = new Set(['token', 'key']);
+const REFUSAL_CODE_KEY = /^[a-z][a-zA-Z0-9]*(?:\.[a-zA-Z0-9_]+)+$/;
+const EVM_ADDRESS_VALUE = /^0x[0-9a-fA-F]{40}$/;
+const TRPC_STATUS_WORDS = new Set([
+  'BAD_REQUEST',
+  'UNAUTHORIZED',
+  'FORBIDDEN',
+  'NOT_FOUND',
+  'METHOD_NOT_SUPPORTED',
+  'TIMEOUT',
+  'CONFLICT',
+  'PRECONDITION_FAILED',
+  'PAYLOAD_TOO_LARGE',
+  'UNPROCESSABLE_CONTENT',
+  'TOO_MANY_REQUESTS',
+  'CLIENT_CLOSED_REQUEST',
+  'INTERNAL_SERVER_ERROR',
+  'NOT_IMPLEMENTED',
+  'BAD_GATEWAY',
+  'SERVICE_UNAVAILABLE',
+  'GATEWAY_TIMEOUT',
+]);
+/** A key or value as JSON writes it inside an object, its quotes and the comma before the next key taken off. */
+const jsonText = (text) => text.trim().replace(/^"|",?$|"$/g, '');
+const isRecordSchemaPublic = (rel, key, value) => {
+  if (!RECORD_SCHEMA.test(rel)) return false;
+  const name = jsonText(key);
+  const v = jsonText(value);
+  return (RECORD_ADDRESS_FIELDS.has(name) && EVM_ADDRESS_VALUE.test(v)) || (REFUSAL_CODE_KEY.test(name) && TRPC_STATUS_WORDS.has(v));
+};
+
+/**
  * `key:` as an ATTRIBUTE-NAME field, not as a credential.
  *
  * OpenTelemetry and Kubernetes-style YAML express attributes as `- key: <name>`
@@ -723,7 +766,7 @@ for (const rel of TRACKED_FILES) {
         assignmentsChecked++;
         if (declaredUsernames.has(value.toLowerCase()) && value.trim() !== '') {
           // password === a username declared in this same file: the dev convention.
-        } else if (!isPlaceholder(value) && !isFilePathList(key, rawValue)) {
+        } else if (!isPlaceholder(value) && !isRecordSchemaPublic(rel, key, value) && !isFilePathList(key, rawValue)) {
           violations.push({
             check: 'committed-credential',
             file: rel,

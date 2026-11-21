@@ -86,6 +86,17 @@ const schema = serviceEnvSchema
        */
       TRADE_BUILDER_FEE_RECON_INTERVAL_MS: z.coerce.number().int().min(10_000).max(86_400_000).default(300_000),
       /**
+       * J-ops-console-28: how often svc-trade reads our builder address's account mode at each venue, with the door on and
+       * our builder address set; the founder console's view checks again on every read.
+       */
+      TRADE_BUILDER_MODE_CHECK_INTERVAL_MS: z.coerce.number().int().min(1_000).max(86_400_000).default(60_000),
+      /**
+       * J-ops-console-28 (owner value): the named contact an alert goes to when our builder address leaves the mode a venue
+       * requires to accrue builder fees. Blank: the console still shows the modes, and alerting refuses
+       * `trade.builder_mode_alert_contact_unset`; no alert is recorded.
+       */
+      TRADE_BUILDER_MODE_ALERT_CONTACT: z.string().default(''),
+      /**
        * J-derivatives-17, J-campaigns-03 (launch money model, rule 5): how often svc-trade reads each venue's own record of
        * the claims of our builder fees and posts `builderFeeReceive` once per claim. A venue whose adapter does not read
        * the claim record collects nothing and says so. `off` stops it; the next run posts each claim once.
@@ -122,6 +133,17 @@ const schema = serviceEnvSchema
        * `trade.ops_metrics_window_not_set` (admin/copy-bots-otc.ts), never a guessed window.
        */
       TRADE_OPS_METRICS_WINDOW_SECONDS: z.string().default(''),
+      /**
+       * J-charts-desk-19 #3 (C-ops-03 (b)): the owner's fallback chart feed sources, a comma list of names
+       * (`^[a-z][a-z0-9_-]{0,31}$`, never `primary`). NO DEFAULT: blank or malformed refuses every switch to a fallback
+       * `trade.chart_feed.fallback_sources_unset` (admin/chart-feed-controls.ts). A switch back to primary needs no list.
+       */
+      TRADE_CHART_FEED_FALLBACK_SOURCES: z.string().default(''),
+      /**
+       * J-charts-desk-19 #4 (C-ops-03 (c)): the most chart control changes one audit export holds, 1 to 1000000. NO DEFAULT:
+       * blank refuses `trade.chart_feed.export_row_limit_unset`; more matching rows refuse `trade.chart_feed.export_over_limit`.
+       */
+      TRADE_CHART_CONTROL_EXPORT_ROW_LIMIT: z.string().default(''),
       /**
        * J-cex-spot-18 #3: the most orders one operator reconcile sweep looks at (whole number, 1 to 10000). Owner value:
        * blank refuses `reconcile_sweep_unconfigured` (admin/service.ts startReconcileSweep), never a guessed size.

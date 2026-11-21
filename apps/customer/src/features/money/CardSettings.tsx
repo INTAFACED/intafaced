@@ -22,7 +22,7 @@ import {
   type LimitKey,
 } from './card-limits';
 import { t as copyText } from './copy';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import './bank-depth.css';
 
 type CardRecord = z.infer<typeof cardSchema>;

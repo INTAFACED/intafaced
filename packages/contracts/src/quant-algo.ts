@@ -298,10 +298,11 @@ export const quantBacktestInputSchema = z.object({
   simulatedAccount: z.object({ leverage: z.string() }).optional(),
   /**
    * A verdict and a variant count are computed by the service, never taken from the caller (ENGINE MT-6, MT-7). A request
-   * that still sends them is accepted, the values are ignored, and the result lists them under `ignoredInputs`.
+   * that still sends them is accepted, the values are ignored, and the result lists them under `ignoredInputs`. Any JSON
+   * scalar is taken, so the published schema says what is accepted (a record's input never accepts an unshaped value).
    */
-  outOfSampleStatus: z.unknown().optional(),
-  strategyVariantCount: z.unknown().optional(),
+  outOfSampleStatus: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
+  strategyVariantCount: z.union([z.string(), z.number(), z.boolean(), z.null()]).optional(),
 });
 export type QuantBacktestInput = z.infer<typeof quantBacktestInputSchema>;
 
@@ -841,21 +842,6 @@ export type QuantPaperFeed = (typeof QUANT_PAPER_FEEDS)[number];
 /** The published page size of the paper run list. */
 export const QUANT_PAPER_LIST_MAX = 50;
 
-/**
- * `paper.start`. The run key is `algo:paper:<strategyId>:v<version>:<ordinal>`, where the ordinal is the count of that
- * version's paper runs the screen read when the start dialog opened: a retry after a lost reply reads the same run.
- */
-export const quantPaperStartInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  strategyVersion: z.number().int().positive(),
-  cash: z.string().max(40),
-  holdings: z.array(z.object({ symbol: z.string().max(32), qty: z.string().max(40) })).max(20),
-  feed: z.string().max(40),
-  costs: z.object({ feeRole: z.string().max(10), slippageBps: z.string().max(20), delayBars: z.string().max(5) }),
-  ordinal: z.number().int().nonnegative(),
-});
-export type QuantPaperStartInput = z.infer<typeof quantPaperStartInputSchema>;
-
 export const quantPaperRunSummarySchema = z.object({
   runId: z.string(),
   strategyId: z.string(),
@@ -914,11 +900,6 @@ export const quantNotifySettingsSchema = z.object({
 });
 export type QuantNotifySettings = z.infer<typeof quantNotifySettingsSchema>;
 
-export const quantNotifySetInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  channels: z.array(z.string().max(20)).max(8),
-});
-
 /**
  * A strategy's risk screen (AL-risk-01). Every cap is the developer's own and starts blank; a blank cap stays blank and is
  * never assumed. The trading switch is off by default, turns on only with every cap set (a refusal names each blank one,
@@ -956,17 +937,6 @@ export const quantRiskScreenSchema = z.object({
   updatedAt: z.string().nullable(),
 });
 export type QuantRiskScreen = z.infer<typeof quantRiskScreenSchema>;
-export const quantRiskSetInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  caps: z.object({
-    depositPercent: z.string().max(40),
-    maxPositionNotional: z.string().max(40),
-    maxDailyLoss: z.string().max(40),
-    equityFloor: z.string().max(40),
-  }),
-  floorPolicy: z.string().max(20),
-});
-export const quantRiskTradingInputSchema = z.object({ strategyId: z.string().min(1).max(128), on: z.boolean() });
 
 /**
  * A fill alert (AL-alerts-01): one strategy version, the fill event, and a message template. The template may name only
@@ -1077,11 +1047,6 @@ export type QuantLifecycle = z.infer<typeof quantLifecycleSchema>;
  * `lifecycle.promote`. Keyed `quant.stage:<strategyId>:v<version>:paper:candidate:<seq>`, where `seq` is the number of
  * gate decisions of this version the screen read: a second press with the same reading replays the first answer.
  */
-export const quantPromoteInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  strategyVersion: z.number().int().positive(),
-  seq: z.number().int().nonnegative(),
-});
 export const quantPromoteOutputSchema = z.object({
   decision: quantGateDecisionSchema,
   stage: quantStageRowSchema.nullable(),
@@ -1161,10 +1126,6 @@ export const quantLiveOrderTypeSchema = z.object({
   code: z.enum(['trade.order_type_unsupported', 'quant.live_plan_unsupported']).nullable(),
 });
 export type QuantLiveOrderType = z.infer<typeof quantLiveOrderTypeSchema>;
-export const quantLiveCheckInputSchema = z.object({
-  strategyId: z.string().min(1).max(128),
-  strategyVersion: z.number().int().positive(),
-});
 export const quantLiveCheckSchema = z.object({
   strategyId: z.string(),
   strategyVersion: z.number().int().positive(),
@@ -1179,10 +1140,3 @@ export const quantLiveCheckSchema = z.object({
   asOf: z.string(),
 });
 export type QuantLiveCheck = z.infer<typeof quantLiveCheckSchema>;
-/**
- * `live.deploy`: the wizard's Deploy. With the platform's live switch off it refuses `quant.live_disabled` before
- * anything is read or written: no deploy intent exists. The amount is the TEST move the person's wallet would sign.
- */
-export const quantLiveDeployInputSchema = quantLiveCheckInputSchema.extend({
-  amount: z.string().max(40),
-});

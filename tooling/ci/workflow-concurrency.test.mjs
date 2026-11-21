@@ -27,7 +27,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { DEFER_MARK, DISPATCH_MARK, PLAN_JOB, RELEASE_JOB } from './main-first.mjs';
+import { BUILD_JOB, DEFER_MARK, DISPATCH_MARK, PLAN_JOB, RELEASE_JOB } from './main-first.mjs';
+import { DISPATCH_GROUP_MAX, dispatchBatches, dispatchGroup } from './journey-touch.mjs';
 
 const DIR = join(process.cwd(), '.github', 'workflows');
 const read = (f) => readFileSync(join(DIR, f), 'utf8');
@@ -306,6 +307,13 @@ export function journeysProblems(text) {
   const run = (ref, j) => resolve(text, journeysRun('workflow_dispatch', ref, j)).group;
   if (run('refs/heads/x', 'J-a') === run('refs/heads/x-J', 'a'))
     problems.push('branch `x` with `J-a` and branch `x-J` with `a` share a group: nothing splits the branch from the selection');
+  // GitHub refuses to start a run whose group passes DISPATCH_GROUP_MAX characters, so the seal splits a long list into
+  // runs by hand that each stay within it (journey-touch.mjs dispatchBatches), measuring each by dispatchGroup: it must be this
+  // workflow's own group, or a split it prints may still not start (run 44766798876, 20 Nov 2026).
+  const sel = 'J-a-01.pw.mjs J-b-02.pw.mjs';
+  for (const b of ['fix/ps-3298', 'b1'])
+    if (run(`refs/heads/${b}`, sel) !== dispatchGroup(b, sel))
+      problems.push("journey-touch.mjs dispatchGroup is not the group a run by hand gets, so the seal's split runs may not start");
   return problems;
 }
 
@@ -396,10 +404,14 @@ export function mainFirstProblems(text) {
   const defer = step(touch, `"${DEFER_MARK}"`);
   if (!defer || !/\n {8}if: steps\.first\.outputs\.deferred == 'true'\n/.test(defer))
     problems.push(`the touch job has no step "${DEFER_MARK}" run exactly when deferred, so the release can't find deferred runs`);
-  // The touch job plans the shards too, so every run, main's and a branch's, queues for runners twice (this job, then
-  // the shards), not three times: no planner job of its own, and the shards wait on the touch job alone.
-  if (job(text, 'plan') || !/\n {4}needs: \[touch\]\n/.test(job(text, 'journeys')))
-    problems.push('the shards wait on a job after the touch job, so every run queues for runners three times');
+  // The touch job plans the shards too: no planner job of its own. The shards wait on the touch job and the build job
+  // alone, so no shard holds a runner while the build runs, and no other hop sits between.
+  if (job(text, 'plan') || !/\n {4}needs: \[touch, build\]\n/.test(job(text, 'journeys')))
+    problems.push('the shards wait on a job other than the touch and build jobs, so every run queues for runners once more');
+  // A shard that took a runner before the build ended would hold it while it waits: the shards take the build only
+  // through `needs`, never by asking the API in a loop.
+  if (/actions\/runs\/\$GITHUB_RUN_ID\/jobs/.test(job(text, 'journeys')))
+    problems.push("a shard asks the API for the build job's state, so it holds a runner while the build runs");
   if (/\n {4}if: /.test(touch.split('\n    steps:\n')[0] ?? ''))
     problems.push('the touch job is skipped somewhere, so that run plans no shards');
   for (const key of ['build', 'journeys'])
@@ -438,12 +450,13 @@ export function mainFirstProblems(text) {
     failsOn(MAIN, 'skipped')
   )
     problems.push("the scoreboard doesn't fail a run off main whose touch job didn't finish, so it can read as an empty run");
-  // The release: on main after the planner, with the right to re-run, running main-first.mjs --release.
+  // The release: on main after the planner and the build (the shards queue when both end), with the right to re-run,
+  // running main-first.mjs --release.
   const release = job(text, 'release');
   const relIf = /\n {4}if: \$\{\{ (.*) \}\}\n/.exec(release)?.[1] ?? '';
   if (
     !release ||
-    !/\n {4}needs: \[touch\]\n/.test(release) ||
+    !/\n {4}needs: \[touch, build\]\n/.test(release) ||
     !/\n {6}actions: write/.test(release) ||
     !/main-first\.mjs --release/.test(release) ||
     !relIf.includes("github.ref == 'refs/heads/main'")
@@ -487,6 +500,8 @@ export function mainFirstProblems(text) {
     );
   if (!new RegExp(`\n {4}name: ${PLAN_JOB.replace(/[()]/g, '\\$&')}\n`).test(text))
     problems.push(`no job is named "${PLAN_JOB}", the name main-first.mjs reads to know main's shards are queued`);
+  if (!new RegExp(`\n  build:\n    name: ${BUILD_JOB}\n`).test(text))
+    problems.push(`no build job is named "${BUILD_JOB}", the name main-first.mjs reads to know main's shards are not queued yet`);
   if (!new RegExp(`\n  release:\n    name: ${RELEASE_JOB}\n`).test(text))
     problems.push(`no release job is named "${RELEASE_JOB}", the name main-first.mjs reads to know main already let deferred runs go`);
   return problems;
@@ -528,6 +543,44 @@ test('every workflow a pull request triggers keeps only the newest run per pull 
 
 test('Real-app journeys: main is never cancelled and shares one group; a superseded branch run is cancelled', () => {
   assert.deepEqual(journeysProblems(read('real-app-journeys.yml')), []);
+});
+
+test("Real-app journeys: every run by hand the seal asks for fits GitHub's group limit, and the whole list did not", () => {
+  const t = read('real-app-journeys.yml');
+  // The 63 files the seal of #9250 named on 20 Nov 2026 (its run 44764722293), which failed to start as one run.
+  const files = `J-agents-12 J-campaigns-18 J-cex-spot-01 J-cex-spot-17 J-charts-desk-04-venue J-charts-desk-04 J-charts-desk-05
+    J-charts-desk-09-quota J-charts-desk-09 J-charts-desk-10 J-copy-bots-otc-10 J-derivatives-02-venue J-derivatives-02
+    J-derivatives-03 J-derivatives-07 J-derivatives-17 J-derivatives-21 J-derivatives-28 J-developer-03-detail J-developer-03
+    J-developer-06 J-developer-15 J-dex-protocol-01 J-dex-protocol-08 J-dex-protocol-11 J-dex-protocol-13 J-dex-protocol-20
+    J-home-ia-01-venue J-home-ia-01 J-home-ia-06 J-home-ia-11 J-identity-01 J-merchant-02-payouts J-merchant-02 J-merchant-04
+    J-more-catalogue-15 J-ops-console-01-announcements J-ops-console-01-health J-ops-console-01-maintenance
+    J-ops-console-01-ops-room J-ops-console-01-search J-ops-console-01-service-page J-ops-console-01-settings J-ops-console-01
+    J-ops-console-22 J-ops-console-27 J-p2p-01 J-pay-03-qr J-pay-03 J-portfolio-01-venue J-portfolio-01 J-portfolio-02-venue
+    J-portfolio-02 J-portfolio-03-venue J-portfolio-03 J-portfolio-04-venue J-portfolio-04 J-support-public-12
+    J-support-public-19 J-wallet-01 J-wallet-09 J-wallet-13 J-wallet-22`
+    .split(/\s+/)
+    .map((f) => `${f}.pw.mjs`);
+  assert.equal(files.length, 63);
+  const group = (branch, list) => resolve(t, journeysRun('workflow_dispatch', `refs/heads/${branch}`, list.join(' '))).group;
+  // Planted: the old instruction, one run of the whole list, is past the limit (it ended with no jobs).
+  assert.ok(group('fix/ps-3298', files).length > DISPATCH_GROUP_MAX);
+  for (const branch of ['fix/ps-3298', 'b1', `j/${'x'.repeat(120)}`]) {
+    const batches = dispatchBatches(branch, files);
+    assert.deepEqual(batches.flat(), files, `${branch}: every file once, in order`);
+    for (const b of batches) assert.ok(group(branch, b).length <= DISPATCH_GROUP_MAX, `${branch}: ${group(branch, b).length}`);
+    // As few runs as fit: no two neighbouring runs would fit as one.
+    for (let i = 1; i < batches.length; i++)
+      assert.ok(group(branch, [...batches[i - 1], ...batches[i]]).length > DISPATCH_GROUP_MAX, `${branch}: runs ${i - 1} and ${i}`);
+  }
+  // A short list stays one run, as before.
+  assert.deepEqual(dispatchBatches('b1', files.slice(0, 3)), [files.slice(0, 3)]);
+});
+
+test("planted: a dispatchGroup that is not the workflow's group fails", () => {
+  const t = read('real-app-journeys.yml');
+  const longer = t.replace("format('real-app-journeys-{0}:{1}'", "format('real-app-journeys-by-hand-{0}:{1}'");
+  assert.notEqual(longer, t);
+  assert.ok(journeysProblems(longer).some((p) => /dispatchGroup is not the group/.test(p)));
 });
 
 test('CI: a run on main is never cancelled', () => {
@@ -671,9 +724,22 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   );
   assert.notEqual(touchOffMain, t);
   assert.ok(mainFirstProblems(touchOffMain).some((p) => /plans no shards/.test(p)));
-  const planHop = t.replace(/(\n  journeys:\n(?: {4}.*\n)*? {4})needs: \[touch\]/, '$1needs: [touch, plan]');
+  const planHop = t.replace(/(\n  journeys:\n(?: {4}.*\n)*? {4})needs: \[touch, build\]/, '$1needs: [touch, build, plan]');
   assert.notEqual(planHop, t);
-  assert.ok(mainFirstProblems(planHop).some((p) => /three times/.test(p)));
+  assert.ok(mainFirstProblems(planHop).some((p) => /once more/.test(p)));
+  // The shape this replaced: shards needing the touch job alone, polling the API for the build.
+  const pollBuild = t
+    .replace(/(\n  journeys:\n(?: {4}.*\n)*? {4})needs: \[touch, build\]/, '$1needs: [touch]')
+    .replace(
+      "      - name: Download the run's build\n",
+      '      - name: Wait\n        run: gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs"\n      - name: Download the run\'s build\n',
+    );
+  assert.notEqual(pollBuild, t);
+  assert.ok(mainFirstProblems(pollBuild).some((p) => /once more/.test(p)));
+  assert.ok(mainFirstProblems(pollBuild).some((p) => /holds a runner while the build runs/.test(p)));
+  const releaseEarly = t.replace(/(\n  release:\n(?: {4}.*\n)*? {4})needs: \[touch, build\]/, '$1needs: [touch]');
+  assert.notEqual(releaseEarly, t);
+  assert.ok(mainFirstProblems(releaseEarly).some((p) => /never runs/.test(p)));
   const noRelease = t.replace('run: node .base/tooling/ci/main-first.mjs --release', 'run: node .base/tooling/ci/main-first.mjs');
   assert.notEqual(noRelease, t);
   assert.ok(mainFirstProblems(noRelease).some((p) => /never runs/.test(p)));

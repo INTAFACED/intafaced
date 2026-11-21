@@ -6,12 +6,13 @@ import {
   type QuantStrategyVersion,
   type QuantVersionDiff,
 } from '@intafaced/contracts/quant-algo';
+import { QUANT_STUDIO_GET } from '@intafaced/contracts/quant-studio-procedures';
 import { useState } from 'react';
+import { parsesAs } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Panel } from '../../shared/ui';
-import { Read } from '../more/common';
-import { preservePaperHref } from '../more/trade-context';
-import { useApi } from '../session/session';
+import { Read, preservePaperHref } from '../more';
+import { useApi } from '../session';
 import { PaperRuns } from './PaperRuns';
 import { StrategyAlerts, StrategyChannels } from './StrategyNotify';
 import { QuantRooms } from './QuantRooms';
@@ -37,7 +38,7 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
   const api = useApi();
   const { t } = strategyPageCopy.useCopy();
   const detail = useResource(
-    (signal) => api.query('quant', 'studio.get', { id: strategyId }, quantStrategyDetailSchema, { signal }),
+    (signal) => api.call(QUANT_STUDIO_GET, { id: strategyId }, { signal, accept: parsesAs(quantStrategyDetailSchema) }),
     `quant-strategy:${strategyId}`,
   );
   return (

@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { DEVELOPER_ROLES, type DeveloperRole, type DeveloperTeam } from '@intafaced/contracts/api-keys';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';

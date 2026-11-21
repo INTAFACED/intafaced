@@ -67,7 +67,7 @@ export function withdrawalNetworkRuleToTrpcError(error: unknown): unknown {
   return error;
 }
 
-export const networkIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/);
+const networkIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,32}$/);
 const versionSchema = z.number().int().min(1).max(2_147_483_647);
 export const tagRuleSchema = z.enum(['none', 'required']);
 
@@ -90,7 +90,7 @@ export const withdrawalNetworkRuleSaveInputSchema = z
 export type WithdrawalNetworkRuleSaveInput = z.infer<typeof withdrawalNetworkRuleSaveInputSchema>;
 
 /** What a customer reads: the rules only, never who set them. */
-export const withdrawalNetworkRulesSchema = z
+const withdrawalNetworkRulesSchema = z
   .object({ assetId: z.string(), networkId: z.string(), minimum: z.string(), maximum: z.string(), step: z.string(), tag: tagRuleSchema })
   .strict();
 export type WithdrawalNetworkRules = z.infer<typeof withdrawalNetworkRulesSchema>;

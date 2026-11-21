@@ -3,7 +3,7 @@ import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Field, Loading, Panel } from '../../shared/ui';
 import { usePreferences } from '../../shared/preferences';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { Details, Read } from './common';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { z } from 'zod';
@@ -191,7 +191,7 @@ function IssueLine({ progress }: { progress: CertificateCard['progress'] }) {
     return (
       <p data-testid="certificate-issue">
         {issue.issuesAt
-          ? t('issueDelayed', { date: formatMoment(issue.issuesAt.toISOString(), language), wait: words })
+          ? t('issueDelayed', { date: formatMoment(issue.issuesAt, language), wait: words })
           : t('issueAfterWait', { wait: words })}
       </p>
     );

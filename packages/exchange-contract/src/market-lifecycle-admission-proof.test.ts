@@ -94,3 +94,12 @@ describe('market lifecycle admission proof contract', () => {
     );
   });
 });
+
+describe('a proof whose snapshot breaks its own state rule', () => {
+  it('is refused with the snapshot issue, never thrown out of safeParse', () => {
+    const proof = { ...JSON.parse(expectedProofJson), snapshot: { ...snapshot, state: 'HALTED' } };
+    const parsed = marketLifecycleAdmissionProofSchema.safeParse(proof);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues.map((issue) => issue.message)).toContain('HALTED cannot permit PLACE');
+  });
+});

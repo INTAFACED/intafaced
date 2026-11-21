@@ -1,12 +1,7 @@
 import { useMemo, useState } from 'react';
-import {
-  taskClaimResultSchema,
-  taskProgressSchema,
-  type CampaignView,
-  type RewardRecord,
-  type TaskProgress,
-} from '@intafaced/contracts/campaigns-catalogue';
-import { useApi } from '../session/session';
+import { type CampaignView, type RewardRecord, type TaskProgress } from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGNS_TASKS_CLAIM, CAMPAIGNS_TASKS_PROGRESS } from '@intafaced/contracts/campaigns-procedures';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, Failure, Loading, Panel } from '../../shared/ui';
@@ -80,14 +75,14 @@ export function CampaignTasks({ campaign }: { campaign: CampaignView }) {
   const { when, duration } = useFormat();
   const tasks = campaign.tasks!;
   const progress = useResource(
-    (signal) => api.query('campaigns', 'tasks.progress', { campaignId: campaign.id }, taskProgressSchema, { signal }),
+    (signal) => api.call(CAMPAIGNS_TASKS_PROGRESS, { campaignId: campaign.id }, { signal }),
     `campaign-tasks-${campaign.id}`,
   );
   const [refusal, setRefusal] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
   const claim = async () => {
     setBusy(true);
-    const result = await api.mutate('campaigns', 'tasks.claim', { campaignId: campaign.id }, taskClaimResultSchema);
+    const result = await api.call(CAMPAIGNS_TASKS_CLAIM, { campaignId: campaign.id });
     setBusy(false);
     setRefusal(result.ok ? null : result);
     // Whatever came back, or nothing, the stored reward is read again: a lost answer never sends a second claim.

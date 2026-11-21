@@ -18,7 +18,7 @@ import { registerInternalEquity } from './internal-equity.js';
 import { registerInternalOurFills } from './internal-our-fills.js';
 import { registerInternalRealised } from './internal-realised.js';
 import { SqlPreparedActionStore } from './prepared-action-store.js';
-import { UserVenueDoor, parseBuilderFee, parseOrdersPageMax } from './user-venue-door.js';
+import { UserVenueDoor, parseBuilderAddress, parseBuilderFee, parseOrdersPageMax } from './user-venue-door.js';
 import { SqlVenueListingStore } from './venue-listing-store.js';
 import {
   StoreVenueRoutingGate,
@@ -88,6 +88,7 @@ export function wireUserVenue(deps: {
         store: userVenueStore,
         stepUp,
         builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
+        builderAddress: parseBuilderAddress(env.TRADE_USER_VENUE_BUILDER_ADDRESS),
         slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
         spreadLimitBps: env.TRADE_MARKET_SPREAD_LIMIT_BPS,
         ordersPageMax: parseOrdersPageMax(env.TRADE_USER_VENUE_ORDERS_PAGE_MAX),

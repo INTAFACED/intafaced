@@ -1,0 +1,3475 @@
+{
+  "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
+  "procedures": {
+    "identity.apiVersion.get": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "developer.apiVersion.get",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read",
+        "module": "identity"
+      },
+      "refusals": {
+        "identity.api_version_session_only": "FORBIDDEN"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": ["string", "null"]
+          },
+          "setAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["version", "setAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "version": "2026-11-20"
+          }
+        }
+      ]
+    },
+    "identity.apiVersion.set": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "developer.apiVersion.set",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write",
+        "module": "identity"
+      },
+      "refusals": {
+        "identity.api_version_session_only": "FORBIDDEN",
+        "version.unknown": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        },
+        "required": ["version"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": ["string", "null"]
+          },
+          "setAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": ["version", "setAt", "changed"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "version": "2026-11-20"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "version": "1999-01-01"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "version": 20261120
+          }
+        }
+      ]
+    },
+    "identity.developerKeys.approvals": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "developerKeys.approvals",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "approvals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "keyId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "keyName": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["pay.payout", "pay.refund", "bank.call"]
+                },
+                "method": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "const": "waiting"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "keyId", "keyName", "action", "method", "path", "status", "createdAt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["approvals"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        }
+      ]
+    },
+    "identity.developerKeys.calls": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "developerKeys.calls",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {
+        "identity.key_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": ["keyId", "limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "asOf": {
+            "type": "string"
+          },
+          "calls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string"
+                },
+                "method": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "outsideIpList": {
+                  "type": "boolean"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": ["requestId", "method", "path", "status", "outsideIpList", "at"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["keyId", "asOf", "calls"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "keyId": "22222222-2222-4222-8222-222222222222",
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "keyId": "22222222-2222-4222-8222-222222222222",
+            "limit": 50,
+            "status": 403,
+            "from": "2026-11-01",
+            "to": "2026-11-21"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "keyId": "22222222-2222-4222-8222-222222222222",
+            "limit": 201
+          }
+        }
+      ]
+    },
+    "identity.developerKeys.get": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "developerKeys.get",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {
+        "identity.key_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["keyId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "name": {
+                "type": "string"
+              },
+              "prefix": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["live", "sandbox"]
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ipAllowlist": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requireSignature": {
+                "type": "boolean"
+              },
+              "createdAt": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+              },
+              "expiresAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "lastUsedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revoked": {
+                "type": "boolean"
+              },
+              "revokedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revokedBy": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["owner", "delegate", "account_freeze", "operator", "account_closed", "support", "system"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revokeReason": {
+                "type": ["string", "null"]
+              },
+              "accountId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["personal", "agent"]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "prefix",
+              "mode",
+              "scopes",
+              "ipAllowlist",
+              "requireSignature",
+              "createdAt",
+              "expiresAt",
+              "lastUsedAt",
+              "revoked",
+              "revokedAt",
+              "revokedBy",
+              "revokeReason",
+              "accountId",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "requireNonEmptyIpAllowlist": {
+            "type": "boolean"
+          },
+          "idleExpirySeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["key", "requireNonEmptyIpAllowlist", "idleExpirySeconds"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "exactRecord": "each key record has real instants and a revoke reason of at most 200 code points"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "keyId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "keyId": "nope"
+          }
+        }
+      ]
+    },
+    "identity.developerKeys.holdAgentAction": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "developerKeys.holdAgentAction",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-edge"]
+      },
+      "refusals": {
+        "identity.key_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "keyId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["pay.payout", "pay.refund", "bank.call"]
+          },
+          "method": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "bodyHash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": ["userId", "keyId", "action", "method", "path", "bodyHash"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "held": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": ["held"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "held": {
+                "type": "boolean",
+                "const": true
+              },
+              "refusal": {
+                "type": "string",
+                "const": "auth.scope_denied"
+              }
+            },
+            "required": ["held", "refusal"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "11111111-1111-4111-8111-111111111111",
+            "keyId": "22222222-2222-4222-8222-222222222222",
+            "action": "pay.payout",
+            "method": "POST",
+            "path": "/v1/pay/payouts",
+            "bodyHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "11111111-1111-4111-8111-111111111111",
+            "keyId": "22222222-2222-4222-8222-222222222222",
+            "action": "trade.order",
+            "method": "POST",
+            "path": "/v1/x",
+            "bodyHash": "sha256:x"
+          }
+        }
+      ]
+    },
+    "identity.developerKeys.list": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "developerKeys.list",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "keys": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "prefix": {
+                  "type": "string"
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": ["live", "sandbox"]
+                },
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "ipAllowlist": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "requireSignature": {
+                  "type": "boolean"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                },
+                "expiresAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "lastUsedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "revoked": {
+                  "type": "boolean"
+                },
+                "revokedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "revokedBy": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["owner", "delegate", "account_freeze", "operator", "account_closed", "support", "system"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "revokeReason": {
+                  "type": ["string", "null"]
+                },
+                "accountId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["personal", "agent"]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "prefix",
+                "mode",
+                "scopes",
+                "ipAllowlist",
+                "requireSignature",
+                "createdAt",
+                "expiresAt",
+                "lastUsedAt",
+                "revoked",
+                "revokedAt",
+                "revokedBy",
+                "revokeReason",
+                "accountId",
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "cap": {
+            "type": "object",
+            "properties": {
+              "limit": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "live": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["limit", "live"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["keys", "cap"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "eachKeyOnce": "each key appears once",
+        "exactRecords": "each key record has real instants and a revoke reason of at most 200 code points"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 200
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        }
+      ]
+    },
+    "identity.developerKeys.operatorAudit": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "developerKeys.operatorAudit",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance"
+      },
+      "refusals": {
+        "operator.denied": "FORBIDDEN",
+        "mfa.required": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": ["keyId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "actorId": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "revokedAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["actorId", "reason", "revokedAt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["entries"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "keyId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "keyId": "22222222-2222-4222-8222-222222222222",
+            "limit": 101
+          }
+        }
+      ]
+    },
+    "identity.developerKeys.recordCall": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "developerKeys.recordCall",
+      "access": {
+        "caller": "service",
+        "callers": ["svc-edge"]
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "keyHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "method": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 599
+          },
+          "clientIp": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "at": {
+            "type": "string"
+          }
+        },
+        "required": ["keyHash", "requestId", "method", "path", "status", "clientIp", "at"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "recorded": {
+            "type": "boolean"
+          }
+        },
+        "required": ["recorded"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "exactInstant": {
+          "at": "input.at",
+          "says": "the instant is exactly what Date.toISOString writes for a real instant"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "keyHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "requestId": "req-1",
+            "method": "GET",
+            "path": "/v1/orders",
+            "status": 200,
+            "clientIp": null,
+            "at": "2026-11-21T00:00:00.000Z"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "keyHash": "nope",
+            "requestId": "req-1",
+            "method": "GET",
+            "path": "/v1/orders",
+            "status": 200,
+            "clientIp": null,
+            "at": "2026-11-21T00:00:00.000Z"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "exactInstant",
+          "input": {
+            "keyHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "requestId": "req-1",
+            "method": "GET",
+            "path": "/v1/orders",
+            "status": 200,
+            "clientIp": null,
+            "at": "2026-02-30T00:00:00.000Z"
+          }
+        }
+      ]
+    },
+    "identity.developerKeys.reportLeaked": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "developerKeys.reportLeaked",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance"
+      },
+      "refusals": {
+        "operator.denied": "FORBIDDEN",
+        "mfa.required": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "required": ["key"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "received": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["received"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "key": "example"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "key": ""
+          }
+        }
+      ]
+    },
+    "identity.developerKeys.revoke": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "developerKeys.revoke",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write"
+      },
+      "refusals": {
+        "auth.scope_empty": "BAD_REQUEST",
+        "auth.scope_unknown": "BAD_REQUEST",
+        "auth.scope_interactive_only": "FORBIDDEN",
+        "auth.scope_not_held": "FORBIDDEN",
+        "auth.ip_invalid": "BAD_REQUEST",
+        "identity.key_name_invalid": "BAD_REQUEST",
+        "identity.key_name_taken": "CONFLICT",
+        "identity.key_expiry_invalid": "BAD_REQUEST",
+        "identity.key_cap_unset": "PRECONDITION_FAILED",
+        "identity.key_cap_reached": "PRECONDITION_FAILED",
+        "identity.key_request_conflict": "CONFLICT",
+        "identity.key_signing_unset": "PRECONDITION_FAILED",
+        "identity.key_lead_not_approved": "FORBIDDEN",
+        "identity.key_lead_check_unavailable": "PRECONDITION_FAILED",
+        "identity.key_not_found": "NOT_FOUND",
+        "identity.key_not_live": "PRECONDITION_FAILED",
+        "identity.key_revoke_reason_invalid": "BAD_REQUEST",
+        "identity.key_account_required": "BAD_REQUEST",
+        "identity.key_account_denied": "FORBIDDEN",
+        "identity.key_org_denied": "FORBIDDEN",
+        "identity.portfolio_key_cap_unset": "PRECONDITION_FAILED",
+        "identity.portfolio_key_cap_reached": "PRECONDITION_FAILED",
+        "auth.agent_scope_forbidden": "FORBIDDEN",
+        "identity.developer_roles_unset": "PRECONDITION_FAILED",
+        "identity.developer_role_read_only": "FORBIDDEN",
+        "identity.developer_role_none": "FORBIDDEN",
+        "identity.key_rotate_overlap_unset": "PRECONDITION_FAILED",
+        "identity.key_rotate_overlap_too_long": "BAD_REQUEST",
+        "identity.developer_org_denied": "NOT_FOUND",
+        "identity.developer_role_denied": "FORBIDDEN",
+        "identity.developer_role_unknown": "BAD_REQUEST",
+        "identity.developer_member_unknown": "NOT_FOUND",
+        "identity.developer_request_conflict": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "orgId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["keyId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "record": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "name": {
+                "type": "string"
+              },
+              "prefix": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string",
+                "enum": ["live", "sandbox"]
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ipAllowlist": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "requireSignature": {
+                "type": "boolean"
+              },
+              "createdAt": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+              },
+              "expiresAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "lastUsedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revoked": {
+                "type": "boolean"
+              },
+              "revokedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revokedBy": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["owner", "delegate", "account_freeze", "operator", "account_closed", "support", "system"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "revokeReason": {
+                "type": ["string", "null"]
+              },
+              "accountId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["personal", "agent"]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "prefix",
+              "mode",
+              "scopes",
+              "ipAllowlist",
+              "requireSignature",
+              "createdAt",
+              "expiresAt",
+              "lastUsedAt",
+              "revoked",
+              "revokedAt",
+              "revokedBy",
+              "revokeReason",
+              "accountId",
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": ["record", "changed"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "reasonLength": {
+          "at": "input.reason",
+          "says": "the reason is at most 200 code points"
+        }
+      },
+      "accept": {
+        "exactRecord": "each key record has real instants and a revoke reason of at most 200 code points"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "keyId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "keyId": "22222222-2222-4222-8222-222222222222",
+            "orgId": "33333333-3333-4333-8333-333333333333",
+            "reason": "leaked"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "keyId": "nope"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "reasonLength",
+          "input": {
+            "keyId": "22222222-2222-4222-8222-222222222222",
+            "reason": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        }
+      ]
+    },
+    "identity.developerKeys.rotationRequest": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "developerKeys.rotationRequest",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "keyId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          }
+        },
+        "required": ["keyId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "request": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "requestId": {
+                    "type": "string"
+                  },
+                  "keyId": {
+                    "type": "string"
+                  },
+                  "overlapSeconds": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "createdAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["requestId", "keyId", "overlapSeconds", "createdAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["request"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "keyId": "22222222-2222-4222-8222-222222222222"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "keyId": "nope"
+          }
+        }
+      ]
+    },
+    "identity.developerKeys.scopes": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "developerKeys.scopes",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scopes": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string"
+                },
+                "access": {
+                  "type": "string",
+                  "enum": ["read", "write"]
+                },
+                "onKey": {
+                  "type": "boolean"
+                },
+                "blockedBy": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["interactive_only", "step_up_only", "operator_only"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["scope", "access", "onKey", "blockedBy"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["scopes"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "identity.developerKeys.setTeamRole": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "developerKeys.setTeamRole",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write"
+      },
+      "refusals": {
+        "identity.developer_roles_unset": "PRECONDITION_FAILED",
+        "identity.developer_role_read_only": "FORBIDDEN",
+        "identity.developer_role_none": "FORBIDDEN",
+        "identity.developer_org_denied": "NOT_FOUND",
+        "identity.developer_role_denied": "FORBIDDEN",
+        "identity.developer_role_unknown": "BAD_REQUEST",
+        "identity.developer_member_unknown": "NOT_FOUND",
+        "identity.developer_request_conflict": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["keys_admin", "keys_read"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          }
+        },
+        "required": ["orgId", "userId", "role", "requestId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["keys_admin", "keys_read"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "changed": {
+            "type": "boolean"
+          }
+        },
+        "required": ["userId", "role", "changed"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "orgId": "33333333-3333-4333-8333-333333333333",
+            "userId": "11111111-1111-4111-8111-111111111111",
+            "role": "keys_read",
+            "requestId": "dev-role:sample"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "orgId": "33333333-3333-4333-8333-333333333333",
+            "userId": "11111111-1111-4111-8111-111111111111",
+            "role": null,
+            "requestId": "dev-role:sample"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "orgId": "33333333-3333-4333-8333-333333333333",
+            "userId": "11111111-1111-4111-8111-111111111111",
+            "role": "owner",
+            "requestId": "dev-role:sample"
+          }
+        }
+      ]
+    },
+    "identity.developerKeys.team": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "developerKeys.team",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {
+        "identity.developer_roles_unset": "PRECONDITION_FAILED",
+        "identity.developer_role_read_only": "FORBIDDEN",
+        "identity.developer_role_none": "FORBIDDEN",
+        "identity.developer_org_denied": "NOT_FOUND",
+        "identity.developer_role_denied": "FORBIDDEN",
+        "identity.developer_role_unknown": "BAD_REQUEST",
+        "identity.developer_member_unknown": "NOT_FOUND",
+        "identity.developer_request_conflict": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["orgId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "orgName": {
+            "type": "string"
+          },
+          "rolesPublished": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": ["keys_admin", "keys_read"]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "myRole": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["owner", "keys_admin", "keys_read"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manageRefusal": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["identity.developer_roles_unset", "identity.developer_role_read_only", "identity.developer_role_none"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "userId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "orgRole": {
+                  "type": "string"
+                },
+                "developerRole": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["keys_admin", "keys_read"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "roleVersion": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["userId", "email", "orgRole", "developerRole", "roleVersion"],
+              "additionalProperties": false
+            }
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "prefix": {
+                  "type": "string"
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": ["live", "sandbox"]
+                },
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "ipAllowlist": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "requireSignature": {
+                  "type": "boolean"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                },
+                "expiresAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "lastUsedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "revoked": {
+                  "type": "boolean"
+                },
+                "revokedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "revokedBy": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["owner", "delegate", "account_freeze", "operator", "account_closed", "support", "system"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "revokeReason": {
+                  "type": ["string", "null"]
+                },
+                "accountId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["personal", "agent"]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "prefix",
+                "mode",
+                "scopes",
+                "ipAllowlist",
+                "requireSignature",
+                "createdAt",
+                "expiresAt",
+                "lastUsedAt",
+                "revoked",
+                "revokedAt",
+                "revokedBy",
+                "revokeReason",
+                "accountId",
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["orgId", "orgName", "rolesPublished", "myRole", "manageRefusal", "members", "keys"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "exactRecords": "each key record has real instants and a revoke reason of at most 200 code points"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "orgId": "33333333-3333-4333-8333-333333333333"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "orgId": "nope"
+          }
+        }
+      ]
+    },
+    "identity.me": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "me",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "emailVerified": {
+            "type": "boolean"
+          }
+        },
+        "required": ["userId", "handle"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "identity.oauth.apps.list": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "oauth.apps.list",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN",
+        "oauth.key_principal_refused": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "clientId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": ["string", "null"]
+                },
+                "logoUrl": {
+                  "type": ["string", "null"]
+                },
+                "redirectUrls": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "confidential": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["pending", "approved", "suspended"]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "secretRolledAt": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": [
+                "id",
+                "clientId",
+                "name",
+                "description",
+                "logoUrl",
+                "redirectUrls",
+                "scopes",
+                "confidential",
+                "status",
+                "createdAt",
+                "secretRolledAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["apps"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 100
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 201
+          }
+        }
+      ]
+    },
+    "identity.oauth.apps.queue": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "oauth.apps.queue",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["pending", "approved", "suspended"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["status", "limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "clientId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": ["string", "null"]
+                },
+                "logoUrl": {
+                  "type": ["string", "null"]
+                },
+                "redirectUrls": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "confidential": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["pending", "approved", "suspended"]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "secretRolledAt": {
+                  "type": ["string", "null"]
+                },
+                "developerUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                }
+              },
+              "required": [
+                "id",
+                "clientId",
+                "name",
+                "description",
+                "logoUrl",
+                "redirectUrls",
+                "scopes",
+                "confidential",
+                "status",
+                "createdAt",
+                "secretRolledAt",
+                "developerUserId"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["apps"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "status": "pending",
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "status": "deleted",
+            "limit": 50
+          }
+        }
+      ]
+    },
+    "identity.oauth.apps.register": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "oauth.apps.register",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN",
+        "oauth.key_principal_refused": "FORBIDDEN",
+        "oauth.redirect_url_invalid": "PRECONDITION_FAILED",
+        "oauth.scope_empty": "PRECONDITION_FAILED",
+        "oauth.invalid_scope": "PRECONDITION_FAILED",
+        "oauth.scope_not_delegable": "PRECONDITION_FAILED",
+        "oauth.idempotency_conflict": "PRECONDITION_FAILED",
+        "oauth.account_not_active": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 80
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "logoUrl": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "redirectUrls": {
+            "minItems": 1,
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "scopes": {
+            "minItems": 1,
+            "maxItems": 40,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z0-9_-]+:[a-z0-9_-]+$"
+            }
+          },
+          "confidential": {
+            "type": "boolean"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["name", "redirectUrls", "scopes", "confidential", "requestId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "clientId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": ["string", "null"]
+              },
+              "logoUrl": {
+                "type": ["string", "null"]
+              },
+              "redirectUrls": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidential": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["pending", "approved", "suspended"]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "secretRolledAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": [
+              "id",
+              "clientId",
+              "name",
+              "description",
+              "logoUrl",
+              "redirectUrls",
+              "scopes",
+              "confidential",
+              "status",
+              "createdAt",
+              "secretRolledAt"
+            ],
+            "additionalProperties": false
+          },
+          "clientSecret": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["app", "clientSecret"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "oauth.redirect_url_invalid": {
+          "at": ["input.logoUrl", "input.redirectUrls[]"],
+          "says": "the URL is a canonical lowercase https:// URL with no wildcard, fragment, userinfo, default port or characters the URL parser would change"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "name": "Sample app",
+            "redirectUrls": ["https://app.example.test/callback"],
+            "scopes": ["identity:read"],
+            "confidential": true,
+            "requestId": "oauth-app:sample"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "name": "A",
+            "redirectUrls": ["https://app.example.test/callback"],
+            "scopes": ["identity:read"],
+            "confidential": true,
+            "requestId": "x"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "name": "Sample app",
+            "redirectUrls": [],
+            "scopes": ["identity:read"],
+            "confidential": true,
+            "requestId": "x"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "oauth.redirect_url_invalid",
+          "input": {
+            "name": "Sample app",
+            "redirectUrls": ["http://app.example.test/callback"],
+            "scopes": ["identity:read"],
+            "confidential": true,
+            "requestId": "x"
+          }
+        }
+      ]
+    },
+    "identity.oauth.apps.review": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "oauth.apps.review",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN",
+        "oauth.app_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["approve", "suspend"]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": ["appId", "decision"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "clientId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": ["string", "null"]
+          },
+          "logoUrl": {
+            "type": ["string", "null"]
+          },
+          "redirectUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confidential": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "approved", "suspended"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "secretRolledAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "clientId",
+          "name",
+          "description",
+          "logoUrl",
+          "redirectUrls",
+          "scopes",
+          "confidential",
+          "status",
+          "createdAt",
+          "secretRolledAt"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "appId": "22222222-2222-4222-8222-222222222222",
+            "decision": "approve"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "appId": "22222222-2222-4222-8222-222222222222",
+            "decision": "delete"
+          }
+        }
+      ]
+    },
+    "identity.oauth.apps.rollSecret": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "oauth.apps.rollSecret",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN",
+        "oauth.key_principal_refused": "FORBIDDEN",
+        "oauth.app_not_found": "NOT_FOUND",
+        "oauth.invalid_request": "PRECONDITION_FAILED",
+        "oauth.account_not_active": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "appId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["appId", "requestId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "app": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "clientId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "description": {
+                "type": ["string", "null"]
+              },
+              "logoUrl": {
+                "type": ["string", "null"]
+              },
+              "redirectUrls": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "scopes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidential": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["pending", "approved", "suspended"]
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "secretRolledAt": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": [
+              "id",
+              "clientId",
+              "name",
+              "description",
+              "logoUrl",
+              "redirectUrls",
+              "scopes",
+              "confidential",
+              "status",
+              "createdAt",
+              "secretRolledAt"
+            ],
+            "additionalProperties": false
+          },
+          "clientSecret": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["app", "clientSecret"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "appId": "22222222-2222-4222-8222-222222222222",
+            "requestId": "oauth-roll:22222222-2222-4222-8222-222222222222:first"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "appId": "not-a-guid",
+            "requestId": "oauth-roll:x:first"
+          }
+        }
+      ]
+    },
+    "identity.oauth.authorize.decide": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "oauth.authorize.decide",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN",
+        "oauth.key_principal_refused": "FORBIDDEN",
+        "oauth.lifetime_unset": "PRECONDITION_FAILED",
+        "oauth.account_not_active": "PRECONDITION_FAILED",
+        "oauth.app_not_found": "NOT_FOUND",
+        "oauth.redirect_uri_mismatch": "PRECONDITION_FAILED",
+        "oauth.app_not_approved": "PRECONDITION_FAILED",
+        "oauth.invalid_scope": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "responseType": {
+            "type": "string",
+            "const": "code"
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "redirectUri": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "scope": {
+            "minItems": 1,
+            "maxItems": 40,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z0-9_-]+:[a-z0-9_-]+$"
+            }
+          },
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "codeChallenge": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9\\-_]{43}$"
+          },
+          "codeChallengeMethod": {
+            "type": "string",
+            "const": "S256"
+          },
+          "decision": {
+            "type": "string",
+            "enum": ["allow", "deny"]
+          }
+        },
+        "required": ["responseType", "clientId", "redirectUri", "scope", "state", "codeChallenge", "codeChallengeMethod", "decision"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "redirectTo": {
+            "type": "string"
+          }
+        },
+        "required": ["redirectTo"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "responseType": "code",
+            "clientId": "ifc_sample",
+            "redirectUri": "https://app.example.test/callback",
+            "scope": ["identity:read"],
+            "state": "state-1",
+            "codeChallenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "codeChallengeMethod": "S256",
+            "decision": "allow"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "responseType": "code",
+            "clientId": "ifc_sample",
+            "redirectUri": "https://app.example.test/callback",
+            "scope": ["identity:read"],
+            "state": "state-1",
+            "codeChallenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "codeChallengeMethod": "S256",
+            "decision": "maybe"
+          }
+        }
+      ]
+    },
+    "identity.oauth.authorize.preview": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "oauth.authorize.preview",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {
+        "oauth.operator_denied": "FORBIDDEN",
+        "oauth.key_principal_refused": "FORBIDDEN",
+        "oauth.lifetime_unset": "PRECONDITION_FAILED",
+        "oauth.account_not_active": "PRECONDITION_FAILED",
+        "oauth.app_not_found": "NOT_FOUND",
+        "oauth.redirect_uri_mismatch": "PRECONDITION_FAILED",
+        "oauth.app_not_approved": "PRECONDITION_FAILED",
+        "oauth.invalid_scope": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "responseType": {
+            "type": "string",
+            "const": "code"
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "redirectUri": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "scope": {
+            "minItems": 1,
+            "maxItems": 40,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z0-9_-]+:[a-z0-9_-]+$"
+            }
+          },
+          "state": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "codeChallenge": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9\\-_]{43}$"
+          },
+          "codeChallengeMethod": {
+            "type": "string",
+            "const": "S256"
+          }
+        },
+        "required": ["responseType", "clientId", "redirectUri", "scope", "state", "codeChallenge", "codeChallengeMethod"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "appName": {
+            "type": "string"
+          },
+          "appDescription": {
+            "type": ["string", "null"]
+          },
+          "logoUrl": {
+            "type": ["string", "null"]
+          },
+          "developerOwnAccount": {
+            "type": "boolean"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["appName", "appDescription", "logoUrl", "developerOwnAccount", "scopes"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "responseType": "code",
+            "clientId": "ifc_sample",
+            "redirectUri": "https://app.example.test/callback",
+            "scope": ["identity:read"],
+            "state": "state-1",
+            "codeChallenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "codeChallengeMethod": "S256"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "responseType": "code",
+            "clientId": "ifc_sample",
+            "redirectUri": "https://app.example.test/callback",
+            "scope": ["identity:read"],
+            "state": "state-1",
+            "codeChallenge": "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+            "codeChallengeMethod": "plain"
+          }
+        }
+      ]
+    },
+    "identity.oauth.lifetimes": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "oauth.lifetimes",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "codeTtlSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "accessTokenTtlSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["codeTtlSeconds", "accessTokenTtlSeconds"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "identity.oauth.token": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "oauth.token",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {
+        "oauth.lifetime_unset": "PRECONDITION_FAILED",
+        "oauth.invalid_client": "PRECONDITION_FAILED",
+        "oauth.app_not_approved": "PRECONDITION_FAILED",
+        "oauth.invalid_grant": "PRECONDITION_FAILED",
+        "oauth.account_not_active": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "grantType": {
+            "type": "string",
+            "const": "authorization_code"
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "redirectUri": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "codeVerifier": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "clientSecret": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "required": ["grantType", "code", "redirectUri", "clientId", "codeVerifier"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "tokenType": {
+            "type": "string",
+            "const": "Bearer"
+          },
+          "expiresIn": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "scope": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["accessToken", "tokenType", "expiresIn", "scope"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "grantType": "authorization_code",
+            "code": "ifcc_sample",
+            "redirectUri": "https://app.example.test/callback",
+            "clientId": "ifc_sample",
+            "codeVerifier": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "grantType": "password",
+            "code": "ifcc_sample",
+            "redirectUri": "https://app.example.test/callback",
+            "clientId": "ifc_sample",
+            "codeVerifier": "x"
+          }
+        }
+      ]
+    },
+    "identity.qr.mine": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "qr.mine",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {
+        "identity.qr_key_unset": "PRECONDITION_FAILED",
+        "identity.delegated_refused": "FORBIDDEN",
+        "identity.qr_payee_unavailable": "NOT_FOUND"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "payload": {
+            "type": "string"
+          }
+        },
+        "required": ["payload"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "identity.qr.resolve": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "qr.resolve",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {
+        "identity.qr_key_unset": "PRECONDITION_FAILED",
+        "identity.delegated_refused": "FORBIDDEN",
+        "identity.qr_payee_unavailable": "NOT_FOUND",
+        "identity.qr_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "payload": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["payload"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "self": {
+            "type": "boolean"
+          }
+        },
+        "required": ["userId", "handle", "self"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "payload": "ifq1.sample"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "payload": ""
+          }
+        }
+      ]
+    },
+    "identity.recipients.add": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "recipients.add",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write",
+        "module": "identity"
+      },
+      "refusals": {
+        "identity.recipient_unknown": "BAD_REQUEST",
+        "identity.recipient_self": "BAD_REQUEST",
+        "identity.recipient_label_invalid": "BAD_REQUEST",
+        "identity.recipient_conflict": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 64
+          }
+        },
+        "required": ["handle", "label", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": ["handle", "label", "addedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "handle": "alice",
+            "label": "Alice",
+            "idempotencyKey": "recipient-add-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "handle": "alice",
+            "label": "Alice",
+            "idempotencyKey": "short"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "handle": "",
+            "label": "Alice",
+            "idempotencyKey": "recipient-add-1"
+          }
+        }
+      ]
+    },
+    "identity.recipients.list": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "recipients.list",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read",
+        "module": "identity"
+      },
+      "refusals": {
+        "identity.saved_recipient_list_limit_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "handle": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "addedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            }
+          },
+          "required": ["handle", "label", "addedAt"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 100
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 101
+          }
+        }
+      ]
+    },
+    "identity.recipients.remove": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "recipients.remove",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:write",
+        "module": "identity"
+      },
+      "refusals": {
+        "identity.recipient_unknown": "BAD_REQUEST",
+        "identity.recipient_conflict": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 64
+          }
+        },
+        "required": ["handle", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          },
+          "handle": {
+            "type": "string"
+          }
+        },
+        "required": ["removed", "handle"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "handle": "alice",
+            "idempotencyKey": "recipient-remove-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "handle": "alice"
+          }
+        }
+      ]
+    },
+    "identity.users.payeeCard": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "users.payeeCard",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["userId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "found": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": ["found"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "found": {
+                "type": "boolean",
+                "const": true
+              },
+              "name": {
+                "type": ["string", "null"]
+              },
+              "memberSince": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}$"
+              }
+            },
+            "required": ["found", "name", "memberSince"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "not-a-guid"
+          }
+        }
+      ]
+    },
+    "identity.users.resolveHandle": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "users.resolveHandle",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {
+        "identity.handle_lookup_rate_limited": "TOO_MANY_REQUESTS"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "handle": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": ["handle"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "found": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": ["found"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "found": {
+                "type": "boolean",
+                "const": true
+              },
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "self": {
+                "type": "boolean"
+              }
+            },
+            "required": ["found", "userId", "handle", "self"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "handle": "luffy2"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "handle": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        }
+      ]
+    },
+    "identity.users.searchPayees": {
+      "service": "svc-identity",
+      "module": "identity",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "users.searchPayees",
+      "access": {
+        "caller": "scope",
+        "scope": "identity:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "maxLength": 320
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 32
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "found": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": ["found"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "found": {
+                "type": "boolean",
+                "const": true
+              },
+              "userId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+              },
+              "handle": {
+                "type": "string"
+              },
+              "self": {
+                "type": "boolean"
+              }
+            },
+            "required": ["found", "userId", "handle", "self"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "checks": {
+        "emailOrPhone": {
+          "at": "input",
+          "says": "exactly one of email and phone is given"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "email": "someone@example.test"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "phone": "+447700900123"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "email": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "emailOrPhone",
+          "input": {
+            "email": "someone@example.test",
+            "phone": "+447700900123"
+          }
+        }
+      ]
+    }
+  }
+}

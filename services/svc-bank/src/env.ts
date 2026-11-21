@@ -8,6 +8,7 @@ import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
 import { parseStatementJobsInterval, parseStatementJobsLease } from './statements/statement-jobs.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
+import { readMarginWarningLevel } from './home/work-items.js';
 import { RAMP_SETTINGS } from './ramps/rails.js';
 import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
 import { ONRAMP_RATE_SETTINGS } from './ramps/onramp-sim.js';
@@ -396,6 +397,23 @@ const schema = serviceEnvSchema
         .optional()
         .refine((raw) => raw === undefined || raw.trim() === '' || readStrangerHoldDays(raw) !== null, {
           message: 'BANK_STRANGER_HOLD_DAYS must be a whole number of days from 1 to 365, or blank',
+        }),
+
+      /**
+       * HOME'S MARGIN WARNING LEVEL (HM-dashboard-03): the loan-to-value, in basis points, past which Home would list a loan
+       * that is drifting towards its margin call. An owner value, and blank: while it is blank Home lists only loans already
+       * in a call, and `loans.products` publishes the level as null. Any value refuses boot (`readMarginWarningLevel`).
+       */
+      BANK_MARGIN_WARNING_LTV_BPS: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return readMarginWarningLevel(raw);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: error instanceof Error ? error.message : String(error) });
+            return z.NEVER;
+          }
         }),
 
       /**

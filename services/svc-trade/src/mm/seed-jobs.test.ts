@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { formatAmount, marketMaker, MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import type { EngineCancelResult, EngineDepth, EngineSubmitRequest, EngineSubmitResult, MatchingClient } from '../spot/matching-client.js';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -15,6 +15,24 @@ import {
 import { AcceptedMmMid } from './accepted-mid.js';
 import { MM_MATCHING_ACCOUNT_ID, type SeedTradableMarket } from './seed-market.js';
 import { READY_MARKET_LIFECYCLE, READY_MARKET_NOW, readyMarket } from '../spot/testing.js';
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+/**
+ * Runs the job's fake clock forward until `done` settles, at most `ms`; fails with `why()` if it never does.
+ * The jobs tick on `setInterval`, so the clock is the test's, not the wall's.
+ */
+async function within(done: Promise<void>, ms: number, why: () => string): Promise<void> {
+  let settled = false;
+  const watched = done.finally(() => {
+    settled = true;
+  });
+  for (let elapsed = 0; elapsed < ms && !settled; elapsed += 5) await vi.advanceTimersByTimeAsync(5);
+  if (!settled) throw new Error(why());
+  await watched;
+}
 
 const marketForActive = (): SeedTradableMarket => readyMarket('btc-usdt');
 
@@ -247,42 +265,43 @@ describe('startMmSeedJobs', () => {
     await ledger.post(recipes.marketMakerSeedFund({ assetId: 'USDT', amount: amt('10000'), seedId: 'k1' }));
     await ledger.post(recipes.marketMakerSeedFund({ assetId: 'BTC', amount: amt('100'), seedId: 'k2' }));
 
-    await new Promise<void>((resolve, reject) => {
-      const h = startReadyMmSeedJobs({
-        ledger,
-        matching,
-        midSource: () => AcceptedMmMid.configured('100'),
-        marketFor: marketForActive,
-        config: {
-          enabled: true,
-          intervalMs: 20,
-          halfSpreadBps: 100,
-          stepBps: 0,
-          levels: 1,
-          qtyPerLevel: '1',
-          targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
-        },
-        onResult: (marketId, result) => {
-          try {
-            expect(marketId).toBe('btc-usdt');
-            expect('ok' in result && result.ok).toBe(true);
-            expect(matching.submitted.length).toBe(2);
-            expect(matching.submitted.every((s) => s.request.accountId === MM_MATCHING_ACCOUNT_ID)).toBe(true);
-            expect(matching.submitted.every((s) => s.request.tif === 'PO')).toBe(true);
-            h.stop();
-            resolve();
-          } catch (e) {
-            h.stop();
-            reject(e);
-          }
-        },
-      });
-      expect(h.host.list()).toEqual(['mm.seed']);
-      setTimeout(() => {
-        h.stop();
-        reject(new Error('tick timeout'));
-      }, 2000);
-    });
+    vi.useFakeTimers();
+    await within(
+      new Promise<void>((resolve, reject) => {
+        const h = startReadyMmSeedJobs({
+          ledger,
+          matching,
+          midSource: () => AcceptedMmMid.configured('100'),
+          marketFor: marketForActive,
+          config: {
+            enabled: true,
+            intervalMs: 20,
+            halfSpreadBps: 100,
+            stepBps: 0,
+            levels: 1,
+            qtyPerLevel: '1',
+            targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
+          },
+          onResult: (marketId, result) => {
+            try {
+              expect(marketId).toBe('btc-usdt');
+              expect('ok' in result && result.ok).toBe(true);
+              expect(matching.submitted.length).toBe(2);
+              expect(matching.submitted.every((s) => s.request.accountId === MM_MATCHING_ACCOUNT_ID)).toBe(true);
+              expect(matching.submitted.every((s) => s.request.tif === 'PO')).toBe(true);
+              h.stop();
+              resolve();
+            } catch (e) {
+              h.stop();
+              reject(e);
+            }
+          },
+        });
+        expect(h.host.list()).toEqual(['mm.seed']);
+      }),
+      2_000,
+      () => 'tick timeout',
+    );
   });
 
   it('skips when book already has depth (no re-seed race)', async () => {
@@ -290,152 +309,156 @@ describe('startMmSeedJobs', () => {
     matching.depthReply = { bids: [['99', '1']], asks: [['101', '1']], sequence: 1 };
     const ledger = new MemoryLedger();
 
-    await new Promise<void>((resolve, reject) => {
-      const h = startReadyMmSeedJobs({
-        ledger,
-        matching,
-        midSource: () => AcceptedMmMid.configured('100'),
-        marketFor: marketForActive,
-        config: {
-          enabled: true,
-          intervalMs: 20,
-          halfSpreadBps: 100,
-          stepBps: 0,
-          levels: 1,
-          qtyPerLevel: '1',
-          targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
-        },
-        onResult: (_id, result) => {
-          try {
-            expect('skipped' in result && result.skipped).toBe('book_not_empty');
-            expect(matching.submitted).toHaveLength(0);
-            h.stop();
-            resolve();
-          } catch (e) {
-            h.stop();
-            reject(e);
-          }
-        },
-      });
-      setTimeout(() => {
-        h.stop();
-        reject(new Error('tick timeout'));
-      }, 2000);
-    });
+    vi.useFakeTimers();
+    await within(
+      new Promise<void>((resolve, reject) => {
+        const h = startReadyMmSeedJobs({
+          ledger,
+          matching,
+          midSource: () => AcceptedMmMid.configured('100'),
+          marketFor: marketForActive,
+          config: {
+            enabled: true,
+            intervalMs: 20,
+            halfSpreadBps: 100,
+            stepBps: 0,
+            levels: 1,
+            qtyPerLevel: '1',
+            targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
+          },
+          onResult: (_id, result) => {
+            try {
+              expect('skipped' in result && result.skipped).toBe('book_not_empty');
+              expect(matching.submitted).toHaveLength(0);
+              h.stop();
+              resolve();
+            } catch (e) {
+              h.stop();
+              reject(e);
+            }
+          },
+        });
+      }),
+      2_000,
+      () => 'tick timeout',
+    );
   });
 
   it('skips missing mid — no submit', async () => {
     const matching = new JobStubMatching();
     const ledger = new MemoryLedger();
 
-    await new Promise<void>((resolve, reject) => {
-      const h = startReadyMmSeedJobs({
-        ledger,
-        matching,
-        midSource: () => null,
-        marketFor: marketForActive,
-        config: {
-          enabled: true,
-          intervalMs: 20,
-          halfSpreadBps: 100,
-          stepBps: 0,
-          levels: 1,
-          qtyPerLevel: '1',
-          targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
-        },
-        onResult: (_id, result) => {
-          try {
-            expect('skipped' in result && result.skipped).toBe('missing_mid');
-            expect(matching.submitted).toHaveLength(0);
-            h.stop();
-            resolve();
-          } catch (e) {
-            h.stop();
-            reject(e);
-          }
-        },
-      });
-      setTimeout(() => {
-        h.stop();
-        reject(new Error('tick timeout'));
-      }, 2000);
-    });
+    vi.useFakeTimers();
+    await within(
+      new Promise<void>((resolve, reject) => {
+        const h = startReadyMmSeedJobs({
+          ledger,
+          matching,
+          midSource: () => null,
+          marketFor: marketForActive,
+          config: {
+            enabled: true,
+            intervalMs: 20,
+            halfSpreadBps: 100,
+            stepBps: 0,
+            levels: 1,
+            qtyPerLevel: '1',
+            targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
+          },
+          onResult: (_id, result) => {
+            try {
+              expect('skipped' in result && result.skipped).toBe('missing_mid');
+              expect(matching.submitted).toHaveLength(0);
+              h.stop();
+              resolve();
+            } catch (e) {
+              h.stop();
+              reject(e);
+            }
+          },
+        });
+      }),
+      2_000,
+      () => 'tick timeout',
+    );
   });
 
   it('refuses an unaccepted bare price — no submit', async () => {
     const matching = new JobStubMatching();
 
-    await new Promise<void>((resolve, reject) => {
-      const h = startReadyMmSeedJobs({
-        ledger: new MemoryLedger(),
-        matching,
-        // Fail-first boundary: a decimal alone says nothing about provenance.
-        midSource: (() => '100') as never,
-        marketFor: marketForActive,
-        config: {
-          enabled: true,
-          intervalMs: 20,
-          halfSpreadBps: 100,
-          stepBps: 0,
-          levels: 1,
-          qtyPerLevel: '1',
-          targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
-        },
-        onResult: (_id, result) => {
-          try {
-            expect('skipped' in result && result.skipped).toBe('missing_mid');
-            expect(matching.submitted).toHaveLength(0);
-            h.stop();
-            resolve();
-          } catch (error) {
-            h.stop();
-            reject(error);
-          }
-        },
-      });
-      setTimeout(() => {
-        h.stop();
-        reject(new Error('tick timeout'));
-      }, 2000);
-    });
+    vi.useFakeTimers();
+    await within(
+      new Promise<void>((resolve, reject) => {
+        const h = startReadyMmSeedJobs({
+          ledger: new MemoryLedger(),
+          matching,
+          // Fail-first boundary: a decimal alone says nothing about provenance.
+          midSource: (() => '100') as never,
+          marketFor: marketForActive,
+          config: {
+            enabled: true,
+            intervalMs: 20,
+            halfSpreadBps: 100,
+            stepBps: 0,
+            levels: 1,
+            qtyPerLevel: '1',
+            targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
+          },
+          onResult: (_id, result) => {
+            try {
+              expect('skipped' in result && result.skipped).toBe('missing_mid');
+              expect(matching.submitted).toHaveLength(0);
+              h.stop();
+              resolve();
+            } catch (error) {
+              h.stop();
+              reject(error);
+            }
+          },
+        });
+      }),
+      2_000,
+      () => 'tick timeout',
+    );
   });
 
   it('skips when marketFor returns null — no invent-active, no submit', async () => {
     const matching = new JobStubMatching();
     const ledger = new MemoryLedger();
 
-    await new Promise<void>((resolve, reject) => {
-      const h = startReadyMmSeedJobs({
-        ledger,
-        matching,
-        midSource: () => AcceptedMmMid.configured('100'),
-        marketFor: () => null,
-        config: {
-          enabled: true,
-          intervalMs: 20,
-          halfSpreadBps: 100,
-          stepBps: 0,
-          levels: 1,
-          qtyPerLevel: '1',
-          targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
-        },
-        onResult: (_id, result) => {
-          try {
-            expect('skipped' in result && result.skipped).toBe('market_unknown');
-            expect(matching.submitted).toHaveLength(0);
-            h.stop();
-            resolve();
-          } catch (e) {
-            h.stop();
-            reject(e);
-          }
-        },
-      });
-      setTimeout(() => {
-        h.stop();
-        reject(new Error('tick timeout'));
-      }, 2000);
-    });
+    vi.useFakeTimers();
+    await within(
+      new Promise<void>((resolve, reject) => {
+        const h = startReadyMmSeedJobs({
+          ledger,
+          matching,
+          midSource: () => AcceptedMmMid.configured('100'),
+          marketFor: () => null,
+          config: {
+            enabled: true,
+            intervalMs: 20,
+            halfSpreadBps: 100,
+            stepBps: 0,
+            levels: 1,
+            qtyPerLevel: '1',
+            targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
+          },
+          onResult: (_id, result) => {
+            try {
+              expect('skipped' in result && result.skipped).toBe('market_unknown');
+              expect(matching.submitted).toHaveLength(0);
+              h.stop();
+              resolve();
+            } catch (e) {
+              h.stop();
+              reject(e);
+            }
+          },
+        });
+      }),
+      2_000,
+      () => 'tick timeout',
+    );
   });
 
   it('job refuses halted market — no matching.submit (assertTradable via seedMarket)', async () => {
@@ -444,41 +467,42 @@ describe('startMmSeedJobs', () => {
     await ledger.post(recipes.marketMakerSeedFund({ assetId: 'USDT', amount: amt('10000'), seedId: 'jh' }));
     await ledger.post(recipes.marketMakerSeedFund({ assetId: 'BTC', amount: amt('100'), seedId: 'jh-b' }));
 
-    await new Promise<void>((resolve, reject) => {
-      const h = startReadyMmSeedJobs({
-        ledger,
-        matching,
-        midSource: () => AcceptedMmMid.configured('100'),
-        marketFor: () => ({ symbol: 'BTC/USDT', kind: 'spot', assetClass: 'crypto', status: 'halted' }),
-        config: {
-          enabled: true,
-          intervalMs: 20,
-          halfSpreadBps: 100,
-          stepBps: 0,
-          levels: 1,
-          qtyPerLevel: '1',
-          targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
-        },
-        onResult: (_id, result) => {
-          try {
-            expect('ok' in result && !result.ok).toBe(true);
-            if ('ok' in result && !result.ok) {
-              expect(result.reason).toBe('trade.market_not_tradable');
+    vi.useFakeTimers();
+    await within(
+      new Promise<void>((resolve, reject) => {
+        const h = startReadyMmSeedJobs({
+          ledger,
+          matching,
+          midSource: () => AcceptedMmMid.configured('100'),
+          marketFor: () => ({ symbol: 'BTC/USDT', kind: 'spot', assetClass: 'crypto', status: 'halted' }),
+          config: {
+            enabled: true,
+            intervalMs: 20,
+            halfSpreadBps: 100,
+            stepBps: 0,
+            levels: 1,
+            qtyPerLevel: '1',
+            targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
+          },
+          onResult: (_id, result) => {
+            try {
+              expect('ok' in result && !result.ok).toBe(true);
+              if ('ok' in result && !result.ok) {
+                expect(result.reason).toBe('trade.market_not_tradable');
+              }
+              expect(matching.submitted).toHaveLength(0);
+              h.stop();
+              resolve();
+            } catch (e) {
+              h.stop();
+              reject(e);
             }
-            expect(matching.submitted).toHaveLength(0);
-            h.stop();
-            resolve();
-          } catch (e) {
-            h.stop();
-            reject(e);
-          }
-        },
-      });
-      setTimeout(() => {
-        h.stop();
-        reject(new Error('tick timeout'));
-      }, 2000);
-    });
+          },
+        });
+      }),
+      2_000,
+      () => 'tick timeout',
+    );
   });
 
   it('cancel+reseed when book empty after levels cleared — new runId, holds redrawn', async () => {
@@ -492,71 +516,72 @@ describe('startMmSeedJobs', () => {
     let cancelCount = 0;
     const runIds: string[] = [];
 
-    await new Promise<void>((resolve, reject) => {
-      const h = startReadyMmSeedJobs({
-        ledger,
-        matching,
-        midSource: () => AcceptedMmMid.configured('100'),
-        marketFor: marketForActive,
-        config: {
-          enabled: true,
-          intervalMs: 25,
-          halfSpreadBps: 100,
-          stepBps: 0,
-          levels: 1,
-          qtyPerLevel: '1',
-          targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
-        },
-        runIdFor: (marketId) => {
-          const id = `ops-seed:${marketId}:g${runIds.length + 1}`;
-          runIds.push(id);
-          return id;
-        },
-        onCancelResult: () => {
-          cancelCount += 1;
-        },
-        onResult: async (_id, result) => {
-          try {
-            if ('skipped' in result) {
-              // book_not_empty between first seed and clear is fine
-              return;
-            }
-            if (!('ok' in result) || !result.ok) {
+    vi.useFakeTimers();
+    await within(
+      new Promise<void>((resolve, reject) => {
+        const h = startReadyMmSeedJobs({
+          ledger,
+          matching,
+          midSource: () => AcceptedMmMid.configured('100'),
+          marketFor: marketForActive,
+          config: {
+            enabled: true,
+            intervalMs: 25,
+            halfSpreadBps: 100,
+            stepBps: 0,
+            levels: 1,
+            qtyPerLevel: '1',
+            targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
+          },
+          runIdFor: (marketId) => {
+            const id = `ops-seed:${marketId}:g${runIds.length + 1}`;
+            runIds.push(id);
+            return id;
+          },
+          onCancelResult: () => {
+            cancelCount += 1;
+          },
+          onResult: async (_id, result) => {
+            try {
+              if ('skipped' in result) {
+                // book_not_empty between first seed and clear is fine
+                return;
+              }
+              if (!('ok' in result) || !result.ok) {
+                h.stop();
+                reject(new Error(`unexpected seed fail: ${'reason' in result ? result.reason : '?'}`));
+                return;
+              }
+              seedCount += 1;
+              if (seedCount === 1) {
+                expect(matching.submitted).toHaveLength(2);
+                expect(matching.live.size).toBe(2);
+                // Book empty and the orders are gone, so cancel answers cancelled false.
+                // Those holds stay for the fill; the next run draws again.
+                matching.live.clear();
+                return;
+              }
+              if (seedCount === 2) {
+                expect(cancelCount).toBeGreaterThanOrEqual(1);
+                expect(runIds[0]).not.toBe(runIds[1]);
+                // second seed used new order ids (4 submits total)
+                expect(matching.submitted.length).toBe(4);
+                expect(matching.cancelled.length).toBe(2);
+                // first holds were not returned; second seed drew another 99 USDT and 1 BTC
+                expect(formatAmount((await ledger.balance(marketMaker('USDT'))).amount)).toBe('9802');
+                expect(formatAmount((await ledger.balance(marketMaker('BTC'))).amount)).toBe('98');
+                h.stop();
+                resolve();
+              }
+            } catch (e) {
               h.stop();
-              reject(new Error(`unexpected seed fail: ${'reason' in result ? result.reason : '?'}`));
-              return;
+              reject(e);
             }
-            seedCount += 1;
-            if (seedCount === 1) {
-              expect(matching.submitted).toHaveLength(2);
-              expect(matching.live.size).toBe(2);
-              // Book empty and the orders are gone, so cancel answers cancelled false.
-              // Those holds stay for the fill; the next run draws again.
-              matching.live.clear();
-              return;
-            }
-            if (seedCount === 2) {
-              expect(cancelCount).toBeGreaterThanOrEqual(1);
-              expect(runIds[0]).not.toBe(runIds[1]);
-              // second seed used new order ids (4 submits total)
-              expect(matching.submitted.length).toBe(4);
-              expect(matching.cancelled.length).toBe(2);
-              // first holds were not returned; second seed drew another 99 USDT and 1 BTC
-              expect(formatAmount((await ledger.balance(marketMaker('USDT'))).amount)).toBe('9802');
-              expect(formatAmount((await ledger.balance(marketMaker('BTC'))).amount)).toBe('98');
-              h.stop();
-              resolve();
-            }
-          } catch (e) {
-            h.stop();
-            reject(e);
-          }
-        },
-      });
-      setTimeout(() => {
-        h.stop();
-        reject(new Error(`reseed timeout seedCount=${seedCount} cancelCount=${cancelCount}`));
-      }, 3000);
-    });
+          },
+        });
+      }),
+      3_000,
+      () => `reseed timeout seedCount=${seedCount} cancelCount=${cancelCount}`,
+    );
   });
 });

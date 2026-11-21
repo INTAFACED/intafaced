@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StateBlock } from '@intafaced/ui';
 import { REQUEST_SIGN_VERSION, type RequestSigningPolicy } from '@intafaced/contracts/api-keys';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { readServerClock, type ServerClockReading } from '../../shared/server-clock';
 import { docsCopy } from './developers-docs-copy';
 import { developersCopy } from './developers-copy';
@@ -38,7 +38,7 @@ import {
   streamHostsView,
   type PerIpPolicy,
 } from './developers-streams';
-import '../public/public-pages.css';
+import '../../shared/public-pages.css';
 import './developers-docs.css';
 
 type Copy = ReturnType<typeof docsCopy.useCopy>['t'];

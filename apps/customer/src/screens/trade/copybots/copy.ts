@@ -30,6 +30,7 @@ const messages = {
   Active: 'Active',
   Address: 'Address',
   'After this time no new trades are copied.': 'After this time no new trades are copied.',
+  'Agent permission': 'Agent permission',
   'All copied orders together can never go past this.': 'All copied orders together can never go past this.',
   'All copied orders together can never go past this. It is a limit: nothing is set aside or moved.':
     'All copied orders together can never go past this. It is a limit: nothing is set aside or moved.',
@@ -182,6 +183,7 @@ const messages = {
   'Each webhook prepares orders on one venue market, for your venue account.':
     'Each webhook prepares orders on one venue market, for your venue account.',
   Earlier: 'Earlier',
+  'Earn on idle funds': 'Earn on idle funds',
   Earnings: 'Earnings',
   'Earnings by asset': 'Earnings by asset',
   'Edit limits': 'Edit limits',
@@ -201,6 +203,8 @@ const messages = {
   'Estimated cost, before fees and price moves': 'Estimated cost, before fees and price moves',
   'Estimated proceeds, before fees and price moves': 'Estimated proceeds, before fees and price moves',
   'Every leader trade so far was copied.': 'Every leader trade so far was copied.',
+  Exits: 'Exits',
+  'Exits saved. The bot stops once the price reaches one.': 'Exits saved. The bot stops once the price reaches one.',
   'Expected to finish': 'Expected to finish',
   Expired: 'Expired',
   'Extra charge on your profit': 'Extra charge on your profit',
@@ -210,6 +214,7 @@ const messages = {
   'Fee share': 'Fee share',
   'Fee share earned': 'Fee share earned',
   'Fee share history': 'Fee share history',
+  Fees: 'Fees',
   'Fees paid': 'Fees paid',
   'Figures are shown as the leader published them, not ranked or scored.':
     'Figures are shown as the leader published them, not ranked or scored.',
@@ -260,6 +265,7 @@ const messages = {
   'How each copy is sized': 'How each copy is sized',
   'How earnings are paid': 'How earnings are paid',
   'How long one payment gives access.': 'How long one payment gives access.',
+  'Idle funds': 'Idle funds',
   'If you stop, new copies stop at once. Positions already open stay yours until you close them.':
     'If you stop, new copies stop at once. Positions already open stay yours until you close them.',
   Institutional: 'Institutional',
@@ -371,6 +377,7 @@ const messages = {
   Newer: 'Newer',
   Next: 'Next',
   'Next slice number': 'Next slice number',
+  'No RSI source is connected, so an RSI exit can’t be saved.': 'No RSI source is connected, so an RSI exit can’t be saved.',
   'No backtest source is connected, so no preset and no APR is shown.':
     'No backtest source is connected, so no preset and no APR is shown.',
   'No bot exists with that request, so it did not go through. You can set it up again.':
@@ -427,6 +434,7 @@ const messages = {
   'Not set: the platform has not published level thresholds': 'Not set: the platform has not published level thresholds',
   'Not shown': 'Not shown',
   'Not verified': 'Not verified',
+  'Nothing is placed until your wallet signs the agent permission.': 'Nothing is placed until your wallet signs the agent permission.',
   'Nothing skipped': 'Nothing skipped',
   'Nothing you copied was left open to close': 'Nothing you copied was left open to close',
   Off: 'Off',
@@ -464,7 +472,9 @@ const messages = {
   Order: 'Order',
   Orders: 'Orders',
   'Our builder fee': 'Our builder fee',
+  'Our builder fee ({asset})': 'Our builder fee ({asset})',
   'Our fee on the fill': 'Our fee on the fill',
+  'Owed by INTAFACED': 'Owed by INTAFACED',
   'Paid once per period, in the asset above.': 'Paid once per period, in the asset above.',
   Pair: 'Pair',
   Paper: 'Paper',
@@ -494,6 +504,7 @@ const messages = {
   Positions: 'Positions',
   Presets: 'Presets',
   Price: 'Price',
+  'Price exit': 'Price exit',
   'Price limit': 'Price limit',
   'Price limit ({asset})': 'Price limit ({asset})',
   'Profit after': 'Profit after',
@@ -512,6 +523,7 @@ const messages = {
   'Published signals': 'Published signals',
   'Published signals are listed here.': 'Published signals are listed here.',
   'Quant Studio': 'Quant Studio',
+  'RSI exit': 'RSI exit',
   Range: 'Range',
   'Ranked categories': 'Ranked categories',
   'Ranked lists': 'Ranked lists',
@@ -519,6 +531,7 @@ const messages = {
   Ready: 'Ready',
   'Recommended amount': 'Recommended amount',
   Record: 'Record',
+  Recorded: 'Recorded',
   'Recurring buy (DCA)': 'Recurring buy (DCA)',
   'Recurring subscription': 'Recurring subscription',
   'Reference {code}': 'Reference {code}',
@@ -548,6 +561,7 @@ const messages = {
   'Same as TWAP, plus enough volume history': 'Same as TWAP, plus enough volume history',
   Save: 'Save',
   'Save changes': 'Save changes',
+  'Save exits': 'Save exits',
   'Search by name': 'Search by name',
   'Search leaders': 'Search leaders',
   'See strategies': 'See strategies',
@@ -583,6 +597,7 @@ const messages = {
   'Sign in to see your earnings.': 'Sign in to see your earnings.',
   'Sign in to see your signals.': 'Sign in to see your signals.',
   'Sign in to set up a bot.': 'Sign in to set up a bot.',
+  'Sign the agent permission': 'Sign the agent permission',
   Signal: 'Signal',
   'Signal earnings': 'Signal earnings',
   'Signal leaders': 'Signal leaders',
@@ -635,7 +650,10 @@ const messages = {
   'Stop remaining slices': 'Stop remaining slices',
   'Stop this bot?': 'Stop this bot?',
   'Stop this follow?': 'Stop this follow?',
+  'Stop when the price falls to': 'Stop when the price falls to',
+  'Stop when the price rises to': 'Stop when the price rises to',
   Stopped: 'Stopped',
+  'Stopped by': 'Stopped by',
   Stopping: 'Stopping',
   'Stops at a loss of': 'Stops at a loss of',
   Strategy: 'Strategy',
@@ -662,6 +680,8 @@ const messages = {
   'The bot may use more of your free {asset}: its investment rises by the amount and its levels are planned again. Nothing is moved.':
     'The bot may use more of your free {asset}: its investment rises by the amount and its levels are planned again. Nothing is moved.',
   'The bot service did not answer. Try again in a moment.': 'The bot service did not answer. Try again in a moment.',
+  'The bot trades on your own {venue} account, under an agent permission your wallet signs once. It can place and cancel orders there, never withdraw.':
+    'The bot trades on your own {venue} account, under an agent permission your wallet signs once. It can place and cancel orders there, never withdraw.',
   'The bot trades with your real balance on this market. Each slice is an ordinary order.':
     'The bot trades with your real balance on this market. Each slice is an ordinary order.',
   'The bot was created. It is in My bots.': 'The bot was created. It is in My bots.',
@@ -729,6 +749,7 @@ const messages = {
   'Trades are not copied for you until you turn on automatic copying.':
     'Trades are not copied for you until you turn on automatic copying.',
   'Trades of your own, at least': 'Trades of your own, at least',
+  'Trades on': 'Trades on',
   'Trading bots': 'Trading bots',
   'Trading fee': 'Trading fee',
   Trailing: 'Trailing',
@@ -749,6 +770,7 @@ const messages = {
   'Used today': 'Used today',
   'Venue account': 'Venue account',
   'Venue fee': 'Venue fee',
+  'Venue fees ({asset})': 'Venue fees ({asset})',
   'Venue status': 'Venue status',
   'Verification level': 'Verification level',
   'Verified live': 'Verified live',
@@ -758,6 +780,7 @@ const messages = {
     'Volume history is still short. A slice may be refused when it is due.',
   'Volume-weighted (VWAP)': 'Volume-weighted (VWAP)',
   'Waiting for the first read': 'Waiting for the first read',
+  'Waiting for your wallet': 'Waiting for your wallet',
   'We could not check right now. Try again in a moment.': 'We could not check right now. Try again in a moment.',
   'We couldn’t find that grid bot': 'We couldn’t find that grid bot',
   Webhooks: 'Webhooks',
@@ -774,7 +797,9 @@ const messages = {
   'Where to write one': 'Where to write one',
   'Why it was not copied': 'Why it was not copied',
   'Win rate': 'Win rate',
+  Withdraw: 'Withdraw',
   'Withdraw profit': 'Withdraw profit',
+  'Withdraw through the bot': 'Withdraw through the bot',
   'Withdrawable now: {amount} {asset}': 'Withdrawable now: {amount} {asset}',
   'Withdrawable profit': 'Withdrawable profit',
   'Withdrawal ID': 'Withdrawal ID',
@@ -806,6 +831,9 @@ const messages = {
   'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.':
     'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.',
   'You set them. A leader can never raise them': 'You set them. A leader can never raise them',
+  'You stopped it': 'You stopped it',
+  'You withdraw from the venue with your own wallet. The bot’s agent permission can’t withdraw.':
+    'You withdraw from the venue with your own wallet. The bot’s agent permission can’t withdraw.',
   'Your balance did not cover it': 'Your balance did not cover it',
   'Your bot’s reserve was lowered by {amount} {asset}. No money moved.':
     'Your bot’s reserve was lowered by {amount} {asset}. No money moved.',
@@ -829,6 +857,7 @@ const messages = {
   'Your wallet is asked to open an agent account for this follow on your own venue account, sign its agent permission and move the most in total into it. The permission can place and cancel orders there and can never withdraw. Nothing is moved or held by INTAFACED.':
     'Your wallet is asked to open an agent account for this follow on your own venue account, sign its agent permission and move the most in total into it. The permission can place and cancel orders there and can never withdraw. Nothing is moved or held by INTAFACED.',
   'Your webhooks': 'Your webhooks',
+  'Your {venue} account {owner}': 'Your {venue} account {owner}',
   '{amount} is open in {market}. The part you close is sold at the market price.':
     '{amount} is open in {market}. The part you close is sold at the market price.',
   '{count} levels. The service plans the real ones when the bot starts.':

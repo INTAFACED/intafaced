@@ -1,5 +1,5 @@
 import { SubNav } from '@intafaced/ui';
-import { preservePaperHref } from '../more/trade-context';
+import { preservePaperHref } from '../more';
 import { algoCopy } from './algo-copy';
 
 export type QuantRoomId =

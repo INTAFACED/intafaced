@@ -292,6 +292,47 @@ describe('business cards and expenses (J-bank-22)', () => {
     expect(ledger.journal()).toEqual([]);
   });
 
+  it('one purchase pressed eight times at once is one purchase and one partner move, under the limit and over it (#8888)', async () => {
+    const { accountId, owner, member } = await business();
+    const cardId = randomUUID();
+    await owner.businessCards.issueCard({ accountId, cardId, memberUserId: MEMBER, perPurchaseLimit: '100' });
+    let spent = parseAmount('0');
+    for (let round = 0; round < 10; round++) {
+      const over = round % 2 === 1;
+      const purchaseId = randomUUID();
+      const amount = over ? '120' : '5';
+      const all = await Promise.all(
+        Array.from({ length: 8 }, () => member.businessCards.testPurchase({ cardId, purchaseId, merchant: 'TEST Shop', amount })),
+      );
+      for (const p of all) {
+        expect(p).toMatchObject(
+          over ? { id: purchaseId, status: 'declined', declineReason: 'over_limit' } : { id: purchaseId, status: 'captured' },
+        );
+      }
+      if (!over) spent += parseAmount(amount);
+      expect(await held(accountId)).toBe(parseAmount('1000') - spent);
+    }
+    const rows = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM bank.business_card_purchases`;
+    expect(rows[0]!.n).toBe('10');
+    expect((await owner.businessCards.overview({ accountId })).limitRequests).toHaveLength(5);
+    // Copies racing on other terms: one purchase is recorded, every copy on other terms is a conflict, one partner move.
+    const purchaseId = randomUUID();
+    const tries = await Promise.allSettled(
+      ['6', '7', '6', '7', '6', '7', '6', '7'].map((amount) =>
+        member.businessCards.testPurchase({ cardId, purchaseId, merchant: 'TEST Shop', amount }),
+      ),
+    );
+    const won = (
+      await sql<Array<{ amount: string }>>`SELECT amount::text FROM bank.business_card_purchases WHERE id = ${purchaseId}::uuid`
+    )[0]!;
+    for (const [i, t] of tries.entries()) {
+      const same = parseAmount(['6', '7'][i % 2]!) === parseAmount(won.amount);
+      if (same) expect(t).toMatchObject({ status: 'fulfilled', value: { id: purchaseId, status: 'captured' } });
+      else expect(t.status === 'rejected' && codeOf(t.reason)).toBe('bank.business_request_conflict');
+    }
+    expect(await held(accountId)).toBe(parseAmount('1000') - spent - parseAmount(won.amount));
+  });
+
   it('a claim the business cannot cover is refused by the partner, moves nothing and stays open', async () => {
     const { accountId, owner, member } = await business();
     const claimId = randomUUID();

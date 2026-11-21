@@ -245,6 +245,12 @@ const messages = {
   'Opening window until': 'Limit orders only until {time}',
   'Opening window refusal':
     'This market is in its opening window. A newly listed market takes limit orders only until the window ends. Place a limit order instead.',
+  'Higher-risk zone': 'Higher-risk zone',
+  'Zone cap': 'Limit orders only, up to {cap} {asset} an order',
+  'Zone cap not set': 'Cap not set: no orders are taken',
+  'Zone refusal': 'This market is in the higher-risk zone, which takes limit orders only. Place a limit order instead.',
+  'Zone cap unset refusal': 'This market is in the higher-risk zone and its order cap is not set, so it takes no order.',
+  'Zone cap refusal': 'An order in the higher-risk zone may be worth at most {cap} {asset}. Lower the amount or the price.',
   'Session shut title': 'This market is closed',
   'Session shut body opens': 'Its session is shut and opens {time}. Orders are not queued while it is closed, and nothing is held.',
   'Session shut body': 'Its session is shut. Orders are not queued while it is closed, and nothing is held.',

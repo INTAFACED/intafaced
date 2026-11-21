@@ -564,7 +564,7 @@ describe('the process-wide list is read from the environment', () => {
  * empty and nobody in counsel having supplied a thing. Business configuration,
  * edited in ordinary PRs by ordinary contributors, silently arming a legal
  * control. Latent only while the shipped matrix contained no `blocked: true`
- * entry; live the first time anybody added one (the US did, OWNER 237).
+ * entry; live the first time anybody added one (the US did).
  *
  * These tests use a SYNTHETIC matrix, because a rule about the blocked case
  * that can only be exercised through whatever the shipped matrix holds (today
@@ -731,7 +731,7 @@ describe('a business block cannot satisfy the screening guard', () => {
     expect(businessBlockedRegions()).toEqual(['US', 'CA-ON']);
     expect(businessBlockFor('QQ')).toBeUndefined();
     expect(screeningStatus(UNSET_SCREENING_LIST).businessBlockedRegions).toEqual(['US', 'CA-ON']);
-    // The shipped US and Ontario blocks (OWNER 237, 258) are a real business block in front of the guard, and the guard still refuses.
+    // The shipped US and Ontario blocks (258) are a real business block in front of the guard, and the guard still refuses.
     expect(() => assertScreeningConfigured({ APP_ENV: 'prod' })).toThrow(UnscreenedJurisdictionError);
   });
 });
@@ -931,7 +931,7 @@ describe('the deliberately-empty list is a distinct, attributable state', () => 
 
   /**
    * The state reaches the decision, not just the dashboard. `listConfigured:
-   * true` with a count of zero used to be unreachable; now it means something
+   * true` with a count of zero is reachable, and it means something
    * specific, and a reader with only the boolean and the count cannot tell it
    * from a short list.
    */
@@ -1041,7 +1041,7 @@ describe('what ships', () => {
   });
 
   /**
-   * And ships two business blocks, the US (OWNER 237) and Ontario (OWNER 258). If this fails, somebody
+   * And ships two business blocks, the US and Ontario. If this fails, somebody
    * changed `blocked: true` in the matrix — which is allowed, and is a
    * commercial decision — and this test is where they confirm they meant a
    * commercial block and not a sanctions one, which belongs in `screening.ts`.
@@ -1054,7 +1054,7 @@ describe('what ships', () => {
   });
 });
 
-/** The counsel-set list takes ISO 3166-2 subdivision rows (OWNER 258 (1); Hyperliquid terms 1.6, read 9 Nov 2026). */
+/** The counsel-set list takes ISO 3166-2 subdivision rows (Hyperliquid terms 1.6, read 9 Nov 2026). */
 describe('subdivision rows in the screening list', () => {
   it('parses a subdivision code next to a country code, upper-cased, reason kept', () => {
     const list = parseScreeningList('qm-01:TEST row, QM-B2 ,QN', 'counsel-memo-TEST');

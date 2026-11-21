@@ -13,7 +13,7 @@ import {
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { base64Of, kib } from '../../shared/file-base64';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { verificationGuidedCopy as copy } from './verification-guided-copy';

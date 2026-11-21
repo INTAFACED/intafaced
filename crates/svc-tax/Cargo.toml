@@ -1,0 +1,23 @@
+[package]
+name = "svc-tax"
+version = "0.0.0"
+description = "svc-tax: the lot export and profit and loss indicator over ledger reads. The running service."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+service-kit = { path = "../service-kit" }
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+ed25519-dalek = { version = "2", features = ["pkcs8"] }
+getrandom = "0.3"
+postgres = "0.19"
+signal-hook = "0.3"
+tiny_http = "0.12"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+url = "2"

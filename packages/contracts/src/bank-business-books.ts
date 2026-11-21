@@ -71,6 +71,11 @@ export const businessBookStatementSchema = z.object({
   partner: z.object({ label: z.string(), closing: signed, lines: z.number().int().nonnegative(), asOf: iso }),
 });
 
+/** `businessBooks.lines` and `businessBooks.codeLines`: the account's lines for the period. */
+export const businessBookLinesSchema = z.object({ items: z.array(businessBookLineSchema) });
+/** `businessBooks.testRule`: the lines a rule would match, before it is saved. */
+export const businessBookRuleMatchesSchema = z.object({ matches: z.array(businessBookLineSchema) });
+
 export type BusinessBookLine = z.infer<typeof businessBookLineSchema>;
 export type BusinessCodingRule = z.infer<typeof businessCodingRuleSchema>;
 export type BusinessBooksOverview = z.infer<typeof businessBooksOverviewSchema>;

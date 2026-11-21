@@ -2,23 +2,27 @@ import { type QuantStrategyDetail } from '@intafaced/contracts/quant-algo';
 import {
   QUANT_LIBRARY_TAGS,
   QUANT_LISTING_VISIBILITIES,
-  quantLibraryOptionsSchema,
-  quantLineageReadSchema,
-  quantListingCheckSchema,
-  quantListingSchema,
-  quantMyListingsSchema,
   type QuantLibraryOptions,
   type QuantLibraryTag,
   type QuantListing,
   type QuantListingCheck,
   type QuantListingVisibility,
 } from '@intafaced/contracts/quant-library';
+import {
+  QUANT_LIBRARY_CHECK,
+  QUANT_LIBRARY_GRANT,
+  QUANT_LIBRARY_LINEAGE,
+  QUANT_LIBRARY_MINE,
+  QUANT_LIBRARY_OPTIONS,
+  QUANT_LIBRARY_PUBLISH,
+  QUANT_LIBRARY_REVOKE,
+} from '@intafaced/contracts/quant-library-procedures';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Loading } from '../../shared/ui';
-import { Read, Select, TextArea } from '../more/common';
-import { useApi } from '../session/session';
+import { Read, Select, TextArea } from '../more';
+import { useApi } from '../session';
 import { libraryCopy } from './library-copy';
 import { refusalCode, useLastReady } from './StrategyTeam';
 
@@ -56,7 +60,7 @@ export function StrategyLineage({ strategy }: { strategy: QuantStrategyDetail })
   const api = useApi();
   const { t } = libraryCopy.useCopy();
   const lineage = useResource(
-    (signal) => api.query('quant', 'library.lineage', { strategyId: strategy.id }, quantLineageReadSchema, { signal }),
+    (signal) => api.call(QUANT_LIBRARY_LINEAGE, { strategyId: strategy.id }, { signal }),
     `quant-lineage:${strategy.id}`,
   );
   if (lineage.resource.status !== 'ready' || !lineage.resource.data.lineage) return null;
@@ -76,14 +80,8 @@ export function StrategyPublish({ strategy }: { strategy: QuantStrategyDetail })
   const api = useApi();
   const { t } = libraryCopy.useCopy();
   const [revision, setRevision] = useState(0);
-  const options = useResource(
-    (signal) => api.query('quant', 'library.options', {}, quantLibraryOptionsSchema, { signal }),
-    'quant-library-options',
-  );
-  const mine = useResource(
-    (signal) => api.query('quant', 'library.mine', {}, quantMyListingsSchema, { signal }),
-    `quant-library-mine:${revision}`,
-  );
+  const options = useResource((signal) => api.call(QUANT_LIBRARY_OPTIONS, {}, { signal }), 'quant-library-options');
+  const mine = useResource((signal) => api.call(QUANT_LIBRARY_MINE, {}, { signal }), `quant-library-mine:${revision}`);
   const kept = useLastReady(mine.resource);
   const reload = () => setRevision((n) => n + 1);
   return (
@@ -140,7 +138,7 @@ function PublishForm({
   async function runChecks() {
     if (busy) return;
     begin();
-    const res = await api.query('quant', 'library.check', details, quantListingCheckSchema);
+    const res = await api.call(QUANT_LIBRARY_CHECK, details);
     setBusy(false);
     if (res.ok) return setChecked(res.data);
     setChecked(null);
@@ -151,16 +149,11 @@ function PublishForm({
   async function publish() {
     if (busy) return;
     begin();
-    const res = await api.mutate(
-      'quant',
-      'library.publish',
-      {
-        ...details,
-        checklistVersion: options.checklist?.version ?? '',
-        checklistAccepted: items.length > 0 && accepted.length === items.length,
-      },
-      quantListingSchema,
-    );
+    const res = await api.call(QUANT_LIBRARY_PUBLISH, {
+      ...details,
+      checklistVersion: options.checklist?.version ?? '',
+      checklistAccepted: items.length > 0 && accepted.length === items.length,
+    });
     setBusy(false);
     if (res.ok) {
       setNote(t('published', { version: String(res.data.strategyVersion) }));
@@ -329,12 +322,11 @@ function ListingAccess({ listing, onChange }: { listing: QuantListing; onChange:
   const [failure, setFailure] = useState<Failed | null>(null);
   async function act(action: 'grant' | 'revoke', user: string, rows: number) {
     setFailure(null);
-    const res = await api.mutate(
-      'quant',
-      `library.${action}`,
-      { listingId: listing.listingId, userId: user, seq: rows },
-      quantListingSchema,
-    );
+    const res = await api.call(action === 'grant' ? QUANT_LIBRARY_GRANT : QUANT_LIBRARY_REVOKE, {
+      listingId: listing.listingId,
+      userId: user,
+      seq: rows,
+    });
     if (!res.ok) return setFailure(res);
     setUserId('');
     onChange();

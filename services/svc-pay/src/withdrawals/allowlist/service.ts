@@ -55,7 +55,8 @@ interface ChangeRow {
   client_ref: string;
   op: ChangeOp;
   entry_id: string | null;
-  payload: Record<string, unknown>;
+  /** What svc-pay wrote when the change was filed: one of the three subjects its record names. */
+  payload: ChangeView['subject'];
   request_hash: string;
   team_account_id: string;
   required_approvals: number;

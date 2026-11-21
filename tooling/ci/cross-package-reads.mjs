@@ -146,6 +146,23 @@ export function detectedEdges(root = ROOT) {
   return out;
 }
 
+/**
+ * Reads of paths outside the workspace packages, as the edge-list shape: `{ "<reader dir>": ["<path>", ...] }`, a test
+ * reading `<path>` when its code (comments stripped) names it: a folder (`tooling/lint/`) by its path, a file by its
+ * name. The affected-test selection runs these readers when such a path changes (ci-affected.mjs isGateOnlyTooling).
+ */
+export function pathReadEdges(paths, root = ROOT) {
+  const needles = paths.map((p) => [p, p.endsWith('/') ? p.slice(0, -1) : p.split('/').pop()]);
+  const out = {};
+  for (const pkg of loadPackages(root).values()) {
+    for (const file of walk(join(root, pkg.dir))) {
+      const text = stripComments(readFileSync(file, 'utf8'));
+      for (const [path, needle] of needles) if (text.includes(needle) && !(out[pkg.dir] ??= []).includes(path)) out[pkg.dir].push(path);
+    }
+  }
+  return out;
+}
+
 /** Every read: the declared edges plus what the scan finds. The affected-test selection (ci-affected.mjs) uses this too. */
 export function allEdges(root = ROOT) {
   const out = {};

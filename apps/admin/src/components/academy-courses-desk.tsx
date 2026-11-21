@@ -15,7 +15,7 @@ import {
   type CourseListView,
 } from '@/lib/academy/courses-model';
 import type { AcademyCourseDetail, AcademyTopicList } from '@intafaced/contracts/academy-courses';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import { ACADEMY_PAGES } from '@/lib/ops-desk/catalog';
 import { OutlineEditor } from '@/components/academy-outline-editor';
 import { CoursePrivateLinks } from '@/components/academy-course-preview';

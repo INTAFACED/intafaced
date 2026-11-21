@@ -15,7 +15,7 @@ const world = vi.hoisted(() => ({
 }));
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: world.userId, api: {} }) }));
 vi.mock('../developers/apps/oauth-api', async (original) => {
-  const real = await original<typeof import('../developers/apps/oauth-api')>();
+  const real = await original<object>();
   return {
     ...real,
     previewAuthorize: (_api: unknown, request: unknown) => world.preview(request),

@@ -845,6 +845,11 @@ try {
       assert.equal(existsSync(join(repo, 'services', `svc-${sv.name}`, 'pom.xml')), true, `no services/svc-${sv.name}/pom.xml`);
       continue;
     }
+    if (sv.rust) {
+      // A Rust service (svc-tax, svc-academy) runs its binary, which the stack builds from its crate (ensureRustBinaries).
+      assert.equal(existsSync(join(repo, 'crates', `svc-${sv.name}`, 'Cargo.toml')), true, `no crates/svc-${sv.name}/Cargo.toml`);
+      continue;
+    }
     assert.equal(existsSync(join(repo, 'services', `svc-${sv.name}`, 'src', 'index.ts')), true, `no services/svc-${sv.name}`);
     assert.equal(plan.backendPackages.includes(`svc-${sv.name}`), true, `svc-${sv.name} is started but never built`);
   }
@@ -853,6 +858,12 @@ try {
     // (`pnpm --filter <service> db:migrate`), pointing at a file that exists (svc-ops keeps it in src/db).
     const owner = plan.services.find((x) => x.schema === schema);
     assert.ok(owner, `schema ${schema} has no service`);
+    if (owner.rust) {
+      // A Rust service applies its own migrations (`svc-<name> migrate`) from the SQL files in its crate.
+      const dir = join(repo, 'crates', `svc-${owner.name}`, 'migrations');
+      assert.ok(existsSync(dir) && readdirSync(dir).some((f) => f.endsWith('.sql')), `crates/svc-${owner.name} has no migrations`);
+      continue;
+    }
     const dir = join(repo, 'services', `svc-${owner.name}`);
     const migrate = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).scripts?.['db:migrate'] ?? '';
     const file = /^(?:tsx|node) (\S+\.(?:ts|mjs))$/.exec(migrate)?.[1];
@@ -1715,6 +1726,46 @@ console.log('local-test-stack: customer folder override checks passed');
     'startNodeService waits on its own late service',
   );
   console.log("local-test-stack: a start waits for the stack's own late service and refuses only a stranger's port");
+}
+
+// The health table does not call a running service DOWN on one late read: svc-matching's process kept running while one
+// 2.5 s /health read went unanswered, and `restart academy` exited 1 on it (journeys run 44566531740, J-academy-11 #3,
+// #9088). A running process with no answer is read again within a window; an answer, or a gone process, counts at once.
+{
+  const { settledHealth } = await import('./local-test-stack.mjs');
+  const clock = () => {
+    let t = 0;
+    return { now: () => t, pause: async (ms) => void (t += ms) };
+  };
+  const reads = (...statuses) => {
+    const seen = [];
+    return { seen, read: async () => ({ status: statuses[Math.min(seen.push(1) - 1, statuses.length - 1)] }) };
+  };
+  let c = clock();
+  let r = reads(0, 0, 200);
+  assert.equal((await settledHealth(r.read, { alive: () => true, ...c })).status, 200, 'a late answer from a running service is ok');
+  assert.equal(r.seen.length, 3);
+  c = clock();
+  r = reads(0);
+  assert.equal((await settledHealth(r.read, { alive: () => false, ...c })).status, 0, 'a gone process is DOWN at once');
+  assert.equal(r.seen.length, 1);
+  c = clock();
+  r = reads(503, 200);
+  assert.equal((await settledHealth(r.read, { alive: () => true, ...c })).status, 503, 'a refusing answer is not read again');
+  c = clock();
+  r = reads(0);
+  assert.equal(
+    (await settledHealth(r.read, { alive: () => true, windowMs: 2000, pauseMs: 500, ...c })).status,
+    0,
+    'still silent after the window: DOWN',
+  );
+  assert.equal(r.seen.length, 5, 'read again only within the window');
+  assert.match(
+    source,
+    /settledHealth\(\(\) => httpGet\(`\$\{urlOf\(n\)\}\/health`, 2500\), \{ alive: \(\) => ownedAlive\(procs\[n\]\) \}\)/,
+    'the table reads each service through it',
+  );
+  console.log('local-test-stack: the health table waits for a running service that answers late, never for a gone one');
 }
 
 // A slot whose owner is gone is taken back; a live owner's never (takeSlot, ownerGone). Failure it prevents: on 16 Nov

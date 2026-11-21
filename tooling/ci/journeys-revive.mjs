@@ -37,9 +37,12 @@
  * It runs after each Real-app journeys run on main ends (main-trust.yml post-merge, `prs`), so it follows main's
  * report coming back within minutes, and on the hourly `revive` tick after the main pass, for any other input outage.
  *
- * A refused request (403, 429) stops the tick, never retried, and opens one issue (REFUSED_TITLE) when GitHub still takes it.
+ * A refused request (403, 429) stops the tick, never retried, and opens one issue (REFUSED_TITLE) when GitHub still takes it;
+ * a spent hourly budget (remaining 0, with its reset: refusal.mjs budgetSpentUntil) stops it too, with no issue, since the
+ * next tick after the reset starts again from scratch.
  *
- *   node tooling/ci/journeys-revive.mjs        main runs, then pull requests (GITHUB_REPOSITORY, GH_TOKEN; DRY_RUN=1 writes nothing)
+ *   node tooling/ci/journeys-revive.mjs        main runs, then pull requests (GITHUB_REPOSITORY; DRY_RUN=1 writes nothing;
+ *                                              CI sets GH_TOKEN, by hand it reads through gh: github-fetch.mjs)
  *   node tooling/ci/journeys-revive.mjs prs    pull requests only
  *   node tooling/ci/journeys-revive.mjs main   main runs only (after each CI run on main: GitHub's cron here runs late or never)
  *   node tooling/ci/journeys-revive.mjs held   open armed pull requests held only by main's reds that main has since lost
@@ -48,7 +51,8 @@
  */
 import { downloadReport, isMainRun, JOURNEYS_FILE } from './journey-verdict.mjs';
 import { JOURNEY_TEST, journeyOf } from './journey-seal.mjs';
-import { refusalDetail } from './refusal.mjs';
+import { budgetSpentUntil, refusalDetail } from './refusal.mjs';
+import { githubFetch, githubToken } from './github-fetch.mjs';
 
 export const MAX_ATTEMPT = 5;
 /** Minutes to wait after attempt n ended before asking for attempt n + 1. */
@@ -408,8 +412,12 @@ export async function heldTick({ repo, now, io }) {
   return out;
 }
 
-/** The labels the pull holds a pull request with (project-state tooling/pull/next.mjs): the held pass leaves those. */
-export const HELD_LABELS = ['blocked', 'parked', 'design', 'factory-fix'];
+/**
+ * The labels the pull holds a pull request with (project-state tooling/pull/next.mjs): the held pass leaves those. A
+ * `design` pull request is not one: it merges like any other since the owner's 20 Nov decision (project-state decision
+ * PR #3428; the pull's hold on it went in project-state #3444).
+ */
+export const HELD_LABELS = ['blocked', 'parked', 'factory-fix'];
 
 /** Why GitHub did not update a branch, from its answer: a 422 says a conflict or a head that moved. */
 export function notUpdated(r) {
@@ -432,10 +440,10 @@ async function gh(method, path, body, raw = false) {
     console.log(`DRY_RUN ${method} ${path}`);
     return { status: 0, json: null };
   }
-  const res = await fetch(`https://api.github.com${path}`, {
+  const res = await githubFetch(`https://api.github.com${path}`, {
     method,
     headers: {
-      authorization: `Bearer ${process.env.GH_TOKEN}`,
+      authorization: `Bearer ${githubToken()}`,
       accept: 'application/vnd.github+json',
       'x-github-api-version': '2022-11-28',
       'content-type': 'application/json',
@@ -445,11 +453,27 @@ async function gh(method, path, body, raw = false) {
   const text = await res.text();
   // AGENTS.md's one exception: "already running" on a re-run only means a re-run is in progress.
   if (res.status === 403 && /already running/i.test(text)) return { status: 403, json: null, alreadyRunning: true };
-  if (res.status === 403 || res.status === 429)
-    throw new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying${refusalDetail(res.headers, text)}`);
+  if (res.status === 403 || res.status === 429) {
+    const e = new Error(`GitHub ${res.status} on ${method} ${path}: stopping, not retrying${refusalDetail(res.headers, text)}`);
+    e.budgetSpentUntil = budgetSpentUntil(res.status, res.headers);
+    throw e;
+  }
   if (method === 'GET' && !res.ok) throw new Error(`GitHub ${res.status} on GET ${path}`);
   if (raw) return { status: res.status, text };
   return { status: res.status, json: text ? JSON.parse(text) : null };
+}
+
+// A run's jobs in pages of JOBS_PAGE. GitHub answered 502 on every try for the 71 jobs of run 44350969050's attempt 2
+// at per_page=100 and 200 at 50 (18 Nov 2026), and that one 502 stopped every tick of Main trust for every pull request,
+// main's dead runs among them (factory red project-state#2548). Pages also keep a run of more than one page whole.
+export const JOBS_PAGE = 50;
+export async function runJobs(getPage) {
+  const out = [];
+  for (let page = 1; ; page++) {
+    const { json } = await getPage(page);
+    out.push(...(json?.jobs ?? []));
+    if ((json?.jobs ?? []).length < JOBS_PAGE || out.length >= (json?.total_count ?? 0)) return out;
+  }
 }
 
 /** A refused request (gh above): it stops the tick. */
@@ -486,8 +510,10 @@ export function githubIo(repo) {
     pull: async (n) => (await gh('GET', `/repos/${repo}/pulls/${n}`)).json,
     headRuns: async (sha) =>
       (await gh('GET', `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?head_sha=${sha}&per_page=100`)).json.workflow_runs,
-    jobs: async (run) =>
-      (await gh('GET', `/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs?per_page=100`)).json.jobs,
+    jobs: (run) =>
+      runJobs((page) =>
+        gh('GET', `/repos/${repo}/actions/runs/${run.id}/attempts/${run.run_attempt || 1}/jobs?per_page=${JOBS_PAGE}&page=${page}`),
+      ),
     // GET /rate_limit spends no budget.
     budget: async () => (await gh('GET', '/rate_limit')).json.resources.core,
     jobLog: async (job) => (await gh('GET', `/repos/${repo}/actions/jobs/${job.id}/logs`, undefined, true)).text,
@@ -515,8 +541,12 @@ export function githubIo(repo) {
   };
 }
 
-/** After a refusal: one issue, if GitHub still takes it; its own failure is only logged. */
-async function nameRefusal(io, e) {
+/** After a refusal: one issue, if GitHub still takes it; its own failure is only logged. A spent budget opens none. */
+export async function nameRefusal(io, e) {
+  if (e.budgetSpentUntil) {
+    console.error(`journeys-revive: the API budget is spent until ${e.budgetSpentUntil}; the next tick after it starts again, no issue`);
+    return;
+  }
   try {
     if (await io.openIssue(REFUSED_TITLE)) return;
     await io.createIssue(
@@ -530,8 +560,8 @@ async function nameRefusal(io, e) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const repo = process.env.GITHUB_REPOSITORY;
-  if (!repo || !process.env.GH_TOKEN) {
-    console.error('✖ journeys-revive: GITHUB_REPOSITORY and GH_TOKEN are required');
+  if (!repo) {
+    console.error('✖ journeys-revive: GITHUB_REPOSITORY is required');
     process.exit(1);
   }
   const io = githubIo(repo);

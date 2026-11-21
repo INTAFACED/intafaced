@@ -2,7 +2,7 @@ import { t as copyText, Text } from './copy';
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { tradeSchema } from '@intafaced/exchange-contract/schemas';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, signedDecimalSchema } from '../../shared/money';
 import { Button, DataTable, Panel } from '../../shared/ui';

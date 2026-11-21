@@ -1,5 +1,5 @@
 import type { QuantModerationEntry, QuantModerationQueue } from '@intafaced/contracts';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * The strategy library desk on the market desk (J-algo-dev-10, AL-library-03). Pure, so the route, the server and the

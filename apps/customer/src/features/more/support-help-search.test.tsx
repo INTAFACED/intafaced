@@ -10,15 +10,25 @@ vi.mock('../../shared/preferences', async (original) => {
 
 const asked = vi.hoisted(() => [] as unknown[]);
 const who = vi.hoisted(() => ({ userId: 'user-1' }));
-vi.mock('../session/session', () => {
+vi.mock('../session/session', async (original) => {
+  const real = await original<typeof import('../session/session')>();
   const api = {
     query: async (_module: string, _procedure: string, input?: unknown) => {
       asked.push(input);
       return { ok: true, data: [] };
     },
     mutate: async () => ({ ok: false }),
+    // A call by its record reaches this double's query or mutate under the record's module and path.
+    call(record: { kind: string; module: string; path: string }, input?: unknown): Promise<unknown> {
+      const send = (record.kind === 'query' ? api.query : api.mutate) as (
+        module: string,
+        path: string,
+        input?: unknown,
+      ) => Promise<unknown>;
+      return send(record.module, record.path, input);
+    },
   };
-  return { useApi: () => api, useSession: () => ({ api, userId: who.userId, session: { accessToken: 'token' } }) };
+  return { ...real, useApi: () => api, useSession: () => ({ api, userId: who.userId, session: { accessToken: 'token' } }) };
 });
 
 import { SupportHelpArticles } from './SupportHelpArticles';

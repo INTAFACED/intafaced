@@ -33,7 +33,8 @@ export function sumDecimal(values) {
   return frac ? `${sum.slice(0, -scale)}.${frac}` : sum.slice(0, -scale);
 }
 
-async function rpc(method, params) {
+/** One call to the stack's TEST chain node, through its gate. */
+export async function rpc(method, params) {
   const res = await fetch(GATE_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

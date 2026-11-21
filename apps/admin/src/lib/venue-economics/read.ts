@@ -1,7 +1,6 @@
 import 'server-only';
 import { opsVenueEconomicsSchema, type OpsVenueEconomics } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
 
 export interface VenueEconomicsRead {
   readonly asOf: string;

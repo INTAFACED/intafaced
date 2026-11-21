@@ -1,4 +1,5 @@
 import { MarketError } from '../vendor-service.js';
+import { MARKET_PROFIT_SHARE_KEYS, MARKET_RETURN_RANK_KEYS } from '@intafaced/contracts/market-procedures';
 import type { CommerceService, ListingRecord } from '../commerce/commerce-service.js';
 
 /**
@@ -10,19 +11,6 @@ import type { CommerceService, ListingRecord } from '../commerce/commerce-servic
  * Compute-tier magnitudes stay owner-only — this file invents none.
  */
 
-const PROFIT_SHARE_KEYS = [
-  'profitShare',
-  'profitShareBps',
-  'pnlFee',
-  'pnlShare',
-  'performanceFee',
-  'successFee',
-  'highWaterMark',
-  'hurdleRate',
-] as const;
-
-const RETURN_RANK_KEYS = ['returnRank', 'rankByReturn', 'returnPct', 'pnlPct'] as const;
-
 export type StrategyListingInput = {
   userId: string;
   title: string;
@@ -33,12 +21,12 @@ export type StrategyListingInput = {
 };
 
 export function refuseStrategyCopyLaw(input: Record<string, unknown>): void {
-  for (const key of PROFIT_SHARE_KEYS) {
+  for (const key of MARKET_PROFIT_SHARE_KEYS) {
     if (input[key] != null) {
       throw new MarketError('Strategy listings cannot charge a fee from follower P&L', 'market.strategy_profit_share_forbidden');
     }
   }
-  for (const key of RETURN_RANK_KEYS) {
+  for (const key of MARKET_RETURN_RANK_KEYS) {
     if (input[key] != null) {
       throw new MarketError('Strategy catalogue is registration order — not ranked by return', 'market.strategy_return_rank_forbidden');
     }

@@ -20,6 +20,14 @@ export type Accent = (typeof accents)[number];
 export const defaultAccent: Accent = 'blue';
 
 /**
+ * `data-direction` on the root: one of the look directions the owner chooses between (intafaced issue 9227), each its
+ * own material, type and layout on top of the look's roles. Off by default; only `?direction=` sets it (look.ts), and
+ * only with the look on.
+ */
+export const directions = ['ember', 'volt', 'lit-glass'] as const;
+export type Direction = (typeof directions)[number];
+
+/**
  * `data-surfaces` on the root. `solid` replaces every glass and translucent surface with an opaque one and
  * turns blur off. It is the in-app switch for people who need it (Safari never exposes Reduce Transparency to
  * the web) and is also on whenever `prefers-contrast: more`, `forced-colors: active` or `prefers-reduced-transparency: reduce`
@@ -37,7 +45,7 @@ export const modes = ['simple', 'pro'] as const;
 export type Mode = (typeof modes)[number];
 
 /**
- * Image roles (`field`, `glass-bg`, `primary-bg`, `secondary-bg`, `key-bg`, `key-lit-bg`) hold a colour in the
+ * Image roles (`field`, `glass-bg`, `primary-bg`, `secondary-bg`, `key-bg`, `key-lit-bg`, `object-bg`, `object-spark-bg`) hold a colour in the
  * flat skin and a gradient in the lit skin, so they are only ever used with the `background` shorthand. Every
  * other colour role is a plain colour in every skin. Shadow roles are `box-shadow` values.
  *
@@ -106,6 +114,13 @@ export const roles = {
   'key-shadow': 'Shadow stack of an action key',
   'key-lit-bg': 'The one key that is the light',
   'key-lit-shadow': 'Glow and wall of the lit key',
+
+  // The money object (a card, a stack, a coin): the account drawn as a thing you hold, in both schemes.
+  'object-bg': 'The money object face. Image role: use with the `background` shorthand only',
+  'object-fg': 'Text and figures on the money object face',
+  'object-shadow': 'Edge light and weight of the money object (shadow stack)',
+  'object-spark-bg': "The money object lit as the screen's one spark. Image role: `background` shorthand only",
+  'object-spark-fg': 'Text and figures on the lit money object',
   'control-bg': 'Input, select, segmented control body',
   'control-rim': 'Their outline at rest',
   'control-rim-active': 'Their outline when focused or selected (not the focus ring)',

@@ -15,9 +15,16 @@ import {
   academyTeamChangeSchema,
   ACADEMY_MODERATION_LIST_MAX,
 } from '@intafaced/contracts/academy-team';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+  type RefusalView,
+} from '@/lib/desk';
 import type { ModerationView, TeamDeskReply, TeamView } from './team-model';
 
 /**

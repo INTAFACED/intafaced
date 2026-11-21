@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent, type JSX } from 'react';
 import { StateBlock } from '@intafaced/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { developersCopy } from './developers-copy';
 import { liveCopy } from './developers-live-copy';
 import { hostsView, readDeveloperHosts, readRegionalRule, regionalRuleView } from './developers-values';
@@ -40,7 +40,7 @@ import { BotPolicyPage } from './trading/BotPolicyPage';
 import { OrderTypesPage } from './trading/OrderTypesPage';
 import { IdempotencyPage } from './idempotency/IdempotencyPage';
 import { QuantApiPage } from './quant/QuantApiPage';
-import '../public/public-pages.css';
+import '../../shared/public-pages.css';
 
 const key = (id: string) => id.replace(/-/g, '_');
 type SectionKey = Extract<Parameters<ReturnType<typeof developersCopy.useCopy>['t']>[0], `section_${string}`>;

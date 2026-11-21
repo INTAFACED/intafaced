@@ -1,12 +1,11 @@
 import 'server-only';
-import { distributionRunInputSchema, distributionRunSchema } from '@intafaced/contracts/campaigns-distribution';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import {
-  distributionPlanInputSchema,
-  distributionPlanSchema,
-  payoutBoardInputSchema,
-  payoutBoardSchema,
-} from '@intafaced/contracts/campaigns-payout-board';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
+  CAMPAIGNS_OPS_CAMPAIGNS_DISTRIBUTION_PLAN,
+  CAMPAIGNS_OPS_CAMPAIGNS_DISTRIBUTION_RUN,
+  CAMPAIGNS_OPS_PAYOUTS_BOARD,
+} from '@intafaced/contracts/campaigns-procedures';
+import { founderRecordCall, type FounderCallContext } from '@/lib/desk';
 import { check, ruleReply } from './builder-server';
 
 /**
@@ -15,22 +14,21 @@ import { check, ruleReply } from './builder-server';
  * owes each share once under its business key, so a replay pays nobody twice. No money moves in this console.
  */
 
-export const checkBoard = check(payoutBoardInputSchema, 'Which campaign?');
-export const checkPlan = check(distributionPlanInputSchema, 'Which airdrop campaign?');
-export const checkRun = check(distributionRunInputSchema, 'Which airdrop campaign, and why (3 to 500 characters)?');
+export const checkBoard = check(CAMPAIGNS_OPS_PAYOUTS_BOARD.input, 'Which campaign?');
+export const checkPlan = check(CAMPAIGNS_OPS_CAMPAIGNS_DISTRIBUTION_PLAN.input, 'Which airdrop campaign?');
+export const checkRun = check(CAMPAIGNS_OPS_CAMPAIGNS_DISTRIBUTION_RUN.input, 'Which airdrop campaign, and why (3 to 500 characters)?');
 
-const readBoard = parseWith(payoutBoardSchema);
-const readPlan = parseWith(distributionPlanSchema);
-const readRun = parseWith(distributionRunSchema);
-
-export async function loadPayoutBoard(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.payouts.board', 'GET', input, readBoard, { sendEmptyInput: true }));
+export async function loadPayoutBoard(ctx: FounderCallContext, input: ProcedureInput<typeof CAMPAIGNS_OPS_PAYOUTS_BOARD>) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_PAYOUTS_BOARD, input, { sendEmptyInput: true }));
 }
 
-export async function loadDistributionPlan(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.campaigns.distribution.plan', 'GET', input, readPlan));
+export async function loadDistributionPlan(
+  ctx: FounderCallContext,
+  input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_DISTRIBUTION_PLAN>,
+) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_DISTRIBUTION_PLAN, input));
 }
 
-export async function runDistribution(ctx: FounderCallContext, input: unknown) {
-  return ruleReply(await founderCall(ctx, 'campaigns', 'ops.campaigns.distribution.run', 'POST', input, readRun, { timeoutMs: 30_000 }));
+export async function runDistribution(ctx: FounderCallContext, input: ProcedureInput<typeof CAMPAIGNS_OPS_CAMPAIGNS_DISTRIBUTION_RUN>) {
+  return ruleReply(await founderRecordCall(ctx, CAMPAIGNS_OPS_CAMPAIGNS_DISTRIBUTION_RUN, input, { timeoutMs: 30_000 }));
 }
