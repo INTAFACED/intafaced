@@ -1807,11 +1807,11 @@ async function startTestChain(secrets) {
     await sleep(500);
   }
   if ((await chainStatus()).gate !== 'open') fail('the TEST chain gate is closed; a journey left it shut (local-test-chain.mjs gate open)');
+  // The TEST bridge token on both TEST chains (D-bridge-chain-03): only its code, so it costs no block.
+  await installTestBridge().catch((err) => fail(`installing the TEST bridge failed: ${err.message}`));
   const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
   say(`  chain: ${seeded.output.split('\n').pop()}`);
   if (seeded.status !== 0) fail(`seeding the TEST chain failed:\n${seeded.output}`);
-  // The TEST bridge token on both TEST chains (D-bridge-chain-03): only its code, so it costs no block.
-  await installTestBridge().catch((err) => fail(`installing the TEST bridge failed: ${err.message}`));
   // Only once the new chain answers and is seeded: a start that fails before this leaves the services and rows as they were.
   return renewed ? forgetOldChain(secrets) : [];
 }
