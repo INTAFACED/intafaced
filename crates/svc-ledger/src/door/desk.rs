@@ -179,7 +179,7 @@ impl LedgerDoor {
                 self.cfg.log.warn(fields, message);
                 respond((200, answer))
             }
-            Err(DeleteError::Store(StoreError { message, code })) => {
+            Err(DeleteError::Store(StoreError { message, code, .. })) => {
                 match code.as_deref().and_then(metadata_status) {
                     Some(status) => respond(errors::operator_coded(
                         status,

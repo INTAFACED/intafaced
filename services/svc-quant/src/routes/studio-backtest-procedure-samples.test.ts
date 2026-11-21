@@ -12,12 +12,28 @@ import {
 import type { ProcedureSample, Refusals } from '@intafaced/contracts/procedure';
 import {
   QUANT_BACKTEST_FEE,
+  QUANT_BACKTEST_MONTE_CARLO,
   QUANT_BACKTEST_PROCEDURES,
+  QUANT_BACKTEST_RENAME,
+  QUANT_BACKTEST_RESULT,
   QUANT_BACKTEST_RUN,
   QUANT_BACKTEST_START,
 } from '@intafaced/contracts/quant-backtest-procedures';
 import { QUANT_SANDBOX_PROCEDURES, QUANT_SANDBOX_RUN } from '@intafaced/contracts/quant-sandbox-procedures';
-import { QUANT_STUDIO_GET, QUANT_STUDIO_LIST, QUANT_STUDIO_PROCEDURES } from '@intafaced/contracts/quant-studio-procedures';
+import {
+  QUANT_STUDIO_COMPILE,
+  QUANT_STUDIO_DELETE,
+  QUANT_STUDIO_DIFF,
+  QUANT_STUDIO_GET,
+  QUANT_STUDIO_LIST,
+  QUANT_STUDIO_LIST_DELETED,
+  QUANT_STUDIO_ORGANISE,
+  QUANT_STUDIO_PROCEDURES,
+  QUANT_STUDIO_RESTORE,
+  QUANT_STUDIO_SAVE,
+  QUANT_STUDIO_UPDATE,
+} from '@intafaced/contracts/quant-studio-procedures';
+import { QUANT_TEMPLATE_GET, QUANT_TEMPLATE_LIST, QUANT_TEMPLATE_PROCEDURES } from '@intafaced/contracts/quant-template-procedures';
 import { tradeFeePort, tradeHistoryPort } from '../engine/ports.js';
 import { createMemoryQuota } from '../quota/memory.js';
 import { createQuantRouter } from '../router.js';
@@ -25,8 +41,8 @@ import type { QuantRouterDeps } from './core.js';
 import { createMemoryStrategyRepository } from '../studio/memory-repository.js';
 
 /**
- * The mounted side of the studio reads (`studio.get`, `studio.list`), the sandbox (`sandbox.*`) and the backtests
- * (`backtest.run`, `start`, `fee`, `accountRules`): sent through the production Fastify adapter by a signed customer, a
+ * The mounted side of the studio (`studio.*`), the templates (`template.*`), the sandbox (`sandbox.*`) and the backtests
+ * (`backtest.*`): sent through the production Fastify adapter by a signed customer, a
  * refused sample is answered 400 as malformed input, an accepted one is never refused for its input. Each refusal
  * svc-quant sends leaves with the status its record lists, under the strict check that fails on one the record does not
  * list. The record's zod schema and its JSON export run the same samples in `@intafaced/contracts`.
@@ -61,7 +77,12 @@ const RULES: QuantSignalRules = {
   exit: { stopLossPercent: '', takeProfitPercent: '' },
 };
 
-const RECORDS = [...QUANT_STUDIO_PROCEDURES, ...QUANT_SANDBOX_PROCEDURES, ...QUANT_BACKTEST_PROCEDURES] as const;
+const RECORDS = [
+  ...QUANT_STUDIO_PROCEDURES,
+  ...QUANT_TEMPLATE_PROCEDURES,
+  ...QUANT_SANDBOX_PROCEDURES,
+  ...QUANT_BACKTEST_PROCEDURES,
+] as const;
 type AreaRecord = (typeof RECORDS)[number];
 /** A record's refusals read by any code: a code it does not list reads as undefined. */
 const refusalsOf = (record: AreaRecord): Refusals => record.refusals;
@@ -109,7 +130,7 @@ const cases = RECORDS.flatMap((record) =>
   })),
 );
 
-describe("svc-quant's studio, sandbox and backtest routes reach each record sample's verdict", () => {
+describe("svc-quant's studio, template, sandbox and backtest routes reach each record sample's verdict", () => {
   it.each(cases)('$label', async ({ record, sample }) => {
     const res = await send(record, sample.input);
     if (sample.verdict === 'refuse') {
@@ -300,5 +321,95 @@ describe('each refusal leaves with the status its record lists', () => {
     expect(await refusal(wired({ fees: undefined }).backtest.fee({ symbol: 'BTC/USDT' }))).toEqual(
       listed(QUANT_BACKTEST_FEE, 'quant.cost_unset'),
     );
+  });
+  it('studio writes, compile, diff and the recycle bin', async () => {
+    const caller = wired();
+    const body = (over: Record<string, unknown> = {}) => ({
+      name: 'TEST strategy',
+      blocks: [{ side: 'buy' as const, symbol: 'BTC/USDT', qty: '1' }],
+      risk: { maxDrawdown: '500', maxNotional: '10000', kill: '100' },
+      cash: '1000',
+      environment: 'paper',
+      clientStrategyId: `client-${Math.random()}`,
+      idempotencyKey: `save-${Math.random()}`,
+      ...over,
+    });
+    const save = (code: string) => listed(QUANT_STUDIO_SAVE, code);
+    expect(await refusal(caller.studio.save(body({ idempotencyKey: undefined })))).toEqual(save('quant.idempotency_key_unset'));
+    expect(await refusal(caller.studio.save(body({ clientStrategyId: undefined })))).toEqual(save('quant.client_strategy_id_unset'));
+    expect(await refusal(caller.studio.save(body({ cash: undefined })))).toEqual(save('quant.cash_unset'));
+    expect(await refusal(caller.studio.save(body({ risk: undefined })))).toEqual(save('quant.studio_risk_block_required'));
+    expect(await refusal(caller.studio.save(body({ environment: undefined })))).toEqual(save('quant.environment_required'));
+    expect(await refusal(caller.studio.save(body({ environment: 'mars' })))).toEqual(save('quant.environment_unknown'));
+    expect(await refusal(caller.studio.save(body({ presentedAs: 'live' })))).toEqual(save('quant.simulated_as_live'));
+    expect(await refusal(caller.studio.save(body({ releaseNote: 'TEST note' })))).toEqual(save('quant.release_note_limit_unset'));
+    expect(await refusal(caller.studio.save(body({ blocks: [], modules: { ...RULES, sizing: { kind: 'quantity', value: '' } } })))).toEqual(
+      save('quant.sizing_rule_unset'),
+    );
+    expect(await refusal(caller.studio.save(body({ blocks: [] })))).toEqual(save('quant.params_invalid'));
+    expect(await refusal(wired({ strategies: undefined }).studio.save(body()))).toEqual(save('quant.database_url_unset'));
+
+    const id = await saved(caller);
+    const update = (code: string) => listed(QUANT_STUDIO_UPDATE, code);
+    expect(await refusal(caller.studio.update({ ...body({ idempotencyKey: 'save-1' }), id }))).toEqual(
+      update('quant.idempotency_conflict'),
+    );
+    expect(await refusal(caller.studio.update({ ...body(), id: 's-missing' }))).toEqual(update('quant.studio_not_found'));
+    expect(await refusal(caller.studio.update({ ...body({ cash: undefined }), id }))).toEqual(update('quant.cash_unset'));
+
+    const compile = (code: string) => listed(QUANT_STUDIO_COMPILE, code);
+    expect(await refusal(caller.studio.compile({ modules: { ...RULES, sizing: { kind: 'quantity', value: '' } } }))).toEqual(
+      compile('quant.sizing_rule_unset'),
+    );
+    expect(await refusal(caller.studio.compile({ modules: { ...RULES, signal: { ...RULES.signal, fast: '' } } }))).toEqual(
+      compile('quant.param_unset'),
+    );
+
+    const diff = (code: string) => listed(QUANT_STUDIO_DIFF, code);
+    expect(await refusal(caller.studio.diff({ id, from: 1, to: 9 }))).toEqual(diff('quant.version_not_found'));
+    expect(await refusal(caller.studio.diff({ id: 's-missing', from: 1, to: 1 }))).toEqual(diff('quant.studio_not_found'));
+
+    const organise = (code: string) => listed(QUANT_STUDIO_ORGANISE, code);
+    expect(await refusal(caller.studio.organise({ id, name: 7, idempotencyKey: 'org-1' }))).toEqual(organise('quant.params_invalid'));
+    expect(await refusal(caller.studio.organise({ id, name: 'TEST' }))).toEqual(organise('quant.idempotency_key_unset'));
+    expect(await refusal(caller.studio.organise({ id: 's-missing', name: 'TEST', idempotencyKey: 'org-2' }))).toEqual(
+      organise('quant.studio_not_found'),
+    );
+
+    const remove = (code: string) => listed(QUANT_STUDIO_DELETE, code);
+    expect(await refusal(caller.studio.delete({ id }))).toEqual(remove('quant.idempotency_key_unset'));
+    expect(await refusal(caller.studio.delete({ id: 's-missing', idempotencyKey: 'del-1' }))).toEqual(remove('quant.studio_not_found'));
+    await expect(caller.studio.delete({ id, idempotencyKey: 'del-2' })).resolves.toEqual({ ok: true });
+    expect(await refusal(caller.studio.restore({ id }))).toEqual(listed(QUANT_STUDIO_RESTORE, 'quant.idempotency_key_unset'));
+    expect(await refusal(caller.studio.restore({ id: 's-missing', idempotencyKey: 'res-1' }))).toEqual(
+      listed(QUANT_STUDIO_RESTORE, 'quant.studio_not_found'),
+    );
+    await expect(caller.studio.restore({ id, idempotencyKey: 'res-2' })).resolves.toMatchObject({ id, deletedAt: null });
+
+    const bin = (code: string) => listed(QUANT_STUDIO_LIST_DELETED, code);
+    expect(await refusal(caller.studio.listDeleted({}))).toEqual(bin('quant.studio_list_limit_unset'));
+    expect(await refusal(caller.studio.listDeleted({ limit: 5, cursor: 'nope' }))).toEqual(bin('quant.list_cursor_invalid'));
+  });
+
+  it('templates', async () => {
+    const caller = wired();
+    expect(await refusal(caller.template.list({}))).toEqual(listed(QUANT_TEMPLATE_LIST, 'quant.template_list_limit_unset'));
+    const noDatabase = wired({ templates: undefined });
+    expect(await refusal(noDatabase.template.list({ limit: 5 }))).toEqual(listed(QUANT_TEMPLATE_LIST, 'quant.database_url_unset'));
+    expect(await refusal(noDatabase.template.get({ id: 'ma-cross' }))).toEqual(listed(QUANT_TEMPLATE_GET, 'quant.database_url_unset'));
+  });
+
+  it('a stored run: its result, Monte Carlo, history and label', async () => {
+    const caller = wired();
+    expect(await refusal(caller.backtest.result({ runId: 'r-missing' }))).toEqual(listed(QUANT_BACKTEST_RESULT, 'quant.run_not_found'));
+    const mc = (code: string) => listed(QUANT_BACKTEST_MONTE_CARLO, code);
+    expect(await refusal(caller.backtest.monteCarlo({ runId: 'r-missing', seed: 1 }))).toEqual(mc('quant.run_not_found'));
+    const rename = (code: string) => listed(QUANT_BACKTEST_RENAME, code);
+    expect(await refusal(caller.backtest.rename({ runId: 'r-1', label: '  ' }))).toEqual(rename('quant.params_invalid'));
+    expect(await refusal(caller.backtest.rename({ runId: 'r-missing', label: 'TEST' }))).toEqual(rename('quant.run_not_found'));
+    expect(await refusal(caller.backtest.history({ limit: 5, cursor: 'nope' }))).toEqual({
+      status: 'BAD_REQUEST',
+      code: 'quant.list_cursor_invalid',
+    });
   });
 });
