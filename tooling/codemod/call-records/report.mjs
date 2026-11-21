@@ -153,6 +153,8 @@ function main() {
   }
   const rows = services().map((service) => {
     const s = plan(service, false);
+    // No tRPC router to read (svc-edge, svc-fix, svc-ws; svc-matching serves REST): no app calls it by name.
+    if (s.error && /no src\/router\.ts|no create\*Router function/.test(s.error)) return { service, sites: 0, noTrpcRouter: true };
     if (s.error) return { service, error: s.error };
     return { service, sites: s.sites, wouldMove: s.rewritten, records: s.records.length, left: count(s.hand.map((h) => reasonOf(h.why))) };
   });
