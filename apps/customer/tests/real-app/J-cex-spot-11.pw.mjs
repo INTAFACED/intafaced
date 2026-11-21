@@ -1,11 +1,8 @@
 // World: book, gates, restart, stack
 import { randomBytes } from 'node:crypto';
-import { createRequire } from 'node:module';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, journeyState, restartWithSetting, STACK_PORTS, toUnits } from './stack.mjs';
+import { api, fromUnits, journeyState, restartWithSetting, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
@@ -39,8 +36,8 @@ import {
 // limit published) and C (listed but not open, so its coin is restricted). Two other TEST traders sign on the TEST
 // venue directly and make the other side. #11's cash leg is the stack's TEST cash partner's (TRADE_CONVERT_CASH_PARTNER=
 // test, its TEST catalogue in tooling/profiles/test-owner-values/trade.json: EUR only), whose own record is read on
-// svc-trade's database role, and whose TEST USDC reaches the venue account as a deposit under its leg id. Every figure is
-// TEST.
+// svc-trade's loopback TEST partner door, and whose TEST USDC reaches the venue account as a deposit under its leg id.
+// Every figure is TEST.
 const J = 'J-cex-spot-11';
 const ROOM = '/trade/convert';
 const MAKER = 'js11-maker';
@@ -163,22 +160,17 @@ async function ledgerRead(path) {
   expect(res.status, text.slice(0, 300)).toBe(200);
   return JSON.parse(text);
 }
-const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
-/** The TEST cash partner's own record of one cash leg, by its business key, read on svc-trade's database role. */
+/** The TEST cash partner's own record of one cash leg, by its business key, on svc-trade's loopback TEST partner door. */
 async function partnerLegs(key) {
   const ctx = await makeContext({ log: () => undefined });
-  const postgres = createRequire(path.join(REPO, 'services', 'svc-trade', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
-  const sql = postgres(`postgres://svc_trade:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
-    max: 1,
-    onnotice: () => {},
+  const res = await fetch(`${ctx.url('trade')}/test-cash-partner/legs?key=${encodeURIComponent(key)}`, {
+    signal: AbortSignal.timeout(30_000),
   });
-  try {
-    return await sql`SELECT business_key, leg_id, owner, currency, cash::text, fee::text, rate::text, stable, stable_amount::text, state
-      FROM trade.test_cash_partner_legs WHERE business_key = ${key}`;
-  } finally {
-    await sql.end();
-  }
+  const text = await res.text();
+  expect(res.status, text.slice(0, 300)).toBe(200);
+  const body = JSON.parse(text);
+  expect(body.label).toBe('TEST');
+  return body.legs;
 }
 
 const builderFeeTrace = async (owner, fillId) =>
@@ -757,9 +749,9 @@ test(`${J} #11 converts a cash currency through a crypto leg: two linked legs sh
   const leg = legs[0];
   expect(leg).toMatchObject({ owner: s.owner, currency: 'EUR', stable: 'USDC', state: 'settled' });
   for (const field of ['cash', 'fee', 'rate']) expect(sameDecimal(leg[field], q.cash[field])).toBe(true);
-  expect(sameDecimal(leg.stable_amount, q.cash.stableAmount)).toBe(true);
+  expect(sameDecimal(leg.stableAmount, q.cash.stableAmount)).toBe(true);
   // The TEST venue's own record: the partner's USDC arrived once, under the leg's id; one order under the client id.
-  const arrivals = (await venueRecord(s.owner, '/arrivals')).value.filter((x) => x.arrivalId === leg.leg_id);
+  const arrivals = (await venueRecord(s.owner, '/arrivals')).value.filter((x) => x.arrivalId === leg.legId);
   expect(arrivals, JSON.stringify(arrivals)).toHaveLength(1);
   expect(arrivals[0]).toMatchObject({ kind: 'deposit', asset: 'USDC' });
   expect(sameDecimal(arrivals[0].amount, q.cash.stableAmount)).toBe(true);
@@ -782,7 +774,7 @@ test(`${J} #11 converts a cash currency through a crypto leg: two linked legs sh
   await shows(line(receipt, 'paid'), 'EUR', '23');
   await shows(line(receipt, 'received'), A.base, got.received);
   const receiptLegs = receipt.getByTestId('cvt-legs');
-  await expect(receiptLegs.locator('[data-leg="cash"]')).toHaveAttribute('data-leg-id', leg.leg_id);
+  await expect(receiptLegs.locator('[data-leg="cash"]')).toHaveAttribute('data-leg-id', leg.legId);
   await expect(receiptLegs.locator('[data-leg="venue"]')).toHaveAttribute('data-client-id', cloid);
   const rows = page.getByTestId('cvt-recent').locator(`[data-testid="cvt-recent-row"][data-key="convert:${s.owner}:${q.quoteId}"]`);
   await expect(rows).toHaveCount(1, { timeout: 30_000 });
@@ -793,9 +785,9 @@ test(`${J} #11 converts a cash currency through a crypto leg: two linked legs sh
   await shows(row.locator('[data-cell="paid"]'), 'EUR', '23');
   await shows(row.locator('[data-cell="received"]'), A.base, got.received);
   const cashLeg = row.locator('[data-testid="cvt-legs"] [data-leg="cash"]');
-  await expect(cashLeg).toHaveAttribute('data-leg-id', leg.leg_id);
+  await expect(cashLeg).toHaveAttribute('data-leg-id', leg.legId);
   await expect(cashLeg).toHaveAttribute('data-state', 'settled');
-  await expect(cashLeg).toContainText(`Cash leg: 23 EUR in, 24.2 USDC delivered. Partner ref ${leg.leg_id}. Done`);
+  await expect(cashLeg).toContainText(`Cash leg: 23 EUR in, 24.2 USDC delivered. Partner ref ${leg.legId}. Done`);
   const venueLeg = row.locator('[data-testid="cvt-legs"] [data-leg="venue"]');
   await expect(venueLeg).toHaveAttribute('data-client-id', cloid);
   await expect(venueLeg).toContainText(`Order ${cloid}. Filled`);

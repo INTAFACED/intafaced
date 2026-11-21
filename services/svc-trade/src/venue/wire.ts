@@ -32,7 +32,7 @@ import { UserVenueRouter, parseUserVenueUrls } from './venue-router.js';
 import { parseVenueEligibilityLevel } from './venue-eligibility.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue-sell-quotes.js';
 import { SqlConvertQuoteStore, VenueConverts } from './venue-convert.js';
-import { SqlCashLegStore, cashPartnerFor } from './cash-partner.js';
+import { SqlCashLegStore, cashPartnerFor, registerTestCashPartnerRecord } from './cash-partner.js';
 
 export function wireUserVenue(deps: {
   app: FastifyInstance;
@@ -173,6 +173,7 @@ export function wireUserVenue(deps: {
       if (!res.ok) throw new Error(`the TEST venue refused the cash leg's delivery: ${res.status} ${(await res.text()).slice(0, 200)}`);
     },
   });
+  if (cashPartner) registerTestCashPartnerRecord(app, cashPartner);
   const venueConverts = userVenueRouter
     ? new VenueConverts({
         store: new SqlConvertQuoteStore(sql),

@@ -12,6 +12,7 @@
  * own record of every leg is `trade.test_cash_partner_legs`, one row per business key: a retry never runs a leg twice.
  */
 import { createHash } from 'node:crypto';
+import type { FastifyInstance } from 'fastify';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { formatAmount, mul, parseAmount, sub, type Amount } from '@intafaced/ledger-client/money';
@@ -270,4 +271,39 @@ export function cashPartnerFor(
     throw new Error(`TRADE_CONVERT_CASH_PARTNER=test is the LOCAL TEST cash partner and is refused outside APP_ENV dev or test`);
   if (!catalogueJson.trim()) throw new Error('TRADE_CONVERT_CASH_PARTNER=test needs its TEST catalogue in TRADE_CONVERT_CASH_TEST_JSON');
   return new TestCashPartner(Catalogue.parse(JSON.parse(catalogueJson)), deps);
+}
+
+export const TEST_CASH_PARTNER_LEGS_PATH = '/test-cash-partner/legs';
+
+/**
+ * LOCAL TEST: the TEST cash partner's own record of the leg under `?key=`, on loopback, so a journey compares Convert's
+ * two-leg record with what the partner itself recorded (J-cex-spot-11 #11): `legs` is empty before the leg runs, else its
+ * one row. Mounted only with the TEST partner, which `cashPartnerFor` refuses outside APP_ENV dev or test; a caller off
+ * loopback is refused.
+ */
+export function registerTestCashPartnerRecord(app: FastifyInstance, partner: CashPartner): void {
+  app.get<{ Querystring: { key?: string } }>(TEST_CASH_PARTNER_LEGS_PATH, async (req, reply) => {
+    const from = req.socket.remoteAddress;
+    if (from !== '127.0.0.1' && from !== '::1' && from !== '::ffff:127.0.0.1') return reply.code(403).send({ error: 'loopback only' });
+    const key = req.query.key;
+    if (!key) return reply.code(400).send({ error: 'key is required' });
+    const leg = await partner.legOf(key);
+    const legs = leg
+      ? [
+          {
+            key: leg.key,
+            legId: leg.legId,
+            owner: leg.account.owner,
+            currency: leg.currency,
+            cash: formatAmount(leg.cash),
+            fee: formatAmount(leg.fee),
+            rate: formatAmount(leg.rate),
+            stable: leg.stable,
+            stableAmount: formatAmount(leg.stableAmount),
+            state: leg.state,
+          },
+        ]
+      : [];
+    return reply.code(200).header('cache-control', 'no-store').send({ label: 'TEST', legs });
+  });
 }

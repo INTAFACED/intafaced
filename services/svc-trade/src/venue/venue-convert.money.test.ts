@@ -13,7 +13,15 @@ import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, type BuilderFeeValue } from './user-venue-door.js';
 import { MemoryConvertQuoteStore, VenueConverts, cashLegKey, convertKey, presentConvertQuote } from './venue-convert.js';
-import { MemoryCashLegStore, TestCashPartner, cashPartnerFor, type CashPartner } from './cash-partner.js';
+import Fastify from 'fastify';
+import {
+  MemoryCashLegStore,
+  TEST_CASH_PARTNER_LEGS_PATH,
+  TestCashPartner,
+  cashPartnerFor,
+  registerTestCashPartnerRecord,
+  type CashPartner,
+} from './cash-partner.js';
 import { listedTestStore } from './venue-listing-store.js';
 import { StoreVenueRoutingGate } from './venue-listing.js';
 
@@ -397,6 +405,40 @@ describe('venue Convert from a cash currency: two linked legs where the partner 
     await expect(
       converts.quote(door, principal, { owner, from: 'EUR', to: 'BTC', amount: a('1001'), quoteKey: nextKey() }),
     ).rejects.toMatchObject({ code: 'trade.convert_cash_leg_refused' });
+  });
+
+  it("the TEST partner's own record answers on loopback: no leg before it runs, then its one row with the priced figures", async () => {
+    const { partner } = cashDesk();
+    const app = Fastify();
+    registerTestCashPartnerRecord(app, partner);
+    const read = async (key: string, remoteAddress = '127.0.0.1') =>
+      app.inject({ method: 'GET', url: TEST_CASH_PARTNER_LEGS_PATH, query: { key }, remoteAddress });
+    try {
+      expect((await read('convert-cash:none')).json()).toEqual({ label: 'TEST', legs: [] });
+      const price = partner.price('EUR', a('56'));
+      const leg = await partner.exchange({ key: 'convert-cash:record', userId: USER, account, price });
+      expect((await read('convert-cash:record')).json()).toEqual({
+        label: 'TEST',
+        legs: [
+          {
+            key: 'convert-cash:record',
+            legId: leg.legId,
+            owner: account.owner,
+            currency: 'EUR',
+            cash: '56',
+            fee: '1',
+            rate: '1.1',
+            stable: 'USDC',
+            stableAmount: '60.5',
+            state: 'settled',
+          },
+        ],
+      });
+      expect((await read('convert-cash:record', '10.0.0.7')).statusCode).toBe(403);
+      expect((await app.inject({ method: 'GET', url: TEST_CASH_PARTNER_LEGS_PATH })).statusCode).toBe(400);
+    } finally {
+      await app.close();
+    }
   });
 
   it('accepting settles one cash leg and one venue order per key under retry and at the same moment; one record; the ledger posts nothing', async () => {
