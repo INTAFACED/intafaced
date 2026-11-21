@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import { SUPPORT_TICKET_LINK_KINDS } from '@intafaced/contracts/support-desk-procedures';
 import {
   serviceCallSigner,
   SUPPORT_RECORD_OWNERSHIP_PATH,
@@ -30,8 +31,7 @@ import { identitySecretSet } from './identity-grounding-honesty.js';
  * posts or reads money.
  */
 
-export const TICKET_LINK_KINDS = ['order', 'withdrawal', 'deposit'] as const;
-export type TicketLinkKind = (typeof TICKET_LINK_KINDS)[number];
+export type TicketLinkKind = (typeof SUPPORT_TICKET_LINK_KINDS)[number];
 
 export const LINK_RECORD_NOT_OWNED = 'support.link_record_not_owned' as const;
 export const LINK_RECORD_UNVERIFIABLE = 'support.link_record_unverifiable' as const;

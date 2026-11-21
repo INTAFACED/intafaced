@@ -1,18 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { readActionRequest } from './model';
+import { recordReads } from './record-reply';
 import {
-  modeWords,
-  parseCapacity,
-  parseSkills,
-  readAvailabilityLog,
-  readGroupLog,
-  readRequiredSkillResult,
-  readRoutingOverview,
-  readRoutingWaiting,
-  readSetModeResult,
-  readTicketRouting,
-  staffRoutingGate,
-} from './routing';
+  SUPPORT_DESK_AVAILABILITY_LOG,
+  SUPPORT_DESK_GROUPS_LOG,
+  SUPPORT_DESK_ROUTING_OVERVIEW,
+  SUPPORT_DESK_ROUTING_SET_MODE,
+  SUPPORT_DESK_ROUTING_WAITING,
+  SUPPORT_DESK_TICKET_ROUTING,
+  SUPPORT_DESK_TICKET_SET_SKILL,
+} from '@intafaced/contracts/support-desk-procedures';
+import { readActionRequest } from './model';
+import { groupLogRows, modeWords, parseCapacity, parseSkills, requiredSkillResult, staffRoutingGate } from './routing';
 import type { StaffMemberView } from './staff';
 
 const A = '11111111-1111-4111-8111-111111111111';
@@ -36,41 +34,64 @@ describe('routing readers', () => {
       staff: [{ userId: A, capacity: null, skills: [] }],
       sweepSeconds: null,
     };
-    expect(readRoutingOverview(good)).toEqual(good);
-    expect(readRoutingOverview({ ...good, groups: [{ ...good.groups[0], mode: 'random' }] })).toBeNull();
-    expect(readRoutingOverview({ ...good, staff: [{ userId: A, capacity: 1.5, skills: [] }] })).toBeNull();
-    expect(readRoutingOverview({ ...good, sweepSeconds: 0 })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_ROUTING_OVERVIEW, good)).toEqual(good);
+    expect(recordReads(SUPPORT_DESK_ROUTING_OVERVIEW, { ...good, groups: [{ ...good.groups[0], mode: 'random' }] })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_ROUTING_OVERVIEW, { ...good, staff: [{ userId: A, capacity: 1.5, skills: [] }] })).toBeNull();
+    expect(recordReads(SUPPORT_DESK_ROUTING_OVERVIEW, { ...good, sweepSeconds: 0 })).toBeNull();
   });
   it('a request’s routing carries the code exactly when no agent could take it', () => {
     expect(
-      readTicketRouting({ ticketId: T, requiredSkill: 'kyc', state: 'no_agent', code: 'support.no_agent_available', stateAt: at }),
+      recordReads(SUPPORT_DESK_TICKET_ROUTING, {
+        ticketId: T,
+        requiredSkill: 'kyc',
+        state: 'no_agent',
+        code: 'support.no_agent_available',
+        stateAt: at,
+      }),
     ).not.toBeNull();
-    expect(readTicketRouting({ ticketId: T, requiredSkill: null, state: 'no_agent', code: null, stateAt: at })).toBeNull();
     expect(
-      readTicketRouting({ ticketId: T, requiredSkill: null, state: 'assigned', code: 'support.no_agent_available', stateAt: at }),
+      recordReads(SUPPORT_DESK_TICKET_ROUTING, { ticketId: T, requiredSkill: null, state: 'no_agent', code: null, stateAt: at }),
+    ).toBeNull();
+    expect(
+      recordReads(SUPPORT_DESK_TICKET_ROUTING, {
+        ticketId: T,
+        requiredSkill: null,
+        state: 'assigned',
+        code: 'support.no_agent_available',
+        stateAt: at,
+      }),
     ).toBeNull();
   });
   it('reads the waiting list, the availability log and the group log strictly', () => {
-    expect(readRoutingWaiting([{ ticketId: T, code: 'support.no_agent_available', since: null }])).toHaveLength(1);
-    expect(readRoutingWaiting([{ ticketId: T, code: 'other', since: null }])).toBeNull();
-    expect(readAvailabilityLog([{ userId: A, availability: 'busy', by: A, reason: null, at }])).toHaveLength(1);
-    expect(readAvailabilityLog([{ userId: A, availability: 'away', by: A, reason: null, at }])).toBeNull();
-    expect(readGroupLog([{ groupId: G, action: 'created', subject: null, by: A, at }])).toHaveLength(1);
-    expect(readGroupLog([{ groupId: G, action: 'deleted', subject: null, by: A, at }])).toBeNull();
+    expect(recordReads(SUPPORT_DESK_ROUTING_WAITING, [{ ticketId: T, code: 'support.no_agent_available', since: null }])).toHaveLength(1);
+    expect(recordReads(SUPPORT_DESK_ROUTING_WAITING, [{ ticketId: T, code: 'other', since: null }])).toBeNull();
+    expect(recordReads(SUPPORT_DESK_AVAILABILITY_LOG, [{ userId: A, availability: 'busy', by: A, reason: null, at }])).toHaveLength(1);
+    expect(recordReads(SUPPORT_DESK_AVAILABILITY_LOG, [{ userId: A, availability: 'away', by: A, reason: null, at }])).toBeNull();
+    const groupLog = (action: string) => {
+      const rows = recordReads(SUPPORT_DESK_GROUPS_LOG, [{ groupId: G, action, subject: null, by: A, at }]);
+      return rows === null ? null : groupLogRows(rows);
+    };
+    expect(groupLog('created')).toHaveLength(1);
+    // An action this console has no words for is the desk's own refusal: the whole log is unread.
+    expect(groupLog('deleted')).toBeNull();
   });
   it('reads write answers strictly: an unknown outcome is not read as done', () => {
     const routing = { groupId: G, mode: 'round_robin', cursorUserId: null, revision: 1, setBy: A, setAt: at };
     expect(
-      readSetModeResult({ routing, routed: [{ status: 'queued', ticketId: T, groupId: G, code: 'support.no_agent_available' }] }),
-    ).not.toBeNull();
-    expect(readSetModeResult({ routing, routed: [{ status: 'maybe', ticketId: T }] })).toBeNull();
-    expect(
-      readRequiredSkillResult({
-        routing: { ticketId: T, requiredSkill: 'kyc', state: 'assigned', stateAt: at },
-        outcome: { status: 'assigned', ticketId: T, assigneeId: A, groupId: G, mode: 'load_balanced' },
+      recordReads(SUPPORT_DESK_ROUTING_SET_MODE, {
+        routing,
+        routed: [{ status: 'queued', ticketId: T, groupId: G, code: 'support.no_agent_available' }],
       }),
-    ).toMatchObject({ requiredSkill: 'kyc' });
-    expect(readRequiredSkillResult({ routing: { ticketId: T, requiredSkill: 'kyc', state: 'assigned', stateAt: at } })).toBeNull();
+    ).not.toBeNull();
+    expect(recordReads(SUPPORT_DESK_ROUTING_SET_MODE, { routing, routed: [{ status: 'maybe', ticketId: T }] })).toBeNull();
+    const skillReply = recordReads(SUPPORT_DESK_TICKET_SET_SKILL, {
+      routing: { ticketId: T, requiredSkill: 'kyc', state: 'assigned', stateAt: at },
+      outcome: { status: 'assigned', ticketId: T, assigneeId: A, groupId: G, mode: 'load_balanced' },
+    });
+    expect(skillReply && requiredSkillResult(skillReply)).toMatchObject({ requiredSkill: 'kyc' });
+    expect(
+      recordReads(SUPPORT_DESK_TICKET_SET_SKILL, { routing: { ticketId: T, requiredSkill: 'kyc', state: 'assigned', stateAt: at } }),
+    ).toBeNull();
   });
 });
 

@@ -281,8 +281,8 @@ export function methodIdFromOfferEntry(entry: unknown): string | null {
  * Declared methods that still have a live destination, in declaration order.
  * Unknown shapes are dropped (they can never be taken).
  */
-export function methodsWithLiveDestination(declared: readonly unknown[], liveMethodKeys: ReadonlySet<string>): unknown[] {
-  const out: unknown[] = [];
+export function methodsWithLiveDestination<T>(declared: readonly T[], liveMethodKeys: ReadonlySet<string>): T[] {
+  const out: T[] = [];
   for (const entry of declared) {
     const id = methodIdFromOfferEntry(entry);
     if (id !== null && liveMethodKeys.has(id)) out.push(entry);
