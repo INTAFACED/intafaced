@@ -16,12 +16,14 @@ function fail(error: unknown): never {
 
 /** The desk's answer schemas: each names every key its handler answers with (`answerKeys`), and checks no more. */
 const deskQuarantine = z.object({ operatorId: z.string(), reason: z.string(), at: z.string(), requestId: z.string() });
-const deskAuditRow = deskQuarantine.extend({
+/** An audit row, keys in the order the desk writes them: its own fields, then the quarantine's. */
+const deskAuditRow = z.object({
   id: z.string(),
   action: z.literal('quarantine'),
   keyId: z.string(),
   userId: z.string(),
   accountId: z.string(),
+  ...deskQuarantine.shape,
 });
 
 /** A value the desk could not read reads `known: false`; the two branches differ on the literal, so either order is safe. */

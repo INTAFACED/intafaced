@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { partial } from '@intafaced/service-kit/testing';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client/money';
@@ -173,15 +174,17 @@ describe('AgentDesk (J-agents-21 #15)', () => {
 const SECRET = 'an-agent-desk-answer-schema-test-edge-secret';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-trade' });
 function founderContext() {
-  const raw = encodePrincipal({
-    sub: FOUNDER.userId,
-    userId: FOUNDER.userId,
-    sid: '66666666-6666-4666-8666-666666666666',
-    scopes: ['admin:read', 'admin:write'],
-    tier: 'full',
-    mfa: true,
-    expiresAt: new Date(Date.now() + 60_000),
-  } as unknown as Principal);
+  const raw = encodePrincipal(
+    partial<Principal>({
+      sub: FOUNDER.userId,
+      userId: FOUNDER.userId,
+      sid: '66666666-6666-4666-8666-666666666666',
+      scopes: ['admin:read', 'admin:write'],
+      tier: 'full',
+      mfa: true,
+      expiresAt: new Date(Date.now() + 60_000),
+    }),
+  );
   return edgeContext({
     headers: {
       'x-intafaced-principal': raw,
@@ -192,23 +195,26 @@ function founderContext() {
   });
 }
 
+/** What the wire carries: JSON, keys in the order they were written. */
+const wire = (answer: unknown): string => JSON.stringify(answer);
+
 describe('admin.agentDesk.* answer schemas (weed project-state#3594)', () => {
-  it('send each answer exactly as the desk gave it: the schema strips and refuses nothing', async () => {
+  it('send each answer exactly as the desk gave it, byte for byte: the schema strips, reorders and refuses nothing', async () => {
     const { desk } = await setup();
     const caller = agentDeskAdminRouter(desk).createCaller(founderContext());
     const quarantine = { keyId: KEY, reason: 'outside assistant misbehaving', requestId: 'req-quarantine-1' };
-    expect(await caller.agentDesk.connections()).toStrictEqual(await desk.connections());
-    expect(await caller.agentDesk.connection({ keyId: KEY })).toStrictEqual(await desk.connection(KEY));
+    expect(wire(await caller.agentDesk.connections())).toBe(wire(await desk.connections()));
+    expect(wire(await caller.agentDesk.connection({ keyId: KEY }))).toBe(wire(await desk.connection(KEY)));
     const sent = await caller.agentDesk.quarantine(quarantine);
     expect(sent.replayed).toBe(false);
     // The desk's own answer to the same call again is the replay of it: the same row, marked replayed.
-    expect({ ...sent, replayed: true }).toStrictEqual(await desk.quarantine(FOUNDER, quarantine));
-    expect(await caller.agentDesk.audit()).toStrictEqual(await desk.audit());
+    expect(wire(sent).replace('"replayed":false', '"replayed":true')).toBe(wire(await desk.quarantine(FOUNDER, quarantine)));
+    expect(wire(await caller.agentDesk.audit())).toBe(wire(await desk.audit()));
     // Unknown values and a quarantined row still leave whole.
-    const unread = await setup({ keys: { read: async () => ({ state: 'unavailable' }) } as unknown as AgentKeyReader, venue: null });
+    const unread = await setup({ keys: { read: async () => null }, calls: { calls: async () => null }, venue: null });
     await unread.desk.quarantine(FOUNDER, quarantine);
-    expect(await agentDeskAdminRouter(unread.desk).createCaller(founderContext()).agentDesk.connections()).toStrictEqual(
-      await unread.desk.connections(),
+    expect(wire(await agentDeskAdminRouter(unread.desk).createCaller(founderContext()).agentDesk.connections())).toBe(
+      wire(await unread.desk.connections()),
     );
   });
 });
