@@ -245,13 +245,7 @@ export function actionsCsv(rows: readonly z.infer<typeof actionView>[]): string 
 export function opsLogRouter(sql: Sql | undefined, settings: OpsLogSettings) {
   // A signed-in operator's own session reads a customer's log: never a service forwarding a principal, an API key, a
   // sub-account or a delegated token.
-  const operator = () =>
-    scopedProcedure('admin:read', { module: 'agents', person: true }).use(({ ctx, next }) => {
-      if (ctx.principal.kid || ctx.principal.sub_account) {
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.log_read_person_only' });
-      }
-      return next();
-    });
+  const operator = () => scopedProcedure('admin:read', { module: 'agents', person: true, ownSession: 'agents.log_read_person_only' });
 
   return router({
     /** The reasons an operator may pick, as the owner published them; blank refuses. Reads no log and writes nothing. */

@@ -266,3 +266,60 @@ test('a call naming one of two paths by `? :` is a site per branch, its input wr
     'auth.login alternate stays',
   ]);
 });
+
+test("a guard behind the service's own function or const options is copied whole onto its record; one that checks more keeps its call, named", async () => {
+  const { procedures, chainOf } = await import('./router.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-guards-'));
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(
+    join(dir, 'src/procedures.ts'),
+    [
+      "import { scopedProcedure } from '@intafaced/contracts';",
+      "export function executeProcedure() { return scopedProcedure('agents:execute', { module: 'agents', person: true, ownSession: 'agents.execute_person_only' }); }",
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { scopedProcedure, TRPCError } from '@intafaced/contracts';",
+      "import { executeProcedure } from './procedures.js';",
+      "const guards = { module: 'core-ops' as const, plane: 'fiat' as const };",
+      "const opsScope = 'admin:compliance' as const;",
+      'export function createSvcRouter(deps) {',
+      "  const operator = (scope: 'admin:read' | 'admin:write') => scopedProcedure(scope, { module: 'agents', person: true, ownSession: 'agents.fleet_person_only' });",
+      "  const readProcedure = () => scopedProcedure('agents:read', { module: 'agents' });",
+      '  const reader = scopedProcedure(opsScope, guards);',
+      "  const either = (flag) => { if (flag) return scopedProcedure('admin:write'); return scopedProcedure('admin:read'); };",
+      "  const opsProcedure = scopedProcedure('campaigns:ops', guards).use(({ next }) => next());",
+      '  return router({',
+      "    desk: operator('admin:read').output(o).query(h),",
+      '    run: executeProcedure().output(o).mutation(h),',
+      '    signer: readProcedure().output(o).query(h),',
+      '    inbox: reader.output(o).query(h),',
+      "    status: scopedProcedure('admin:read', guards).output(o).query(h),",
+      '    pick: either(true).output(o).query(h),',
+      '    ops: opsProcedure.output(o).query(h),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found } = procedures(dir);
+  const access = Object.fromEntries(
+    [...found].map(([path, proc]) => [path, chainOf(proc)]).map(([path, c]) => [path, c.guard?.text ?? c.problems.join('; ')]),
+  );
+  assert.deepEqual(access, {
+    desk: "{ caller: 'scope', scope: 'admin:read', module: 'agents', person: true, ownSession: 'agents.fleet_person_only' }",
+    run: "{ caller: 'scope', scope: 'agents:execute', module: 'agents', person: true, ownSession: 'agents.execute_person_only' }",
+    signer: "{ caller: 'scope', scope: 'agents:read', module: 'agents' }",
+    inbox: "{ caller: 'scope', scope: 'admin:compliance', module: 'core-ops', plane: 'fiat' }",
+    status: "{ caller: 'scope', scope: 'admin:read', module: 'core-ops', plane: 'fiat' }",
+    // Two returns may be two guards: neither is copied.
+    pick: 'guard either() is a function with more than its returned guard: not one a record names',
+    ops: "guard opsProcedure kept by hand: it adds svc-campaigns' ops second-factor check (requireOpsMfa); no record field says that",
+  });
+  const { reasonOf } = await import('./report.mjs');
+  assert.equal(reasonOf(access.ops), 'guard kept by hand (named, with its reason)');
+});

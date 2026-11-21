@@ -542,11 +542,7 @@ export interface RouteDeskDeps {
 export function routeDeskProcedures(deps: RouteDeskDeps) {
   // A signed-in founder's own session: never a service forwarding a principal, an API key or a sub-account.
   const operator = (scope: 'admin:read' | 'admin:write') =>
-    scopedProcedure(scope, { module: 'agents', person: true }).use(({ ctx, next }) => {
-      if (ctx.principal.kid || ctx.principal.sub_account)
-        throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.route_change_person_only' });
-      return next();
-    });
+    scopedProcedure(scope, { module: 'agents', person: true, ownSession: 'agents.route_change_person_only' });
   const ready = () => {
     if (!deps.sql || !deps.store) throw new RouteChangeRefusal('agents.capability_unavailable');
     return { sql: deps.sql, store: deps.store };

@@ -56,6 +56,8 @@ export type Access =
       readonly plane?: Plane;
       readonly tier?: KycTier;
       readonly person?: boolean;
+      /** The person's own session: an API key or a sub-account is refused FORBIDDEN with this code (`GuardOptions.ownSession`). */
+      readonly ownSession?: string;
     }
   /** The first of these scopes the caller holds (`anyScopeProcedure(scopes, guards)`): a read open to a member and an operator alike. */
   | {

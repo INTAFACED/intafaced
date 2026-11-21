@@ -430,16 +430,8 @@ export interface AgentsRouterDeps {
  * or a service forwarding their principal does not make it, even with `agents:read`.
  */
 function personReadProcedure() {
-  return scopedProcedure('agents:read', { module: 'agents', person: true }).use(({ ctx, next }) => {
-    if (ctx.principal.kid || ctx.principal.sub_account) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.select_person_only' });
-    }
-    return next();
-  });
+  return scopedProcedure('agents:read', { module: 'agents', person: true, ownSession: 'agents.select_person_only' });
 }
-
-/** The `agents:execute` builder, for route modules mounted below. */
-export type ExecuteProcedure = typeof executeProcedure;
 
 export function createAgentsRouter(deps: AgentsRouterDeps) {
   const {
@@ -988,8 +980,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     }),
 
     run: router({
-      ...runRoutes(deps, { guard, executeProcedure, ownedSession }),
-      background: router(backgroundRunRoutes(deps, { guard, executeProcedure, ownedSession })),
+      ...runRoutes(deps, { guard, ownedSession }),
+      background: router(backgroundRunRoutes(deps, { guard, ownedSession })),
       trace: review.runTrace,
     }),
 
