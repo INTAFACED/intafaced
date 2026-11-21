@@ -23,8 +23,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
-const SRC = join(ROOT, 'services/svc-trade/src');
-const HARNESS = join(SRC, 'route-declarations.test-harness.ts');
+const HARNESS = join(ROOT, 'services/svc-trade/src/route-declarations.test-harness.ts');
 export const GENERATED_PATH = 'apps/customer/src/features/developers/served-routes.generated.ts';
 const GENERATED = join(ROOT, GENERATED_PATH);
 const REFERENCE_PATH = 'apps/customer/src/features/developers/developers-reference.ts';
@@ -53,13 +52,21 @@ export function generatedLines(text) {
 }
 
 /** The served route lines, sorted, from svc-trade's sources; refuses a parse that lost routes or a route declared two ways. */
-export async function servedRoutes() {
-  if (!existsSync(HARNESS)) throw new Error(`${HARNESS.slice(ROOT.length + 1)} is missing`);
-  const { declarationKey, isRouteSource, tradeDeclarations } = await import(pathToFileURL(HARNESS).href);
-  const files = readdirSync(SRC, { recursive: true })
+/** svc-trade's route registrations under `root`, read by svc-trade's own parser: what the portal's test compares too. */
+export async function declaredRoutes(root = ROOT) {
+  const src = join(root, 'services/svc-trade/src');
+  const harness = join(src, 'route-declarations.test-harness.ts');
+  if (!existsSync(harness)) throw new Error(`${harness.slice(root.length + 1)} is missing`);
+  const { isRouteSource, tradeDeclarations } = await import(pathToFileURL(harness).href);
+  const files = readdirSync(src, { recursive: true })
     .filter((file) => file.endsWith('.ts') && isRouteSource(file))
-    .map((file) => ({ file, text: readFileSync(join(SRC, file), 'utf8') }));
-  const declared = tradeDeclarations(files);
+    .map((file) => ({ file, text: readFileSync(join(src, file), 'utf8') }));
+  return tradeDeclarations(files);
+}
+
+export async function servedRoutes() {
+  const declared = await declaredRoutes();
+  const { declarationKey } = await import(pathToFileURL(HARNESS).href);
   if (declared.length < 100) throw new Error(`read ${declared.length} svc-trade routes, fewer than 100: the parser lost them`);
   const lines = [...new Set(declared.map(declarationKey))].sort();
   const seen = new Map();
