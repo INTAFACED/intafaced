@@ -2,7 +2,7 @@
 import { randomBytes } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, journeyState, restartWithSetting, toUnits } from './stack.mjs';
+import { api, fromUnits, journeyState, restartService, restartWithSetting, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { connectWhenAsked } from './dex.mjs';
 import { testWalletKey } from './test-wallet.mjs';
@@ -689,9 +689,11 @@ test(`${J} #11 converts a cash currency through a crypto leg: two linked legs sh
   const A = s.marketA;
   const session = await api(s.account);
   // Where the partner offers it: the TEST partner bank holds this person's cash (custody off: partner-held) and is funded
-  // with TEST EUR, and the stack's TEST partner gives a TEST rate of 1.08 USDC a euro (tooling bank.mjs).
-  await setPartner(s.account, { custody: 'off', notOffered: [] });
+  // with TEST EUR, and the stack's TEST partner gives a TEST rate of 1.08 USDC a euro (tooling bank.mjs). svc-bank wires
+  // that TEST cash leg only with the TEST venue on, so it restarts with the switch on for this step and back after it.
+  await restartService('bank', { LOCAL_STACK_USER_VENUE: 'on' });
   try {
+    await setPartner(s.account, { custody: 'off', notOffered: [] });
     const funded = await session.post('/api/bank/trpc/testPartner.fund', { fundId: `js11-eur-${fresh()}`, assetId: 'EUR', amount: '50' });
     expect(funded.status, JSON.stringify(funded.body).slice(0, 300)).toBe(200);
     const eurBefore = toUnits((await venueBalance(session.userId, 'EUR', PARTNER_RECORD)).total);
@@ -790,7 +792,11 @@ test(`${J} #11 converts a cash currency through a crypto leg: two linked legs sh
     expect(quiet).toEqual([]);
     expect(signatures(wallet)).toBe(signedBefore);
   } finally {
-    await setPartner(s.account, { custody: 'on', notOffered: [] });
+    try {
+      await setPartner(s.account, { custody: 'on', notOffered: [] });
+    } finally {
+      await restartService('bank', { LOCAL_STACK_USER_VENUE: null });
+    }
   }
 });
 
