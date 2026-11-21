@@ -55,7 +55,7 @@ export interface VoltCount {
   batches: VoltBatch[];
 }
 
-export const VOLT_RULE =
+const VOLT_RULE =
   "In Volt: room-templates.ts names the screen file (migrated.file), it imports @intafaced/ui/lit, and it and the files it reaches by relative import inside its own folder import no stylesheet, set no style=, import nothing from @intafaced/ui outside /lit nor from shared/ui, import no component (a capitalised name) from a .tsx outside the folder, and write no className that is not the kit's lt- class.";
 
 const SRC = resolve(dirname(new URL(import.meta.url).pathname), '..');
