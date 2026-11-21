@@ -14,7 +14,7 @@ import { RULEBOOK_SECTION_MAX } from './rulebook.js';
  */
 
 /** Decimal string. Reusing the exchange contract's rule rather than inventing a second one. */
-export const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are positive decimal strings with at most 18 decimal places');
+const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are positive decimal strings with at most 18 decimal places');
 /** Offset may be negative. Still a decimal string — never a JSON number. */
 const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'offsets are signed decimal strings with at most 18 decimal places');
 
