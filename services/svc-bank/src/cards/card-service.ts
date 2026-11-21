@@ -873,23 +873,26 @@ export class CardService {
     return this.payFrom(userId);
   }
 
-  /** The partner's reported spendable balances for this cardholder, or null where the adapter reports none. */
   /**
    * The partner's own quotes for Pay from (J-bank-29 #2): one unit of each asset in the settlement asset, with the quote's
    * time, as the partner that holds the money gives them. They are estimates until it holds a payment, and the rate it holds
-   * at is the one recorded then. A partner that quotes none, or does not answer, leaves each rate "not known": the market's
+   * at is the one recorded then. A quote older than the card conversion policy's window, or dated in the future, is left
+   * out like a stale rate-source mark. A partner that quotes none, or does not answer, leaves each rate "not known": the market's
    * price is not the partner's, so it never stands in for one.
    */
   private async partnerQuotes(assetIds: readonly string[], settlementAssetId: string): Promise<Map<string, DisplayMark>> {
     const out = new Map<string, DisplayMark>();
     const quote = this.partnerHolds?.quote;
     if (!quote) return out;
+    const now = this.clock();
     for (const assetId of assetIds) {
       try {
         const q = await quote.call(this.partnerHolds, { assetId, settlementAssetId });
-        if (q && /^\d+(\.\d{1,18})?$/.test(q.rate) && parseAmount(q.rate) > 0n && !Number.isNaN(Date.parse(q.asOf))) {
-          out.set(assetId, { price: parseAmount(q.rate), asOf: new Date(q.asOf) });
-        }
+        if (!q || !/^\d+(\.\d{1,18})?$/.test(q.rate) || Number.isNaN(Date.parse(q.asOf))) continue;
+        // The same freshness and positive-price check a rate-source mark passes (`displayMarks`): a stale or
+        // future-dated quote reads "not known".
+        const mark = { assetId, price: parseAmount(q.rate), asOf: new Date(q.asOf), quality: 'mid' as const };
+        if (acceptableForMarking(mark, now, this.conversionPolicy).ok) out.set(assetId, { price: mark.price, asOf: mark.asOf });
       } catch {
         // A partner that cannot answer is silent for that asset.
       }
