@@ -1,0 +1,3128 @@
+{
+  "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
+  "procedures": {
+    "indexer.book": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "book",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.book_depth_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "market": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "depth": {
+            "type": "number"
+          }
+        },
+        "required": ["market"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "market": {
+            "type": "string"
+          },
+          "chainId": {
+            "type": "number"
+          },
+          "asOfHeight": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asOfHash": {
+            "type": ["string", "null"]
+          },
+          "bids": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "asks": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "clob": {
+            "type": "object",
+            "properties": {
+              "live": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["unset", "fixture", "sovereign-venue", "unpublished"]
+              },
+              "reserves": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": ["live", "kind", "reserves"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["market", "chainId", "asOfHeight", "asOfHash", "bids", "asks", "clob"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "market": "IFC-USD",
+            "depth": 10
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "market": "IFC-USD"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "market": ""
+          }
+        }
+      ]
+    },
+    "indexer.explorer.address.balanceAt": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.address.balanceAt",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "indexer.state_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "height": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": ["height"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "date": {
+                    "type": "string"
+                  }
+                },
+                "required": ["date"]
+              }
+            ]
+          }
+        },
+        "required": ["chainId", "address", "at"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "indexed": {
+                "type": "boolean",
+                "const": true
+              },
+              "height": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "timestamp": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "balance": {
+                "type": "string"
+              }
+            },
+            "required": ["indexed", "height", "timestamp", "balance"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "indexed": {
+                "type": "boolean",
+                "const": false
+              },
+              "after": {
+                "type": "boolean"
+              },
+              "earliestHeight": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "latestHeight": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["indexed", "after", "earliestHeight", "latestHeight"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "checks": {
+        "utcDay": {
+          "at": "input.at|1.date",
+          "says": "the date is a real YYYY-MM-DD calendar day (no 30 February)"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "at": {
+              "height": 1
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "at": {
+              "date": "2026-02-28"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "at": {
+              "height": -1
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "utcDay",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "at": {
+              "date": "2026-02-30"
+            }
+          }
+        }
+      ]
+    },
+    "indexer.explorer.address.holdings": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.address.holdings",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "indexer.explorer_list_limit_unset": "BAD_REQUEST",
+        "indexer.state_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["chainId", "address"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "token": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string"
+                    },
+                    "symbol": {
+                      "type": ["string", "null"]
+                    },
+                    "decimals": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["address", "symbol", "decimals"],
+                  "additionalProperties": false
+                },
+                "balance": {
+                  "type": ["string", "null"]
+                },
+                "price": {
+                  "type": "null"
+                }
+              },
+              "required": ["token", "balance", "price"],
+              "additionalProperties": false
+            }
+          },
+          "unpriced": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "more": {
+            "type": "boolean"
+          },
+          "asOfHeight": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["rows", "unpriced", "more", "asOfHeight", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": "84532",
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      ]
+    },
+    "indexer.explorer.address.internal": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.address.internal",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "indexer.explorer_list_limit_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "cursor": {
+            "type": "object",
+            "properties": {
+              "height": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "hash": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{64}$"
+              }
+            },
+            "required": ["height", "index", "hash"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["chainId", "address"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chainId": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "hash": {
+                  "type": "string"
+                },
+                "blockHeight": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "index": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "timestamp": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "calls": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": ["call", "create", "selfdestruct"]
+                      },
+                      "from": {
+                        "type": "string"
+                      },
+                      "to": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["path", "kind", "from", "to", "value"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["chainId", "hash", "blockHeight", "index", "timestamp", "calls"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "height": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "index": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "hash": {
+                    "type": "string"
+                  }
+                },
+                "required": ["height", "index", "hash"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gaps": {
+            "type": "object",
+            "properties": {
+              "blocks": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "fromHeight": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "toHeight": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["blocks", "fromHeight", "toHeight", "reasons"],
+            "additionalProperties": false
+          },
+          "asOfHeight": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["rows", "nextCursor", "gaps", "asOfHeight", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "limit": 0
+          }
+        }
+      ]
+    },
+    "indexer.explorer.address.summary": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.address.summary",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "indexer.state_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          }
+        },
+        "required": ["chainId", "address"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["account", "contract"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "balance": {
+            "type": ["string", "null"]
+          },
+          "asOfHeight": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["kind", "balance", "asOfHeight", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": 84532
+          }
+        }
+      ]
+    },
+    "indexer.explorer.address.txs": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.address.txs",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "indexer.explorer_list_limit_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "cursor": {
+            "type": "object",
+            "properties": {
+              "height": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "hash": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{64}$"
+              }
+            },
+            "required": ["height", "index", "hash"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["chainId", "address"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chainId": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "hash": {
+                  "type": "string"
+                },
+                "blockHeight": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "blockHash": {
+                  "type": "string"
+                },
+                "index": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "timestamp": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": ["string", "null"]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["success", "failed"]
+                },
+                "revertReason": {
+                  "type": ["string", "null"]
+                },
+                "transfers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "token": {
+                        "type": "object",
+                        "properties": {
+                          "address": {
+                            "type": "string"
+                          },
+                          "symbol": {
+                            "type": ["string", "null"]
+                          },
+                          "decimals": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": ["address", "symbol", "decimals"],
+                        "additionalProperties": false
+                      },
+                      "amount": {
+                        "type": "string"
+                      },
+                      "direction": {
+                        "type": "string",
+                        "enum": ["in", "out", "self"]
+                      }
+                    },
+                    "required": ["token", "amount", "direction"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "chainId",
+                "hash",
+                "blockHeight",
+                "blockHash",
+                "index",
+                "timestamp",
+                "from",
+                "to",
+                "status",
+                "revertReason",
+                "transfers"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "height": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "index": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "hash": {
+                    "type": "string"
+                  }
+                },
+                "required": ["height", "index", "hash"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          },
+          "asOfHeight": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["rows", "nextCursor", "asOf", "asOfHeight"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cursor": {
+              "height": 1,
+              "index": 0,
+              "hash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": 84532,
+            "address": "not-an-address"
+          }
+        }
+      ]
+    },
+    "indexer.explorer.blocks.get": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.blocks.get",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "protocol.not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "chainId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "height": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["chainId", "height"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "chainId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "hash": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{64}$"
+              }
+            },
+            "required": ["chainId", "hash"]
+          }
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "height": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "hash": {
+            "type": "string"
+          },
+          "gasUsed": {
+            "type": "string"
+          },
+          "gasLimit": {
+            "type": "string"
+          },
+          "baseFeePerGas": {
+            "type": ["string", "null"]
+          },
+          "utilisation": {
+            "type": ["string", "null"]
+          },
+          "miner": {
+            "type": "string"
+          },
+          "txCount": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "size": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "timestamp": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "orphaned": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": ["reason"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "chainId",
+          "height",
+          "hash",
+          "gasUsed",
+          "gasLimit",
+          "baseFeePerGas",
+          "utilisation",
+          "miner",
+          "txCount",
+          "size",
+          "timestamp",
+          "orphaned"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "height": 2
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "hash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": 84532,
+            "hash": "0x1"
+          }
+        }
+      ]
+    },
+    "indexer.explorer.blocks.list": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.blocks.list",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "indexer.explorer_list_limit_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "cursor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["chainId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chainId": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "height": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "hash": {
+                  "type": "string"
+                },
+                "gasUsed": {
+                  "type": "string"
+                },
+                "gasLimit": {
+                  "type": "string"
+                },
+                "baseFeePerGas": {
+                  "type": ["string", "null"]
+                },
+                "utilisation": {
+                  "type": ["string", "null"]
+                },
+                "miner": {
+                  "type": "string"
+                },
+                "txCount": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "timestamp": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "orphaned": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "reason": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["reason"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "chainId",
+                "height",
+                "hash",
+                "gasUsed",
+                "gasLimit",
+                "baseFeePerGas",
+                "utilisation",
+                "miner",
+                "txCount",
+                "size",
+                "timestamp",
+                "orphaned"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finalizedHeight": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["rows", "nextCursor", "finalizedHeight", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 1,
+            "cursor": 3,
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": 84532,
+            "limit": 0
+          }
+        }
+      ]
+    },
+    "indexer.explorer.pools.get": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.pools.get",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "indexer.pool_factory_unset": "PRECONDITION_FAILED",
+        "indexer.not_a_pool": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "interval": {
+            "default": "1h",
+            "type": "string",
+            "enum": ["5m", "1h"]
+          }
+        },
+        "required": ["chainId", "address"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "pool": {
+            "type": "object",
+            "properties": {
+              "chainId": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "address": {
+                "type": "string"
+              },
+              "factory": {
+                "type": "string"
+              },
+              "token0": {
+                "type": "object",
+                "properties": {
+                  "address": {
+                    "type": "string"
+                  },
+                  "symbol": {
+                    "type": ["string", "null"]
+                  },
+                  "name": {
+                    "type": ["string", "null"]
+                  },
+                  "decimals": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["address", "symbol", "name", "decimals"],
+                "additionalProperties": false
+              },
+              "token1": {
+                "type": "object",
+                "properties": {
+                  "address": {
+                    "type": "string"
+                  },
+                  "symbol": {
+                    "type": ["string", "null"]
+                  },
+                  "name": {
+                    "type": ["string", "null"]
+                  },
+                  "decimals": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["address", "symbol", "name", "decimals"],
+                "additionalProperties": false
+              },
+              "feeBps": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "createdHeight": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "createdTx": {
+                "type": "string"
+              },
+              "reserves": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "reserve0": {
+                        "type": "string"
+                      },
+                      "reserve1": {
+                        "type": "string"
+                      },
+                      "height": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": ["reserve0", "reserve1", "height"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["chainId", "address", "factory", "token0", "token1", "feeBps", "createdHeight", "createdTx", "reserves"],
+            "additionalProperties": false
+          },
+          "window": {
+            "type": "object",
+            "properties": {
+              "since": {
+                "type": "string"
+              },
+              "seconds": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["since", "seconds"],
+            "additionalProperties": false
+          },
+          "volume1": {
+            "type": "string"
+          },
+          "swaps": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "candles": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "start": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "open": {
+                      "type": "string"
+                    },
+                    "high": {
+                      "type": "string"
+                    },
+                    "low": {
+                      "type": "string"
+                    },
+                    "close": {
+                      "type": "string"
+                    },
+                    "volume1": {
+                      "type": "string"
+                    },
+                    "swaps": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": ["start", "open", "high", "low", "close", "volume1", "swaps"],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["pool", "window", "volume1", "swaps", "candles", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "interval": "5m"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "interval": "1d"
+          }
+        }
+      ]
+    },
+    "indexer.explorer.pools.list": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.pools.list",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "indexer.pool_factory_unset": "PRECONDITION_FAILED",
+        "indexer.explorer_list_limit_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "cursor": {
+            "type": "object",
+            "properties": {
+              "height": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "logIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              }
+            },
+            "required": ["height", "index", "logIndex"]
+          }
+        },
+        "required": ["chainId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chainId": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "address": {
+                  "type": "string"
+                },
+                "factory": {
+                  "type": "string"
+                },
+                "token0": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string"
+                    },
+                    "symbol": {
+                      "type": ["string", "null"]
+                    },
+                    "name": {
+                      "type": ["string", "null"]
+                    },
+                    "decimals": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["address", "symbol", "name", "decimals"],
+                  "additionalProperties": false
+                },
+                "token1": {
+                  "type": "object",
+                  "properties": {
+                    "address": {
+                      "type": "string"
+                    },
+                    "symbol": {
+                      "type": ["string", "null"]
+                    },
+                    "name": {
+                      "type": ["string", "null"]
+                    },
+                    "decimals": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["address", "symbol", "name", "decimals"],
+                  "additionalProperties": false
+                },
+                "feeBps": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "createdHeight": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "createdTx": {
+                  "type": "string"
+                },
+                "reserves": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "reserve0": {
+                          "type": "string"
+                        },
+                        "reserve1": {
+                          "type": "string"
+                        },
+                        "height": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": ["reserve0", "reserve1", "height"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "volume1": {
+                  "type": "string"
+                },
+                "swaps": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "chainId",
+                "address",
+                "factory",
+                "token0",
+                "token1",
+                "feeBps",
+                "createdHeight",
+                "createdTx",
+                "reserves",
+                "volume1",
+                "swaps"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "window": {
+            "type": "object",
+            "properties": {
+              "since": {
+                "type": "string"
+              },
+              "seconds": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["since", "seconds"],
+            "additionalProperties": false
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "height": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  },
+                  "logIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  }
+                },
+                "required": ["height", "index", "logIndex"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["rows", "window", "nextCursor", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "cursor": {
+              "height": 1,
+              "index": 0,
+              "logIndex": 0
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": 84532,
+            "cursor": {
+              "height": 1,
+              "index": -1,
+              "logIndex": 0
+            }
+          }
+        }
+      ]
+    },
+    "indexer.explorer.pools.swaps": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.pools.swaps",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "indexer.pool_factory_unset": "PRECONDITION_FAILED",
+        "indexer.explorer_list_limit_unset": "BAD_REQUEST",
+        "indexer.not_a_pool": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "cursor": {
+            "type": "object",
+            "properties": {
+              "height": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              },
+              "logIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2147483647
+              }
+            },
+            "required": ["height", "index", "logIndex"]
+          }
+        },
+        "required": ["chainId", "address"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "hash": {
+                  "type": "string"
+                },
+                "blockHeight": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "index": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "logIndex": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "timestamp": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell", "both"]
+                },
+                "sender": {
+                  "type": "string"
+                },
+                "recipient": {
+                  "type": "string"
+                },
+                "amount0In": {
+                  "type": "string"
+                },
+                "amount1In": {
+                  "type": "string"
+                },
+                "amount0Out": {
+                  "type": "string"
+                },
+                "amount1Out": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "hash",
+                "blockHeight",
+                "index",
+                "logIndex",
+                "timestamp",
+                "side",
+                "sender",
+                "recipient",
+                "amount0In",
+                "amount1In",
+                "amount0Out",
+                "amount1Out"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "height": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  },
+                  "logIndex": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 2147483647
+                  }
+                },
+                "required": ["height", "index", "logIndex"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["rows", "nextCursor", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": 84532,
+            "address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cursor": {
+              "height": 1
+            }
+          }
+        }
+      ]
+    },
+    "indexer.explorer.tokens.bySymbol": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.tokens.bySymbol",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "indexer.explorer_list_limit_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "symbol": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["chainId", "symbol"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "symbol": {
+                  "type": ["string", "null"]
+                },
+                "name": {
+                  "type": ["string", "null"]
+                },
+                "decimals": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "chainId": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["address", "symbol", "name", "decimals", "chainId"],
+              "additionalProperties": false
+            }
+          },
+          "more": {
+            "type": "boolean"
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["rows", "more", "asOf"],
+        "additionalProperties": false
+      },
+      "checks": {
+        "symbolChars": {
+          "at": "input.symbol",
+          "says": "the symbol, with surrounding spaces trimmed, is 1 to 32 characters"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "symbol": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": 84532,
+            "symbol": 7
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "symbolChars",
+          "input": {
+            "chainId": 84532,
+            "symbol": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+          }
+        }
+      ]
+    },
+    "indexer.explorer.tx.get": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.tx.get",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "protocol.not_found": "NOT_FOUND",
+        "indexer.tx_drop_window_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "hash": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{64}$"
+          }
+        },
+        "required": ["chainId", "hash"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "hash": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["success", "failed", "pending", "dropped", "replaced"]
+          },
+          "replacingHash": {
+            "type": ["string", "null"]
+          },
+          "transaction": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "index": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": ["string", "null"]
+                  },
+                  "value": {
+                    "type": "string"
+                  },
+                  "nonce": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "gasLimit": {
+                    "type": "string"
+                  },
+                  "gasPrice": {
+                    "type": ["string", "null"]
+                  },
+                  "input": {
+                    "type": "string"
+                  }
+                },
+                "required": ["index", "from", "to", "value", "nonce", "gasLimit", "gasPrice", "input"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipt": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": ["success", "failed"]
+                  },
+                  "gasConsumed": {
+                    "type": ["string", "null"]
+                  },
+                  "revertReason": {
+                    "type": ["string", "null"]
+                  },
+                  "createdContract": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": ["status", "gasConsumed", "revertReason", "createdContract"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "logs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "logIndex": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "address": {
+                  "type": "string"
+                },
+                "topics": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "data": {
+                  "type": "string"
+                }
+              },
+              "required": ["logIndex", "address", "topics", "data"],
+              "additionalProperties": false
+            }
+          },
+          "orphaned": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": ["reason"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["chainId", "hash", "status", "replacingHash", "transaction", "receipt", "logs", "orphaned"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "hash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": 84532,
+            "hash": "0x1"
+          }
+        }
+      ]
+    },
+    "indexer.explorer.tx.networks": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.tx.networks",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "hash": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{64}$"
+          }
+        },
+        "required": ["hash"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "networks": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "chainId": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "state": {
+                      "type": "string",
+                      "const": "found"
+                    },
+                    "pending": {
+                      "type": "boolean"
+                    },
+                    "blockHeight": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "status": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": ["success", "failed"]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["chainId", "state", "pending", "blockHeight", "status"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "chainId": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "state": {
+                      "type": "string",
+                      "const": "not_found"
+                    }
+                  },
+                  "required": ["chainId", "state"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "chainId": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "state": {
+                      "type": "string",
+                      "const": "not_checked"
+                    },
+                    "code": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["chainId", "state", "code"],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          }
+        },
+        "required": ["networks"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "hash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "hash": "0x1"
+          }
+        }
+      ]
+    },
+    "indexer.explorer.txs.list": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "explorer.txs.list",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.explorer_unwired": "SERVICE_UNAVAILABLE",
+        "indexer.explorer_list_limit_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "blockHash": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{64}$"
+          },
+          "cursor": {
+            "type": "object",
+            "properties": {
+              "height": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "hash": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{64}$"
+              }
+            },
+            "required": ["height", "index", "hash"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["chainId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "chainId": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "hash": {
+                  "type": "string"
+                },
+                "blockHeight": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "blockHash": {
+                  "type": "string"
+                },
+                "index": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": ["string", "null"]
+                },
+                "value": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["success", "failed"]
+                },
+                "timestamp": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "orphaned": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "reason": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["reason"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "chainId",
+                "hash",
+                "blockHeight",
+                "blockHash",
+                "index",
+                "from",
+                "to",
+                "value",
+                "status",
+                "timestamp",
+                "orphaned"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "height": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "index": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "hash": {
+                    "type": "string"
+                  }
+                },
+                "required": ["height", "index", "hash"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["rows", "nextCursor", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "chainId": 84532,
+            "blockHash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "cursor": {
+              "height": 1,
+              "index": 0,
+              "hash": "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+            },
+            "limit": 1
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "chainId": 84532,
+            "blockHash": "0x1"
+          }
+        }
+      ]
+    },
+    "indexer.positions": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "positions",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {
+        "indexer.halted": "SERVICE_UNAVAILABLE",
+        "indexer.chain_not_configured": "SERVICE_UNAVAILABLE",
+        "indexer.venue_unset": "SERVICE_UNAVAILABLE",
+        "indexer.chain_unreachable": "SERVICE_UNAVAILABLE",
+        "indexer.chain_id_mismatch": "SERVICE_UNAVAILABLE",
+        "indexer.venue_not_deployed": "SERVICE_UNAVAILABLE",
+        "indexer.malformed_block": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_above_tip": "SERVICE_UNAVAILABLE",
+        "indexer.start_height_unavailable": "SERVICE_UNAVAILABLE",
+        "indexer.clob_fixture_not_live": "PRECONDITION_FAILED",
+        "indexer.positions_list_limit_unset": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{40}$"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": ["account"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "market": {
+              "type": "string"
+            },
+            "account": {
+              "type": "string"
+            },
+            "size": {
+              "type": "string"
+            },
+            "entryPrice": {
+              "type": "string"
+            },
+            "blockHeight": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "blockHash": {
+              "type": "string"
+            }
+          },
+          "required": ["market", "account", "size", "entryPrice", "blockHeight", "blockHash"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "account": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "limit": 10
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "account": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "account": "not-an-address",
+            "limit": 10
+          }
+        }
+      ]
+    },
+    "indexer.status": {
+      "service": "svc-indexer",
+      "module": "indexer",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "status",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "indexer",
+        "plane": "protocol"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "chainId": {
+            "type": "number"
+          },
+          "chainSource": {
+            "type": "string"
+          },
+          "indexedHeight": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "indexedHash": {
+            "type": ["string", "null"]
+          },
+          "earliestHeight": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finalityDepth": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "finalizedHeight": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ingestEnabled": {
+            "type": "boolean"
+          },
+          "halted": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": ["reason", "at"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chain": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["null", "evm"]
+                  },
+                  "rpcUrl": {
+                    "type": ["string", "null"]
+                  },
+                  "venue": {
+                    "type": ["string", "null"]
+                  },
+                  "reachable": {
+                    "type": "boolean"
+                  },
+                  "observedChainId": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "chainHeight": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "venueDeployed": {
+                    "type": "boolean"
+                  },
+                  "refusalCode": {
+                    "type": ["string", "null"]
+                  },
+                  "reason": {
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "rpcUrl",
+                  "venue",
+                  "reachable",
+                  "observedChainId",
+                  "chainHeight",
+                  "venueDeployed",
+                  "refusalCode",
+                  "reason"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "behindBy": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastError": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": ["string", "null"]
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": ["code", "message", "at"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clob": {
+            "type": "object",
+            "properties": {
+              "live": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["unset", "fixture", "sovereign-venue", "unpublished"]
+              },
+              "reserves": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": ["live", "kind", "reserves"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "chainId",
+          "chainSource",
+          "indexedHeight",
+          "indexedHash",
+          "earliestHeight",
+          "finalityDepth",
+          "finalizedHeight",
+          "ingestEnabled",
+          "halted",
+          "chain",
+          "behindBy",
+          "lastError",
+          "clob"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    }
+  }
+}
