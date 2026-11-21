@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 /**
  * svc-token's answers for staking and governance: the schemas its router checks its own output against, read by the
@@ -85,7 +86,8 @@ export const tokenProposalCountsSchema = z.object({
 export const tokenProposalViewSchema = z.object({
   id: tokenProposalIdSchema,
   kind: tokenProposalKindSchema,
-  body: z.record(z.string(), z.unknown()),
+  /** The author's terms as stored: any JSON document. */
+  body: z.record(z.string(), jsonValueSchema),
   status: tokenProposalStatusSchema,
   opensAt: z.string(),
   closesAt: z.string(),

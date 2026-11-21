@@ -14,6 +14,7 @@ import {
   type ProcedureRecord,
 } from './procedure.js';
 import { CONTRACT_PROCEDURES } from './procedure-registry.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 import { sampleDisagreements } from './procedure-sides.js';
 import { TAX_LOT_BOOK, TAX_SET_DAY_METHOD } from './tax-procedures.js';
 
@@ -90,6 +91,11 @@ describe('the written records of calls', () => {
     it('an input or output that accepts anything', () => {
       expect(() => procedureJsonSchema(plant({ input: z.object({ a: z.unknown() }) }))).toThrow('z.unknown');
       expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.any() }) }))).toThrow('z.any');
+    });
+    it('a declared JSON value (`jsonValueSchema`), written whole; any other recursive schema stays refused', () => {
+      const json = procedureJsonSchema(plant({ output: z.object({ a: jsonValueSchema }) }));
+      expect(JSON.stringify(json.output)).toContain('"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"}');
+      expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.json() }) }))).toThrow('z.lazy');
     });
     it('keeps an optional root as `inputOptional`, never as a required object', () => {
       expect(procedureJsonSchema(TAX_LOT_BOOK)).toMatchObject({ inputOptional: true, input: { type: 'object' } });

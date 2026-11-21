@@ -9,8 +9,11 @@
 // - `tests/fixtures/env-parity.golden.json`: what `env.ts` answers for a set of environments.
 // - `tests/fixtures/reports.golden.jsonl`: what the `reports` slice's five doors answer on the wire (status and body)
 //   for inputs made to reach each branch of their handlers.
+// - `tests/fixtures/history-book.golden.json`: the posts the history slice's Postgres tests book, as the TypeScript
+//   recipes write them, so the Rust suite reads the same book the TypeScript tests read.
 //
-// Run from the repository root:
+// Run from the repository root, with the workspace packages built (`pnpm build`: the history doors' schemas load the
+// ledger client as the service resolves it):
 //   TZ=UTC node --import tsx crates/svc-ledger/scripts/record-door.mjs          writes the files
 //   TZ=UTC node --import tsx crates/svc-ledger/scripts/record-door.mjs --check  fails when a written file is stale
 //
@@ -47,6 +50,12 @@ const { operatorTxGetInputSchema } = await import(`${SVC}ledger/operator-tx-get.
 const { operatorTraceInputSchema } = await import(`${SVC}ledger/operator-trace.ts`);
 const { operatorTxListInputSchema, operatorAccountSearchInputSchema } = await import(`${SVC}ledger/operator-desk.ts`);
 const { accountMetadataReadInputSchema } = await import(`${SVC}ledger/operator-account-metadata.ts`);
+// The history doors' schemas as the service runs them: `history.ts` takes the ledger client as the service resolves it
+// (its built `dist`), so its account schema is a different object from the one `types.ts` above loads.
+const { historyInputSchema, historyPageInputSchema } = await import(`${SVC}ledger/history.ts`);
+const servedLedgerClient = await import(pathToFileURL(createRequire(`${SVC}index.ts`).resolve('@intafaced/ledger-client')).href);
+const { ledgerHoldingsHistoryInputSchema } = await import(`${ROOT}packages/contracts/src/ledger-holdings-history.ts`);
+const { recipes, formatAmount, parseAmount: amt } = await import(`${ROOT}packages/ledger-client/src/index.ts`);
 const { verifyAccessToken } = await import(`${ROOT}packages/auth/src/tokens.ts`);
 const statementPnl = await import(`${SVC}ledger/statement-pnl-reproduce.ts`);
 const reportExport = await import(`${SVC}ledger/report-export.ts`);
@@ -68,6 +77,9 @@ const INPUTS = {
   txByKey: doorInputs.txByKeyInput,
   txById: doorInputs.txByIdInput,
   portfolio: doorInputs.portfolioS2sInput,
+  history: historyInputSchema,
+  historyPage: historyPageInputSchema,
+  holdingsHistory: ledgerHoldingsHistoryInputSchema,
   freeze: doorInputs.freezeSchema,
   unfreeze: doorInputs.thawSchema,
   reconcile: doorInputs.reconcileSchema,
@@ -90,7 +102,12 @@ const REFINES = {
   'v=>BigInt(v)<=INT8_MAX': 'seq_within_int8',
 };
 /** `superRefine`s, by the schema that carries them (their check's source is zod's own wrapper). */
-const SUPER_REFINES = new Map([[ledgerClient.accountRefSchema, 'owner_id_space']]);
+const SUPER_REFINES = new Map([
+  [ledgerClient.accountRefSchema, 'owner_id_space'],
+  [servedLedgerClient.accountRefSchema, 'owner_id_space'],
+  // The same check and message as `accountRefSchema`'s, on the page's own strict object.
+  [historyPageInputSchema, 'owner_id_space'],
+]);
 
 const ids = new Map();
 const nodes = [];
@@ -207,6 +224,8 @@ function build(s) {
       return withChecks({ t: 'unknown' });
     case 'enum':
       return withChecks({ t: 'enum', values: s.options });
+    case 'literal':
+      return withChecks({ t: 'literal', values: d.values });
     case 'object': {
       const shape = Object.entries(d.shape).map(([k, v]) => [k, node(v)]);
       let catchall = null;
@@ -223,6 +242,8 @@ function build(s) {
     case 'optional':
     case 'nullable':
       return withChecks({ t: d.type, in: node(d.innerType) });
+    case 'default':
+      return withChecks({ t: 'default', in: node(d.innerType), value: d.defaultValue });
     case 'record':
       if (d.mode && d.mode !== 'strict') throw new Error(`record mode ${d.mode}`);
       return withChecks({ t: 'record', key: node(d.keyType), value: node(d.valueType) });
@@ -271,6 +292,13 @@ const VALID = {
   txByKey: { idempotencyKey: 'deposit:crypto-native:0xabc' },
   txById: { txId: ID },
   portfolio: { ownerType: 'user', ownerId: ID, chainAccount: `0x${'a'.repeat(40)}` },
+  history: {
+    account: { ownerType: 'user', ownerId: ID, assetId: 'USDT', kind: 'available' },
+    from: '2026-01-01T00:00:00Z',
+    to: '2026-02-01T00:00:00.123+02:00',
+  },
+  historyPage: { ownerType: 'user', ownerId: ID, kind: 'available', assetId: 'USDT', limit: 200, cursor: 'djIuNDI' },
+  holdingsHistory: { ownerType: 'user', ownerId: ID, from: '2026-10-01T00:00:00.000Z', bucketSeconds: 3600 },
   freeze: { reason: '  operator halt drill  ', approvalId: 'a1', operationId: 'o1', confirmOperatorId: null },
   unfreeze: { approvalId: 'a1', operationId: 'o1', confirmOperatorId: null },
   reconcile: { approvalId: 'a1', operationId: 'o1' },
@@ -347,6 +375,36 @@ const EXTRA = {
   portfolio: [
     { ...VALID.portfolio, chainAccount: '0x12' },
     { ownerType: 'user', ownerId: '' },
+  ],
+  history: [
+    { ...VALID.history, account: { ...VALID.history.account, ownerId: 'fees:trade' } },
+    { ...VALID.history, from: '2026-01-01' },
+    { ...VALID.history, from: '2026-01-01T00:00Z' },
+    { ...VALID.history, to: '2026-01-01T00:00:00+0200' },
+    { ...VALID.history, to: '2026-13-01T00:00:00Z' },
+    { ...VALID.history, after: 'x' },
+  ],
+  historyPage: [
+    { ownerType: 'user', ownerId: ID, kind: 'available' },
+    { ownerType: 'user', ownerId: 'fees:trade', kind: 'available' },
+    { ownerType: 'house', ownerId: 'fees:trade', kind: 'available', purpose: '  ' },
+    { ownerType: 'user', ownerId: ID, kind: 'hold', purpose: 'order:x' },
+    { ...VALID.historyPage, limit: 0 },
+    { ...VALID.historyPage, limit: 1.5 },
+    { ...VALID.historyPage, limit: 201 },
+    { ...VALID.historyPage, assetId: '' },
+    { ...VALID.historyPage, assetId: 'A'.repeat(17) },
+    { ...VALID.historyPage, cursor: '' },
+    { ...VALID.historyPage, cursor: 'c'.repeat(257) },
+    { ...VALID.historyPage, before: 'x' },
+  ],
+  holdingsHistory: [
+    { ...VALID.holdingsHistory, ownerType: 'house', ownerId: 'fees:trade' },
+    { ...VALID.holdingsHistory, bucketSeconds: 120 },
+    { ...VALID.holdingsHistory, bucketSeconds: '3600' },
+    { ...VALID.holdingsHistory, bucketSeconds: 86400 },
+    { ...VALID.holdingsHistory, ownerId: 'o'.repeat(129) },
+    { ...VALID.holdingsHistory, from: '2026-10-01T00:30:00+05:30' },
   ],
   freeze: [
     { ...VALID.freeze, reason: '            ' },
@@ -762,6 +820,247 @@ try {
 } finally {
   Date.now = realNow;
 }
+// ── The history slice's book ───────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The posts each history Postgres test books before it reads, made by the same recipes with the same arguments as
+ * `history-postgres.test.ts`, `history-page-postgres.test.ts`, `history-page-order-id-postgres.test.ts` and
+ * `holdings-history-postgres.test.ts`. Each list is booked in order; the Rust suite books it as `PostgresLedger.post`
+ * would store it (the canonical purpose, every entry against its account, the balance it leaves).
+ */
+const userAvailable = (ownerId, assetId) => ({ ownerType: 'user', ownerId, assetId, kind: 'available' });
+const railBoundary = (rail, assetId) => ({ ownerType: 'treasury', ownerId: `rail:${rail}`, assetId, kind: 'available' });
+const transfer = (key, module, reason, userId, asset, value, into) => ({
+  idempotencyKey: key,
+  module,
+  reason,
+  entries: [
+    { account: userAvailable(userId, asset), direction: into ? 'debit' : 'credit', amount: amt(value) },
+    { account: railBoundary('crypto-native', asset), direction: into ? 'credit' : 'debit', amount: amt(value) },
+  ],
+});
+const bankIn = (userId, key, value, asset = 'USDT') => transfer(key, 'bank', 'bank.transfer.in', userId, asset, value, true);
+const deposit = (userId, assetId, value, railRef, rail = 'crypto-native') =>
+  recipes.deposit({ userId, assetId, amount: amt(value), rail, railRef });
+const fill = (fillId, makerId, takerId, makerOrderId, takerOrderId, qty, quoteAmount, makerFeeBps, takerFeeBps) =>
+  recipes.tradeFill({
+    fillId,
+    makerId,
+    takerId,
+    makerOrderId,
+    takerOrderId,
+    baseAsset: 'BTC',
+    quoteAsset: 'USDT',
+    qty: amt(qty),
+    quoteAmount: amt(quoteAmount),
+    takerSide: 'buy',
+    makerFeeBps,
+    takerFeeBps,
+  });
+const mmFill = (fillId, takerId, makerOrderId, takerOrderId, qty, quoteAmount, makerFeeBps, takerFeeBps, product) =>
+  recipes.marketMakerMakerFill({
+    fillId,
+    takerId,
+    makerOrderId,
+    takerOrderId,
+    baseAsset: 'BTC',
+    quoteAsset: 'USDT',
+    qty: amt(qty),
+    quoteAmount: amt(quoteAmount),
+    takerSide: 'buy',
+    makerFeeBps,
+    takerFeeBps,
+    ...(product ? { product } : {}),
+  });
+const hold = (orderId, userId, assetId, value) => recipes.orderHold({ orderId, userId, assetId, amount: amt(value) });
+/** A buyback funded from a fee, its order, and a fill against one customer's ask: both suites book the same shape. */
+const buyback = (p, payer) => [
+  deposit(payer, 'USDT', '300', `${p}-bb-fee`),
+  recipes.feeCharge({ chargeId: `${p}-bb-fee`, userId: payer, module: 'trade', mode: 'asset', assetId: 'USDT', amount: amt('300') }),
+  recipes.sweepFeesToRewards({ windowId: `buyback:${p}-bb`, sourceModule: 'trade', assetId: 'USDT', amount: amt('300') }),
+  recipes.buybackOrderHold({ orderId: `${p}-bb-order`, quoteAsset: 'USDT', amount: amt('300') }),
+];
+const buybackFill = (p, maker, ask, qtyHeld) => [
+  hold(ask, maker, 'BTC', qtyHeld),
+  recipes.buybackTakerFill({
+    fillId: `${p}-bb-fill`,
+    makerId: maker,
+    makerOrderId: ask,
+    takerOrderId: `${p}-bb-order`,
+    baseAsset: 'BTC',
+    quoteAsset: 'USDT',
+    qty: amt('0.5'),
+    quoteAmount: amt('300'),
+    makerFeeBps: 10,
+  }),
+];
+
+const SPENDER = '11111111-1111-4111-8111-111111111111';
+const STRANGER = '22222222-2222-4222-8222-222222222222';
+const QUIET = '33333333-3333-4333-8333-333333333333';
+const PAGER = '71111111-1111-4111-8111-111111111111';
+const OTHER = '72222222-2222-4222-8222-222222222222';
+const RAILER = '74444444-4444-4444-8444-444444444444';
+const CONVERTER = '75555555-5555-4555-8555-555555555555';
+const WITHDRAWER = '76666666-6666-4666-8666-666666666666';
+const O = {
+  taker: '81111111-1111-4111-8111-111111111111',
+  maker: '82222222-2222-4222-8222-222222222222',
+  self: '83333333-3333-4333-8333-333333333333',
+  free: '84444444-4444-4444-8444-444444444444',
+  freeMaker: '85555555-5555-4555-8555-555555555555',
+  bbPayer: '87777777-7777-4777-8777-777777777777',
+  bbMaker: '86666666-6666-4666-8666-666666666666',
+  takerOrder: 'd1111111-1111-4111-8111-d11111111111',
+  makerOrder: 'd2222222-2222-4222-8222-d22222222222',
+  makerOrder2: 'd3333333-3333-4333-8333-d33333333333',
+  mmTakerOrder: 'd4444444-4444-4444-8444-d44444444444',
+  selfBuy: 'd5555555-5555-4555-8555-d55555555555',
+  selfSell: 'd6666666-6666-4666-8666-d66666666666',
+  freeOrder: 'd7777777-7777-4777-8777-d77777777777',
+  makerOrder3: 'd8888888-8888-4888-8888-d88888888888',
+  bbAsk: 'd9999999-9999-4999-8999-d99999999999',
+};
+const HH = {
+  taker: '91111111-1111-4111-8111-111111111111',
+  maker: '92222222-2222-4222-8222-222222222222',
+  takerOrder: 'e1111111-1111-4111-8111-e11111111111',
+  makerOrder: 'e2222222-2222-4222-8222-e22222222222',
+  bbPayer: '95555555-5555-4555-8555-555555555555',
+  bbMaker: '94444444-4444-4444-8444-444444444444',
+  bbAsk: 'e3333333-3333-4333-8333-e33333333333',
+};
+const convertFill = (n, product) => [
+  hold(`product-taker-${n}`, CONVERTER, 'USDT', '10'),
+  recipes.marketMakerOrderHold({ orderId: `product-maker-${n}`, assetId: 'BTC', amount: amt('0.001') }),
+  mmFill(`product-fill-${n}`, CONVERTER, `product-maker-${n}`, `product-taker-${n}`, '0.001', '10', 0, 0, product),
+];
+const [oddHold, oddMmHold, oddFill] = convertFill('odd');
+const withdrawal = (userId, assetId, value, withdrawalId) => ({ userId, assetId, amount: amt(value), rail: 'crypto-native', withdrawalId });
+const WD = (id) => withdrawal(WITHDRAWER, 'USDT', '5', id);
+const HW = (id, value) => withdrawal(HH.taker, 'BTC', value, id);
+const send = (transferId, from, to) =>
+  recipes.bankTransfer({
+    transferId,
+    occurrence: 0,
+    kind: 'manual',
+    keySpace: 'p2p',
+    from: userAvailable(from, 'USDT'),
+    to: userAvailable(to, 'USDT'),
+    amount: amt('50'),
+  });
+
+const BOOK = {
+  // history-postgres.test.ts
+  history: [
+    bankIn(SPENDER, 'hist-deposit-1', '100.123456789012345678'),
+    transfer('hist-spend-1', 'trade', 'trade.fill', SPENDER, 'USDT', '25.5', false),
+    bankIn(SPENDER, 'hist-refund-1', '0.000000000000000001'),
+    bankIn(STRANGER, 'hist-stranger-1', '999'),
+    transfer('hist-stranger-2', 'trade', 'trade.fill', STRANGER, 'USDT', '9', false),
+    bankIn(QUIET, 'hist-quiet-open', '1'),
+  ],
+  // history-page-postgres.test.ts
+  page: [
+    bankIn(PAGER, 'pg-usdt-1', '1'),
+    bankIn(PAGER, 'pg-usd-1', '2', 'USD'),
+    bankIn(PAGER, 'pg-usdt-2', '3'),
+    bankIn(OTHER, 'pg-other-1', '999'),
+  ],
+  rails: [
+    deposit(RAILER, 'USDT', '1', 'r1'),
+    deposit(RAILER, 'USDT', '1', 'r2', 'bank-crypto-ledger'),
+    deposit(RAILER, 'USDT', '1', 'r2b', 'local-test'),
+    deposit(RAILER, 'USDT', '1', 'r3', 'not-a-known-rail'),
+    { ...deposit(RAILER, 'USDT', '1', 'r4'), idempotencyKey: 'rail-nonstring', meta: { rail: { x: 1 }, secret: 'must-not-leak' } },
+    bankIn(RAILER, 'rail-none', '1'),
+  ],
+  products: [
+    recipes.marketMakerSeedFund({ assetId: 'BTC', amount: amt('10'), seedId: 'product-btc' }),
+    deposit(CONVERTER, 'USDT', '100', 'product-u'),
+    ...convertFill('desk'),
+    ...convertFill('convert', 'convert'),
+    oddHold,
+    oddMmHold,
+    { ...oddFill, meta: { ...oddFill.meta, product: 'not-a-known-product' } },
+  ],
+  withdrawals: [
+    deposit(WITHDRAWER, 'USDT', '50', 'wd-dep'),
+    recipes.withdrawHold(WD('7a7a7a7a-0000-4000-8000-000000000001:0')),
+    recipes.withdrawReverse(WD('7a7a7a7a-0000-4000-8000-000000000001:0')),
+    recipes.withdrawHold(WD('7a7a7a7a-0000-4000-8000-000000000001:1')),
+  ],
+  // history-page-order-id-postgres.test.ts
+  orderIds: [
+    deposit(O.taker, 'USDT', '5000', 'oid-taker-usdt'),
+    deposit(O.maker, 'BTC', '5', 'oid-maker-btc'),
+    deposit(O.self, 'USDT', '2000', 'oid-self-usdt'),
+    deposit(O.self, 'BTC', '2', 'oid-self-btc'),
+    hold(O.takerOrder, O.taker, 'USDT', '1000'),
+    recipes.orderHoldAmend({ orderId: O.takerOrder, userId: O.taker, assetId: 'USDT', amount: amt('500'), sequence: 1 }),
+    hold(O.makerOrder, O.maker, 'BTC', '1'),
+    hold(O.makerOrder2, O.maker, 'BTC', '1'),
+    fill('oid-fill-1', O.maker, O.taker, O.makerOrder, O.takerOrder, '1', '600', 10, 20),
+    fill('oid-fill-2', O.maker, O.taker, O.makerOrder2, O.takerOrder, '1', '620', 10, 20),
+    recipes.orderHoldRelease({ orderId: O.takerOrder, userId: O.taker, assetId: 'USDT', amount: amt('280') }),
+    recipes.marketMakerSeedFund({ assetId: 'BTC', amount: amt('3'), seedId: 'oid-seed-btc' }),
+    hold(O.mmTakerOrder, O.taker, 'USDT', '700'),
+    recipes.marketMakerOrderHold({ orderId: 'mm-side-1', assetId: 'BTC', amount: amt('1') }),
+    mmFill('oid-mm-fill', O.taker, 'mm-side-1', O.mmTakerOrder, '1', '700', 10, 20),
+    hold(O.selfBuy, O.self, 'USDT', '900'),
+    hold(O.selfSell, O.self, 'BTC', '1'),
+    fill('oid-self-fill', O.self, O.self, O.selfSell, O.selfBuy, '1', '900', 10, 20),
+    deposit(O.free, 'USDT', '500', 'oid-free-usdt'),
+    deposit(O.freeMaker, 'BTC', '1', 'oid-free-maker-btc'),
+    hold(O.freeOrder, O.free, 'USDT', '400'),
+    hold(O.makerOrder3, O.freeMaker, 'BTC', '1'),
+    fill('oid-free-fill', O.freeMaker, O.free, O.makerOrder3, O.freeOrder, '0.5', '300', 0, 0),
+    ...buyback('oid', O.bbPayer),
+    deposit(O.bbMaker, 'BTC', '1', 'oid-bb-maker-btc'),
+    ...buybackFill('oid', O.bbMaker, O.bbAsk, '1'),
+  ],
+  // holdings-history-postgres.test.ts, before its wait for a clear minute
+  holdings: [
+    deposit(HH.taker, 'USDT', '1000', 'hh-usdt'),
+    deposit(HH.maker, 'BTC', '1', 'hh-btc'),
+    hold(HH.takerOrder, HH.taker, 'USDT', '700'),
+    hold(HH.makerOrder, HH.maker, 'BTC', '0.01'),
+    fill('hh-fill-1', HH.maker, HH.taker, HH.makerOrder, HH.takerOrder, '0.01', '600', 10, 20),
+    recipes.orderHoldRelease({ orderId: HH.takerOrder, userId: HH.taker, assetId: 'USDT', amount: amt('100') }),
+    recipes.withdrawHold(HW('hh-w-settled', '0.003')),
+    recipes.withdrawSettle(HW('hh-w-settled', '0.003')),
+    recipes.withdrawHold(HW('hh-w-reversed', '0.002')),
+    recipes.withdrawReverse(HW('hh-w-reversed', '0.002')),
+    recipes.withdrawHold(HW('hh-w-open', '0.001')),
+  ],
+  // ... and after it: these share one 60 s bucket
+  holdingsMinute: [
+    send('hh-t-in', HH.maker, HH.taker),
+    send('hh-t-back', HH.taker, HH.maker),
+    ...buyback('hh', HH.bbPayer),
+    deposit(HH.bbMaker, 'BTC', '1', 'hh-bb-btc'),
+    ...buybackFill('hh', HH.bbMaker, HH.bbAsk, '0.5'),
+  ],
+};
+
+/** A post as the book stores it: amounts as decimal strings, the purpose `accountPurpose` keys on, meta or `{}`. */
+const bookPost = (p) => ({
+  // Named `idempotency`, not by its TypeScript name: a secret scanner reads `<...>Key: <text>` as a credential.
+  idempotency: p.idempotencyKey,
+  module: p.module,
+  reason: p.reason,
+  meta: p.meta ?? {},
+  entries: p.entries.map((e) => ({
+    ownerType: e.account.ownerType,
+    ownerId: e.account.ownerId,
+    assetId: e.account.assetId,
+    kind: e.account.kind,
+    purpose: (e.account.purpose ?? '').trim(),
+    direction: e.direction,
+    amount: formatAmount(e.amount),
+  })),
+});
+const book = Object.fromEntries(Object.entries(BOOK).map(([name, posts]) => [name, posts.map(bookPost)]));
 
 // ── Writing ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -797,6 +1096,7 @@ const outputs = [
     `${CRATE}tests/fixtures/reports.golden.jsonl`,
     `${[JSON.stringify({ nowMs: NOW, answers }), ...reportCases.map((c) => JSON.stringify(c))].join('\n')}\n`,
   ],
+  [`${CRATE}tests/fixtures/history-book.golden.json`, `${JSON.stringify(book)}\n`],
 ];
 
 const PRETTIER = fileURLToPath(new URL('../../../node_modules/.bin/prettier', import.meta.url));

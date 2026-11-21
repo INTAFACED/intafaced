@@ -12,6 +12,7 @@ import type { z } from 'zod';
 import type { Principal } from '@intafaced/auth';
 import { NO_INPUT, type Access, type ProcedureRecord, type RefusalStatus, type TrpcTransport } from './procedure.js';
 import {
+  anyScopeProcedure,
   publicJurisdictionProcedure,
   publicProcedure,
   router,
@@ -29,8 +30,8 @@ import {
 
 /** What a handler receives: the guarded context and the parsed input. */
 export type RecordHandler<R extends ProcedureRecord> = (args: {
-  /** A `scope` record's guard has verified the principal, so its handler reads it without a check of its own. */
-  ctx: R['access'] extends { readonly caller: 'scope' } ? Context & { principal: Principal } : Context;
+  /** A `scope`, `anyScope` or `signedIn` record's guard has verified the principal, so its handler reads it without a check of its own. */
+  ctx: R['access'] extends { readonly caller: 'scope' | 'anyScope' | 'signedIn' } ? Context & { principal: Principal } : Context;
   input: z.output<R['input']>;
   /** Aborted when the caller goes away, for a handler whose outside reads should stop with it. */
   signal?: AbortSignal | undefined;
@@ -79,6 +80,11 @@ function guardFor(access: Access) {
         ...(access.plane === undefined ? {} : { plane: access.plane }),
         ...(access.tier === undefined ? {} : { tier: access.tier }),
         ...(access.person === undefined ? {} : { person: access.person }),
+      });
+    case 'anyScope':
+      return anyScopeProcedure(access.scopes, {
+        ...(access.module === undefined ? {} : { module: access.module }),
+        ...(access.plane === undefined ? {} : { plane: access.plane }),
       });
     case 'service':
       return serviceProcedureFor(access.callers);
