@@ -97,7 +97,10 @@ export function createAcademyGrantApi(api: ApiClient, owner: string, ports = aca
     const result = await api.call(ACADEMY_MY_CERTS, { limit }, { signal, accept: (rows) => checks.safeParse(rows).success });
     if (!current(guard)) return refuse('changed');
     if (!result.ok) return result;
-    return { ...result, data: result.data.map(({ userId, certId, grantedAt, idempotencyKey }) => ({ userId, certId, grantedAt, idempotencyKey })) };
+    return {
+      ...result,
+      data: result.data.map(({ userId, certId, grantedAt, idempotencyKey }) => ({ userId, certId, grantedAt, idempotencyKey })),
+    };
   }
   async function execute(
     marker: AcademyPending,
