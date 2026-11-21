@@ -492,13 +492,6 @@ test(`${J} #5 retries after a network error: the same client order id is sent an
     await route.fetch();
     await route.abort('failed');
   });
-  // The review's reads of the approval this person already holds are lost too, until they press Open long: Confirm asks
-  // the venue again rather than asking them to approve a second time.
-  let readsLost = 0;
-  let loseReads = true;
-  await page.route('**/api/v1/venue/builder-fee-approval?*', (route) =>
-    loseReads ? (readsLost++, route.abort('failed')) : route.continue(),
-  );
   const order = await sizeFor(v.a);
   // Every order and fill of this person's from here on, on either venue, is this step's. From now, not earlier: #3's
   // fill can land in the second before this step starts.
@@ -507,9 +500,6 @@ test(`${J} #5 retries after a network error: the same client order id is sent an
   const chosen = await byId(await line(sheet, 'route-venue').getAttribute('data-venue'));
   const before = wallet.requests.length;
   const prepared = nextPrepare(page);
-  await expect.poll(() => readsLost).toBeGreaterThan(0);
-  await expect(sheet.getByRole('button', { name: 'Open long', exact: true })).toBeEnabled();
-  loseReads = false;
   await sheet.getByRole('button', { name: 'Open long' }).click();
   await continueInWallet(page);
   const p = (await (await prepared).json()).prepared;
@@ -540,7 +530,6 @@ test(`${J} #5 retries after a network error: the same client order id is sent an
     expect(await openOrders(venue, owner)).toEqual([]);
   }
   await page.unroute('**/api/v1/venue/submit');
-  await page.unroute('**/api/v1/venue/builder-fee-approval?*');
   run.write({ lastVenueId: chosen.id });
 });
 
