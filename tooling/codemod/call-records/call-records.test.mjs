@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { answerChecks, Changes, pruneImports, pruneSchemas, recordName, rewriteSite } from './index.mjs';
+import { answerChecks, Changes, checkedCall, pruneImports, pruneSchemas, recordName, rewriteSite } from './index.mjs';
 import { applyEdits, freeNames, load, resolveRelative, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
@@ -742,4 +742,38 @@ test("portable: a door answer's Date becomes its ISO string; a mounted service's
     mounted.left.map((l) => l.at),
     ['x.grant.output.grantedAt', 'x.grant.output.revokedAt'],
   );
+});
+
+test('a customer call whose own schema only refuses an answer moves through callAs, keeping that schema; one that transforms it stays', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-checked-'));
+  const file = join(repo, 'apps/customer/src/features/more/Agents.tsx');
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(
+    file,
+    [
+      "import { useApi } from '../session';",
+      'const mine = z.object({ id: z.string() }).refine((r) => r.id === me);',
+      "export const a = (api) => api.query('agents', 'agent.get', { id }, mine, { signal });",
+      "export const b = (api) => api.mutate('agents', 'session.close', { id }, z.object({ ok: z.literal(true) }));",
+      '',
+    ].join('\n'),
+  );
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+  const [a, b] = findSites(repo).sort((x, y) => x.node.start - y.node.start);
+  assert.equal(checkedCall(a, a.node.arguments[3], ['.refine() (Agents.tsx:2)']), true);
+  assert.equal(checkedCall(a, a.node.arguments[3], ['.refine() (x:1)', '.transform() (x:2)']), false, 'a transform changes the answer');
+  assert.equal(checkedCall({ ...a, file: join(repo, 'apps/admin/src/x.ts') }, a.node.arguments[3], ['.refine() (x:1)']), false);
+  const changes = new Changes();
+  rewriteSite(changes, { ...a, checked: 'mine' }, 'AGENTS_AGENT_GET', '@intafaced/contracts/agents-agent-procedures', false);
+  rewriteSite(changes, b, 'AGENTS_SESSION_CLOSE', '@intafaced/contracts/agents-session-procedures', false);
+  const f = changes.of(file);
+  const out = applyEdits(load(file).src, f.edits);
+  assert.match(
+    out,
+    /api => callAs\(api, AGENTS_AGENT_GET, \{ id \}, mine, \{ signal \}\)|\(api\) => callAs\(api, AGENTS_AGENT_GET, \{ id \}, mine, \{ signal \}\)/,
+  );
+  assert.match(out, /api\.call\(AGENTS_SESSION_CLOSE, \{ id \}\)/);
+  assert.deepEqual([...(f.imports.get('../../shared/api') ?? [])], ['callAs']);
+  assert.ok(!(f.schemas ?? new Map()).has('mine'), 'the checked schema is kept as written, not retyped');
 });

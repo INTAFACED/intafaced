@@ -142,7 +142,10 @@ function plan(opts) {
     }
     const arg = schemaArgOf(s);
     const checks = s.schema ? answerChecks(s.schema.p, s.schema.node) : arg ? answerChecks(load(s.file), arg) : [];
-    if (checks.length) {
+    // A customer query or mutate whose schema only checks the answer (no transform) keeps that schema: the call goes to its
+    // record through `callAs`, which holds the answer to it and returns what it parses (apps/customer/src/shared/api.ts).
+    if (checks.length && checkedCall(s, arg, checks)) s.checked = text(load(s.file), arg);
+    else if (checks.length) {
       hand.push({
         site: s,
         why: `its own schema checks the answer, ${checks.join(', ')}: move the check to the call's \`accept\` by hand`,
@@ -463,6 +466,22 @@ const RECORD_FORMS = {
 const ANSWER_CHECKS = new Set(['refine', 'superRefine', 'transform', 'pipe', 'check', 'preprocess', 'catch', 'overwrite']);
 
 /** The checks a caller's schema makes on the answer: `name (file:line)`, following the app's own consts and imports. */
+/** A check that changes the answer, not only refuses one: the caller's schema can't stand as an `accept`. */
+const CHANGES_ANSWER = /^\.(transform|pipe|preprocess|catch|overwrite)\(\)/;
+const CUSTOMER_SRC = '/apps/customer/src/';
+/** The customer app's API client file, in the same checkout as `file`. */
+const customerApi = (file) => `${file.slice(0, file.indexOf(CUSTOMER_SRC))}${CUSTOMER_SRC}shared/api.ts`;
+
+/** Whether a site with answer checks moves through `callAs`: a customer `query`/`mutate` whose schema only refuses. */
+export function checkedCall(s, arg, checks) {
+  return (
+    (s.shape === 'query' || s.shape === 'mutate') &&
+    Boolean(arg) &&
+    s.file.includes(CUSTOMER_SRC) &&
+    !checks.some((c) => CHANGES_ANSWER.test(c))
+  );
+}
+
 export function answerChecks(p, node, seen = new Set()) {
   const found = [];
   const visit = (q, n) => {
@@ -510,6 +529,12 @@ function callText(changes, s, name, takesNone) {
   const n = s.node;
   const a = n.arguments;
   const input = takesNone ? 'undefined' : text(p, inputArg(s));
+  if ((s.shape === 'query' || s.shape === 'mutate') && s.checked) {
+    // The customer app imports its own files with no extension.
+    changes.imp(s.file, relImport(s.file, customerApi(s.file)).replace(/\.js$/, ''), 'callAs');
+    const rest = [input, s.checked, ...(a[4] ? [text(p, a[4])] : [])];
+    return `callAs(${text(p, n.callee.object)}, ${name}, ${rest.join(', ')})`;
+  }
   if (s.shape === 'query' || s.shape === 'mutate') {
     const recv = text(p, n.callee.object);
     const rest = [input, ...(a[4] ? [text(p, a[4])] : [])];
@@ -560,7 +585,8 @@ export function rewriteSite(changes, s, name, spec, takesNone) {
   const n = s.node;
   // The hand schema the caller parsed with: its types now come from the record (`retype`).
   const schemaArg = schemaArgOf(s);
-  if (schemaArg?.type === 'Identifier') {
+  // A checked call keeps its schema as the caller wrote it (`callAs`), so it is not retyped from the record.
+  if (schemaArg?.type === 'Identifier' && !s.checked) {
     const f = changes.of(s.file);
     f.schemas ??= new Map();
     if (!f.schemas.has(schemaArg.name)) f.schemas.set(schemaArg.name, new Set());
