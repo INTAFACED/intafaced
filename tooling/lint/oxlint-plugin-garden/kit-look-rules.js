@@ -40,7 +40,7 @@ const BORDER_LAYOUT =
 const RADIUS_SHADOW = /^(?:rounded(?:-\S+)?|shadow(?:-\S+)?|drop-shadow(?:-\S+)?)$/u;
 
 /** Why a class token restyles a kit part, or null when it is layout. */
-export function lookOf(token) {
+function lookOf(token) {
   const t = bare(token);
   if (!t) return null;
   if (TYPE_SIZE.test(t) || TYPE.test(t)) return 'type';
@@ -51,7 +51,7 @@ export function lookOf(token) {
 }
 
 /** A raw type utility (`text-sm`, `text-[13px]`, `font-medium`, `leading-5`, `tracking-wide`), or false. */
-export const isTypeClass = (token) => {
+const isTypeClass = (token) => {
   const t = bare(token);
   return (
     TYPE_SIZE.test(t) ||

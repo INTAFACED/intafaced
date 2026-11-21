@@ -21,11 +21,11 @@ import { CONFIG, ruleOf } from '../ci/lint-ratchet.mjs';
 
 export const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
 export const CEILINGS = 'apps/customer/kit-ceilings.json';
-export const RULES = ['garden/no-restyled-kit-part', 'garden/no-raw-control', 'garden/no-raw-type-class'];
+const RULES = ['garden/no-restyled-kit-part', 'garden/no-raw-control', 'garden/no-raw-type-class'];
 const SCOPE = 'apps/customer/src';
 
 /** { <rule>: { <file>: count } } from oxlint's JSON diagnostics, files sorted. */
-export function countsOf(diagnostics, rules = RULES) {
+function countsOf(diagnostics, rules = RULES) {
   const out = Object.fromEntries(rules.map((r) => [r, {}]));
   for (const d of diagnostics) {
     const rule = ruleOf(d);
@@ -93,7 +93,7 @@ export function lowered(counts, ceilings) {
 }
 
 export const readCeilings = (root = ROOT) => JSON.parse(readFileSync(join(root, CEILINGS), 'utf8'));
-export const formatCeilings = (c) => `${JSON.stringify(c, null, 2)}\n`;
+const formatCeilings = (c) => `${JSON.stringify(c, null, 2)}\n`;
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const counts = countTree();
