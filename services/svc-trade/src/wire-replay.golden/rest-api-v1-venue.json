@@ -2060,24 +2060,6 @@
       "absent svc-agents": [401, 0],
       "absent svc-tax": [401, 0]
     },
-    "GET /api/v1/venue/deposit-routes": {
-      "absent anon": [401, 0],
-      "absent no-scope": [403, 1],
-      "absent trader": [404, 2],
-      "absent all": [404, 2],
-      "absent all-US": [403, 3],
-      "absent svc-trade": [401, 0],
-      "absent svc-ops": [401, 0],
-      "absent svc-identity": [401, 0],
-      "absent svc-campaigns": [401, 0],
-      "absent svc-bank": [401, 0],
-      "absent svc-token": [401, 0],
-      "absent svc-support": [401, 0],
-      "absent svc-market": [401, 0],
-      "absent svc-fix": [401, 0],
-      "absent svc-agents": [401, 0],
-      "absent svc-tax": [401, 0]
-    },
     "GET /api/v1/venue/deposits": {
       "absent anon": [401, 0],
       "absent no-scope": [403, 1],

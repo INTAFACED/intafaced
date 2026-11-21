@@ -118,7 +118,8 @@ import {
 } from './address-book/router.js';
 import { createVenueWalletRouter, unwiredVenueConnectionStore } from './venue-wallet/router.js';
 import type { VenueConnectionDeps } from './venue-wallet/connection.js';
-import { createEmbeddedWalletRouter, unwiredEmbeddedWalletStore, type EmbeddedWalletRouterDeps } from './embedded-wallet/router.js';
+import { createEmbeddedWalletRouter, unwiredEmbeddedWalletStore } from './embedded-wallet/router.js';
+import type { EmbeddedWalletDeps } from './embedded-wallet/embedded.js';
 import {
   issueChallenge,
   LISTING_CHALLENGE_TTL_UNSET,
@@ -370,7 +371,7 @@ export interface ProtocolRouterDeps {
    * The embedded self-custody wallet (J-wallet-22): the owner's provider makes the person's wallet with their passkey.
    * Absent = not wired: the provider setting reads blank and creating refuses `wallet.embedded_provider_unset`.
    */
-  embeddedWallet?: EmbeddedWalletRouterDeps;
+  embeddedWallet?: EmbeddedWalletDeps;
 }
 
 /** An unwired label store answers nothing: every read and report fails as a server error rather than inventing a record. */
@@ -811,10 +812,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     venueWallet: createVenueWalletRouter(venueWalletDeps),
     // ── Embedded self-custody wallet (J-wallet-22): src/embedded-wallet/router.ts ──
     embeddedWallet: createEmbeddedWalletRouter(
-      deps.embeddedWallet ?? {
-        store: unwiredEmbeddedWalletStore,
-        setting: () => ({ kind: 'unset' }),
-      },
+      deps.embeddedWallet ?? { store: unwiredEmbeddedWalletStore, setting: () => ({ kind: 'unset' }) },
     ),
 
     // ── Session keys list (D-portfolio-wallet-02): src/session/list.ts ──

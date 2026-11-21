@@ -1135,20 +1135,6 @@ export interface UserVenueDepositRoute {
   readonly minimum?: string | null;
   readonly confirmations?: number | null;
   readonly network?: string | null;
-  /** The venue's own warning for a transfer sent on any other chain (J-wallet-24 #1), word for word; null when it publishes none. */
-  readonly warning?: string | null;
-}
-
-/**
- * How the venue takes one of its assets as a deposit, as it publishes it (J-wallet-24 #5 #6). An asset its bridge takes
- * is `UserVenueDepositRoute.asset`; every other asset is either taken by another route the venue names (`network`, the
- * venue's own name for where to send it, and `how`, its own words), or not offered (`network` null): the venue publishes
- * no route for it. INTAFACED adds no route of its own.
- */
-export interface UserVenueAssetRoute {
-  readonly asset: string;
-  readonly network: string | null;
-  readonly how: string | null;
 }
 
 /**
@@ -1947,11 +1933,6 @@ export interface UserVenue {
    * them leaves it out, and the door refuses the read `not_offered`, so the review shows every term as not known.
    */
   withdrawalTerms?(asset: string): Promise<AsOf<UserVenueWithdrawalTerms>>;
-  /**
-   * How the venue takes each of its assets as a deposit (J-wallet-24 #5 #6): one row per asset it lists. Optional: a
-   * venue whose adapter does not read them leaves it out, and the door refuses the read `not_offered`.
-   */
-  depositRoutes?(): Promise<AsOf<readonly UserVenueAssetRoute[]>>;
   /**
    * The account's orders in every state, newest placed first, as the venue keeps them (J-cex-spot-06 #1): open, filled,
    * partly filled and cancelled. A venue keeps a bounded history (Hyperliquid: its 2000 most recent orders). Optional: a

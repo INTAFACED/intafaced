@@ -26,7 +26,6 @@
  *   GET  /api/v1/venue/withdrawals/:nonce?owner=
  *   GET  /api/v1/venue/withdrawal-terms?owner=&asset=   the venue's published withdrawal fee, network fee and arrival time (J-bank-31 #3)
  *   GET  /api/v1/venue/deposits?owner=                 the on-chain deposits the venue has seen: confirming, credited or not (J-dex-protocol-05 #2)
- *   GET  /api/v1/venue/deposit-routes                  how the venue takes each asset as a deposit, as it publishes it (J-wallet-24 #5 #6)
  *   GET  /api/v1/venue/leverage?owner=&symbol=
  *   POST /api/v1/venue/preview   { owner, intent }
  *   POST /api/v1/venue/convert/sell-quote   { owner, symbol, amount, quoteKey }   the venue's price for a sell (J-cex-spot-17 #8)
@@ -649,14 +648,6 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no withdrawal terms' });
       return venue.withdrawalTerms(q.asset);
     },
-    // J-wallet-24 #5 #6: how the venue takes each of its assets as a deposit, as it publishes it; a venue that publishes
-    // none refuses not_offered.
-    '/api/v1/venue/deposit-routes': async (d) => {
-      const venue = await d.venue();
-      if (!venue.depositRoutes)
-        throw new VenueRefusalError({ venueId: venue.venue.id, code: 'not_offered', detail: 'this venue publishes no deposit routes' });
-      return venue.depositRoutes();
-    },
     '/api/v1/venue/leverage': async (d, q, a) => {
       if (!q.symbol) throw new VenueWireError('symbol is required');
       return (await d.venue()).leverage(a, q.symbol);
@@ -839,7 +830,6 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/fills',
     '/api/v1/venue/deposits',
     '/api/v1/venue/withdrawal-terms',
-    '/api/v1/venue/deposit-routes',
     '/api/v1/venue/leverage',
     '/api/v1/venue/leverage-change',
     '/api/v1/venue/isolated-margin',

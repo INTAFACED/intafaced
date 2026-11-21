@@ -327,21 +327,6 @@ describe('/api/v1/venue/*', () => {
     expect((await app.inject({ method: 'GET', url: `/api/v1/venue/withdrawal-terms?owner=${owner}` })).statusCode).toBe(400);
   });
 
-  it('J-wallet-24 #5 #6: deposit-routes answers each asset the venue lists with the route it publishes, or none', async () => {
-    await mount(door());
-    sim.setAssetRoute('ZZB', { network: 'TEST other chain', how: 'TEST: send ZZB on TEST other chain to your venue address' });
-    const res = await app.inject({ method: 'GET', url: `/api/v1/venue/deposit-routes?owner=${owner}` });
-    expect(res.statusCode, res.body).toBe(200);
-    const rows = res.json().value as { asset: string; network: string | null; how: string | null }[];
-    expect(rows.find((r) => r.asset === 'ZZB')).toEqual({
-      asset: 'ZZB',
-      network: 'TEST other chain',
-      how: 'TEST: send ZZB on TEST other chain to your venue address',
-    });
-    // An asset the venue lists and publishes no route for: not offered, never a route of ours.
-    expect(rows.find((r) => r.asset === 'BTC')).toEqual({ asset: 'BTC', network: null, how: null });
-  });
-
   it('funding-history is public: no sign-in or verification; the listed perpetual on the asset, rates as decimal strings', async () => {
     app = Fastify();
     const router = new UserVenueRouter({ doors: [door()], store: new InMemoryPreparedActionStore(), now: () => new Date() });

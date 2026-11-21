@@ -9719,24 +9719,9 @@
                 "type": "null"
               }
             ]
-          },
-          "gasSponsor": {
-            "type": "object",
-            "properties": {
-              "set": {
-                "type": "boolean",
-                "const": false
-              },
-              "code": {
-                "type": "string",
-                "const": "wallet.gas_sponsor_unset"
-              }
-            },
-            "required": ["set", "code"],
-            "additionalProperties": false
           }
         },
-        "required": ["provider", "wallet", "gasSponsor"],
+        "required": ["provider", "wallet"],
         "additionalProperties": false
       },
       "samples": [

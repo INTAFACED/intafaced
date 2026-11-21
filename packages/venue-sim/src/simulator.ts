@@ -28,7 +28,6 @@ import {
   type UserVenueScheduledCancel,
   type UserVenueArrival,
   type UserVenueWithdrawalTerms,
-  type UserVenueAssetRoute,
   type UserVenueDeposit,
   type UserVenueDescriptor,
   type UserVenueFeed,
@@ -2059,39 +2058,6 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       });
     }
     return this.asOf(list);
-  }
-
-  /** TEST: the routes this venue publishes for assets its bridge does not take (J-wallet-24 #5), by asset. */
-  private readonly assetRoutes = new Map<string, { readonly network: string; readonly how: string }>();
-
-  /**
-   * TEST control: publish (or, with `null`, withdraw) the venue's route for one asset its bridge does not take on its
-   * chain, in the venue's own words (J-wallet-24 #5). An asset with no published route reads as not offered.
-   */
-  setAssetRoute(asset: string, route: { readonly network: string; readonly how: string } | null): void {
-    if (!/^[A-Z0-9]{2,16}$/.test(asset)) refuse(this.venue.id, 'not_offered', `${asset} is not an asset name`);
-    if (route === null) this.assetRoutes.delete(asset);
-    else this.assetRoutes.set(asset, route);
-  }
-
-  /**
-   * How the TEST venue takes each asset it lists as a deposit (J-wallet-24 #5 #6): every asset of its markets and every
-   * asset it publishes a route for, sorted by name, each with the route it publishes or none. The bridge's own asset is
-   * named by the deposit route the server publishes, which this simulator does not hold.
-   */
-  async depositRoutes(): Promise<AsOf<readonly UserVenueAssetRoute[]>> {
-    this.up();
-    const assets = new Set<string>(this.assetRoutes.keys());
-    for (const m of this.marketsBySymbol.values()) {
-      assets.add(m.baseAsset);
-      assets.add(m.quoteAsset);
-    }
-    return this.asOf(
-      [...assets].sort().map((asset) => {
-        const route = this.assetRoutes.get(asset);
-        return { asset, network: route?.network ?? null, how: route?.how ?? null };
-      }),
-    );
   }
 
   /** The TEST venue's published withdrawal terms for `asset` (J-bank-31 #3), as its switches set them. */

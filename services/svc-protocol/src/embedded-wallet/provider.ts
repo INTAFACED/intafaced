@@ -73,8 +73,7 @@ export const PROVIDER_TIMEOUT_MS = 8000;
  * `PROTOCOL_EMBEDDED_WALLET_PROVIDER`, read once at boot. Blank is unset: creating refuses
  * `wallet.embedded_provider_unset`. `TEST:test` is the labelled TEST provider and refuses to boot unless the RAW
  * `APP_ENV` is exactly dev or test (a TEST provider copied to staging never passes for a real one); it needs
- * `PROTOCOL_EMBEDDED_WALLET_TEST_URL`, a loopback URL. `TEST:test-no-export` is the same TEST provider standing in for a
- * provider whose plan offers no key export (J-wallet-22 #5): it reports `export: false`, so the room says so. `privy` or `turnkey` are known and unwired in this build. Anything
+ * `PROTOCOL_EMBEDDED_WALLET_TEST_URL`, a loopback URL. `privy` or `turnkey` are known and unwired in this build. Anything
  * else refuses to boot, so a mistyped provider never reads as unset.
  */
 export function embeddedWalletFromSetting(
@@ -92,11 +91,9 @@ export function embeddedWalletFromSetting(
         `PROTOCOL_EMBEDDED_WALLET_PROVIDER is a TEST value but APP_ENV=${rawAppEnv ?? '(unset)'} is not the local test stack. Refusing to boot.`,
       );
     const id = value.slice(test[0].length).trim();
-    if (id !== 'test' && id !== 'test-no-export')
-      throw new Error(
-        `PROTOCOL_EMBEDDED_WALLET_PROVIDER=TEST:${id} names no TEST provider; the only ones are TEST:test and TEST:test-no-export. Refusing to boot.`,
-      );
-    return { kind: 'ready', adapter: testProviderAdapter(requireLoopbackUrl(testUrl), fetcher, { export: id === 'test' }) };
+    if (id !== 'test')
+      throw new Error(`PROTOCOL_EMBEDDED_WALLET_PROVIDER=TEST:${id} names no TEST provider; the only one is TEST:test. Refusing to boot.`);
+    return { kind: 'ready', adapter: testProviderAdapter(requireLoopbackUrl(testUrl), fetcher) };
   }
   if (value === 'privy' || value === 'turnkey') return { kind: 'unwired', id: value };
   if (value === 'test')
@@ -135,16 +132,12 @@ function readWallet(body: unknown): ProviderWallet | null {
  * The labelled TEST provider's server-side adapter. It speaks to the TEST provider process's `/server/*` routes over
  * loopback. The process holds every TEST key itself (memory and its own state file), never in a svc-* database or log.
  */
-export function testProviderAdapter(
-  origin: string,
-  fetcher: typeof fetch = fetch,
-  offers: { export: boolean } = { export: true },
-): EmbeddedWalletProviderAdapter {
+export function testProviderAdapter(origin: string, fetcher: typeof fetch = fetch): EmbeddedWalletProviderAdapter {
   const info: ProtocolEmbeddedWalletProvider = {
     id: 'test',
     displayName: TEST_PROVIDER_DISPLAY_NAME,
     test: true,
-    capabilities: { export: offers.export, recovery: true },
+    capabilities: { export: true, recovery: true },
   };
   const call = async (path: string, init?: RequestInit): Promise<{ status: number; body: unknown }> => {
     let res: Response;

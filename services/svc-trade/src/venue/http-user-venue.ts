@@ -69,7 +69,6 @@ export function readDepositRoute(raw: unknown): UserVenueDepositRoute | null {
   const confirmations =
     typeof r.confirmations === 'number' && Number.isSafeInteger(r.confirmations) && r.confirmations > 0 ? r.confirmations : null;
   const network = typeof r.network === 'string' && r.network.trim() !== '' ? r.network : null;
-  const warning = typeof r.warning === 'string' && r.warning.trim() !== '' ? r.warning : null;
   return {
     chainId: r.chainId,
     token,
@@ -79,7 +78,6 @@ export function readDepositRoute(raw: unknown): UserVenueDepositRoute | null {
     minimum,
     confirmations,
     network,
-    warning,
   };
 }
 

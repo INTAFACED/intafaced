@@ -20,8 +20,6 @@ export const venueDepositRouteSchema = z.object({
   minimum: decimal.nullable().optional(),
   confirmations: z.number().int().positive().nullable().optional(),
   network: z.string().min(1).nullable().optional(),
-  // The venue's own warning for a transfer on any other chain (J-wallet-24 #1); null or absent when it publishes none.
-  warning: z.string().min(1).nullable().optional(),
 });
 export type VenueDepositRoute = z.infer<typeof venueDepositRouteSchema>;
 
@@ -77,16 +75,6 @@ export const venueWithdrawalTermsSchema = z.object({
   }),
 });
 export type VenueWithdrawalTerms = z.infer<typeof venueWithdrawalTermsSchema>['value'];
-/**
- * How the venue takes each asset it lists as a deposit, as it publishes it (J-wallet-24 #5 #6): the network and the
- * venue's own words for its route, or both null where it publishes no route (not offered).
- */
-export const venueDepositRoutesSchema = z.object({
-  venueId: z.string(),
-  asOf: z.string(),
-  value: z.array(z.object({ asset: z.string().min(1), network: z.string().min(1).nullable(), how: z.string().min(1).nullable() })),
-});
-export type VenueAssetRoute = z.infer<typeof venueDepositRoutesSchema>['value'][number];
 export const venueWithdrawalReadSchema = z.object({ venueId: z.string(), asOf: z.string(), value: venueWithdrawalSchema.nullable() });
 
 /** One on-chain deposit as the venue reports it (J-dex-protocol-05 #2): confirming, credited, or not credited and why. */

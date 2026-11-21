@@ -43,7 +43,6 @@ export const USER_VENUE_READS = {
   positions: { path: '/positions', args: ['account'] },
   withdrawal: { path: '/withdrawal', args: ['account', 'nonce'] },
   withdrawalTerms: { path: '/withdrawal-terms', args: ['asset'] },
-  depositRoutes: { path: '/deposit-routes', args: [] },
   deposits: { path: '/deposits', args: ['account'] },
   arrivals: { path: '/arrivals', args: ['account'] },
   builderFeeApproval: { path: '/builder-fee-approval', args: ['account', 'builder'] },

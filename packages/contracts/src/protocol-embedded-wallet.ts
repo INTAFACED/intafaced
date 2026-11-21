@@ -68,19 +68,11 @@ export const protocolEmbeddedWalletRecordSchema = z.object({
 });
 export type ProtocolEmbeddedWalletRecord = z.infer<typeof protocolEmbeddedWalletRecordSchema>;
 
-/**
- * The owner's gas-sponsor setting is blank (J-wallet-24 #2): INTAFACED pays no one's network fee, so no sponsored deposit
- * is offered, and a person whose wallet holds none of the chain's gas token adds it themselves.
- */
-export const GAS_SPONSOR_UNSET = 'wallet.gas_sponsor_unset' as const;
-
 export const protocolEmbeddedWalletStatusOutputSchema = z.object({
   /** Null while the owner's provider setting is blank: creating refuses `wallet.embedded_provider_unset`. */
   provider: protocolEmbeddedWalletProviderSchema.nullable(),
   /** The person's one wallet, or null when they have none yet. */
   wallet: protocolEmbeddedWalletRecordSchema.nullable(),
-  /** Whether INTAFACED pays the network fee of a deposit: never while the owner's setting is blank. */
-  gasSponsor: z.object({ set: z.literal(false), code: z.literal(GAS_SPONSOR_UNSET) }),
 });
 export type ProtocolEmbeddedWalletStatus = z.infer<typeof protocolEmbeddedWalletStatusOutputSchema>;
 

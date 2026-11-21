@@ -29,7 +29,6 @@ import { PostgresAddressBookStore } from './address-book/book.pg.js';
 import { venueConnectionTtlFromSetting, walletSanctionsFromSetting } from './venue-wallet/connection.js';
 import { PostgresVenueConnectionStore } from './venue-wallet/connection.pg.js';
 import { embeddedWalletFromSetting } from './embedded-wallet/provider.js';
-import { gasSponsorFromSetting } from './embedded-wallet/gas-sponsor.js';
 import { PostgresEmbeddedWalletStore } from './embedded-wallet/embedded.pg.js';
 import { challengeTtlFromSetting } from './listing/ownership.js';
 import { PostgresListingStore } from './listing/ownership.pg.js';
@@ -157,8 +156,6 @@ const embeddedWalletSetting = embeddedWalletFromSetting(
   env.PROTOCOL_EMBEDDED_WALLET_TEST_URL,
   process.env.APP_ENV,
 );
-// The gas-sponsor setting (J-wallet-24 #2): blank is unset, so no sponsored deposit; any value refuses to boot.
-const gasSponsor = gasSponsorFromSetting(env.PROTOCOL_GAS_SPONSOR);
 // The network registry networks.list serves: the owner's file, or on the local test stack a TEST one (refuses to boot elsewhere).
 const networksRegistryPath = networksRegistryPathFromSetting(env.PROTOCOL_TEST_NETWORKS_REGISTRY, process.env.APP_ENV);
 const loadNetworks = () => loadNetworkRegistry(networksRegistryPath);
@@ -237,7 +234,6 @@ export const appRouter = createProtocolRouter({
   embeddedWallet: {
     store: new PostgresEmbeddedWalletStore(db.sql),
     setting: () => embeddedWalletSetting,
-    gasSponsor,
   },
   peers: createPeers({
     indexer: { url: env.INDEXER_URL, timeoutMs: env.PROTOCOL_PEER_TIMEOUT_MS },
