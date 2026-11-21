@@ -23,6 +23,23 @@ import {
   P2P_MERCHANTS_SUBMIT_APPLICATION,
   P2P_MERCHANTS_TODOS,
   P2P_MERCHANTS_WITHDRAW,
+  P2P_OFFERS_BULK,
+  P2P_OFFERS_CLOSE,
+  P2P_OFFERS_CREATE,
+  P2P_OFFERS_EDIT_QUOTA,
+  P2P_OFFERS_GET,
+  P2P_OFFERS_LIST,
+  P2P_OFFERS_MINE,
+  P2P_OFFERS_PAGE,
+  P2P_OFFERS_PAUSE,
+  P2P_OFFERS_RELIST,
+  P2P_OFFERS_RESUME,
+  P2P_OFFERS_SELL_BALANCE,
+  P2P_OFFERS_SET_VISIBILITY,
+  P2P_OFFERS_SHARE_LINKS_CREATE,
+  P2P_OFFERS_SHARE_LINKS_LIST,
+  P2P_OFFERS_SHARE_LINKS_REVOKE,
+  P2P_OFFERS_UPDATE,
   P2P_REPUTATION_APPEAL,
   P2P_REPUTATION_GET,
   P2P_REPUTATION_MY_APPEAL,
@@ -30,6 +47,7 @@ import {
   P2P_REVIEWS_FOR_TRADE,
   P2P_REVIEWS_LEAVE,
   P2P_REVIEWS_REPLY,
+  P2P_SHARE_TOKEN,
   P2P_TRADES_ATTACH_CONTRACT_DEAL,
   P2P_TRADES_CANCEL,
   P2P_TRADES_CONFIRM_RECEIVED,
@@ -405,8 +423,6 @@ function takeRefusal(code: string, reason: Extract<ApiResult<never>, { ok: false
 
 /** The most paused ads My offers lists (svc-p2p's page maximum); the room says when there may be more. */
 export const PAUSED_OFFERS_SHOWN = 200;
-/** P-ads-merchant-07: a share token as svc-p2p makes it. */
-const SHARE_TOKEN = /^[A-Za-z0-9_-]{32}$/;
 /** Each contacts change, by the record that makes it. */
 const CONTACT_CHANGES = {
   follow: P2P_CONTACTS_FOLLOW,
@@ -484,7 +500,7 @@ export function createPersonalPayApi(
     const denied = signedIn();
     if (denied) return denied;
     if (!p2pCurrent()) return p2pDeparted();
-    const result = shareLinkRefusal(await api.query('p2p', 'offers.get', { offerId, ...shareOf(offerId) }, s.offerSchema, { signal }));
+    const result = shareLinkRefusal(await api.call(P2P_OFFERS_GET, { offerId, ...shareOf(offerId) }, { signal }));
     if (!p2pCurrent()) return p2pDeparted();
     if (result.ok && result.data.id.toLowerCase() !== offerId.toLowerCase())
       return payRefusal('p2pOfferProjectionMismatch', { code: 'pay.offer_projection_invalid', reason: 'invalid_response' });
@@ -568,10 +584,10 @@ export function createPersonalPayApi(
       );
     },
     offers: (input: { asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell'; limit: number }, signal?: AbortSignal) =>
-      signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'offers.list', input, z.array(s.offerSchema), { signal }),
+      signedIn() ? Promise.resolve(signedIn()!) : api.call(P2P_OFFERS_LIST, input, { signal }),
     /** One board page, filtered and sorted by the service; `cursor` continues the previous page under the same query. */
     offerPage: (input: s.BoardQuery & { makerId?: string; limit: number; cursor?: string | null }, signal?: AbortSignal) =>
-      signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'offers.page', input, s.offerPageSchema, { signal }),
+      signedIn() ? Promise.resolve(signedIn()!) : api.call(P2P_OFFERS_PAGE, input, { signal }),
     offer: currentOffer,
     trade: currentTrade,
     /** One page of the order list: `tab` narrows it, `cursor` continues from the previous page's `nextCursor`. */
@@ -728,7 +744,7 @@ export function createPersonalPayApi(
     sellBalance(asset: string, signal?: AbortSignal) {
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
-      return api.query('p2p', 'offers.sellBalance', { asset }, s.p2pSellBalanceSchema, { signal });
+      return api.call(P2P_OFFERS_SELL_BALANCE, { asset }, { signal });
     },
     /** P-ads-merchant-02: the per-order band this person's verification level allows, which a buy ad's orders must fit. */
     levelLimits(signal?: AbortSignal) {
@@ -750,11 +766,11 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
-      return api.mutate(
-        'p2p',
-        'offers.create',
+      // The posted ad must be this account's.
+      return api.call(
+        P2P_OFFERS_CREATE,
         { ...input, idempotencyKey, advertiserTermsVersion: termsVersion },
-        s.offerSchema.refine((offer) => offer.makerId === userId, 'The posted ad is not this account’s'),
+        { accept: (offer) => offer.makerId === userId },
       );
     },
     /**
@@ -766,11 +782,11 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
-      return api.mutate(
-        'p2p',
-        'offers.update',
+      // The edited ad must be this one.
+      return api.call(
+        P2P_OFFERS_UPDATE,
         { offerId, idempotencyKey, ...changes },
-        s.offerSchema.refine((offer) => offer.makerId === userId && offer.id === offerId.toLowerCase(), 'The edited ad is not this one'),
+        { accept: (offer) => offer.makerId === userId && offer.id === offerId.toLowerCase() },
       );
     },
     standing: (signal?: AbortSignal) => api.call(P2P_MERCHANTS_ME, undefined, { signal }),
@@ -805,7 +821,8 @@ export function createPersonalPayApi(
       return guard.run(
         `${userId}:offer:${offerId}`,
         async () => {
-          const result = await api.mutate('p2p', `offers.${action}`, { offerId }, s.offerSchema);
+          const record = action === 'pause' ? P2P_OFFERS_PAUSE : action === 'resume' ? P2P_OFFERS_RESUME : P2P_OFFERS_CLOSE;
+          const result = await api.call(record, { offerId });
           if (
             result.ok &&
             (result.data.id.toLowerCase() !== offerId.toLowerCase() ||
@@ -1252,12 +1269,11 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      return api.query(
-        'p2p',
-        'offers.mine',
+      // Every ad in the list must be this account's.
+      return api.call(
+        P2P_OFFERS_MINE,
         { status: 'active', limit: PAUSED_OFFERS_SHOWN },
-        z.array(s.offerSchema.refine((offer) => offer.makerId === userId, 'An ad in this list is not this account’s')),
-        { signal },
+        { signal, accept: (offers) => offers.every((offer) => offer.makerId === userId) },
       );
     },
     /** The person's own paused ads (the board lists active ads only), newest first. */
@@ -1265,12 +1281,11 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      return api.query(
-        'p2p',
-        'offers.mine',
+      // Every ad in the list must be this account's.
+      return api.call(
+        P2P_OFFERS_MINE,
         { status: 'paused', limit: PAUSED_OFFERS_SHOWN },
-        z.array(s.offerSchema.refine((offer) => offer.makerId === userId, 'An ad in this list is not this account’s')),
-        { signal },
+        { signal, accept: (offers) => offers.every((offer) => offer.makerId === userId) },
       );
     },
     /**
@@ -1278,18 +1293,18 @@ export function createPersonalPayApi(
      * is how a private ad is reached and how an order is marked as shared. A malformed token is not kept.
      */
     rememberShare(offerId: string, token: string) {
-      if (s.id.safeParse(offerId).success && SHARE_TOKEN.test(token)) shareTokens.set(offerId.toLowerCase(), token);
+      if (s.id.safeParse(offerId).success && P2P_SHARE_TOKEN.safeParse(token).success) shareTokens.set(offerId.toLowerCase(), token);
     },
     /** P-ads-merchant-07: make the person's own ad public (on the board) or private (by its links only). */
     setOfferVisibility(offerId: string, visibility: 'public' | 'private') {
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
-      return api.mutate(
-        'p2p',
-        'offers.setVisibility',
+      // The ad must have changed as asked.
+      return api.call(
+        P2P_OFFERS_SET_VISIBILITY,
         { offerId, visibility },
-        s.offerSchema.refine((offer) => offer.makerId === userId && offer.visibility === visibility, 'The ad did not change as asked'),
+        { accept: (offer) => offer.makerId === userId && offer.visibility === visibility },
       );
     },
     /** P-ads-merchant-07: the links to the person's own ad, newest first (never their tokens). */
@@ -1297,7 +1312,7 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      return api.query('p2p', 'offers.shareLinks.list', { offerId }, z.array(s.shareLinkSchema), { signal });
+      return api.call(P2P_OFFERS_SHARE_LINKS_LIST, { offerId }, { signal });
     },
     /**
      * P-ads-merchant-07: a new link to the person's own ad. The token comes back once and is shown in the link; svc-p2p
@@ -1307,19 +1322,14 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
-      return api.mutate(
-        'p2p',
-        'offers.shareLinks.create',
-        { offerId, linkId, ...(seconds === undefined ? {} : { seconds }) },
-        s.shareLinkSchema.extend({ token: z.string().regex(SHARE_TOKEN) }),
-      );
+      return api.call(P2P_OFFERS_SHARE_LINKS_CREATE, { offerId, linkId, ...(seconds === undefined ? {} : { seconds }) });
     },
     /** P-ads-merchant-07: withdraw a link at once. */
     revokeShareLink(linkId: string) {
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
-      return api.mutate('p2p', 'offers.shareLinks.revoke', { linkId }, s.shareLinkSchema);
+      return api.call(P2P_OFFERS_SHARE_LINKS_REVOKE, { linkId });
     },
     /** P-ads-merchant-08: the person's presence: online, offline, or a weekly schedule; and whether their ads are on the board. */
     async presence(signal?: AbortSignal): Promise<ApiResult<s.Presence>> {
@@ -1351,32 +1361,26 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
-      return api.mutate('p2p', 'offers.bulk', input, s.bulkOutcomeSchema);
+      return api.call(P2P_OFFERS_BULK, input);
     },
     /** P-ads-merchant-06: the person's own closed ads, most recently closed first, each with why it closed. */
     async closedOffers(signal?: AbortSignal): Promise<ApiResult<s.Offer[]>> {
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      return api.query(
-        'p2p',
-        'offers.mine',
+      // Every ad in the list must be this account's, and closed.
+      return api.call(
+        P2P_OFFERS_MINE,
         { status: 'closed', limit: CLOSED_OFFERS_SHOWN },
-        z.array(
-          s.offerSchema.refine(
-            (offer) => offer.makerId === userId && offer.status === 'closed',
-            'An ad in this list is not this account’s',
-          ),
-        ),
-        { signal },
+        { signal, accept: (offers) => offers.every((offer) => offer.makerId === userId && offer.status === 'closed') },
       );
     },
     /** P-ads-merchant-06: the person's ad edits today against the daily cap; blank cap refuses `p2p.config_unset`. */
-    async offerEditQuota(signal?: AbortSignal): Promise<ApiResult<z.infer<typeof s.offerEditQuotaSchema>>> {
+    async offerEditQuota(signal?: AbortSignal): Promise<ApiResult<s.OfferEditQuota>> {
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      return api.query('p2p', 'offers.editQuota', undefined, s.offerEditQuotaSchema, { signal });
+      return api.call(P2P_OFFERS_EDIT_QUOTA, undefined, { signal });
     },
     /**
      * P-ads-merchant-06: posts a closed ad again as a new ad, through every check a new ad passes. svc-p2p derives the new
@@ -1386,7 +1390,7 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      return guard.run(`${userId}:relist:${offerId}`, () => api.mutate('p2p', 'offers.relist', { offerId }, s.offerSchema));
+      return guard.run(`${userId}:relist:${offerId}`, () => api.call(P2P_OFFERS_RELIST, { offerId }));
     },
     /**
      * The person's own saved details for one method, masked by svc-p2p (the account holder whole, every other value as its

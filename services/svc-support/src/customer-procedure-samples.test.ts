@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { SUPPORT_CUSTOMER_PROCEDURES } from '@intafaced/contracts/support-customer-procedures';
-import { NO_INPUT, type ProcedureSample, type RefusalStatus } from '@intafaced/contracts/procedure';
+import { NO_INPUT, REFUSAL_HTTP_STATUS, type ProcedureSample } from '@intafaced/contracts/procedure';
 import { RequestFormError, type RequestForms } from './request-forms.js';
 import { MemoryHelpCentreBook } from './help-centre.js';
 import { createSupportRouter } from './router.js';
@@ -205,18 +205,6 @@ type Mounted = { _def: { inputs: unknown[]; output?: unknown } };
 const mounted = (path: string): Mounted | undefined =>
   (Reflect.get(Reflect.get(supportRouter, '_def') as object, 'procedures') as Record<string, Mounted>)[path];
 
-const HTTP: Record<RefusalStatus, number> = {
-  BAD_REQUEST: 400,
-  UNAUTHORIZED: 401,
-  FORBIDDEN: 403,
-  NOT_FOUND: 404,
-  CONFLICT: 409,
-  PRECONDITION_FAILED: 412,
-  TOO_MANY_REQUESTS: 429,
-  SERVICE_UNAVAILABLE: 503,
-  TIMEOUT: 408,
-};
-
 /**
  * How each refusal reaches the handler: a `SupportError` from the service, but `create`'s category refusals come from
  * the category it is sent, and its form refusals from the stored form's check.
@@ -265,7 +253,7 @@ describe("svc-support's customer doors are mounted from their records", () => {
     try {
       const res = await send(record, plant(record, code));
       // A status the record does not name for this code fails the strict check as a 500, so the status is the proof.
-      expect(res.statusCode, res.body).toBe(HTTP[status]);
+      expect(res.statusCode, res.body).toBe(REFUSAL_HTTP_STATUS[status]);
     } finally {
       next.clear();
     }
