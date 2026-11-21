@@ -1214,8 +1214,16 @@
   gap: 0.5rem;
 }
 
+/* The app's base reset (packages/ui/src/theme/base.css) leaves every input with appearance: none and no size, which
+   draws a tick as nothing: keep the browser's own control, sized, in the kit's accent. */
 .lt-field input:is([type='checkbox'], [type='radio']) {
+  appearance: auto;
+  flex: none;
+  inline-size: 1rem;
+  block-size: 1rem;
+  margin: 0;
   accent-color: var(--lit-accent);
+  cursor: pointer;
 }
 
 .lt-button:disabled {
