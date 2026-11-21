@@ -19,6 +19,7 @@ import { applyEdits, bindingOf, forget, keyOf, literal, load, resolveRelative, t
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
 const CONTRACTS = join(REPO, 'packages/contracts/src');
 const UNKNOWN = 'z.unknown (no shape: accepts anything)';
+const REFINEMENT = '.refine/.superRefine (a TypeScript predicate the export drops)';
 const LOOKAROUND = /^regex \/(.*)\/ uses lookaround/;
 
 /** `label cannot be exported without losing meaning: at (construct); ...` as `{ label, findings }`. */
@@ -172,7 +173,7 @@ function recordSide(files, name, side) {
       const nameProp = n.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'name');
       if (!nameProp || literal(nameProp.value) !== name) return;
       const prop = n.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === side);
-      if (prop) hit = { q, n: prop.value };
+      if (prop) hit = { q, n: prop.value, prop, record: n };
     });
     if (hit) return hit;
   }
@@ -237,6 +238,46 @@ function fix(target, construct) {
   return { why: construct };
 }
 
+/**
+ * The `.refine(..., message)` a refined schema carries where it is written: its words, and a name for the check (the
+ * schema's own name when it has one, else the key it sits under). `.superRefine` says nothing a record can quote.
+ */
+function refinementOf(target) {
+  const found = follow(target.q, target.n);
+  if (!found) return { why: 'the codemod cannot follow the schema to it' };
+  const says = [];
+  for (const m of chainOf(found.n).methods) {
+    if (m.name === 'superRefine') return { why: 'a .superRefine names no rule in words' };
+    if (m.name !== 'refine') continue;
+    const msg = m.call.arguments[1];
+    const words =
+      literal(msg) ??
+      (msg?.type === 'ObjectExpression'
+        ? literal(msg.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'message')?.value)
+        : undefined);
+    if (!words) return { why: 'its .refine has no message to name the rule by' };
+    says.push(words);
+  }
+  if (!says.length) return { why: "its refinement is not a .refine written in the schema's chain" };
+  const own =
+    unwrap(target.n)?.type === 'Identifier' ? unwrap(target.n).name.replace(/Schema$/, '') : target.prop ? keyOf(target.prop) : 'answer';
+  const name = `${own.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()}_holds`;
+  return { key: `${found.q.file}:${found.n.start}`, name, says: says.join('; ') };
+}
+
+/** `{ name: { at, says }, ... }`, one entry per refinement, at every place it sits. */
+function checksText(named) {
+  const used = new Set();
+  const entries = [...named.values()].map((c) => {
+    let name = c.name;
+    for (let i = 2; used.has(name); i++) name = `${c.name}_${i}`;
+    used.add(name);
+    const at = c.at.length === 1 ? JSON.stringify(c.at[0]) : `[${c.at.map((a) => JSON.stringify(a)).join(', ')}]`;
+    return `${name}: { at: ${at}, says: ${JSON.stringify(c.says)} }`;
+  });
+  return `{ ${entries.join(', ')} }`;
+}
+
 /** Where a file imports `jsonValueSchema` from. */
 const jsonValueFrom = (file) =>
   file.startsWith(CONTRACTS) ? './procedure-strict-schema.js' : '@intafaced/contracts/procedure-strict-schema';
@@ -256,14 +297,31 @@ export function plan(skipped, recordFiles) {
     const side = parsed.label.endsWith('.input') ? 'input' : parsed.label.endsWith('.output') ? 'output' : undefined;
     const name = parsed.label.slice(0, parsed.label.lastIndexOf('.'));
     const start = side && recordSide(recordFiles, name, side);
+    const named = new Map();
     for (const f of parsed.findings) {
       const root = side === 'input' ? 'input' : parsed.label;
       const steps = f.at.startsWith(root) ? stepsOf(f.at, root) : undefined;
       let target = start && steps ? { q: start.q, n: start.n } : undefined;
       for (const step of steps ?? []) target = target && down(target.q, target.n, step);
+      if (target && side === 'output' && f.construct === REFINEMENT) {
+        // An answer's refinement stays where it is and is named in the record's `outputChecks`, in its own words.
+        const r = refinementOf(target);
+        if (r.why) left.push({ record: name, at: f.at, why: r.why });
+        else {
+          const at = `output${f.at.slice(root.length)}`;
+          if (!named.has(r.key)) named.set(r.key, { name: r.name, says: r.says, at: [] });
+          named.get(r.key).at.push(at);
+        }
+        continue;
+      }
       const r = target ? fix(target, f.construct) : { why: 'the codemod cannot follow the schema to it' };
       if (r.edit) add(r.q, r.edit, r.needs);
       else left.push({ record: name, at: f.at, why: r.why });
+    }
+    if (named.size) {
+      if (start.record.properties.some((pr) => pr.type === 'Property' && keyOf(pr) === 'outputChecks')) {
+        for (const c of named.values()) for (const at of c.at) left.push({ record: name, at, why: 'the record already has outputChecks' });
+      } else add(start.q, { start: start.prop.end, end: start.prop.end, text: `, outputChecks: ${checksText(named)}` });
     }
   }
   return { edits, left };
