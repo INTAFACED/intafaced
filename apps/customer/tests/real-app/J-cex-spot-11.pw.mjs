@@ -699,9 +699,10 @@ test(`${J} #11 converts a cash currency through a crypto leg: two linked legs sh
     const eurBefore = toUnits((await venueBalance(session.userId, 'EUR', PARTNER_RECORD)).total);
     const usdcBefore = await balanceOf(s.owner, 'USDC');
     const pairs = (await session.get('/api/v1/venue/convert/pairs')).body;
-    expect(pairs.cash, JSON.stringify(pairs).slice(0, 400)).toEqual([
-      expect.objectContaining({ asset: 'EUR', via: 'USDC', rate: '1.08', test: true }),
-    ]);
+    // The TEST partner offers each cash it has a TEST rate for (EUR and USD on this stack).
+    expect(pairs.cash, JSON.stringify(pairs).slice(0, 400)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ asset: 'EUR', via: 'USDC', rate: '1.08', test: true })]),
+    );
 
     const wallet = await openRoom(page, s, `${ROOM}?from=EUR&to=${A.base}`);
     const sent = convertCalls(page);
