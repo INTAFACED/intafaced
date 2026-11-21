@@ -350,11 +350,19 @@ test("the stack's logs (#7512 review): a character split across two reads is dec
 test("the bus logs each delivery (#8657): a record says so only when the checkout's bus does, and the line makes its service active", () => {
   assert.equal(busLogs(REPO), true, "this checkout's bus writes a line for each delivery");
   assert.equal(busLogs(ROOT), false, 'a root with no bus source: no claim');
+  // A planted bus: the claim needs both the event's name exported and the pump's call; either alone is no claim.
   const fake = mkdtempSync(path.join(tmpdir(), 'bus-'));
   mkdirSync(path.join(fake, 'packages/events/src'), { recursive: true });
-  const real = readFileSync(path.join(REPO, 'packages/events/src/jetstream-bus.ts'), 'utf8');
-  writeFileSync(path.join(fake, 'packages/events/src/jetstream-bus.ts'), real.replace(/\n\s*announceDelivered\(def\.subject[^\n]*/, ''));
+  const bus = (body) => writeFileSync(path.join(fake, 'packages/events/src/jetstream-bus.ts'), body);
+  const exported = "export const BUS_DELIVERED = 'bus.delivered';\n";
+  const pump =
+    'async function pump(def, msg) {\n  await handle(msg);\n  announceDelivered(def.subject, def.durable, msg.info.deliveryCount);\n}\n';
+  bus(exported + pump);
+  assert.equal(busLogs(fake), true, 'planted: the export and the call in the pump: the claim');
+  bus(exported + pump.replace(/\n\s*announceDelivered\(def\.subject[^\n]*/, ''));
   assert.equal(busLogs(fake), false, 'planted: the call removed from the pump, the export left: no claim');
+  bus(pump);
+  assert.equal(busLogs(fake), false, 'planted: the call without the exported event name: no claim');
   const logs = path.join(fake, 'logs');
   mkdirSync(logs);
   writeFileSync(path.join(logs, 'notify.log'), '');
