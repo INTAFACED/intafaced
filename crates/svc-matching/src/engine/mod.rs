@@ -11,6 +11,7 @@
 //! every submit and amend is gated on them, as the base engine gates them.
 
 pub mod admission;
+pub mod liquidity;
 pub mod reconcile;
 pub mod venue;
 
@@ -354,6 +355,38 @@ fn not_live(order_id: &str, market_id: &str) -> AmendResult {
     )
 }
 
+/// `open` while an amend or cancel is between its `in_flight` record and its book move in this process; `unknown`
+/// when a cold start read an `in_flight` record no later amend or cancel resolved (`ifm.ts`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InFlight {
+    Open,
+    Unknown,
+}
+
+fn in_flight_reject(order_id: &str, status: InFlight) -> Reject {
+    match status {
+        InFlight::Open => refused(
+            "in_flight",
+            format!(
+                "order {order_id} has an unconfirmed amend or cancel — a second live order or duplicate fill is refused"
+            ),
+        ),
+        InFlight::Unknown => refused(
+            "in_flight_unknown",
+            format!(
+                "order {order_id} in-flight outcome is unknown — further mutation is refused until reconstructed"
+            ),
+        ),
+    }
+}
+
+fn mmp_unpublished() -> Reject {
+    refused(
+        "mmp_unpublished",
+        "MMP magnitudes are unpublished; the engine does not invent a zero max quote, position, loss, delta, or quote-size band".to_owned(),
+    )
+}
+
 /// The engine.
 pub struct MatchingEngine {
     books: HashMap<String, OrderBook>,
@@ -367,6 +400,14 @@ pub struct MatchingEngine {
     modes: Modes,
     /// The open surveillance cases kept as evidence (`surveillance-persist.ts`).
     evidence: venue::Evidence,
+    /// `inFlight`: each order with an amend or cancel not yet confirmed.
+    in_flight: HashMap<String, InFlight>,
+    /// `ifm-crash.ts`'s store: the orders a cold start found in flight with durable evidence (`inFlight: true`). Every
+    /// submit, amend and cancel of one refuses before anything else is checked.
+    crash_unknown: HashSet<String>,
+    /// `auction-uncross.ts`'s auction state. Nothing in the service enters it: the uncrossing rules are unset, so
+    /// entering refuses ([`enter_auction`](Self::enter_auction)). A submit on a market in it refuses.
+    auction: HashSet<String>,
     /// Owner rulebook versions in publish order, rebuilt from `rulebook_version` records. Empty is unpublished.
     rulebook: Vec<Version>,
     /// Set for the whole book when the replay hold check cannot be asked (`admissionClosed`). Not journalled: the next
@@ -393,6 +434,9 @@ impl MatchingEngine {
             enabled: parts.enabled,
             modes: Modes::default(),
             evidence: venue::Evidence::default(),
+            in_flight: HashMap::new(),
+            crash_unknown: HashSet::new(),
+            auction: HashSet::new(),
             rulebook: Vec::new(),
             admission_closed: None,
             hold_halted: BTreeMap::new(),
@@ -735,7 +779,23 @@ impl MatchingEngine {
             ("mutation", Json::str(mutation)),
             ("inFlight", Json::Bool(true)),
             ("qty", Json::str(format_amount(remaining))),
-        ]))
+        ]))?;
+        self.in_flight.insert(order_id.to_owned(), InFlight::Open);
+        Ok(())
+    }
+
+    /// The refusal for an order in flight, as the base engine checks it.
+    fn in_flight_refusal(&self, order_id: &str) -> Option<Reject> {
+        self.in_flight
+            .get(order_id)
+            .map(|s| in_flight_reject(order_id, *s))
+    }
+
+    /// The crash store's refusal (`ifm-crash.ts`), checked before everything else.
+    fn crash_refusal(&self, order_id: &str) -> Option<Reject> {
+        self.crash_unknown
+            .contains(order_id)
+            .then(|| in_flight_reject(order_id, InFlight::Unknown))
     }
 
     // ── submit ──────────────────────────────────────────────────────────
@@ -760,6 +820,23 @@ impl MatchingEngine {
         lifecycle_proof: Option<&Json>,
     ) -> Result<SubmitResult, EngineError> {
         let id = order.order_id.as_str();
+        // `mmp.ts`, then `ifm-crash.ts`, then `auction-uncross.ts`: the wrappers' order around the base engine.
+        if order.mmp.wants_sidecar() {
+            return Ok(SubmitResult::refused(refused(
+                "mmp_sidecar_refused",
+                "sidecar MM / vendor MM / off-engine margin is refused; MMP law stays in-repo"
+                    .to_owned(),
+            )));
+        }
+        if order.mmp.wants_mmp() {
+            return Ok(SubmitResult::refused(mmp_unpublished()));
+        }
+        if let Some(r) = self.crash_refusal(id) {
+            return Ok(SubmitResult::refused(r));
+        }
+        if self.auction.contains(market_id) {
+            return Ok(SubmitResult::refused(liquidity::uncross_submit_refuse(id)));
+        }
         if self.modes.split_brain {
             return Ok(SubmitResult::refused(split_brain(id)));
         }
@@ -796,6 +873,9 @@ impl MatchingEngine {
                 "session_gone",
                 format!("session {session} is gone — order {id} not processed"),
             )));
+        }
+        if let Some(r) = self.in_flight_refusal(id) {
+            return Ok(SubmitResult::refused(r));
         }
         let expiry_now = self.expiry_now();
         if let Some(book) = self.books.get_mut(m)
@@ -834,6 +914,12 @@ impl MatchingEngine {
         order_id: &str,
         reason: CancelReason,
     ) -> Result<CancelResult, EngineError> {
+        if let Some(r) = self.crash_refusal(order_id) {
+            return Ok(CancelResult {
+                rejected: Some(r),
+                ..CancelResult::missing(order_id)
+            });
+        }
         if self.modes.maintenance.contains(market_id) {
             return Ok(CancelResult {
                 rejected: Some(refused(
@@ -842,6 +928,12 @@ impl MatchingEngine {
                         "market {market_id} is in maintenance — cancels are refused and the resting order stays"
                     ),
                 )),
+                ..CancelResult::missing(order_id)
+            });
+        }
+        if let Some(r) = self.in_flight_refusal(order_id) {
+            return Ok(CancelResult {
+                rejected: Some(r),
                 ..CancelResult::missing(order_id)
             });
         }
@@ -861,6 +953,7 @@ impl MatchingEngine {
         }
         self.append(Json::Object(record))?;
         let result = self.book_mut(market_id).cancel(order_id, reason);
+        self.in_flight.remove(order_id);
         if let Some(c) = &result.cancellation {
             self.emit(vec![cancelled_event(market_id, c)])?;
         }
@@ -994,6 +1087,9 @@ impl MatchingEngine {
                 ));
             }
         }
+        if let Some(r) = self.in_flight_refusal(id) {
+            return Some(AmendResult::refused(id, r));
+        }
         if book.is_none() {
             return Some(not_live(id, m));
         }
@@ -1006,6 +1102,9 @@ impl MatchingEngine {
         cmd: &EngineAmend,
         lifecycle_proof: Option<&Json>,
     ) -> Result<AmendResult, EngineError> {
+        if let Some(r) = self.crash_refusal(&cmd.order_id) {
+            return Ok(AmendResult::refused(&cmd.order_id, r));
+        }
         if self.modes.split_brain {
             return Ok(AmendResult::refused(
                 &cmd.order_id,
@@ -1031,6 +1130,7 @@ impl MatchingEngine {
         }
         self.append(Json::Object(record))?;
         let result = self.book_mut(market_id).amend(cmd, expiry_now);
+        self.in_flight.remove(&cmd.order_id);
         self.drop_if_never_traded(market_id);
         let events = events_for_amend(market_id, &result, &at);
         self.emit(events)?;
@@ -1143,13 +1243,6 @@ impl MatchingEngine {
                 ),
             });
         }
-        let unresolved = unresolved_in_flight(&records);
-        if let Some(id) = unresolved.first() {
-            return Err(EngineError::Owed {
-                slice: Slice::Liquidity,
-                why: format!("order {id} has an in-flight mutation the journal never resolved"),
-            });
-        }
         let mut into = Rebuild::default();
         replay_journal(&records, &mut into).map_err(|e| EngineError::Replay(e.to_string()))?;
         if let Some(e) = into.error {
@@ -1172,6 +1265,22 @@ impl MatchingEngine {
                 .unwrap_or_default();
             self.evidence.keep_all(&cases);
         }
+        let open = replay_in_flight(&records);
+        self.in_flight = open
+            .iter()
+            .map(|id| (id.clone(), InFlight::Unknown))
+            .collect();
+        // `hydrateFromJournal`: only an order with a durable `inFlight: true` record of its own.
+        self.crash_unknown = open
+            .into_iter()
+            .filter(|id| {
+                records.iter().any(|r| {
+                    r.kind() == Some("in_flight")
+                        && matches!(r.field("orderId"), Some(Json::String(s)) if s == id)
+                        && matches!(r.field("inFlight"), Some(Json::Bool(true)))
+                })
+            })
+            .collect();
         self.rulebook.clear();
         for r in records
             .iter()
@@ -1333,8 +1442,9 @@ fn events_for_amend(market_id: &str, result: &AmendResult, at: &str) -> Vec<Pend
     events
 }
 
-/// `replayInFlight`: the orders whose last `in_flight` mark no later cancel or amend of theirs resolved.
-fn unresolved_in_flight(records: &[JournalRecord]) -> Vec<String> {
+/// `replayInFlight`: the orders an `in_flight` record (with a market) marked that no later cancel or amend of theirs
+/// resolved. Only a text id can name a live order, so any other id is passed over.
+fn replay_in_flight(records: &[JournalRecord]) -> Vec<String> {
     let mut open: Vec<String> = Vec::new();
     for r in records {
         let id = match r.field("orderId") {
@@ -1342,7 +1452,7 @@ fn unresolved_in_flight(records: &[JournalRecord]) -> Vec<String> {
             _ => continue,
         };
         match r.kind() {
-            Some("in_flight") if matches!(r.field("inFlight"), Some(Json::Bool(true))) => {
+            Some("in_flight") if r.field("marketId").is_some() => {
                 if !open.contains(&id) {
                     open.push(id);
                 }

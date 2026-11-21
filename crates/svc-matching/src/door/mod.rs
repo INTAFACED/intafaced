@@ -15,6 +15,7 @@
 //! `rulebook`). Nothing here reads or moves a book.
 
 pub mod book;
+pub mod liquidity;
 pub mod rulebook;
 pub mod venue;
 
@@ -67,7 +68,12 @@ impl Slice {
     pub fn is_ported(self) -> bool {
         matches!(
             self,
-            Slice::Journal | Slice::Book | Slice::Serve | Slice::Triggers | Slice::Venue
+            Slice::Journal
+                | Slice::Book
+                | Slice::Serve
+                | Slice::Triggers
+                | Slice::Liquidity
+                | Slice::Venue
         )
     }
 
@@ -768,10 +774,11 @@ impl MatchingDoor {
                 .map_or_else(String::new, |(_, _, v)| v.clone())
         };
         let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
-        if route.slice == Slice::Venue {
-            return venue::serve(&self.cfg, route, req, &param, &parsed, &mut engine);
+        match route.slice {
+            Slice::Liquidity => liquidity::serve(route, &param, &parsed, &mut engine),
+            Slice::Venue => venue::serve(&self.cfg, route, req, &param, &parsed, &mut engine),
+            _ => book::serve(route, req, &param, &parsed, &mut engine),
         }
-        book::serve(route, req, &param, &parsed, &mut engine)
     }
 
     /// `/health`, `/ready` and `/metrics`: the process's own doors.
