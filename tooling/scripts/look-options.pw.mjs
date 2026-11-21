@@ -93,7 +93,15 @@ test('look options', async ({ page }) => {
             await page.locator(s.click).click();
             // the sheet or toast is up, and its entrance has finished
             await page.locator(s.opens).first().waitFor({ state: 'visible' });
-            await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))));
+            await page.evaluate(() =>
+              Promise.all(
+                document
+                  .getAnimations()
+                  // a spinner or a skeleton's pulse runs forever: wait only for what ends
+                  .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+                  .map((a) => a.finished.catch(() => undefined)),
+              ),
+            );
           }
           await page.evaluate(() => document.fonts.ready);
           // Volt's phone Home keeps its label row on one line (intafaced #9302: it wrapped "Est. total value" and
