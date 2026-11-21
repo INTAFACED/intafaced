@@ -463,3 +463,52 @@
   font-family: var(--lit-font-figure);
   font-weight: 600;
 }
+/* The parts added for intafaced issue 9326: layout only; each part draws itself. */
+:root .vk-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+}
+:root .vk-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+:root .vk-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--lit-text-1);
+}
+:root .vk-rail {
+  display: flex;
+  block-size: 26rem;
+  overflow: hidden;
+  border: 1px solid var(--lit-line);
+  border-radius: var(--lit-radius-tile);
+}
+:root .vk-icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+:root .vk-icons li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.5rem;
+  color: var(--lit-text-1);
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg);
+}
+:root .vk-candles {
+  block-size: 22rem;
+}
+:root .vk-book {
+  max-inline-size: 24rem;
+  block-size: 34rem;
+}
