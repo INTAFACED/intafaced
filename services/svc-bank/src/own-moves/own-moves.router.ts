@@ -36,6 +36,7 @@ function moveOut(m: OwnMove): z.input<typeof ownMoveView> {
     partnerFee: m.partnerFee === null ? null : formatAmount(m.partnerFee),
     deliveryTx: m.deliveryTx,
     depositTx: m.depositTx,
+    depositConfirmed: m.depositConfirmed,
     createdAt: m.createdAt.toISOString(),
     sentAt: m.sentAt?.toISOString() ?? null,
     depositAt: m.depositAt?.toISOString() ?? null,
