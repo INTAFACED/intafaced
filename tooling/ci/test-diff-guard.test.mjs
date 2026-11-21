@@ -311,7 +311,7 @@ test('checks 2 and 3 hold for every test: money, sign-in, permissions, harnesses
   eq(blocking(fewer('packages/i18n/src/keys.test.ts')), 1, 'a case removed: fails as before');
   eq(blocking(fewer('services/svc-academy/src/paper/real-money-ban.money.test.ts')), 1, 'a *.money.test.ts case removed: fails as today');
   eq(blocking(del('services/svc-academy/src/paper/real-money-ban.money.test.ts')), 1, 'a *.money.test.ts file deleted: fails as today');
-  eq(blocking(fewer('services/svc-ledger/src/posting.test.ts')), 1, 'a money root (MONEY_PATH_ROOTS): fails as today');
+  eq(blocking(fewer('services/svc-bank/src/posting.test.ts')), 1, 'a money root (MONEY_PATH_ROOTS): fails as today');
   eq(blocking(fewer('services/svc-tax/src/a.db.test.ts')), 1, 'a *.db.test.ts: fails as today');
   eq(blocking(fewer('services/svc-tax/src/a.pg.test.ts')), 1, 'a *.pg.test.ts: fails as today');
   eq(blocking(fewer('services/svc-identity/src/x.test.ts')), 1, 'svc-identity: fails as today');

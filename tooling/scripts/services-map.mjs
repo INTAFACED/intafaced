@@ -211,7 +211,14 @@ export function rustPurpose(lib) {
   return (first[0].toUpperCase() + first.slice(1)).replace(/\|/g, '\\|');
 }
 
-const refusedWhenUnset = (src) => [...src.matchAll(/get\("([A-Z0-9_]+)"\)\s*\.map_or\(\s*Err\(/g)].map((m) => m[1]);
+// Three shapes refuse an unset field: `get("X").map_or(Err(`, a blank read as `NaN` (`blank("X").unwrap_or("NaN")`, which no
+// integer check passes), and svc-ledger's `blank_int("X", None,` (no default).
+const refusedWhenUnset = (src) =>
+  [
+    ...src.matchAll(/get\("([A-Z0-9_]+)"\)\s*\.map_or\(\s*Err\(/g),
+    ...src.matchAll(/blank\(\s*"([A-Z0-9_]+)"\s*\)\s*\.unwrap_or\(\s*"NaN"\s*\)/g),
+    ...src.matchAll(/blank_int\(\s*"([A-Z0-9_]+)",\s*None,/g),
+  ].map((m) => m[1]);
 
 /**
  * Required env of a Rust service: each field `env.rs` refuses when unset (`get("X").map_or(Err(...`), and each one the

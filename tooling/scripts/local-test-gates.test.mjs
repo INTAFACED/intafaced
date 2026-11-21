@@ -939,32 +939,11 @@ assert.equal(off.payloadHash, sha({ actionType: 'ledger.unfreeze' }));
 assert.throws(() => postingFreezeProposal(true, undefined), /freeze version/);
 assert.throws(() => postingFreezeProposal(false, ''), /freeze version/);
 {
-  const ledgerConsume = await load('services/svc-ledger/src/ledger/action-approval-consume.ts');
-  assert.equal(on.payloadHash, ledgerConsume.ledgerActionPayloadHash('ledger.freeze', { reason: POSTING_FREEZE_REASON.trim() }));
-  assert.equal(off.payloadHash, ledgerConsume.ledgerActionPayloadHash('ledger.unfreeze', {}));
-  const { registerOperatorHttp } = await load('services/svc-ledger/src/operator-http.ts');
-  const approvals = recordingConsumer(ledgerConsume.ActionApprovalConsumeError);
-  const ledger = { freezeState: async () => ({ frozen: false, reason: null, actor: null, changedAtPrecise: version }) };
-  const app = fastify({ logger: false });
-  registerOperatorHttp(app, ledger, tokenConfig, approvals);
-  await app.ready();
-  try {
-    const authorization = `Bearer ${await operatorToken('22222222-2222-4222-8222-222222222222', ['admin:treasury'])}`;
-    const ids = { approvalId: 'appr-1', operationId: 'op-1' };
-    // The body posting-freeze sends (through Edge's /admin/ledger/freeze and /unfreeze).
-    await app.inject({
-      method: 'POST',
-      url: '/operator/freeze',
-      headers: { authorization },
-      payload: { reason: POSTING_FREEZE_REASON, ...ids },
-    });
-    await app.inject({ method: 'POST', url: '/operator/unfreeze', headers: { authorization }, payload: ids });
-    assert.equal(approvals.asked.length, 2, 'the freeze doors never asked identity to consume');
-    assert.deepEqual(askedOf(approvals.asked[0]), boundTo(on), 'freeze consume changed');
-    assert.deepEqual(askedOf(approvals.asked[1]), boundTo(off), 'unfreeze consume changed');
-  } finally {
-    await app.close();
-  }
+  // svc-ledger is Rust: crates/svc-ledger/tests/approval_hash.rs pins `approval::payload_hash` to these two hashes, and
+  // crates/svc-ledger/tests/freeze_pg.rs holds its freeze and thaw doors to consume exactly that hash, target and the
+  // version the door read first.
+  assert.equal(on.payloadHash, 'sha256:75e03078ba5a7d6c65daafd26a9d40eb1ad8f0b1af47d76609c55bc44646b769', 'freeze consume changed');
+  assert.equal(off.payloadHash, 'sha256:465e5da4d26d18b0df079034b1ed4c1004cce88f549c4c9df87b1fa269250b3f', 'unfreeze consume changed');
   const { audienceOfApproval } = await load('services/svc-identity/src/auth/action-approval-audience.ts');
   for (const p of [on, off]) assert.equal(audienceOfApproval(p), 'founder', `${p.actionType} is founder-level`);
 }
