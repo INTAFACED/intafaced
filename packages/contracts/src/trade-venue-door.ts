@@ -1002,3 +1002,88 @@ export const protectionListSchema = z.object({ protections: z.array(protectionVi
 export const spotConditionalListSchema = z.object({ orders: z.array(spotConditionalSchema) });
 /** `POST /venue/spot-orders/review` (J-cex-spot-08). */
 export const spotFeeReviewSchema = z.object({ legs: z.array(spotFeeLegSchema) });
+
+/**
+ * `/venue/convert/*`: Convert on the person's own venue account (J-cex-spot-11). These follow
+ * `services/svc-trade/src/venue/venue-convert.ts` presentPairs, presentConvertQuote and presentConversion field for field.
+ */
+const convertAssetAmount = z.object({ asset: z.string(), amount: decimalSchema });
+
+export const venueConvertPairsSchema = z.object({
+  venueId: z.string(),
+  test: z.boolean(),
+  paused: z.boolean(),
+  assets: z.array(z.string()),
+  restricted: z.array(z.string()),
+  pairs: z.array(
+    z.object({
+      symbol: z.string(),
+      base: z.string(),
+      quote: z.string(),
+      maxPerConvert: convertAssetAmount.nullable(),
+      minOrderNotional: decimalSchema.nullable(),
+      lotSize: decimalSchema,
+      tickSize: decimalSchema,
+    }),
+  ),
+});
+
+/** `/venue/convert/route`: the one direct market a pair converts through. */
+export const venueConvertRouteSchema = z.object({ kind: z.literal('direct'), symbol: z.string(), side: z.enum(['buy', 'sell']) });
+
+/** `/venue/convert/quote`: holds nothing and locks nothing (`held: false`). */
+export const venueConvertQuoteSchema = z.object({
+  quoteId: z.string(),
+  venueId: z.string(),
+  test: z.boolean(),
+  owner: z.string(),
+  market: z.string(),
+  side: z.enum(['buy', 'sell']),
+  from: z.string(),
+  to: z.string(),
+  spend: decimalSchema,
+  size: decimalSchema,
+  maxCost: decimalSchema,
+  bestPrice: z.object({ price: decimalSchema, asOf: isoTime }),
+  limitPrice: decimalSchema,
+  slippageBps: z.number().int(),
+  builderFee: z.union([
+    z.object({ kind: z.literal('none'), reason: z.literal('buy') }),
+    z.object({ kind: z.literal('quote_asset'), bps: decimalSchema, amount: maybeKnown(decimalSchema) }),
+  ]),
+  venueFee: z.union([
+    z.object({ known: z.literal(true), asset: z.string(), amount: decimalSchema }),
+    z.object({ known: z.literal(false) }),
+  ]),
+  fill: z.union([
+    z.object({ known: z.literal(true), amount: decimalSchema, averagePrice: decimalSchema.nullable() }),
+    z.object({ known: z.literal(false) }),
+  ]),
+  held: z.literal(false),
+  freshUntil: isoTime,
+  createdAt: isoTime,
+});
+
+/** One conversion, its paid and received amounts read from the venue's own fills. */
+export const venueConversionSchema = z.object({
+  actionKey: z.string(),
+  kind: z.enum(['instant', 'limit']),
+  quoteId: z.string().nullable(),
+  market: z.string(),
+  side: z.enum(['buy', 'sell']),
+  from: z.string(),
+  to: z.string(),
+  venueClientOrderId: z.string().nullable(),
+  limitPrice: decimalSchema,
+  state: z.enum(['filled', 'partially_filled', 'resting', 'not_filled', 'rejected', 'unknown']),
+  paid: convertAssetAmount,
+  received: convertAssetAmount,
+  venueFee: convertAssetAmount.nullable(),
+  builderFee: convertAssetAmount.nullable(),
+  fills: z.number().int(),
+  filledAt: isoTime.nullable(),
+  acceptedAt: isoTime,
+});
+
+/** `/venue/convert/history`. */
+export const venueConvertHistorySchema = z.object({ conversions: z.array(venueConversionSchema), asOf: isoTime.nullable() });
