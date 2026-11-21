@@ -77,6 +77,13 @@ export interface OperatorTool {
   readonly fields: readonly ToolField[];
 }
 
+/** A tool's edge module, path and kind, from the call's record in @intafaced/contracts. */
+export const toolOf = <R extends { readonly module: EdgeModule; readonly path: string; readonly kind: ToolKind }>(record: R) => ({
+  edgeModule: record.module,
+  procedure: record.path,
+  kind: record.kind,
+});
+
 export const OPERATOR_TOOLS: readonly OperatorTool[] = [
   // ── Identity / compliance ─────────────────────────────────────────────────
   {
