@@ -3,13 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthError, requireMfa, requireScope } from '@intafaced/auth';
 import { sbeCodec, type SbeCodec } from '@intafaced/sbe-codec';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
-import {
-  engineOrderTypeSchema,
-  marketLifecycleAdmissionProofSchema,
-  MATCHING_SUBMIT_ORDER,
-  orderSideSchema,
-  timeInForceSchema,
-} from '@intafaced/exchange-contract';
+import { MATCHING_SUBMIT_ORDER } from '@intafaced/exchange-contract';
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import {
   DEFAULT_SERVICE_BODY_BIND_MODE,
@@ -67,7 +61,6 @@ import {
   readRulebookDraft,
   rulebookApprovalFields,
   rulebookApprovalTarget,
-  RULEBOOK_SECTION_MAX,
 } from './rulebook.js';
 import { l4, nativeL3FromEngine, publicMakerIdentity } from './engine/l3-queue.js';
 import {
@@ -80,7 +73,6 @@ import {
 } from './l2-limit.js';
 import { userCopy } from './user-copy.js';
 import {
-  decimal,
   closePositionBodySchema,
   massCancelBodySchema,
   mmpFieldsSchema,

@@ -8,13 +8,13 @@ import { createMarketLifecycleAdmissionProof } from '@intafaced/exchange-contrac
 
 export const NOW = new Date('2026-11-19T00:00:00.000Z');
 export const MARKET = 'BTC-USDT';
-export const UNKNOWN = 'NOPE-USD';
-export const SPREAD = 'BTC-CAL-MAR-JUN';
+const UNKNOWN = 'NOPE-USD';
+const SPREAD = 'BTC-CAL-MAR-JUN';
 export const OPERATOR = '11111111-1111-4111-8111-111111111111';
 export const CONFIRM = '44444444-4444-4444-8444-444444444444';
-export const ORDER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const ORDER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 export const RESTING = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-export const SPREAD_ORDER = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const SPREAD_ORDER = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
 export type Action = 'PLACE' | 'PLACE_POST_ONLY' | 'AMEND';
 
@@ -54,7 +54,7 @@ export interface Door {
   readonly body: boolean;
 }
 
-export const submitBody = {
+const submitBody = {
   orderId: ORDER,
   accountId: 'acct-1',
   type: 'limit',
@@ -64,8 +64,8 @@ export const submitBody = {
   tif: 'GTC',
   lifecycleProof: proof(MARKET, 'PLACE'),
 };
-export const kill = { operatorId: OPERATOR, confirmOperatorId: CONFIRM, approvalId: 'appr-1', operationId: 'op-1' };
-export const killDoor = (file: string, url: string): Door => ({
+const kill = { operatorId: OPERATOR, confirmOperatorId: CONFIRM, approvalId: 'appr-1', operationId: 'op-1' };
+const killDoor = (file: string, url: string): Door => ({
   file,
   method: 'POST',
   body: true,
@@ -76,13 +76,13 @@ export const killDoor = (file: string, url: string): Door => ({
     ['blank-operator', url, { ...kill, operatorId: '' }],
   ],
 });
-export const founder = (door: string, marketId?: string) => ({
+const founder = (door: string, marketId?: string) => ({
   ...(marketId === undefined ? {} : { marketId }),
   approvalId: 'appr-9',
   operationId: 'op-9',
   idempotencyKey: `wire-replay-${door}`,
 });
-export const founderDoor = (file: string, url: string, market: boolean): Door => {
+const founderDoor = (file: string, url: string, market: boolean): Door => {
   const valid = founder(file, market ? MARKET : undefined);
   return {
     file,
@@ -97,7 +97,7 @@ export const founderDoor = (file: string, url: string, market: boolean): Door =>
     ],
   };
 };
-export const limits = (path: string, extra: readonly Input[] = []): readonly Input[] => [
+const limits = (path: string, extra: readonly Input[] = []): readonly Input[] => [
   ['limit-10', `${path}?limit=10`],
   ['no-limit', path],
   ['limit-0', `${path}?limit=0`],
@@ -105,7 +105,7 @@ export const limits = (path: string, extra: readonly Input[] = []): readonly Inp
   ['limit-word', `${path}?limit=ten`],
   ...extra,
 ];
-export const sections = (version: string) => ({
+const sections = (version: string) => ({
   participation: `${version} TEST participation.`,
   matching: `${version} TEST matching.`,
   cancellation: `${version} TEST cancellation.`,
@@ -114,8 +114,8 @@ export const sections = (version: string) => ({
   fees: `${version} TEST fees.`,
   market_data: `${version} TEST market data.`,
 });
-export const draft = { version: 'TEST-v1', effectiveAt: '2026-11-20T00:00:00.000Z', sections: sections('TEST-v1') };
-export const spreadListing = {
+const draft = { version: 'TEST-v1', effectiveAt: '2026-11-20T00:00:00.000Z', sections: sections('TEST-v1') };
+const spreadListing = {
   kind: 'calendar',
   legs: [
     { symbol: 'BTC-27MAR', side: 'sell', ratio: '1' },
@@ -125,7 +125,7 @@ export const spreadListing = {
   lot: '0.001',
   ...kill,
 };
-export const spreadOrder = {
+const spreadOrder = {
   orderId: SPREAD_ORDER,
   accountId: 'mm',
   side: 'sell',
@@ -135,7 +135,7 @@ export const spreadOrder = {
   anchorReference: '60000',
   lifecycleProof: proof(SPREAD, 'PLACE'),
 };
-export const quoteSide = (orderId: string, price: string) => ({ orderId, type: 'limit', qty: '1', price, tif: 'GTC' });
+const quoteSide = (orderId: string, price: string) => ({ orderId, type: 'limit', qty: '1', price, tif: 'GTC' });
 
 export const DOORS: readonly Door[] = [
   { file: 'health', method: 'GET', body: false, own: [['valid', '/health']] },
@@ -436,8 +436,10 @@ export const DOORS: readonly Door[] = [
 /** A body door also gets: none; null; a wrong type; an empty object; its valid body plus a key; its valid body with every field null. */
 export function inputs(door: Door): readonly Input[] {
   if (!door.body) return door.own;
-  const [, url, valid] = door.own[0]!;
-  const object = valid !== null && typeof valid === 'object' ? (valid as Record<string, unknown>) : {};
+  const first = door.own[0];
+  if (first === undefined) return door.own;
+  const [, url, valid] = first;
+  const object: Record<string, unknown> = valid !== null && typeof valid === 'object' ? { ...valid } : {};
   return [
     ...door.own,
     ['absent', url, undefined],

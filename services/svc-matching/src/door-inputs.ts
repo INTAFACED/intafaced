@@ -16,7 +16,7 @@ import { RULEBOOK_SECTION_MAX } from './rulebook.js';
 /** Decimal string. Reusing the exchange contract's rule rather than inventing a second one. */
 export const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are positive decimal strings with at most 18 decimal places');
 /** Offset may be negative. Still a decimal string — never a JSON number. */
-export const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'offsets are signed decimal strings with at most 18 decimal places');
+const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'offsets are signed decimal strings with at most 18 decimal places');
 
 export const closePositionBodySchema = z.object({
   orderId: z.string().guid(),
@@ -38,7 +38,7 @@ export const massCancelBodySchema = z.object({
  * MMP magnitudes on the wire. Decimal string or blank.
  * Blank is still MMP intent — unpublished refuse. Never a JSON number, never invented 0.
  */
-export const mmpMagnitude = z
+const mmpMagnitude = z
   .string()
   .regex(/^(?:\d+(?:\.\d{1,18})?)?$/, 'MMP magnitudes are decimal strings or blank — never JSON numbers')
   .nullish();
@@ -147,7 +147,7 @@ export const spreadOrderBodySchema = z.object({
   lifecycleProof: marketLifecycleAdmissionProofSchema,
 });
 
-export const counterpartOrderSchema = z.object({
+const counterpartOrderSchema = z.object({
   orderId: z.string().min(1).max(128),
   marketId: z.string().min(1).max(128),
   state: z.enum(['pending', 'open', 'terminal']),
