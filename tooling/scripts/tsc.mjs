@@ -20,6 +20,12 @@
  *     build, and the pre-push hook refused a push the real compiler passed (INTAFACED/intafaced#9253).
  * Anything else (a build, a watch, files named on the command line, `--version`) runs tsc unchanged.
  *
+ * Off CI, that check runs tsrs (oxc-project's Rust port of TypeScript 7, the checker t3code's packages run) in place of
+ * tsc, when it is installed: apps/customer cold took 4.97 GB and 42 s with tsc 7.0.2 and 1.31 GB and 9 to 18 s with
+ * tsrs, and 0.5 s at 0.43 GB warm (box, 21 Nov 2026, INTAFACED/project-state#3604). CI (`CI` set) keeps tsc, the judge.
+ * tsrs also reports declaration-emit errors (TS2883) under --noEmit, which tsc 7.0 does not, so its check turns
+ * declaration output off: the same answer as tsc on every package on 21 Nov. Its build-info and seed are its own.
+ *
  * Failure it prevents (INTAFACED/project-state#3374): builders ran bare `npx tsc` 527 times in four days, with no
  * incremental mode, no cache and no lock. One check of apps/customer took 10 s and 7 GB on the Mac, about 57 s and
  * 5 GB on the box; on 19 Nov, 22:17 to 22:57 UTC, one weed's three helpers ran it at once in one worktree and filled
@@ -45,6 +51,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..');
 const TSC = join(REPO, 'node_modules', 'typescript', 'bin', 'tsc');
+const TSRS = join(REPO, 'node_modules', 'tsrs', 'bin', 'tsrs');
+
+/** The compiler a one-project check runs: tsc in CI or where tsrs is not installed, else tsrs. */
+export const checkerOf = (env = process.env) => (env.CI || !existsSync(TSRS) ? 'tsc' : 'tsrs');
 
 /** Flags that mean this is not a one-project check, or that the caller already chose its own build-info. */
 const PASS_THROUGH = new Set([
@@ -71,7 +81,7 @@ const PASS_THROUGH = new Set([
  * What to run for these arguments. `{ args }` alone runs tsc as given; `{ args, project, buildInfo }` is a check made
  * incremental and locked.
  */
-export function planOf(argv, cwd) {
+export function planOf(argv, cwd, checker = 'tsc') {
   if (!argv.includes('--noEmit') || argv.some((a) => PASS_THROUGH.has(a.split('=')[0]))) return { args: argv };
   if (argv.some((a) => !a.startsWith('-') && /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(a))) return { args: argv };
   const at = argv.findIndex((a) => a === '-p' || a === '--project');
@@ -80,8 +90,10 @@ export function planOf(argv, cwd) {
   project = isAbsolute(project) ? project : resolve(cwd, project);
   if (existsSync(project) && statSync(project).isDirectory()) project = join(project, 'tsconfig.json');
   if (!existsSync(project)) return { args: argv };
-  const buildInfo = join(dirname(project), 'node_modules', '.cache', 'tsc', `${basename(project, extname(project))}.tsbuildinfo`);
-  return { args: [...argv, '--incremental', '--tsBuildInfoFile', buildInfo], project, buildInfo };
+  const name = `${basename(project, extname(project))}${checker === 'tsrs' ? '.tsrs' : ''}.tsbuildinfo`;
+  const buildInfo = join(dirname(project), 'node_modules', '.cache', 'tsc', name);
+  const own = checker === 'tsrs' ? ['--declaration', 'false', '--declarationMap', 'false'] : [];
+  return { args: [...argv, ...own, '--incremental', '--tsBuildInfoFile', buildInfo], project, buildInfo, checker };
 }
 
 const git = (cwd, ...a) => {
@@ -90,13 +102,13 @@ const git = (cwd, ...a) => {
 };
 
 /** Where this project's shared seed lives on this machine, or null outside git. */
-export function seedOf(project) {
+export function seedOf(project, checker = 'tsc') {
   const cwd = dirname(project);
   const top = git(cwd, 'rev-parse', '--show-toplevel');
   const common = git(cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir');
   if (!top || !common) return null;
   const key = relative(realpathSync(top), realpathSync(project)).split(/[\\/]/).join('%');
-  return join(common, 'intafaced-tsc-seed', `${key}.tsbuildinfo`);
+  return join(common, 'intafaced-tsc-seed', `${key}${checker === 'tsrs' ? '.tsrs' : ''}.tsbuildinfo`);
 }
 
 const alive = (pid) => {
@@ -208,8 +220,11 @@ export function skippedDependents(before, after) {
 }
 
 /** Runs the compiler; resolves to its exit code, and with `capture` to `{ code, out, err }` (its output held back). */
-function tsc(args, cwd, { capture = false } = {}) {
-  const child = spawn(process.execPath, [TSC, ...args], { cwd, stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit' });
+function tsc(args, cwd, { capture = false, checker = 'tsc' } = {}) {
+  const child = spawn(process.execPath, [checker === 'tsrs' ? TSRS : TSC, ...args], {
+    cwd,
+    stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
+  });
   const out = [];
   const err = [];
   child.stdout?.on('data', (d) => out.push(d));
@@ -227,12 +242,12 @@ function tsc(args, cwd, { capture = false } = {}) {
 
 /** Runs tsc for these arguments; resolves to its exit code. */
 export async function run(argv, { cwd = process.cwd() } = {}) {
-  const plan = planOf(argv, cwd);
+  const plan = planOf(argv, cwd, checkerOf());
   if (!plan.buildInfo) return tsc(plan.args, cwd);
   // The output is held until it is known to be the answer to keep; a terminal still gets tsc's colours.
   const args = process.stdout.isTTY && !argv.some((a) => a.startsWith('--pretty')) ? [...plan.args, '--pretty'] : plan.args;
   const release = await lock(plan.buildInfo, plan.project);
-  const seed = seedOf(plan.project);
+  const seed = seedOf(plan.project, plan.checker);
   try {
     if (seed && !existsSync(plan.buildInfo) && existsSync(seed)) {
       copyWhole(seed, plan.buildInfo);
@@ -241,12 +256,12 @@ export async function run(argv, { cwd = process.cwd() } = {}) {
     // Every error printed comes from checking the file now: the files that failed last time are checked again.
     const before = existsSync(plan.buildInfo) ? readJson(plan.buildInfo) : null;
     if (before?.semanticDiagnosticsPerFile?.some(Array.isArray)) forgetAnswers(plan.buildInfo, before);
-    let result = await tsc(args, cwd, { capture: true });
+    let result = await tsc(args, cwd, { capture: true, checker: plan.checker });
     const after = before && readJson(plan.buildInfo);
     if (after && skippedDependents(before, after)) {
       console.error('typecheck: a file that declares globals changed, which TypeScript 7.0 does not follow; checking every file again');
       forgetAnswers(plan.buildInfo, after, { every: true });
-      result = await tsc(args, cwd, { capture: true });
+      result = await tsc(args, cwd, { capture: true, checker: plan.checker });
     }
     process.stdout.write(result.out);
     process.stderr.write(result.err);
