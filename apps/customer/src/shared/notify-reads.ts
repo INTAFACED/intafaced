@@ -64,10 +64,6 @@ export { NOTIFY_CHANGELOG_AREA_IDS as CHANGELOG_AREA_IDS, entrySchema };
 export type ChangelogAreaId = (typeof NOTIFY_CHANGELOG_AREA_IDS)[number];
 export type ChangelogEntry = z.infer<typeof entrySchema>;
 
-const upcomingSchema = z.object({
-  upcoming: z.array(entrySchema),
-  retired: z.array(z.object({ endpoint: z.string(), entryId: z.string().guid(), title: z.string(), releaseOn: day.nullable() })),
-});
 export type UpcomingChanges = ProcedureOutput<typeof NOTIFY_UPCOMING_CHANGES>;
 
 export const readStatusFeed = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<StatusFeed>> =>

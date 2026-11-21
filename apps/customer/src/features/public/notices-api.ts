@@ -49,7 +49,6 @@ export const readNotice = async (api: ApiClient, id: string, signal?: AbortSigna
   return !result.ok && result.code === NOTICE_NOT_FOUND ? { ok: true, data: null } : result;
 };
 
-const noticeStatusSchema = z.object({ incidents: z.array(entrySchema), maintenance: z.array(entrySchema) });
 export type NoticeStatus = ProcedureOutput<typeof NOTIFY_NOTICE_STATUS>;
 
 /** Open published incidents and maintenance windows. Public, so it works signed out. */

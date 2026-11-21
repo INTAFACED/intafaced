@@ -49,7 +49,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+const settle = () =>
+  act(async () => {
+    for (let i = 0; i < 50; i += 1) await Promise.resolve();
+  });
 async function muteEmail() {
   await act(async () => root.render(<Notifications />));
   await settle();

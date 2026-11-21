@@ -19,7 +19,7 @@ import {
 } from '@intafaced/contracts/status-subscriptions';
 import { readStatusFeed, type StatusFeed } from '../../shared/notify-reads';
 import { maintenanceOf, upcomingMaintenanceSchema, type MaintenanceWindowSoon } from '../../shared/market-maintenance';
-import { contractProcedure, readContract, type ContractData } from '../../shared/contract-call';
+import { contractProcedure, readContract } from '../../shared/contract-call';
 
 export type MaintenanceWindow = StatusFeed['maintenance'][number];
 

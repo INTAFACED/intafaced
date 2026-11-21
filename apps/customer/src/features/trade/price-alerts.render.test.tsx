@@ -84,7 +84,10 @@ afterEach(() => {
 });
 
 const text = () => document.body.textContent ?? '';
-const flush = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
+const flush = () =>
+  act(async () => {
+    for (let i = 0; i < 50; i += 1) await Promise.resolve();
+  });
 const press = async (label: string) => {
   const button = [...document.body.querySelectorAll('button')].find((b) => b.textContent === label);
   if (!button) throw new Error(`no button "${label}" in: ${text()}`);
