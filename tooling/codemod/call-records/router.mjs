@@ -9,6 +9,17 @@ const LEAF = new Set(['query', 'mutation']);
 
 /** The root router: `create<Name>Router` in `src/router.ts` whose body returns `router({...})`. */
 function rootOf(serviceDir, fnName) {
+  // The router a service serves, `export const appRouter = ...` in src/index.ts, when it has one: it holds every part
+  // (svc-identity merges some twenty create*Router parts there), and the router.ts root is one of them.
+  const index = join(serviceDir, 'src', 'index.ts');
+  if (!fnName && existsSync(index)) {
+    const q = load(index);
+    let init;
+    walk(q.program, (n) => {
+      if (n.type === 'VariableDeclarator' && n.id?.name === 'appRouter' && n.init) init = n.init;
+    });
+    if (init) return { p: q, node: init };
+  }
   const file = join(serviceDir, 'src', 'router.ts');
   if (!existsSync(file)) throw new Error(`${serviceDir}: no src/router.ts`);
   const p = load(file);
