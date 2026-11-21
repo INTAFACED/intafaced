@@ -8,7 +8,8 @@
  * a record of calls, never a gate on them.
  */
 import { createHash } from 'node:crypto';
-import type { ApiKeyCallRecordInput } from '@intafaced/contracts/api-keys';
+import { z } from 'zod';
+import { API_CALL_ERROR_CODE, type ApiKeyCallRecordInput } from '@intafaced/contracts/api-keys';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 import { looksLikeApiKey } from './principal-exchange.js';
 
@@ -24,12 +25,59 @@ export function presentedKeyHash(authorization: string | string[] | undefined): 
   return createHash('sha256').update(token).digest('hex');
 }
 
+/** Longest error reply the edge reads a code from; a longer body is not parsed and its call logs no code. */
+export const ERROR_CODE_BODY_MAX = 64 * 1024;
+
+const JsonObject = z.record(z.string(), z.unknown());
+
+function objectAt(value: unknown): Record<string, unknown> | undefined {
+  const parsed = JsonObject.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+function codeAt(value: unknown): string | null {
+  return typeof value === 'string' && API_CALL_ERROR_CODE.test(value) ? value : null;
+}
+
+/**
+ * The typed error code of an error reply (status 400 or above), as a developer's client reads it: the body's
+ * `intafacedCode` (a REST error's own code beside its error class, `PermissionDenied`), else its `code` (every edge
+ * error), else a tRPC error's named code (`error.data.cause.code`, `error.data.intafacedCode`,
+ * `error.data.appCode`, `error.code`), and only last tRPC's status word (`error.data.code`, `FORBIDDEN`). Null on a
+ * success, a body that is not a JSON object, or one with no code. Only the code leaves this function.
+ */
+export function replyErrorCode(status: number, payload: unknown): string | null {
+  if (status < 400) return null;
+  const text = typeof payload === 'string' ? payload : Buffer.isBuffer(payload) ? payload.toString('utf8') : null;
+  if (text === null || text.length > ERROR_CODE_BODY_MAX) return null;
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const record = objectAt(body);
+  if (record === undefined) return null;
+  const error = objectAt(record.error);
+  const data = objectAt(error?.data);
+  return (
+    codeAt(record.intafacedCode) ??
+    codeAt(record.code) ??
+    codeAt(objectAt(data?.cause)?.code) ??
+    codeAt(data?.intafacedCode) ??
+    codeAt(data?.appCode) ??
+    codeAt(error?.code) ??
+    codeAt(data?.code)
+  );
+}
+
 export function keyCallReport(input: {
   readonly keyHash: string;
   readonly requestId: string;
   readonly method: string;
   readonly url: string;
   readonly status: number;
+  readonly errorCode?: string | null;
   readonly clientIp: string | null;
   readonly at: Date;
 }): ApiKeyCallRecordInput {
@@ -39,6 +87,7 @@ export function keyCallReport(input: {
     method: input.method.toUpperCase().slice(0, 16),
     path: (input.url.split('?')[0] || '/').slice(0, 512),
     status: input.status,
+    errorCode: input.errorCode ?? null,
     clientIp: input.clientIp ? input.clientIp.slice(0, 64) : null,
     at: input.at.toISOString(),
   };
