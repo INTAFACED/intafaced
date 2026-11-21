@@ -4,8 +4,8 @@
 // left by hand. Each finding is followed from the record's `input` or `output` through the schema's source (consts,
 // imports, `z.object`, `z.array`, unions, records, `.extend`) to the node it names:
 //
-//   - `z.unknown()` is any JSON value or absent on the wire: it becomes `jsonValueSchema` (`z.json()`, which the export
-//     writes whole), `.optional()` where it is an object's key, so an absent key is still accepted.
+//   - `z.unknown()`, on the wire, is any JSON value (an absent key is refused, as zod 4 reads a key): it becomes
+//     `jsonValueSchema` (`z.json()`, which the export writes whole), its `.optional()` or `.nullable()` kept as written.
 //   - `/^(?!-)[a-z0-9-]+.../` (a lookahead that only bars the first character of the class after it) becomes the same
 //     language without the lookahead: `/^[a-z0-9][a-z0-9-]*.../`.
 //
@@ -195,7 +195,6 @@ export function withoutLeadingLookahead(source) {
 
 /** The edit that makes one finding portable, or the reason it stays. */
 function fix(target, construct) {
-  const { prop } = target;
   // A name for the schema (`domain` for `z.string().regex(...)`): the edit lands where it is written.
   const found = follow(target.q, target.n);
   if (!found) return { why: 'the codemod cannot follow the schema to it' };
@@ -217,12 +216,8 @@ function fix(target, construct) {
       return { why: 'its z.unknown() is not written here as z.unknown()' };
     if (methods.some((m) => !['optional', 'nullable', 'nullish', 'describe', 'meta'].includes(m)))
       return { why: `its z.unknown() carries ${methods.join(', ')}` };
-    const optional = prop && !methods.some((m) => m === 'optional' || m === 'nullish');
-    return {
-      q,
-      edit: { start: start.start, end: start.end, text: optional ? 'jsonValueSchema.optional()' : 'jsonValueSchema' },
-      needs: 'jsonValueSchema',
-    };
+    // zod 4: a key `z.unknown()` is required (absent is refused), so `jsonValueSchema` with the same chain is exact.
+    return { q, edit: { start: start.start, end: start.end, text: 'jsonValueSchema' }, needs: 'jsonValueSchema' };
   }
   const look = LOOKAROUND.exec(construct);
   if (look) {
