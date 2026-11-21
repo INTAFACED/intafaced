@@ -114,6 +114,7 @@
   "/trade/bots/signals/publish",
   "/trade/risk",
   "/trade/account",
+  "/trade/vaults",
   "/trade/positions",
   "/trade/orders",
   "/trade/orders/:id",
