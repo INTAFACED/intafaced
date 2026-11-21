@@ -82586,7 +82586,8 @@
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
-        "properties": {}
+        "properties": {},
+        "additionalProperties": false
       },
       "output": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

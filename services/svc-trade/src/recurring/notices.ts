@@ -8,7 +8,11 @@ import type { EventBus } from '@intafaced/events';
 import { formatAmount } from '@intafaced/ledger-client/money';
 import type { RecurringNotices } from './recurring-buys.js';
 
-export function busRecurringNotices(bus: Pick<EventBus, 'publish'>): RecurringNotices {
+/** `warn` is the service's structured logger. */
+export function busRecurringNotices(
+  bus: Pick<EventBus, 'publish'>,
+  warn: (message: string, fields: Record<string, string>) => void,
+): RecurringNotices {
   return {
     async suspended(input) {
       try {
@@ -26,7 +30,7 @@ export function busRecurringNotices(bus: Pick<EventBus, 'publish'>): RecurringNo
           { idempotencyKey: `trade.recurring_buy.paused:${input.ruleId}:${input.slot}` },
         );
       } catch (err) {
-        console.warn(JSON.stringify({ level: 'warn', msg: 'trade.recurring.notice_unsent', ruleId: input.ruleId, error: String(err) }));
+        warn('trade.recurring.notice_unsent', { ruleId: input.ruleId, error: String(err) });
       }
     },
   };

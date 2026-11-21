@@ -145,24 +145,34 @@ export function recurringRuleIdFor(userId: string, clientRequestId: string): str
     });
   }
   const hex = createHash('sha256').update(`bots.recurring\0${userId}\0${clientRequestId}`).digest('hex');
-  const variant = ((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
+  const variant = ((parseInt(hex.charAt(16), 16) & 0x3) | 0x8).toString(16);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 export const slotOrderKey = (ruleId: string, slot: number, symbol: string) => `recurring:${ruleId}:${slot}:${symbol}`;
 export const convertOrderKey = (ruleId: string, symbol: string) => `recurring:${ruleId}:convert:${symbol}`;
 
-/** A typed decimal above zero, or a refusal naming the field. Blank answers null when `optional`. */
-function amountField(raw: string | null | undefined, field: string, optional: boolean): Amount | null {
+/** A typed decimal above zero, or a refusal naming the field; blank answers null. */
+function optionalAmount(raw: string | null | undefined, field: string): Amount | null {
   const v = typeof raw === 'string' ? raw.trim() : '';
-  if (v === '') {
-    if (optional) return null;
-    throw new RecurringError(`${field} is required`, 'trade.recurring_field_invalid', { field });
-  }
+  if (v === '') return null;
   if (!DECIMAL_RE.test(v) || compare(parseAmount(v), ZERO) <= 0) {
     throw new RecurringError(`${field} must be a number above zero`, 'trade.recurring_field_invalid', { field });
   }
   return parseAmount(v);
+}
+
+/** A typed decimal above zero; blank or not a number is a refusal naming the field. */
+function requiredAmount(raw: string | null | undefined, field: string): Amount {
+  const amount = optionalAmount(raw, field);
+  if (amount === null) throw new RecurringError(`${field} is required`, 'trade.recurring_field_invalid', { field });
+  return amount;
+}
+
+/** The venue's typed data, checked to be EIP-712 shaped before the key signs it. */
+function isTypedData(value: unknown): value is TypedDataDefinition {
+  if (typeof value !== 'object' || value === null) return false;
+  return 'domain' in value && 'types' in value && 'primaryType' in value && 'message' in value;
 }
 
 /** The rule's fields checked in the order the form shows them; nothing is read from the venue yet. */
@@ -182,8 +192,8 @@ export function checkRecurringFields(input: RecurringCreateInput) {
         field: `Weight ${n}`,
       });
     }
-    const lowestPrice = amountField(row.lowestPrice, `Lowest price ${n}`, true);
-    const highestPrice = amountField(row.highestPrice, `Highest price ${n}`, true);
+    const lowestPrice = optionalAmount(row.lowestPrice, `Lowest price ${n}`);
+    const highestPrice = optionalAmount(row.highestPrice, `Highest price ${n}`);
     if (lowestPrice !== null && highestPrice !== null && compare(lowestPrice, highestPrice) >= 0) {
       throw new RecurringError(`Coin ${n}: the lowest price must be below the highest price`, 'trade.recurring_price_range_inverted', {
         field: `Lowest price ${n}`,
@@ -199,8 +209,8 @@ export function checkRecurringFields(input: RecurringCreateInput) {
       { total: formatAmount(total) },
     );
   }
-  const amount = amountField(input.amount, 'Amount each time', false)!;
-  const maxInvestment = amountField(input.maxInvestment, 'Most to invest', true);
+  const amount = requiredAmount(input.amount, 'Amount each time');
+  const maxInvestment = optionalAmount(input.maxInvestment, 'Most to invest');
   return { rows, amount, maxInvestment };
 }
 
@@ -320,8 +330,11 @@ export class RecurringBuys {
       if (pausedWhy) throw new RecurringError(pausedWhy, 'trade.bots_paused_by_platform');
       basket.push({ ...row, baseAsset: market.baseAsset });
     }
+    const head = basket[0];
+    if (!head || quoteAsset === null)
+      throw new RecurringError('Add a coin to the basket', 'trade.recurring_field_invalid', { field: 'Coin 1' });
     // Ending the rule sells what it bought, and every venue sell carries our builder fee: it must be approved first.
-    await this.assertBuilderFeeApproved(owner, basket[0]!.symbol);
+    await this.assertBuilderFeeApproved(owner, head.symbol);
     const agent = this.agentKey(principal.userId, owner);
     const at = this.deps.now();
     const rule: RecurringRule = {
@@ -333,7 +346,7 @@ export class RecurringBuys {
       owner,
       agentAddress: agent.address.toLowerCase(),
       region,
-      quoteAsset: quoteAsset!,
+      quoteAsset,
       basket,
       amount,
       frequency: input.frequency,
@@ -392,7 +405,7 @@ export class RecurringBuys {
       if (!(await this.permitted(rule))) return rule;
       const at = this.deps.now();
       if (await this.deps.store.setStatus({ ruleId: rule.ruleId, status: 'active', reason: null, at, from: ['signing'] })) {
-        await this.deps.store.setNextRun(rule.ruleId, null, at, at);
+        await this.deps.store.setNextRun({ ruleId: rule.ruleId, from: null, to: at, at });
       }
       rule = await this.stored(rule.ruleId);
     }
@@ -447,8 +460,8 @@ export class RecurringBuys {
   async update(principal: Principal, input: { ruleId: string; amount?: string | null; maxInvestment?: string | null }) {
     assertBotVerification(this.deps.verification(), principal.tier);
     const rule = await this.own(principal, input.ruleId);
-    const amount = amountField(input.amount, 'Amount each time', false)!;
-    const maxInvestment = amountField(input.maxInvestment, 'Most to invest', true);
+    const amount = requiredAmount(input.amount, 'Amount each time');
+    const maxInvestment = optionalAmount(input.maxInvestment, 'Most to invest');
     return this.locked(rule.ruleId, async () => {
       const now = await this.stored(rule.ruleId);
       if (now.status === 'terminated' || now.status === 'completed') {
@@ -473,7 +486,7 @@ export class RecurringBuys {
         from: ['signing', 'active', 'suspended_insufficient_funds', 'completed'],
       });
       const now = await this.stored(rule.ruleId);
-      if (now.nextRunAt !== null) await this.deps.store.setNextRun(rule.ruleId, now.nextRunAt, null, at);
+      if (now.nextRunAt !== null) await this.deps.store.setNextRun({ ruleId: rule.ruleId, from: now.nextRunAt, to: null, at });
       await this.convert(now, principal.tier);
       return this.view(principal, await this.stored(rule.ruleId));
     });
@@ -515,7 +528,7 @@ export class RecurringBuys {
     if (rule.nextRunAt === null || rule.nextRunAt.getTime() > at.getTime()) return;
     // The slot is moved on first, only from the time this pass read, so one due slot is written once.
     const next = new Date(rule.nextRunAt.getTime() + PERIOD_MS[rule.frequency]);
-    if (!(await this.deps.store.setNextRun(rule.ruleId, rule.nextRunAt, next, at))) return;
+    if (!(await this.deps.store.setNextRun({ ruleId: rule.ruleId, from: rule.nextRunAt, to: next, at }))) return;
     const slot = await this.deps.store.insertSlot({
       ruleId: rule.ruleId,
       slot: slots.length,
@@ -528,7 +541,8 @@ export class RecurringBuys {
 
   private async runSlot(rule: RecurringRule, actor: Principal, slot: RecurringSlot): Promise<void> {
     const at = this.deps.now();
-    if (!(await this.mayTrade(rule, actor.tier)) || botOrdersHalted(await this.pauses(), rule.basket[0]!.symbol)) {
+    const pauses = await this.pauses();
+    if (!(await this.mayTrade(rule, actor.tier)) || rule.basket.some((b) => botOrdersHalted(pauses, b.symbol))) {
       await this.deps.store.setSlotOutcome(rule.ruleId, slot.slot, 'skipped_not_permitted');
       return;
     }
@@ -540,7 +554,7 @@ export class RecurringBuys {
       if (compare(add(spent, slot.amount), rule.maxInvestment) > 0) {
         await this.deps.store.setSlotOutcome(rule.ruleId, slot.slot, 'skipped_not_permitted');
         await this.deps.store.setStatus({ ruleId: rule.ruleId, status: 'completed', reason: 'max_investment_reached', at, from: LIVE });
-        await this.deps.store.setNextRun(rule.ruleId, rule.nextRunAt, null, at);
+        await this.deps.store.setNextRun({ ruleId: rule.ruleId, from: rule.nextRunAt, to: null, at });
         return;
       }
     }
@@ -639,9 +653,9 @@ export class RecurringBuys {
     const at = this.deps.now();
     for (const row of rule.basket) {
       const key = convertOrderKey(rule.ruleId, row.symbol);
-      const had = orders.find((o) => o.orderKey === key);
-      if (had && had.status !== 'open') continue;
-      if (!had) {
+      let order = orders.find((o) => o.orderKey === key);
+      if (order && order.status !== 'open') continue;
+      if (!order) {
         const bought = sumOf(orders.filter((o) => o.kind === 'buy' && o.symbol === row.symbol).map((o) => this.received(rule, o)));
         const market = markets.find((m) => m.symbol === row.symbol);
         const free = await this.free(rule.owner, row.baseAsset);
@@ -649,7 +663,7 @@ export class RecurringBuys {
         const qty = market ? floorTo(held, market.lotSize) : ZERO;
         if (compare(qty, ZERO) <= 0) continue;
         const { bid } = await this.best(row.symbol);
-        const order = await this.deps.store.insertOrder({
+        order = await this.deps.store.insertOrder({
           orderKey: key,
           ruleId: rule.ruleId,
           slot: null,
@@ -668,7 +682,6 @@ export class RecurringBuys {
         });
         if (order.status !== 'open') continue;
       }
-      const order = (await this.deps.store.orders(rule.ruleId)).find((o) => o.orderKey === key)!;
       const sent = await this.send(rule, actor, {
         kind: 'place_order',
         symbol: order.symbol,
@@ -767,7 +780,8 @@ export class RecurringBuys {
       throw new Error(`order ${key} was prepared outside rule ${rule.ruleId}'s account; nothing is signed`);
     }
     if (answer.signed && answer.lastOutcome?.definite) return answer.lastOutcome.accepted ? 'done' : 'refused';
-    const signature = await signer.signTypedData(answer.prepared.typedData as TypedDataDefinition);
+    if (!isTypedData(answer.prepared.typedData)) throw new Error(`order ${key} came back with no typed data to sign`);
+    const signature = await signer.signTypedData(answer.prepared.typedData);
     let outcome: VenueSubmitOutcome;
     try {
       outcome = (

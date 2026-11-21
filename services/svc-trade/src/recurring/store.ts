@@ -88,6 +88,14 @@ export interface RuleMove {
   readonly from: readonly RecurringStatus[];
 }
 
+/** The next slot time moved from `from` (null: unset) to `to`, only while it is still `from`. */
+export interface NextRunMove {
+  readonly ruleId: string;
+  readonly from: Date | null;
+  readonly to: Date | null;
+  readonly at: Date;
+}
+
 export interface RecurringStore {
   insertOnce(rule: RecurringRule): Promise<{ rule: RecurringRule; created: boolean }>;
   find(ruleId: string): Promise<RecurringRule | null>;
@@ -97,7 +105,7 @@ export interface RecurringStore {
   /** Moves the status only from one of `from`; false when the rule was in another. */
   setStatus(move: RuleMove): Promise<boolean>;
   /** Moves the next slot time only while it is still `from` (null: unset), so one slot is scheduled once. */
-  setNextRun(ruleId: string, from: Date | null, to: Date | null, at: Date): Promise<boolean>;
+  setNextRun(move: NextRunMove): Promise<boolean>;
   setTerms(ruleId: string, terms: { amount: Amount; maxInvestment: Amount | null }, at: Date): Promise<void>;
   slots(ruleId: string): Promise<readonly RecurringSlot[]>;
   /** Writes the slot unless (rule, slot) exists; answers the stored one. */
@@ -137,7 +145,7 @@ export class InMemoryRecurringStore implements RecurringStore {
     this.rules.set(ruleId, { ...rule, status, statusReason: reason, updatedAt: at });
     return true;
   }
-  async setNextRun(ruleId: string, from: Date | null, to: Date | null, at: Date) {
+  async setNextRun({ ruleId, from, to, at }: NextRunMove) {
     const rule = this.rules.get(ruleId);
     if (!rule || !sameTime(rule.nextRunAt, from)) return false;
     this.rules.set(ruleId, { ...rule, nextRunAt: to, updatedAt: at });
@@ -357,7 +365,7 @@ export class SqlRecurringStore implements RecurringStore {
     return moved.count === 1;
   }
 
-  async setNextRun(ruleId: string, from: Date | null, to: Date | null, at: Date) {
+  async setNextRun({ ruleId, from, to, at }: NextRunMove) {
     const moved = await this.sql`
       UPDATE trade.recurring_buy_rules SET next_run_at = ${to}, updated_at = ${at}
       WHERE rule_id = ${ruleId} AND next_run_at IS NOT DISTINCT FROM ${from}::timestamptz`;
@@ -428,11 +436,15 @@ export class SqlRecurringStore implements RecurringStore {
 /** The TEST age door's subject: the rule's next slot made due `ms` earlier, as if that time had gone by. */
 export function ageRecurringBuy(sql: Sql) {
   return async (id: string, ms: number) => {
-    const rows = await sql<{ next_run_at: Date }[]>`
-      UPDATE trade.recurring_buy_rules SET next_run_at = next_run_at - make_interval(secs => ${ms / 1000})
-      WHERE rule_id = ${id} AND next_run_at IS NOT NULL AND status IN ('active', 'suspended_insufficient_funds')
-      RETURNING next_run_at`;
-    const row = rows[0];
-    return row ? { nextRunAt: new Date(row.next_run_at).toISOString() } : null;
+    const [row] = z
+      .object({ next_run_at: when })
+      .array()
+      .parse(
+        await sql`
+          UPDATE trade.recurring_buy_rules SET next_run_at = next_run_at - make_interval(secs => ${ms / 1000})
+          WHERE rule_id = ${id} AND next_run_at IS NOT NULL AND status IN ('active', 'suspended_insufficient_funds')
+          RETURNING next_run_at`,
+      );
+    return row ? { nextRunAt: row.next_run_at.toISOString() } : null;
   };
 }

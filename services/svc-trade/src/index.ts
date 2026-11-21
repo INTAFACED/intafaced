@@ -812,7 +812,7 @@ const recurringBuys = userVenue
       keySeed: env.TRADE_AGENT_KEY_SEED,
       liveTier: (userId) => venueGridTier.tierOf(userId),
       freeze: createIdentityFreezeRead(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
-      notices: busRecurringNotices(bus),
+      notices: busRecurringNotices(bus, (message, fields) => app.log.warn(fields, message)),
       platformPauses: readPlatformPauses,
       now: () => new Date(),
     })

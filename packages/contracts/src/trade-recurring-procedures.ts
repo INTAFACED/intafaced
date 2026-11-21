@@ -245,7 +245,7 @@ export const RECURRING_LIST = defineProcedure({
   path: 'bots.recurring.list',
   access: READ,
   refusals: refuse({ 'trade.recurring_unavailable': 'SERVICE_UNAVAILABLE' }),
-  input: z.object({}).optional(),
+  input: z.object({}).strict().optional(),
   output: z.array(recurringRuleSchema),
   samples: [
     { verdict: 'accept', input: {} },

@@ -604,6 +604,61 @@ const GRID: Readonly<Record<string, Words>> = {
     title: 'Earning on idle funds isn’t connected',
     body: 'A grid earns on its idle funds only through the bank’s earn service, which isn’t connected here. Nothing was moved.',
   },
+  // The recurring buy (J-copy-bots-otc-16). The editor adds which row or what total, from what the person typed.
+  'trade.recurring_weights_not_100': {
+    title: 'The weights must add up to 100%',
+    body: 'Change the weights so they total exactly 100%. Nothing was saved.',
+  },
+  'trade.recurring_price_range_inverted': {
+    title: 'Check the price range',
+    body: 'The lowest price must be below the highest price. Nothing was saved.',
+  },
+  'trade.recurring_card_funding_off': {
+    title: 'Card funding is switched off',
+    body: 'Card funding needs the card processor, which is switched off in this build. Nothing was saved.',
+  },
+  'trade.recurring_field_invalid': {
+    title: 'Check the form',
+    body: 'Each amount and weight is a number above zero. Nothing was saved.',
+  },
+  'trade.recurring_market_not_found': {
+    title: 'That coin can’t be bought here',
+    body: 'Choose a coin the venue lists as an open spot market. Nothing was saved.',
+  },
+  'trade.recurring_wallet_required': {
+    title: 'Connect your wallet',
+    body: 'A recurring buy trades on your own venue account. Nothing was saved.',
+  },
+  'trade.recurring_builder_fee_unapproved': {
+    title: 'Approve our builder fee first',
+    body: 'Ending a recurring buy sells what it bought, and every sell carries our builder fee. Nothing was saved.',
+  },
+  'trade.recurring_agent_key_unset': {
+    title: 'Recurring buys aren’t set up here',
+    body: 'The key that places a recurring buy’s orders hasn’t been set. Nothing was saved.',
+  },
+  'trade.recurring_not_signing': {
+    title: 'The permission isn’t needed now',
+    body: 'This recurring buy already has its permission, or has ended. Nothing was sent.',
+  },
+  'trade.recurring_ended': { title: 'This recurring buy has ended', body: 'Nothing was changed.' },
+  'trade.recurring_not_found': { title: 'We couldn’t find that recurring buy', body: 'Check your recurring buys and try again.' },
+  'trade.recurring_request_conflict': {
+    title: 'That request was already used',
+    body: 'Open the form again to set up a new recurring buy. Nothing was saved.',
+  },
+  'trade.recurring_unavailable': {
+    title: 'Recurring buys aren’t available right now',
+    body: 'A recurring buy trades on your own venue account, and no venue is connected here. Nothing was saved.',
+  },
+  'trade.recurring_wallet_rejected': {
+    title: 'Your wallet did not sign',
+    body: 'Nothing is bought until your wallet signs the permission. Your recurring buy is saved and waits for it.',
+  },
+  'trade.recurring_wallet_failed': {
+    title: 'Your wallet could not sign',
+    body: 'Nothing is bought until your wallet signs the permission. Try again.',
+  },
   'trade.grid_unavailable': {
     title: 'Grid bots aren’t available right now',
     body: 'The grid service isn’t switched on here. Nothing was created.',
