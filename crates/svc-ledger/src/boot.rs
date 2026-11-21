@@ -4,14 +4,12 @@
 //!   to start, rather than strand that money in holds no post could release;
 //! - `applyStartupPolicy`: `LEDGER_POSTING_ENABLED=false` freezes posting durably; `true` never thaws a frozen book;
 //! - `recoverUnpublishedOutbox` at boot and every five seconds: each relay publishes what committed but was never
-//!   sent. The relays are their slices' (`posting`: `ledgerTxPosted`; `freeze`: `ledgerFreezeUpdated`); this holds
-//!   the loop and the timer that drive them.
+//!   sent. The relays are their slices' (`posting`: `ledgerTxPosted`, not ported yet; `freeze`: `ledgerFreezeUpdated`,
+//!   `crate::freeze::FreezeRelay`); this holds the loop and the timer that drive them.
 
-use postgres::IsolationLevel;
-use service_kit::json::Json;
-
-use crate::db::{Store, StoreError, transaction, with_client};
-use crate::status::{FREEZE_COLUMNS, FREEZE_MISSING, FreezeState, freeze_row, read_freeze};
+use crate::db::{Store, StoreError, with_client};
+use crate::freeze::{self, Command, FreezeRelay};
+use crate::status::{FreezeState, read_freeze};
 
 /// The message `index.ts` stops on when `chain_tip` has no row.
 pub const CHAIN_TIP_MISSING: &str =
@@ -71,84 +69,26 @@ pub fn assert_custody_layer_bootable(
     Ok(())
 }
 
-/// `writeFreeze(sql, { frozen: true, reason, actor })`: the switch and its `ledgerFreezeUpdated` intent in one
-/// transaction. Frozen by the same reason and actor already, nothing moves; frozen by another, refused
-/// (`ledger.freeze_attributed`): the first reason stands. Publishing the intent is the freeze relay's.
-pub fn write_freeze(
-    store: &Store,
-    reason: &str,
-    actor: &str,
-) -> Result<(FreezeState, bool), StoreError> {
-    transaction(store.pool()?, IsolationLevel::ReadCommitted, |tx| {
-        let rows = tx.query(
-            &format!(
-                "SELECT {FREEZE_COLUMNS} FROM ledger.posting_freeze WHERE id = true FOR UPDATE"
-            ),
-            &[],
-        )?;
-        let Some(row) = rows.first() else {
-            return Err(StoreError::new(
-                FREEZE_MISSING,
-                Some("ledger.uninitialised"),
-            ));
-        };
-        let current = freeze_row(row)?;
-        if current.frozen {
-            if current.reason.as_deref() == Some(reason) && current.actor.as_deref() == Some(actor)
-            {
-                return Ok((current, false));
-            }
-            return Err(StoreError::new(
-                format!(
-                    "Ledger already frozen by {}: {} — refusing to overwrite with {actor}: {reason} (STOP §4.2b #3)",
-                    current.actor.as_deref().unwrap_or("unknown"),
-                    current.reason.as_deref().unwrap_or("no reason"),
-                ),
-                Some("ledger.freeze_attributed"),
-            ));
-        }
-        let updated = tx.query_one(
-            &format!(
-                "UPDATE ledger.posting_freeze
-                    SET frozen = true, reason = $1, actor = $2, changed_at = clock_timestamp()
-                  WHERE id = true
-                 RETURNING {FREEZE_COLUMNS}"
-            ),
-            &[&reason, &actor],
-        )?;
-        let state = freeze_row(&updated)?;
-        let payload = Json::Object(vec![
-            ("frozen".to_owned(), Json::Bool(true)),
-            ("reason".to_owned(), Json::str(reason)),
-            ("actor".to_owned(), Json::str(actor)),
-            ("changedAt".to_owned(), Json::str(state.changed_at.clone())),
-        ])
-        .compact();
-        // The order is allocated under the singleton row lock: an earlier start cannot take an earlier place.
-        tx.execute(
-            "WITH next_switch AS (
-               SELECT nextval(pg_get_serial_sequence('ledger.ledger_freeze_outbox', 'switch_seq')) AS seq
-             )
-             INSERT INTO ledger.ledger_freeze_outbox (switch_seq, idempotency_key, payload)
-             SELECT seq, 'ledger.freeze:seq:' || seq::text, $1::text::jsonb
-               FROM next_switch",
-            &[&payload],
-        )?;
-        Ok((state, true))
-    })
-}
-
 /// `applyStartupPolicy()`: THE DATABASE WINS, in one direction. `posting_enabled` false freezes (and reaches every
-/// replica); true never thaws a book something else froze. Call once, before serving.
+/// replica); true never thaws a book something else froze. The freeze is `LedgerService.freeze`: the switch, then the
+/// freeze relay publishes its intent, and a failed publish fails the start. Call once, before serving.
 pub fn apply_startup_policy(
     store: &Store,
     posting_enabled: bool,
+    relay: &FreezeRelay<'_>,
 ) -> Result<FreezeState, StoreError> {
     let state = with_client(store.pool()?, read_freeze)?;
     if posting_enabled || state.frozen {
         return Ok(state);
     }
-    write_freeze(store, STARTUP_FREEZE_REASON, STARTUP_FREEZE_ACTOR).map(|(s, _)| s)
+    freeze::switch(
+        store,
+        relay,
+        Command::Freeze {
+            reason: STARTUP_FREEZE_REASON,
+            actor: STARTUP_FREEZE_ACTOR,
+        },
+    )
 }
 
 /// One outbox's relay: publishes its committed, unsent intents, then marks each sent; how many it published.

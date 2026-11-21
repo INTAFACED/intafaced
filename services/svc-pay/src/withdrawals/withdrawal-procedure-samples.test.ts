@@ -191,6 +191,7 @@ const HTTP: Record<RefusalStatus, number> = {
   PRECONDITION_FAILED: 412,
   TOO_MANY_REQUESTS: 429,
   SERVICE_UNAVAILABLE: 503,
+  TIMEOUT: 408,
 };
 
 const cases = PAY_WITHDRAWAL_PROCEDURES.flatMap((record) =>
