@@ -218,6 +218,11 @@ export interface SpotConditionalsDeps {
 const DECIMAL_RE = /^\d+(\.\d+)?$/;
 const CLIENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const FINAL: ReadonlySet<string> = new Set(['filled', 'canceled', 'rejected', 'expired']);
+/**
+ * How long a new OCO's take profit belongs to the request that created it: the engine's pass leaves it alone that long,
+ * so the two never send the same key at once, and finishes it after, when that request stopped short (a crash).
+ */
+const PLACING_OWNED_BY_REQUEST_MS = 30_000;
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
 const TEN_THOUSAND = parseAmount('10000');
 
@@ -742,8 +747,10 @@ export class VenueSpotConditionals {
       try {
         if (row.status === 'firing') await this.fire(row);
         else if (row.status === 'cancelling') await this.finishCancel(row);
-        else if (row.status === 'placing') await this.placeExit(row);
-        else if (row.status === 'entry' && row.kind === 'gtd') await this.watchGoodTillDate(row);
+        else if (row.status === 'placing') {
+          if (row.kind === 'oco' && this.deps.now().getTime() - row.createdAt.getTime() < PLACING_OWNED_BY_REQUEST_MS) continue;
+          await this.placeExit(row);
+        } else if (row.status === 'entry' && row.kind === 'gtd') await this.watchGoodTillDate(row);
         else if (row.status === 'entry') await this.watchEntry(row);
         else if (row.status === 'open' || row.status === 'armed') {
           if (row.status === 'open' && (await this.takeProfitEnded(row))) continue;
