@@ -71,6 +71,8 @@ const custody = await import(`${SVC}ledger/custody-adapters.ts`);
 const financeClose = await import(`${SVC}ledger/finance-close.ts`);
 const resilience = await import(`${SVC}ledger/resilience-gate.ts`);
 const s2sHttp = await import(`${SVC}s2s-http.ts`);
+// A literal path, so the dead-code scan (knip.jsonc) sees the handler this records.
+const { handleS2sPostRecipe } = await import('../../../services/svc-ledger/src/s2s-http.ts');
 // The `postRecipe` record as the service resolves it (its built `dist`), so its schemas are the ones the door runs.
 const servedPostRecipe = await import(pathToFileURL(createRequire(`${SVC}index.ts`).resolve('@intafaced/ledger-client/post-recipe')).href);
 
@@ -1229,7 +1231,7 @@ const recipeAnswerIndex = new Map();
     for (const caller of POST_RECIPE_CALLERS) {
       let answer;
       try {
-        await s2sHttp.handleS2sPostRecipe(POSTING_ONLY, body === undefined ? undefined : JSON.parse(text), caller ? { caller } : {});
+        await handleS2sPostRecipe(POSTING_ONLY, body === undefined ? undefined : JSON.parse(text), caller ? { caller } : {});
         throw new Error('record-door: postRecipe answered without posting');
       } catch (err) {
         if (err instanceof Reached) answer = JSON.stringify({ post: recipeWire(err.post) });
