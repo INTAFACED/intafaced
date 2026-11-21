@@ -15,11 +15,13 @@
  * - A pull request's own ci.yml may differ from main's: a change to it is a gate file, so the seal's CI review step
  *   holds it to the independent review. This script never runs or reads the pull request's code.
  *
- *   GH_TOKEN=... REPO=owner/name HEAD_SHA=<sha> (PR_NUMBER=<n> | MERGE_GROUP_HEAD_SHA=<sha>) node tooling/ci/ci-jobs-seal.mjs
+ *   REPO=owner/name HEAD_SHA=<sha> (PR_NUMBER=<n> | MERGE_GROUP_HEAD_SHA=<sha>) node tooling/ci/ci-jobs-seal.mjs
+ *   (CI sets GH_TOKEN; run by hand, it reads through the logged-in gh: github-fetch.mjs)
  */
 import { SHARD_COUNT, classify, sealNeeded, shardMatrix } from './ci-affected.mjs';
 import { MODEL_JOB, START_JOB, isModelDown, pullFiles } from './journey-seal.mjs';
 import { httpMessage, titleFor } from './api-budget.mjs';
+import { githubFetch, githubToken } from './github-fetch.mjs';
 
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml';
 
@@ -243,7 +245,7 @@ export async function ruleChanges(get, repo, since, until) {
 }
 
 async function api(path, token) {
-  const res = await fetch(`https://api.github.com${path}`, {
+  const res = await githubFetch(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' },
   });
   if (!res.ok) throw new Error(httpMessage(path, res, (await res.text()).slice(0, 200)));
@@ -262,11 +264,12 @@ export async function changedFiles(get, repo, number) {
 }
 
 async function main() {
-  const { GH_TOKEN, REPO, HEAD_SHA, PR_NUMBER, MERGE_GROUP_HEAD_SHA } = process.env;
+  const { REPO, HEAD_SHA, PR_NUMBER, MERGE_GROUP_HEAD_SHA } = process.env;
+  const GH_TOKEN = githubToken();
   const queue = Boolean(MERGE_GROUP_HEAD_SHA);
   const sha = queue ? MERGE_GROUP_HEAD_SHA : HEAD_SHA;
-  if (!GH_TOKEN || !REPO || !/^[0-9a-f]{40}$/.test(sha ?? '') || (!queue && !/^\d+$/.test(PR_NUMBER ?? ''))) {
-    console.error('::error title=CI merge seal::ci-jobs-seal needs GH_TOKEN, REPO, and HEAD_SHA with PR_NUMBER or MERGE_GROUP_HEAD_SHA');
+  if (!REPO || !/^[0-9a-f]{40}$/.test(sha ?? '') || (!queue && !/^\d+$/.test(PR_NUMBER ?? ''))) {
+    console.error('::error title=CI merge seal::ci-jobs-seal needs REPO, and HEAD_SHA with PR_NUMBER or MERGE_GROUP_HEAD_SHA');
     process.exit(1);
   }
   const get = (p) => api(p, GH_TOKEN);

@@ -7,6 +7,8 @@
 // - `tests/fixtures/input-parity.golden.json`: zod's own verdict on inputs made from each schema.
 // - `tests/fixtures/tokens.golden.json`: `verifyAccessToken`'s verdict on access tokens made to probe it.
 // - `tests/fixtures/env-parity.golden.json`: what `env.ts` answers for a set of environments.
+// - `tests/fixtures/reports.golden.jsonl`: what the `reports` slice's five doors answer on the wire (status and body)
+//   for inputs made to reach each branch of their handlers.
 // - `tests/fixtures/history-book.golden.json`: the posts the history slice's Postgres tests book, as the TypeScript
 //   recipes write them, so the Rust suite reads the same book the TypeScript tests read.
 //
@@ -55,6 +57,12 @@ const servedLedgerClient = await import(pathToFileURL(createRequire(`${SVC}index
 const { ledgerHoldingsHistoryInputSchema } = await import(`${ROOT}packages/contracts/src/ledger-holdings-history.ts`);
 const { recipes, formatAmount, parseAmount: amt } = await import(`${ROOT}packages/ledger-client/src/index.ts`);
 const { verifyAccessToken } = await import(`${ROOT}packages/auth/src/tokens.ts`);
+const statementPnl = await import(`${SVC}ledger/statement-pnl-reproduce.ts`);
+const reportExport = await import(`${SVC}ledger/report-export.ts`);
+const custody = await import(`${SVC}ledger/custody-adapters.ts`);
+const financeClose = await import(`${SVC}ledger/finance-close.ts`);
+const resilience = await import(`${SVC}ledger/resilience-gate.ts`);
+const s2sHttp = await import(`${SVC}s2s-http.ts`);
 
 // ── The inputs the door checks ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -81,6 +89,11 @@ const INPUTS = {
   accountSearch: operatorAccountSearchInputSchema,
   stats: z.object({}).strict(),
   metadataRead: accountMetadataReadInputSchema,
+  statementPnl: statementPnl.statementPnlReproduceInputSchema,
+  reportExport: reportExport.reportExportInputSchema,
+  custody: custody.custodyInputSchema,
+  financeClose: financeClose.financeCloseInputSchema,
+  resilience: resilience.resilienceInputSchema,
 };
 
 /** Refines, by their source as tsx loads it: the Rust door runs each by this name (`src/refines.rs`). */
@@ -181,9 +194,24 @@ function node(s) {
   return id;
 }
 
+/**
+ * A part's own `error`, recorded only in the one shape the doors use: a string whose error keeps zod's message for an
+ * absent input and gives one fixed message for any other (`decimalString` in `statement-pnl-reproduce.ts`). Any other
+ * error is refused, never guessed.
+ */
+function definedMsg(s) {
+  const d = s._zod.def;
+  const shown = [null, 7, true, 'x', [], {}].map((input) => d.error({ input }));
+  if (d.type !== 'string' || d.checks?.length || d.error({ input: undefined }) !== undefined) {
+    throw new Error(`a ${d.type} schema with its own error`);
+  }
+  if (typeof shown[0] !== 'string' || shown.some((m) => m !== shown[0])) throw new Error('an error whose message depends on the input');
+  return shown[0];
+}
+
 function build(s) {
   const d = s._zod.def;
-  if (d.error) throw new Error(`a ${d.type} schema with its own error`);
+  if (d.error) return { t: 'string', definedMsg: definedMsg(s) };
   const self = s._zod.traits.has('$ZodCheck') && d.type === 'string' ? [s] : [];
   const checks = [...self, ...(d.checks ?? [])].map((c) => check(c, s));
   const withChecks = (o) => (checks.length ? { ...o, checks } : o);
@@ -280,6 +308,51 @@ const VALID = {
   accountSearch: { prefix: ' user:2222 ', after: ID },
   stats: {},
   metadataRead: { accountId: ID },
+  statementPnl: {
+    ownerType: 'user',
+    ownerId: ID,
+    reportingAssetId: 'USD',
+    lots: {
+      closed: [{ assetId: 'BTC', costBasis: '100', proceeds: '150.5' }],
+      open: [{ assetId: 'ETH', qtyRemaining: '2', costBasis: '3000' }],
+    },
+    marks: { ETH: '1600.25' },
+    navInputs: { cashReporting: '10' },
+  },
+  reportExport: {
+    kind: 'regulator',
+    complete: true,
+    ownerId: 'o',
+    accountId: 'a',
+    legalEntityId: 'le',
+    regulatorId: 'r',
+    reportingPeriod: '2026Q3',
+    lotIds: ['l1'],
+  },
+  custody: {
+    kind: 'break',
+    adapterAmount: '10',
+    bookAmount: '9.5',
+    breakId: 'b1',
+    firstSeenAt: '2026-11-01T00:00:00Z',
+    resolve: 'operator',
+  },
+  financeClose: {
+    kind: 'close',
+    complete: true,
+    clientOwnerId: 'c',
+    corporateOwnerId: 'k',
+    periodId: '2026-10',
+    recipes: ['clientBalances', 'corporateBalances'],
+  },
+  resilience: {
+    kind: 'risk',
+    dependency: 'matching',
+    dependencyStatus: 'ok',
+    acceptNewRisk: true,
+    observedCount: '3',
+    observedLatencyMs: '12',
+  },
 };
 const EXTRA = {
   post: [
@@ -568,6 +641,185 @@ const codes = [
 ].sort();
 const copy = codes.map((code) => [code, userCopy(code)]);
 
+// ── The reports slice's answers ────────────────────────────────────────────────────────────────────────────────────
+
+/** Every combination of the listed values (`undefined`: the key is left out). */
+function combos(spec) {
+  let out = [{}];
+  for (const [key, values] of Object.entries(spec)) {
+    out = out.flatMap((o) => values.map((v) => (v === undefined ? o : { ...o, [key]: v })));
+  }
+  return out;
+}
+
+const NOW = Date.parse('2026-11-21T00:00:00.000Z');
+const OWNER = { ownerType: 'user', ownerId: ID, reportingAssetId: 'USD' };
+const lot = (assetId, costBasis, proceeds) => ({ assetId, costBasis, proceeds });
+const open = (assetId, qtyRemaining, costBasis) => ({ assetId, qtyRemaining, costBasis });
+const MAX = '99999999999999999999.999999999999999999';
+/** Inputs that reach each branch of the five handlers, beside the input probes above. */
+const REPORT_CASES = {
+  statementPnl: [
+    ...combos({
+      inventFifoFromHistory: [undefined, true, false],
+      lotsFromHistory: [undefined, true],
+      costBasis: [undefined, null, '', '1'],
+      lots: [undefined, { closed: [], open: [] }, { closed: [lot('BTC', '1', '2')], open: [] }],
+      navInputs: [undefined, { cashReporting: '5' }],
+    }).map((o) => ({ ...OWNER, ...o })),
+    ...combos({
+      lots: [
+        { closed: [lot('BTC', null, '2')], open: [] },
+        { closed: [lot('BTC', '1', null)], open: [] },
+        { closed: [lot('BTC', '100', '150.5'), lot('SOL', '7.25', '3')], open: [] },
+        { closed: [], open: [open('ETH', '2', null)] },
+        { closed: [], open: [open('ETH', '2', '3000'), open('BTC', '0.333333333333333333', '1')] },
+        { closed: [], open: [open('toString', '1', '1')] },
+        { closed: [], open: [open('constructor', '1', '1')] },
+        { closed: [], open: [open('ETH', 'abc', '1')] },
+        { closed: [lot('BTC', '1.0000000000000000001', '2')], open: [] },
+        { closed: [lot('BTC', ' 1 ', '+2')], open: [] },
+        { closed: [lot('BTC', '-5', '.5')], open: [] },
+        { closed: [lot('BTC', '1e3', '2')], open: [] },
+        { closed: [lot('BTC', '0', MAX)], open: [] },
+        { closed: [], open: [open('ETH', '0.000000000000000001', '0')] },
+      ],
+      marks: [undefined, {}, { ETH: '1600.25', BTC: '0.5' }, { ETH: 'x' }, { toString: '1', constructor: '2' }],
+      navInputs: [undefined, { cashReporting: '10' }, { cashReporting: 'x' }, { cashReporting: '-0' }],
+    }).map((o) => ({ ...OWNER, ...o })),
+  ],
+  reportExport: [
+    ...combos({
+      kind: ['nav', 'sftp', 'regulator'],
+      complete: [undefined, true, false],
+      ownerId: [undefined, ' ', 'o'],
+      legalEntityId: [undefined, 'le'],
+      regulatorId: [undefined, 'r'],
+      reportingPeriod: [undefined, '', '2026Q3'],
+      lotIds: [undefined, [' '], ['', 'l1']],
+    }),
+    ...combos({
+      kind: ['nav', 'regulator'],
+      complete: [true],
+      ownerId: ['o'],
+      legalEntityId: ['le'],
+      regulatorId: ['r'],
+      reportingPeriod: ['p'],
+      accountId: [undefined, ' ', 'a'],
+      lotIds: [undefined, [], ['l1']],
+    }),
+    ...combos({
+      kind: ['nav', 'regulator'],
+      inventCostBasis: [undefined, true],
+      lotsFromHistory: [undefined, true, false],
+      inventFifoFromHistory: [undefined, true],
+      costBasis: [undefined, null, '', '12'],
+      ownerId: [undefined, ' o '],
+    }),
+  ],
+  custody: [
+    ...combos({
+      kind: ['chain', 'fiat', 'off_exchange'],
+      role: [undefined, 'adapter', 'book'],
+      treatAsBook: [undefined, true, false],
+      ownerAuthorized: [undefined, true, false],
+      adapterAmount: [undefined, '10.50', 'abc', '-0.000000000000000001', MAX],
+    }),
+    ...combos({
+      kind: ['break'],
+      adapterAmount: [undefined, '10', 'abc', MAX],
+      bookAmount: [undefined, '9.5', `-${MAX}`],
+      breakId: [undefined, '  ', ' b1 '],
+      firstSeenAt: [undefined, '', '2026-11-01T00:00:00Z', '2026-11-20T23:59:59.999+01:00', '2026-11-01', '2027-01-01T00:00:00Z', 'nope'],
+      autoClear: [undefined, true],
+      resolve: [undefined, 'operator', 'auto'],
+    }),
+  ],
+  financeClose: [
+    ...combos({
+      kind: ['segregation', 'close', 'por'],
+      complete: [undefined, true],
+      clientOwnerId: [undefined, ' ', ' c '],
+      corporateOwnerId: [undefined, 'c', 'k'],
+      periodId: [undefined, 'p'],
+      recipes: [undefined, ['clientBalances'], [' clientBalances', 'corporateBalances ', 'x', 'x', ' ']],
+      claimFullyReserved: [undefined, true],
+    }),
+    ...combos({
+      kind: ['segregation', 'por'],
+      commingle: [undefined, true],
+      inventReserve: [undefined, true, false],
+      reserveAmount: [undefined, null, '', '5'],
+      reserveRecipeId: [undefined, ' ', 'rr'],
+      clientOwnerId: ['c'],
+      corporateOwnerId: ['k'],
+    }),
+  ],
+  resilience: [
+    ...combos({
+      kind: ['risk', 'split_brain', 'slo'],
+      dependency: [undefined, ' ', 'db'],
+      dependencyStatus: [undefined, 'ok', 'degraded', 'down'],
+      acceptNewRisk: [undefined, true, false],
+      writers: [undefined, ['a', ' a ', ''], ['a', 'b']],
+      sourcesOfTruth: [undefined, ['x', 'y']],
+      splitBrain: [undefined, true],
+      ownerSloSet: [undefined, true],
+    }),
+    ...combos({
+      kind: ['risk', 'slo'],
+      ownerSloSet: [undefined, true, false],
+      sloTargetMs: [undefined, '5'],
+      observedCount: [undefined, ' ', ' 3 '],
+      observedLatencyMs: [undefined, '', '12'],
+    }),
+  ],
+};
+
+/** The door's handler on one body, with `httpError` on what it throws: the answer as the wire carries it. */
+const HANDLERS = {
+  statementPnl: s2sHttp.handleS2sStatementPnl,
+  reportExport: s2sHttp.handleS2sReportExport,
+  custody: s2sHttp.handleS2sCustody,
+  financeClose: s2sHttp.handleS2sFinanceClose,
+  resilience: s2sHttp.handleS2sResilience,
+};
+/** The book the statement reads when no lots are sent: no balances on file. */
+const EMPTY_BOOK = { balances: async () => [] };
+const realNow = Date.now;
+Date.now = () => NOW;
+const reportCases = [];
+const answers = [];
+const answerIndex = new Map();
+const answerUses = new Map();
+try {
+  for (const [door, handle] of Object.entries(HANDLERS)) {
+    const bodies = [...probes(door), ...REPORT_CASES[door]];
+    const seen = new Set();
+    for (const body of bodies) {
+      const text = JSON.stringify(body) ?? null;
+      if (seen.has(text)) continue;
+      seen.add(text);
+      let status = 200;
+      let out;
+      try {
+        out = await handle(EMPTY_BOOK, body === undefined ? undefined : JSON.parse(text));
+      } catch (err) {
+        ({ status, body: out } = s2sHttp.httpError(err));
+      }
+      const answer = JSON.stringify(out);
+      // Each distinct answer is kept with at most three of the inputs that reach it, so the file stays reviewable.
+      const key = `${door} ${status} ${answer}`;
+      const reached = answerUses.get(key) ?? 0;
+      if (reached >= 3) continue;
+      answerUses.set(key, reached + 1);
+      if (!answerIndex.has(answer)) answerIndex.set(answer, answers.push(answer) - 1);
+      reportCases.push([door, text, status, answerIndex.get(answer)]);
+    }
+  }
+} finally {
+  Date.now = realNow;
+}
 // ── The history slice's book ───────────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -839,6 +1091,11 @@ const outputs = [
   [`${CRATE}tests/fixtures/input-parity.golden.json`, `${JSON.stringify({ verdicts, cases })}\n`],
   [`${CRATE}tests/fixtures/tokens.golden.json`, `${JSON.stringify({ cases: tokenCases }, null, 1)}\n`],
   [`${CRATE}tests/fixtures/env-parity.golden.json`, `${JSON.stringify({ cases: envCases }, null, 1)}\n`],
+  // One line each: the clock and the distinct answers, then one case a line (`[door, input, status, answer]`).
+  [
+    `${CRATE}tests/fixtures/reports.golden.jsonl`,
+    `${[JSON.stringify({ nowMs: NOW, answers }), ...reportCases.map((c) => JSON.stringify(c))].join('\n')}\n`,
+  ],
   [`${CRATE}tests/fixtures/history-book.golden.json`, `${JSON.stringify(book)}\n`],
 ];
 
@@ -865,6 +1122,6 @@ for (const [file, raw] of outputs) {
   } else writeFileSync(file, text);
 }
 console.log(
-  `${callers.length} service doors, ${Object.keys(inputs).length} door inputs, ${nodes.length} schema parts, ${cases.length} input cases, ${tokenCases.length} tokens, ${envCases.length} environments, ${copy.length} codes`,
+  `${callers.length} service doors, ${Object.keys(inputs).length} door inputs, ${nodes.length} schema parts, ${cases.length} input cases, ${tokenCases.length} tokens, ${envCases.length} environments, ${reportCases.length} report answers, ${copy.length} codes`,
 );
 if (stale) process.exit(1);
