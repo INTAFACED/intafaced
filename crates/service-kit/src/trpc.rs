@@ -79,6 +79,7 @@ pub fn codes(code: &str) -> (i64, u16) {
         "CONFLICT" => (-32009, 409),
         "PRECONDITION_FAILED" => (-32012, 412),
         "TOO_MANY_REQUESTS" => (-32029, 429),
+        "SERVICE_UNAVAILABLE" => (-32603, 503),
         _ => (-32603, 500),
     }
 }

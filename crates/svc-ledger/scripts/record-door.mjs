@@ -9,6 +9,8 @@
 // - `tests/fixtures/env-parity.golden.json`: what `env.ts` answers for a set of environments.
 // - `tests/fixtures/reports.golden.jsonl`: what the `reports` slice's five doors answer on the wire (status and body)
 //   for inputs made to reach each branch of their handlers.
+// - `tests/fixtures/post-recipe.golden.jsonl`: what `handleS2sPostRecipe` answers each caller for bodies made to reach
+//   each check of the record and its two recipes: its refusal on the wire, or the post it hands the ledger.
 // - `tests/fixtures/history-book.golden.json`: the posts the history slice's Postgres tests book, as the TypeScript
 //   recipes write them, so the Rust suite reads the same book the TypeScript tests read.
 //
@@ -70,6 +72,10 @@ const custody = await import(`${SVC}ledger/custody-adapters.ts`);
 const financeClose = await import(`${SVC}ledger/finance-close.ts`);
 const resilience = await import(`${SVC}ledger/resilience-gate.ts`);
 const s2sHttp = await import(`${SVC}s2s-http.ts`);
+// A literal path, so the dead-code scan (knip.jsonc) sees the handler this records.
+const { handleS2sPostRecipe } = await import('../../../services/svc-ledger/src/s2s-http.ts');
+// The `postRecipe` record as the service resolves it (its built `dist`), so its schemas are the ones the door runs.
+const servedPostRecipe = await import(pathToFileURL(createRequire(`${SVC}index.ts`).resolve('@intafaced/ledger-client/post-recipe')).href);
 
 // ── The inputs the door checks ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -116,6 +122,8 @@ const INPUTS = {
   transactionsExist: reconciliation.ledgerTransactionsExistInputSchema,
   reconciliationEvaluations: reconciliation.reconciliationEvaluationFeedInputSchema,
   restoreWatermark: restoreWatermarkReadInputSchema,
+  // `postRecipeRequest` parses the body with the record's input once the recipe is named and granted.
+  postRecipe: servedPostRecipe.LEDGER_POST_RECIPE.input,
 };
 
 /**
@@ -126,6 +134,8 @@ const INPUTS = {
 const OUTPUTS = {
   controlRun: reconciliation.reconciliationControlRunSchema,
   evaluationFeed: reconciliation.reconciliationEvaluationFeedSchema,
+  // `handleS2sPostRecipe` checks its reply against the record before it answers.
+  postRecipeReply: servedPostRecipe.LEDGER_POST_RECIPE.output,
   // `reconciliation-controls.ts` parses each stored row it reads, and each reply before it answers.
   controlView: reconciliation.reconciliationControlViewSchema,
   controlRunList: reconciliation.reconciliationControlRunListSchema,
@@ -484,6 +494,27 @@ const VALID = {
   },
   controlRuns: { controlId: ID, limit: 2 },
 };
+const PURCHASE = {
+  course: 'perps-101',
+  userId: ID,
+  n: '1',
+  assetId: 'USDC',
+  amount: '2.5',
+  to: { kind: 'treasury-wallet', walletId: '0x00000000000000000000000000000000000000aa' },
+  paymentId: `0x${'ab'.repeat(32)}`,
+};
+const { to: _to, ...REFUND_FIELDS } = PURCHASE;
+const REFUND = { ...REFUND_FIELDS, from: { kind: 'partner-reserve', partnerId: 'reserve-a' } };
+VALID.postRecipe = { recipe: 'academyPurchase', input: PURCHASE };
+VALID.postRecipeReply = {
+  txId: ID,
+  idempotencyKey: `academy:purchase:perps-101:${ID}:1`,
+  module: 'academy',
+  reason: 'academy.purchase.posted',
+  hash: 'f'.repeat(64),
+  postedAt: '2026-11-21T01:02:03.045Z',
+  entries: [{ id: '1', txId: ID, accountId: ID, assetId: 'USDC', direction: 'debit', amount: '2.5', balanceAfter: '-2.5' }],
+};
 const RUN = {
   id: ID,
   controlId: ID,
@@ -838,6 +869,20 @@ const EXTRA = {
     { ...VALID.metadataDelete, revision: -1 },
     { ...VALID.metadataDelete, approvalId: '   ' },
     { ...VALID.metadataDelete, operationId: 'o'.repeat(129) },
+  ],
+  postRecipe: [
+    ...servedPostRecipe.LEDGER_POST_RECIPE.samples.map((sample) => sample.input),
+    { recipe: 'academyPurchaseRefund', input: REFUND },
+    { recipe: 'academyPurchaseRefund', input: PURCHASE },
+    { recipe: 'academyPurchase', input: REFUND },
+    { recipe: 'academyPurchase', input: { ...PURCHASE, to: { kind: 'vault', walletId: 'w' } } },
+    { recipe: 'academyPurchase', input: { ...PURCHASE, to: { kind: 'treasury-wallet', walletId: 'w', extra: 1 } } },
+    { recipe: 'academyPurchase', input: { ...PURCHASE, to: { kind: 'treasury-wallet' } } },
+  ],
+  postRecipeReply: [
+    { ...VALID.postRecipeReply, txId: '' },
+    { ...VALID.postRecipeReply, extra: 1 },
+    { ...VALID.postRecipeReply, entries: [{ ...VALID.postRecipeReply.entries[0], direction: 'up' }] },
   ],
   unfreeze: [
     { approvalId: '', operationId: 'o' },
@@ -1231,6 +1276,167 @@ try {
 } finally {
   Date.now = realNow;
 }
+// ── The post-recipe slice's door ───────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `handleS2sPostRecipe` on one body for each caller, up to the post it hands the ledger: its refusal as `httpError`
+ * answers it, or the post `ledger.post` was given (`postChecked` ran the binding and the recipe gate first). The ledger
+ * here takes nothing else: a read before the post (a binding check reading the book) stops the recording, since the
+ * Rust parity test judges the door's recipes without a book.
+ */
+const POST_RECIPE_CALLERS = [
+  { kind: 'bound', service: 'svc-academy' },
+  { kind: 'bound', service: 'svc-pay' },
+  { kind: 'legacy', claimed: 'svc-academy' },
+  { kind: 'legacy', claimed: null },
+  null,
+];
+class Reached {
+  constructor(post) {
+    this.post = post;
+  }
+}
+const POSTING_ONLY = new Proxy(
+  {},
+  {
+    get(_t, name) {
+      if (name === 'post') {
+        return async (post) => {
+          throw new Reached(post);
+        };
+      }
+      if (name === 'then') return undefined;
+      throw new Error(`record-door: postRecipe read ledger.${String(name)} before it posted`);
+    },
+  },
+);
+const recipeWire = (post) => ({
+  idempotencyKey: post.idempotencyKey,
+  module: post.module,
+  reason: post.reason,
+  entries: post.entries.map((e) => ({ account: e.account, direction: e.direction, amount: formatAmount(e.amount) })),
+  ...(post.meta ? { meta: post.meta } : {}),
+  ...(post.correlationId ? { correlationId: post.correlationId } : {}),
+});
+/** Each field of both recipes with values that reach every check of the record and the recipe. */
+const PLACES = [
+  { kind: 'treasury-wallet', walletId: 'base:ops' },
+  { kind: 'treasury-wallet', walletId: 'a_b-c:9' },
+  { kind: 'venue-builder-account', venueId: 'venue-a' },
+  { kind: 'partner-reserve', partnerId: 'reserve-a' },
+  { kind: 'treasury-wallet', walletId: 'W' },
+  { kind: 'treasury-wallet', walletId: '-w' },
+  { kind: 'treasury-wallet', walletId: '' },
+  { kind: 'treasury-wallet', walletId: 'w'.repeat(128) },
+  { kind: 'treasury-wallet', walletId: 'w'.repeat(129) },
+  { kind: 'treasury-wallet', walletId: 7 },
+  { kind: 'venue-builder-account', walletId: 'w' },
+  { kind: 'partner-reserve' },
+  { kind: 'treasury-wallet', walletId: 'w', venueId: 'v' },
+  { kind: 'shop', walletId: 'w' },
+  { walletId: 'w' },
+  'treasury-wallet',
+  null,
+];
+const RECIPE_FIELDS = {
+  course: ['a', '9', 'a'.repeat(64), 'a'.repeat(65), 'A', '-a', 'a_b', 'a b', '', ' perps-101', 7, null],
+  userId: [ID.toUpperCase(), ID.replaceAll('-', ''), `${ID}0`, 'x', '', 7, null],
+  n: ['12', '0', '01', '-1', '1.5', ' 1', '9'.repeat(19), '1'.repeat(20), '', 1, null],
+  assetId: ['BTC', '', ' USDC', 'USDC ', 'US DC', 'U'.repeat(32), 'U'.repeat(33), 'ü', ' ', 7, null],
+  amount: [
+    '0',
+    '0.0',
+    '00',
+    '01',
+    '1.',
+    '.5',
+    '+1',
+    '-1',
+    '1e3',
+    ' 1',
+    '0.000000000000000001',
+    '1.0000000000000000001',
+    '1.000000000000000000',
+    '9'.repeat(20),
+    `${'9'.repeat(20)}.${'9'.repeat(18)}`,
+    `1${'0'.repeat(20)}`,
+    '9'.repeat(64),
+    '9'.repeat(65),
+    '',
+    2.5,
+    null,
+  ],
+  paymentId: [`0x${'AB'.repeat(32)}`, `0x${'ab'.repeat(31)}`, `0x${'ab'.repeat(33)}`, `ab${'ab'.repeat(32)}`, '', 7, null],
+};
+const RECIPE_BODIES = [
+  undefined,
+  null,
+  7,
+  'academyPurchase',
+  [],
+  {},
+  { recipe: null },
+  { recipe: 7 },
+  { recipe: 1.5 },
+  { recipe: true },
+  { recipe: [] },
+  { recipe: {} },
+  { recipe: 'deposit', input: PURCHASE },
+  { recipe: 'academyPurchase ', input: PURCHASE },
+  { recipe: 'constructor', input: PURCHASE },
+  { recipe: 'toString', input: PURCHASE },
+  { recipe: ' "\\' },
+  { recipe: 'academyPurchase' },
+  { recipe: 'academyPurchase', input: null },
+  { recipe: 'academyPurchase', input: [] },
+  { recipe: 'academyPurchase', input: PURCHASE, idempotencyKey: 'mine' },
+  { recipe: 'academyPurchase', input: PURCHASE, entries: [] },
+  ...probes('postRecipe'),
+];
+for (const [recipe, base, side] of [
+  ['academyPurchase', PURCHASE, 'to'],
+  ['academyPurchaseRefund', REFUND, 'from'],
+]) {
+  RECIPE_BODIES.push({ recipe, input: base });
+  for (const [field, values] of Object.entries({ ...RECIPE_FIELDS, [side]: PLACES })) {
+    const without = { ...base };
+    delete without[field];
+    RECIPE_BODIES.push({ recipe, input: without });
+    for (const v of values) RECIPE_BODIES.push({ recipe, input: { ...base, [field]: v } });
+  }
+  RECIPE_BODIES.push({ recipe, input: { ...base, extra: 1 } });
+}
+
+const recipeCases = [];
+const recipeAnswers = [];
+const recipeAnswerIndex = new Map();
+{
+  const seen = new Set();
+  for (const body of RECIPE_BODIES) {
+    const text = JSON.stringify(body) ?? null;
+    if (seen.has(text)) continue;
+    seen.add(text);
+    const said = [];
+    for (const caller of POST_RECIPE_CALLERS) {
+      let answer;
+      try {
+        await handleS2sPostRecipe(POSTING_ONLY, body === undefined ? undefined : JSON.parse(text), caller ? { caller } : {});
+        throw new Error('record-door: postRecipe answered without posting');
+      } catch (err) {
+        if (err instanceof Reached) answer = JSON.stringify({ post: recipeWire(err.post) });
+        else {
+          const { status, body: out } = s2sHttp.httpError(err);
+          if (status === 500 && !('code' in out)) throw err;
+          answer = JSON.stringify({ status, body: out });
+        }
+      }
+      if (!recipeAnswerIndex.has(answer)) recipeAnswerIndex.set(answer, recipeAnswers.push(answer) - 1);
+      said.push(recipeAnswerIndex.get(answer));
+    }
+    recipeCases.push([text, said]);
+  }
+}
+
 // ── The history slice's book ───────────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -1594,6 +1800,15 @@ const outputs = [
     `${CRATE}tests/fixtures/reports.golden.jsonl`,
     `${[JSON.stringify({ nowMs: NOW, answers }), ...reportCases.map((c) => JSON.stringify(c))].join('\n')}\n`,
   ],
+  // One line each: the door's recipes, its callers and the distinct answers, then one body a line (`[body, [answer per
+  // caller]]`).
+  [
+    `${CRATE}tests/fixtures/post-recipe.golden.jsonl`,
+    `${[
+      JSON.stringify({ recipes: servedPostRecipe.POST_RECIPE_NAMES, callers: POST_RECIPE_CALLERS, answers: recipeAnswers }),
+      ...recipeCases.map((c) => JSON.stringify(c)),
+    ].join('\n')}\n`,
+  ],
   [`${CRATE}tests/fixtures/history-book.golden.json`, `${JSON.stringify(book)}\n`],
   [`${CRATE}tests/fixtures/ops-reads-books.json`, `${JSON.stringify(books, null, 1)}\n`],
 ];
@@ -1621,6 +1836,6 @@ for (const [file, raw] of outputs) {
   } else writeFileSync(file, text);
 }
 console.log(
-  `${callers.length} service doors, ${Object.keys(inputs).length} door inputs, ${nodes.length} schema parts, ${cases.length} input cases, ${tokenCases.length} tokens, ${envCases.length} environments, ${reportCases.length} report answers, ${copy.length} codes`,
+  `${callers.length} service doors, ${Object.keys(inputs).length} door inputs, ${nodes.length} schema parts, ${cases.length} input cases, ${tokenCases.length} tokens, ${envCases.length} environments, ${reportCases.length} report answers, ${recipeCases.length} postRecipe bodies, ${copy.length} codes`,
 );
 if (stale) process.exit(1);

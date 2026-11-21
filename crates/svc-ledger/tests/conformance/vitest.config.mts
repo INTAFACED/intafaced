@@ -1,9 +1,12 @@
-// The posting slice's TypeScript proofs against the Rust binary (`run.mjs` runs them and holds them to one result):
+// The posting and post-recipe slices' TypeScript proofs against the Rust binary (`run.mjs` runs them and holds them to
+// one result):
 // - `conformance` (`posting.conformance.ts`): the TypeScript ledger's own suite, through the TS `post` door and the
 //   Rust binary's;
 // - `binding-pg`: the slice's own Postgres tests (`services/svc-ledger/src/*-binding.pg.test.ts`), unmodified, with
 //   `createTestDb` handing them the Rust binary's book (`rust-db.ts`) and `handleS2sPost` posting to its door
 //   (`rust-s2s-http.ts`). Their setup posts go through the TypeScript engine, on the same book;
+// - `post-recipe-pg`: the `post-recipe` slice's own Postgres test (`post-recipe-door.pg.test.ts`), unmodified, with its
+//   app handing every `/trpc/<door>` call to the Rust binary (`rust-s2s-register.ts`), custody off as the test sets it;
 // - `engine-ts-door` and `engine-rust-door`: the engine's Postgres tests (`services/svc-ledger/src/ledger/`), unmodified,
 //   with every `post` sent through the TypeScript door (`ts-postgres-ledger.ts`) and then the Rust one
 //   (`rust-postgres-ledger.ts`, on the Rust binary's book). The reads stay the TypeScript's.
@@ -33,6 +36,16 @@ export default defineConfig({
       {
         resolve: { alias: [postgres, rustDb, { find: /^\.\/s2s-http\.js$/, replacement: here('./rust-s2s-http.ts') }] },
         test: { ...shared, name: 'binding-pg', include: ['services/svc-ledger/src/*-binding.pg.test.ts'] },
+      },
+      {
+        // Custody off, as the test's own door runs it (and as at launch).
+        resolve: { alias: [postgres, rustDb, { find: /^\.\/s2s-http\.js$/, replacement: here('./rust-s2s-register.ts') }] },
+        test: {
+          ...shared,
+          name: 'post-recipe-pg',
+          include: ['services/svc-ledger/src/post-recipe-door.pg.test.ts'],
+          env: { RUST_BOOK_CUSTODY_LAYER: 'off' },
+        },
       },
       {
         resolve: { alias: [postgres, engine('./ts-postgres-ledger.ts')] },
