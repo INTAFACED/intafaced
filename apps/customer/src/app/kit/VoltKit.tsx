@@ -36,8 +36,7 @@ import './kit.css';
 
 /**
  * The Volt kit (intafaced issue 9302): every building block of the app in the chosen look, on one page, for the owner's
- * one approval. Only under the look's preview switch (`/kit?look=lit&direction=volt`, `&scheme=light` for light; App.tsx
- * opens it only then); with the switch off `/kit` is the ordinary "Page not found". Every block is the shipped component
+ * one approval. At `/kit` (`?scheme=light` for the light values behind the scheme switch). Every block is the shipped component
  * drawn by the shipped role tokens; every figure and name is TEST sample data, marked as such.
  */
 

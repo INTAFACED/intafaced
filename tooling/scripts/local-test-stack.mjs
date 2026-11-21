@@ -77,7 +77,16 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
-import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
+import {
+  anvilBin,
+  chainRecordPath,
+  chainStatus,
+  CHAIN_PORTS,
+  GATE_URL,
+  installTestBridge,
+  runSeedScript,
+  TEST_CHAIN_ID,
+} from './local-test-chain.mjs';
 import {
   anotherCheckoutsStack,
   claimSlot,
@@ -1798,6 +1807,8 @@ async function startTestChain(secrets) {
     await sleep(500);
   }
   if ((await chainStatus()).gate !== 'open') fail('the TEST chain gate is closed; a journey left it shut (local-test-chain.mjs gate open)');
+  // The TEST bridge token on both TEST chains (D-bridge-chain-03): only its code, so it costs no block.
+  await installTestBridge().catch((err) => fail(`installing the TEST bridge failed: ${err.message}`));
   const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
   say(`  chain: ${seeded.output.split('\n').pop()}`);
   if (seeded.status !== 0) fail(`seeding the TEST chain failed:\n${seeded.output}`);

@@ -52,7 +52,6 @@ const html = document.documentElement;
 
 beforeEach(() => {
   delete html.dataset.look;
-  delete html.dataset.direction;
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -60,8 +59,6 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
-  delete html.dataset.look;
-  delete html.dataset.direction;
 });
 
 async function open(path: string) {
@@ -77,30 +74,10 @@ async function open(path: string) {
 // The blocks intafaced issue 9302 lists, in its order.
 const BLOCKS = ['colour', 'type', 'balance', 'object', 'buttons', 'inputs', 'rows', 'bars', 'chart', 'people', 'states', 'sheet'];
 
-describe('the Volt kit page opens only under the preview switch, with Volt drawn (intafaced issue 9302)', () => {
-  it('with the look off, /kit is the ordinary "Page not found": customers see no change', async () => {
-    await open('/kit');
-    expect(host.querySelector('[data-testid="volt-kit"]')).toBeNull();
-    expect(host.textContent).toContain('Page not found');
-  });
-
-  it('with the look on but another direction, /kit is still "Page not found"', async () => {
-    html.dataset.look = 'lit';
-    html.dataset.direction = 'ember';
-    await open('/kit');
-    expect(host.querySelector('[data-testid="volt-kit"]')).toBeNull();
-    expect(host.textContent).toContain('Page not found');
-  });
-
-  it('a direction left on the root with the look off does not open it', async () => {
-    html.dataset.direction = 'volt';
-    await open('/kit');
-    expect(host.querySelector('[data-testid="volt-kit"]')).toBeNull();
-  });
-
-  it('with Volt on, /kit draws every block the issue lists, each from the shipped parts', async () => {
-    html.dataset.look = 'lit';
-    html.dataset.direction = 'volt';
+describe('the Volt kit page (intafaced issue 9302), with Volt the only look (issue 9315)', () => {
+  it('/kit draws every block the issue lists, each from the shipped parts, with no switch on the root', async () => {
+    expect(html.dataset.look).toBeUndefined();
+    expect(html.dataset.direction).toBeUndefined();
     await open('/kit');
     const kit = host.querySelector('[data-testid="volt-kit"]');
     expect(kit).not.toBeNull();

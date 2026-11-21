@@ -6,7 +6,6 @@ import {
   SUPPORT_SCAM_TRANSFER_NOT_YOURS,
   SUPPORT_SCAM_TRANSFER_UNCHECKED,
   supportSafetyAcknowledgementSchema,
-  supportSafetyAcknowledgementsSchema,
   type SupportSafetyAcknowledgement,
   type SupportSafetyCaseKind,
 } from '@intafaced/contracts/support-safety';
@@ -14,6 +13,7 @@ import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { useSession } from '../session';
 import { safetyCopy } from './safety-copy';
+import { SUPPORT_SAFETY_MINE } from '@intafaced/contracts/support-safety-procedures';
 
 /**
  * What the complaint and bereavement rooms share (BK-safe-03, J-bank-18 #5 #6): one request key per form, kept until a
@@ -86,7 +86,7 @@ export function useMyAcknowledgements(kind: SupportSafetyCaseKind, after: string
   return useResource(
     (signal) =>
       userId
-        ? api.query('support', 'safety.mine', undefined, supportSafetyAcknowledgementsSchema, { signal })
+        ? api.call(SUPPORT_SAFETY_MINE, undefined, { signal })
         : Promise.resolve({ ok: true as const, data: { acknowledgements: [] } }),
     `safety-mine:${kind}:${userId ?? 'out'}:${after ?? ''}`,
   );

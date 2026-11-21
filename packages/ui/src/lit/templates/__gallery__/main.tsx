@@ -1,6 +1,6 @@
 /**
  * Templates gallery (lane B2): one TEST room per template in every state. Query: ?t=<template>&s=<state>
- * &mode=simple|pro &look=lit|flat &dir=rtl &stretch=1 &surfaces=solid &theme=light &accent=blue|ember|...
+ * &mode=simple|pro &look=flat &dir=rtl &stretch=1 &surfaces=solid &theme=light
  * &market=uk|eu|unset. With no `t`, a matrix of links. Dev tool only, never built into the package.
  */
 import * as React from 'react';
@@ -13,7 +13,6 @@ import { ROOMS, galleryStates, type GalleryState } from './fixtures.js';
 const q = new URLSearchParams(location.search);
 const root = document.documentElement;
 if (q.get('look') !== 'flat') root.dataset.look = 'lit';
-root.dataset.accent = q.get('accent') ?? 'blue';
 if (q.get('theme') === 'light') root.dataset.theme = 'light';
 if (q.get('surfaces') === 'solid') root.dataset.surfaces = 'solid';
 const mode = (q.get('mode') === 'pro' ? 'pro' : 'simple') as Mode;
@@ -29,7 +28,7 @@ function Matrix() {
   const ids = Object.keys(templates) as TemplateId[];
   return (
     <main className="gallery-matrix">
-      <h1>Lit glass templates, TEST</h1>
+      <h1>Volt kit templates, TEST</h1>
       <table>
         <thead>
           <tr>

@@ -55,7 +55,9 @@ import { createPortfolioRouter } from './amm/portfolio-router.js';
 import { portfolioChain } from './amm/portfolio.js';
 import { contractChain, createContractSourceRouter, type ContractChain } from './contract-source/router.js';
 import { createBridgeRouter } from './bridge/router.js';
+import { bridgeProviderFromEnv } from './bridge/provider.js';
 import { bridgeRoutesLoader } from './bridge/routes.js';
+import type { BridgeTransferStore } from './bridge/transfers.js';
 import { createVenueFundsRouter } from './venue/router.js';
 import { createLendingRouter } from './lending/position.js';
 import { createWalletTxRouters } from './wallet-tx/router.js';
@@ -304,6 +306,8 @@ export interface ProtocolRouterDeps {
   p2pEscrow?: () => { escrow: Address | null; mainnet: boolean };
   /** `PROTOCOL_VENUE_ADDRESS` (D-bridge-chain-04). Null, zero or absent: venue funds refuse `protocol.venue_unset`. */
   venue?: () => Address | null;
+  /** `protocol.bridge_transfers` (D-bridge-chain-03). Absent: every bridge transfer refuses `bridge.provider_unset`. */
+  bridgeTransfers?: BridgeTransferStore;
   /**
    * `PROTOCOL_LENDING_MARKET_ADDRESS` (D-portfolio-wallet-04). Null, zero or absent: a lending position refuses
    * `protocol.lending_market_unset`.
@@ -875,7 +879,14 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     contract: createContractSourceRouter({ chain: () => (contracts ??= contractChain(chain)), toTrpcError }),
 
     /** The owner-published bridge route table (D-bridge-chain-03); blank refuses `bridge.routes_unset`. */
-    bridge: createBridgeRouter({ loadRoutes: bridgeRoutesLoader() }),
+    bridge: createBridgeRouter({
+      loadRoutes: bridgeRoutesLoader(),
+      provider: (() => {
+        const provider = bridgeProviderFromEnv();
+        return () => provider;
+      })(),
+      store: deps.bridgeTransfers,
+    }),
 
     tokens: createTokensRouter({
       chain: tokenLogsChain(

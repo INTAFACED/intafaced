@@ -19,6 +19,8 @@
 //   node tooling/scripts/local-test-chain.mjs fund <address> spam     TEST Airdrop sent unasked (J-dex-protocol-04 #7)
 //   node tooling/scripts/local-test-chain.mjs fund <address> venue    TEST ETH for gas + TEST USD to deposit (J-wallet-09 #3)
 //   node tooling/scripts/local-test-chain.mjs fund <address> plain    TEST Token C, the token with no permit (J-dex-protocol-03)
+//   node tooling/scripts/local-test-chain.mjs fund <address> bridge   TEST ETH on both chains + 100 TEST USDC of the TEST
+//                                                                        bridge token (J-dex-protocol-05 #6)
 //   node tooling/scripts/local-test-chain.mjs fund <address> positions  a TEST lending collateral deposit and a TEST venue
 //                                                                        deposit, made as that address (J-dex-protocol-06 #4)
 //
@@ -32,6 +34,11 @@
 // partner that delivers a purchase to the buyer's own wallet. svc-bank's pay-in stand-in calls it once the payer
 // approved; it sends TEST USD (the TEST chain's USDC) from the TEST partner's own address, impersonated on this anvil and
 // minted only what it delivers, and answers the mined transfer's hash.
+// `serve` also runs the TEST bridge attester at /bridge-attestation (D-bridge-chain-03, J-dex-protocol-05 #6): a stand-in
+// for a bridge provider's attestation service. For a burn of the TEST bridge token (TestBridgeToken, installed at
+// BRIDGE_TOKEN on both TEST chains by `installTestBridge`) with BRIDGE_CONFIRMATIONS blocks on top, it answers the
+// destination chain's mint attestation, signed by the node's own unlocked dev account (anvil's public mnemonic); before
+// that it answers pending. It sends nothing.
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -83,6 +90,31 @@ export const RELAY_SWAP_SELECTOR = '0xff292559';
 export const SECOND_CHAIN_ID = 31337;
 export const SECOND_CHAIN_PORTS = { gate: CHAIN_PORTS.secondGate, anvil: CHAIN_PORTS.secondAnvil };
 export const SECOND_GATE_URL = `http://${HOST}:${SECOND_CHAIN_PORTS.gate}`;
+
+/**
+ * The TEST bridge (D-bridge-chain-03): TestBridgeToken's runtime code at one fixed address on both TEST chains, its
+ * attester anvil's dev account #0 (unlocked on both, public mnemonic, worthless). TEST only.
+ */
+export const BRIDGE_TOKEN = '0x000000000000000000000000000000000000b41d';
+const BRIDGE_ATTESTER = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266';
+/** The blocks a burn waits on top of it before the TEST attester signs it, so the row reads burn submitted first. */
+const BRIDGE_CONFIRMATIONS = 3;
+/** The TEST attester's URL (svc-protocol's PROTOCOL_BRIDGE_ATTESTER_URL on the stack). */
+export const BRIDGE_ATTESTER_URL = `http://${HOST}:${CHAIN_PORTS.relay}/bridge-attestation`;
+const BURNED_TOPIC = '0x4607200a6ff772a0fc9e5a46711cabae1f14a9b73205ac2fd9dba0e37a51d7e9';
+/** Each TEST chain's own anvil port, by chain id. */
+const ANVIL_PORT = { [TEST_CHAIN_ID]: CHAIN_PORTS.anvil, [SECOND_CHAIN_ID]: SECOND_CHAIN_PORTS.anvil };
+
+/** Installs the TEST bridge token on both TEST chains where it is not there yet; the stack runs it after the seed. */
+export async function installTestBridge() {
+  const { deployedBytecode } = JSON.parse(fs.readFileSync(path.join(PROTOCOL_DIR, 'contracts', 'out', 'TestBridgeToken.json'), 'utf8'));
+  if (!/^0x[0-9a-f]+$/i.test(deployedBytecode)) throw new Error('TestBridgeToken.json holds no runtime code');
+  for (const port of Object.values(ANVIL_PORT)) {
+    const code = await anvilRpc('eth_getCode', [BRIDGE_TOKEN, 'latest'], port);
+    if (code === deployedBytecode) continue;
+    await anvilRpc('anvil_setCode', [BRIDGE_TOKEN, deployedBytecode], port);
+  }
+}
 
 /** The anvil to run: LOCAL_STACK_ANVIL_BIN when set (CI), else `anvil` on PATH, else null (no TEST chain). */
 export function anvilBin(env = process.env) {
@@ -202,7 +234,9 @@ function serve() {
           ? payinDeliver(req, res)
           : at === '/academy-refund'
             ? academyRefund(req, res)
-            : relay(req, res));
+            : at === '/bridge-attestation'
+              ? bridgeAttestation(req, res)
+              : relay(req, res));
     })
     .listen(CHAIN_PORTS.relay, HOST);
   // A gate that cannot listen (its port taken after the stack's check) stops the chains with its error, never unhandled.
@@ -237,9 +271,12 @@ function serve() {
     });
 }
 
-/** One JSON-RPC call to this stack's anvil, straight to its port (the relayer has its own connection, not the gate). */
-async function anvilRpc(method, params) {
-  const res = await fetch(`http://${HOST}:${CHAIN_PORTS.anvil}`, {
+/**
+ * One JSON-RPC call to this stack's anvil, straight to its port (the relayer has its own connection, not the gate);
+ * `port` names the second chain's anvil instead.
+ */
+async function anvilRpc(method, params, port = CHAIN_PORTS.anvil) {
+  const res = await fetch(`http://${HOST}:${port}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
@@ -505,6 +542,81 @@ async function send(token, to, units) {
   });
 }
 
+/**
+ * GET /bridge-attestation?chainId=<source>&tx=<burn hash>: the TEST attester. Answers {status: 'pending'} until the burn
+ * is mined with BRIDGE_CONFIRMATIONS blocks on top, then {status: 'ready', intentId, sourceChainId, destinationChainId,
+ * recipient, amount, attestation}; a transaction that is not a TEST bridge burn is refused by name. It sends nothing.
+ */
+async function bridgeAttestation(req, res) {
+  const answer = (status, body) => {
+    res.statusCode = status;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(body));
+  };
+  const params = new URL(req.url, `http://${HOST}`).searchParams;
+  const sourceChainId = Number(params.get('chainId'));
+  const tx = params.get('tx') ?? '';
+  const sourcePort = ANVIL_PORT[sourceChainId];
+  if (req.method !== 'GET' || !sourcePort) return answer(404, { error: 'attestation.not_found: GET with a TEST chain id' });
+  if (!/^0x[0-9a-fA-F]{64}$/.test(tx)) return answer(400, { error: 'attestation.bad_tx' });
+  try {
+    const receipt = await anvilRpc('eth_getTransactionReceipt', [tx], sourcePort);
+    if (!receipt) return answer(200, { status: 'pending' });
+    if (receipt.status !== '0x1') return answer(422, { error: 'attestation.reverted: the burn reverted' });
+    const log = receipt.logs.find((l) => l.address.toLowerCase() === BRIDGE_TOKEN && l.topics[0] === BURNED_TOPIC);
+    if (!log) return answer(422, { error: 'attestation.not_a_burn: the transaction burned no TEST bridge token' });
+    const head = BigInt(await anvilRpc('eth_blockNumber', [], sourcePort));
+    if (head - BigInt(receipt.blockNumber) < BigInt(BRIDGE_CONFIRMATIONS)) return answer(200, { status: 'pending' });
+    const data = log.data.slice(2);
+    const destinationChainId = Number(BigInt(`0x${data.slice(0, 64)}`));
+    const recipient = `0x${data.slice(64 + 24, 128)}`;
+    const amount = BigInt(`0x${data.slice(128, 192)}`);
+    const destPort = ANVIL_PORT[destinationChainId];
+    if (!destPort) return answer(422, { error: 'attestation.unknown_destination: the burn names no TEST chain' });
+    const intentId = log.topics[1];
+    // attestationDigest(bytes32,uint256,address,uint256), read on the destination chain, where the mint checks it.
+    const digest = await anvilRpc(
+      'eth_call',
+      [
+        {
+          to: BRIDGE_TOKEN,
+          data: `0x1438de04${word(intentId)}${word(sourceChainId.toString(16))}${word(recipient)}${word(amount.toString(16))}`,
+        },
+        'latest',
+      ],
+      destPort,
+    );
+    const attestation = await anvilRpc('personal_sign', [digest, BRIDGE_ATTESTER], destPort);
+    return answer(200, {
+      status: 'ready',
+      intentId,
+      sourceChainId,
+      destinationChainId,
+      recipient,
+      amount: amount.toString(),
+      attestation,
+    });
+  } catch (err) {
+    return answer(502, { error: `attestation.failed: ${err.message}` });
+  }
+}
+
+/** `fund <address> bridge`: TEST ETH for gas on both TEST chains and 100 TEST USDC of the TEST bridge token on the first. */
+async function fundBridge(address) {
+  await installTestBridge();
+  for (const port of Object.values(ANVIL_PORT)) await anvilRpc('anvil_setBalance', [address, '0x56bc75e2d63100000'], port);
+  // issue(address,uint256): the TEST faucet, which only the attester (anvil's unlocked dev account) may call.
+  await sendMined({
+    from: BRIDGE_ATTESTER,
+    to: BRIDGE_TOKEN,
+    data: `0x867904b4${word(address)}${word((100_000_000).toString(16))}`,
+    value: '0x0',
+  });
+  console.log(
+    `bridge funding for ${address}: TEST ETH on chains ${Object.keys(ANVIL_PORT).join(' and ')}, 100 TEST USDC on ${TEST_CHAIN_ID}`,
+  );
+}
+
 async function cmdGate(state, network) {
   if (!['open', 'closed'].includes(state) || ![undefined, 'second'].includes(network)) throw new Error('usage: gate open|closed [second]');
   const answer = await control(`?gate=${state}${network ? `&network=${network}` : ''}`);
@@ -513,8 +625,8 @@ async function cmdGate(state, network) {
 }
 
 async function cmdFund(address, kind) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam', 'venue', 'plain', 'positions'].includes(kind))
-    throw new Error('usage: fund <0x address> [stable|spam|venue|plain|positions]');
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam', 'venue', 'plain', 'positions', 'bridge'].includes(kind))
+    throw new Error('usage: fund <0x address> [stable|spam|venue|plain|positions|bridge]');
   const status = await chainStatus();
   if (status.chain !== 'running') {
     console.error('local-test-chain.no_chain: this stack runs no TEST chain (no anvil binary), so nothing can be funded');
@@ -524,6 +636,7 @@ async function cmdFund(address, kind) {
     console.error('local-test-chain.gate_closed: the TEST chain gate is closed; open it before funding');
     process.exit(1);
   }
+  if (kind === 'bridge') return fundBridge(address);
   // `positions` reads the lending market and venue from the chain's record.
   const r = runSeedScript(['fund', address, ...(kind ? [kind] : []), ...(kind === 'positions' ? [chainRecordPath()] : [])]);
   console.log(r.output);
@@ -539,7 +652,7 @@ if (runningAsCli) {
   else if (command === 'fund') await cmdFund(arg, extra);
   else {
     console.error(
-      'usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam|venue|plain|positions]',
+      'usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam|venue|plain|positions|bridge]',
     );
     process.exit(2);
   }
