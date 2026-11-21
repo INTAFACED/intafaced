@@ -7,7 +7,7 @@
 // - `tests/fixtures/input-parity.golden.json`: zod's own verdict on inputs made from each schema.
 // - `tests/fixtures/tokens.golden.json`: `verifyAccessToken`'s verdict on access tokens made to probe it.
 // - `tests/fixtures/env-parity.golden.json`: what `env.ts` answers for a set of environments.
-// - `tests/fixtures/reports.golden.json`: what the `reports` slice's five doors answer on the wire (status and body)
+// - `tests/fixtures/reports.golden.jsonl`: what the `reports` slice's five doors answer on the wire (status and body)
 //   for inputs made to reach each branch of their handlers.
 //
 // Run from the repository root:
@@ -731,6 +731,9 @@ const EMPTY_BOOK = { balances: async () => [] };
 const realNow = Date.now;
 Date.now = () => NOW;
 const reportCases = [];
+const answers = [];
+const answerIndex = new Map();
+const answerUses = new Map();
 try {
   for (const [door, handle] of Object.entries(HANDLERS)) {
     const bodies = [...probes(door), ...REPORT_CASES[door]];
@@ -746,7 +749,14 @@ try {
       } catch (err) {
         ({ status, body: out } = s2sHttp.httpError(err));
       }
-      reportCases.push([door, text, status, JSON.stringify(out)]);
+      const answer = JSON.stringify(out);
+      // Each distinct answer is kept with at most three of the inputs that reach it, so the file stays reviewable.
+      const key = `${door} ${status} ${answer}`;
+      const reached = answerUses.get(key) ?? 0;
+      if (reached >= 3) continue;
+      answerUses.set(key, reached + 1);
+      if (!answerIndex.has(answer)) answerIndex.set(answer, answers.push(answer) - 1);
+      reportCases.push([door, text, status, answerIndex.get(answer)]);
     }
   }
 } finally {
@@ -782,7 +792,11 @@ const outputs = [
   [`${CRATE}tests/fixtures/input-parity.golden.json`, `${JSON.stringify({ verdicts, cases })}\n`],
   [`${CRATE}tests/fixtures/tokens.golden.json`, `${JSON.stringify({ cases: tokenCases }, null, 1)}\n`],
   [`${CRATE}tests/fixtures/env-parity.golden.json`, `${JSON.stringify({ cases: envCases }, null, 1)}\n`],
-  [`${CRATE}tests/fixtures/reports.golden.json`, `${JSON.stringify({ nowMs: NOW, cases: reportCases })}\n`],
+  // One line each: the clock and the distinct answers, then one case a line (`[door, input, status, answer]`).
+  [
+    `${CRATE}tests/fixtures/reports.golden.jsonl`,
+    `${[JSON.stringify({ nowMs: NOW, answers }), ...reportCases.map((c) => JSON.stringify(c))].join('\n')}\n`,
+  ],
 ];
 
 const PRETTIER = fileURLToPath(new URL('../../../node_modules/.bin/prettier', import.meta.url));

@@ -1,6 +1,6 @@
-//! The `reports` slice's five doors against the TypeScript's own answers: `fixtures/reports.golden.json` holds what
+//! The `reports` slice's five doors against the TypeScript's own answers: `fixtures/reports.golden.jsonl` holds what
 //! each handler answered on the wire (`httpError` on what it threw) to inputs `scripts/record-door.mjs` made to reach
-//! each of its branches, with `Date.now()` held at the recording's `nowMs` and a book with no balances. The Rust door's
+//! each of its branches (each distinct answer with up to three of its inputs), with `Date.now()` held at the recording's `nowMs` and a book with no balances. The Rust door's
 //! input check and `svc_ledger::reports` must answer each byte for byte.
 #![allow(
     clippy::unwrap_used,
@@ -18,7 +18,7 @@ use svc_ledger::door;
 use svc_ledger::errors::{self, Failure};
 use svc_ledger::reports;
 
-const GOLDEN: &str = include_str!("fixtures/reports.golden.json");
+const GOLDEN: &str = include_str!("fixtures/reports.golden.jsonl");
 
 fn wire(door_name: &str, text: Option<&str>, now_ms: i64) -> (u16, String) {
     let value = text.map_or(Value::Undefined, |t| {
@@ -39,23 +39,29 @@ fn wire(door_name: &str, text: Option<&str>, now_ms: i64) -> (u16, String) {
 
 #[test]
 fn every_report_door_answers_as_the_typescript() {
-    let golden = json::parse(GOLDEN).unwrap();
-    let Some(Json::Number(now)) = golden.get("nowMs") else {
+    let mut lines = GOLDEN.lines();
+    let head = json::parse(lines.next().unwrap()).unwrap();
+    let Some(Json::Number(now)) = head.get("nowMs") else {
         panic!("no nowMs")
     };
     let now_ms = format!("{now}").parse::<i64>().unwrap();
-    let Some(Json::Array(cases)) = golden.get("cases") else {
-        panic!("no cases")
+    let Some(Json::Array(answers)) = head.get("answers") else {
+        panic!("no answers")
     };
+    let cases: Vec<Json> = lines.map(|l| json::parse(l).unwrap()).collect();
     let mut per_door: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     let mut differ = Vec::new();
-    for case in cases {
+    for case in &cases {
         let Json::Array(c) = case else {
             panic!("a case is a list")
         };
-        let (Json::String(name), Json::Number(status), Json::String(body)) = (&c[0], &c[2], &c[3])
+        let (Json::String(name), Json::Number(status), Json::Number(answer)) =
+            (&c[0], &c[2], &c[3])
         else {
-            panic!("a case: door, input, status, body")
+            panic!("a case: door, input, status, answer")
+        };
+        let Json::String(body) = &answers[format!("{answer}").parse::<usize>().unwrap()] else {
+            panic!("an answer is text")
         };
         let text = match &c[1] {
             Json::String(t) => Some(t.as_str()),
