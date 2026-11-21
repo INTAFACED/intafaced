@@ -1,13 +1,7 @@
+import { REVIEW_MEAN_ROUNDING } from '@intafaced/contracts/market-procedures';
 import { div, formatAmount, parseAmount, sum } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { MarketError } from '../vendor-service.js';
-
-/**
- * Mean of review scores: sum of the integer scores divided by the count,
- * rounded half-up at the ledger scale (18 decimal places) via `div(..., 'half-up')`.
- * No reviews → null. Never the string "0".
- */
-export const REVIEW_MEAN_ROUNDING = 'half-up-scale-18' as const;
 
 export const MARKET_REVIEWS_LIST_LIMIT_UNSET = 'market.reviews_list_limit_unset' as const;
 export const MARKET_REVIEWS_CURSOR_INVALID = 'market.reviews_cursor_invalid' as const;

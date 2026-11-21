@@ -21,10 +21,13 @@ use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 use service_kit::tokens::TokenConfig;
 
+use svc_ledger::approval::{self, Approvals};
 use svc_ledger::boot::{self, OUTBOX_RECOVER_MS, Relay};
+use svc_ledger::clock::system_ms;
 use svc_ledger::db::{self, Store};
 use svc_ledger::door::{DoorConfig, Keys, LedgerDoor};
 use svc_ledger::env::{self, DEFAULT_PORT, LedgerEnv};
+use svc_ledger::freeze::{Bus, FreezeRelay, JetStreamBus};
 use svc_ledger::migrate;
 
 fn process_env() -> BTreeMap<String, String> {
@@ -54,14 +57,14 @@ fn main() -> ExitCode {
     }
 }
 
-/// The relays the outbox recovery drives. Each comes with its slice: `posting` (`ledgerTxPosted`) and `freeze`
-/// (`ledgerFreezeUpdated`); until then an intent stays committed and unsent, as it does while the bus is down.
-fn relays() -> Vec<&'static dyn Relay> {
-    Vec::new()
-}
-
 /// The door, built once from the environment, as `index.ts` mounts its doors.
-fn door(env: &LedgerEnv, store: Store) -> Result<LedgerDoor, String> {
+fn door(
+    env: &LedgerEnv,
+    store: Store,
+    bus: Arc<dyn Bus>,
+    fetch: Arc<dyn Fetch>,
+    log: &Logger,
+) -> Result<LedgerDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let mode = str_of("S2S_AUTH_MODE");
     let s2s = s2s_from_env(
@@ -97,10 +100,29 @@ fn door(env: &LedgerEnv, store: Store) -> Result<LedgerDoor, String> {
         clock: system_seconds,
         store,
         service_name: str_of("SERVICE_NAME"),
+        bus,
+        approvals: approvals(env, fetch.clone()),
+        clock_skew_bound_ms: env.clock_skew_bound_ms,
+        now_ms: system_ms,
+        log: log.clone(),
         // `handleS2sPortfolio` reads `process.env.INDEXER_URL`; nothing in `env.ts` holds it.
         indexer_url: std::env::var("INDEXER_URL").ok(),
-        fetch: Arc::new(UreqFetch::new()),
+        // The same wire the approvals client uses.
+        fetch,
     })
+}
+
+/// `env.IDENTITY_URL ? createIdentityApprovalClient(IDENTITY_URL, INTERNAL_SERVICE_SECRET) : unwiredApprovalConsumer()`.
+fn approvals(env: &LedgerEnv, fetch: Arc<dyn Fetch>) -> Box<dyn Approvals> {
+    match env.str("IDENTITY_URL").filter(|u| !u.is_empty()) {
+        Some(url) => Box::new(approval::Identity::new(
+            url,
+            env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default(),
+            fetch,
+            system_seconds,
+        )),
+        None => Box::new(approval::Unwired),
+    }
 }
 
 fn failed(e: &db::StoreError) -> String {
@@ -115,6 +137,7 @@ fn run() -> Result<(), String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let log = Logger::stdout(&str_of("LOG_LEVEL"));
     let fetch: Arc<dyn Fetch> = Arc::new(UreqFetch::new());
+    let fetch_for_approvals = fetch.clone();
     let telemetry = Telemetry::start(
         env.flag("OTEL_ENABLED"),
         &str_of("SERVICE_NAME"),
@@ -123,12 +146,17 @@ fn run() -> Result<(), String> {
         fetch,
         log.clone(),
     );
-    let out = serve(&env, &log, &telemetry);
+    let out = serve(&env, &log, &telemetry, fetch_for_approvals);
     telemetry.shutdown();
     out
 }
 
-fn serve(env: &LedgerEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), String> {
+fn serve(
+    env: &LedgerEnv,
+    log: &Logger,
+    telemetry: &Telemetry,
+    fetch: Arc<dyn Fetch>,
+) -> Result<(), String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let pool_max = usize::try_from(env.int("DATABASE_POOL_MAX").unwrap_or(1)).unwrap_or(1);
     let store = db::open(
@@ -149,18 +177,29 @@ fn serve(env: &LedgerEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Str
             .map(|()| js)
     })
     .map_err(|e| e.0)?;
-    let door = door(env, store)?;
+    let bus = Arc::new(JetStreamBus(bus));
+    let door = door(env, store, bus.clone(), fetch, log)?;
+    // The relays the outbox recovery drives. `ledgerTxPosted`'s comes with the `posting` slice; until then its intents
+    // stay committed and unsent, as they do while the bus is down.
+    let freeze_relay = FreezeRelay {
+        bus: &*bus,
+        producer: str_of("SERVICE_NAME"),
+        now_ms: system_ms,
+    };
     // Before the first request, never after: the custody guard, then the startup freeze (it can freeze, never thaw).
     boot::assert_custody_layer_bootable(
         door.store(),
         env.str("LEDGER_CUSTODY_LAYER") == Some("on"),
     )
     .map_err(|e| failed(&e))?;
-    let freeze_at_boot =
-        boot::apply_startup_policy(door.store(), env.flag("LEDGER_POSTING_ENABLED"))
-            .map_err(|e| failed(&e))?;
+    let freeze_at_boot = boot::apply_startup_policy(
+        door.store(),
+        env.flag("LEDGER_POSTING_ENABLED"),
+        &freeze_relay,
+    )
+    .map_err(|e| failed(&e))?;
 
-    let relays = relays();
+    let relays: Vec<&dyn Relay> = vec![&freeze_relay];
     // Outbox recovery is not inside the startup policy: that path only freezes. Committed, unsent intents drain here,
     // then on the timer below.
     if let Err(e) = boot::recover_outbox(door.store(), &relays) {
@@ -229,7 +268,7 @@ fn serve(env: &LedgerEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Str
         server::serve(&server, &app, log, telemetry, stop);
     });
     drop(server);
-    bus.close();
+    bus.0.close();
     app.wire.end();
     log.info(Vec::new(), "svc-ledger stopped");
     Ok(())

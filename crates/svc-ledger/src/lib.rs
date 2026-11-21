@@ -6,13 +6,16 @@
 //! and `/ready` (`status`), and what the binary does before it serves (`boot`). The `balances` slice answers the account and transaction
 //! reads (`balances`). Past the door any other call is owed by its slice; `PORT.md` lists the slices and what each ports.
 
+pub mod approval;
 pub mod balances;
 pub mod boot;
+pub mod clock;
 pub mod db;
 pub mod door;
 pub mod env;
 pub mod errors;
 pub mod errors_table;
+pub mod freeze;
 pub mod migrate;
 pub mod refines;
 pub mod status;

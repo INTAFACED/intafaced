@@ -242,6 +242,11 @@ fn door_with(store: Store, indexer_url: Option<&str>, fetch: Arc<dyn Fetch>) -> 
         clock: system_seconds,
         store,
         service_name: "svc-ledger".to_owned(),
+        bus: Arc::new(svc_ledger::freeze::MemoryBus::default()),
+        approvals: Box::new(svc_ledger::approval::Unwired),
+        clock_skew_bound_ms: None,
+        now_ms: svc_ledger::clock::system_ms,
+        log: service_kit::telemetry::Logger::new("info", Box::new(std::io::sink())),
         indexer_url: indexer_url.map(str::to_owned),
         fetch,
     })
