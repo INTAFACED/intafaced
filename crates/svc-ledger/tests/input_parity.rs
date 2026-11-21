@@ -1,4 +1,4 @@
-//! Each door's first input check against zod's own verdicts: `fixtures/input-parity.golden.json` holds what the
+//! Each door's first input check, and each reply a door checks before it answers, against zod's own verdicts: `fixtures/input-parity.golden.json` holds what the
 //! TypeScript schema answered (its output, or its issues) to inputs `scripts/record-door.mjs` made for each door.
 #![allow(
     clippy::unwrap_used,
@@ -44,6 +44,7 @@ fn every_door_input_answers_as_zod() {
         panic!("no cases")
     };
     let mut differ = Vec::new();
+    let mut doors: Vec<&str> = Vec::new();
     for case in cases {
         let Json::Array(c) = case else {
             panic!("a case is a list")
@@ -51,6 +52,9 @@ fn every_door_input_answers_as_zod() {
         let (Json::String(name), Json::Number(i)) = (&c[0], &c[2]) else {
             panic!("a case: door, input, verdict")
         };
+        if !doors.contains(&name.as_str()) {
+            doors.push(name);
+        }
         let text = match &c[1] {
             Json::String(t) => Some(t.as_str()),
             _ => None,
@@ -67,9 +71,9 @@ fn every_door_input_answers_as_zod() {
         }
     }
     println!(
-        "{} inputs over {} doors; {} differ",
+        "{} inputs over {} schemas; {} differ",
         cases.len(),
-        14,
+        doors.len(),
         differ.len()
     );
     assert!(

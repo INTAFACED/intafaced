@@ -25,6 +25,13 @@ The `freeze` slice is ported. It added:
 - `src/door/freeze.rs`: `GET` and `POST /operator/freeze`, `POST /operator/unfreeze` and `GET /operator/integrity/clock`. `freezeSchema` is recorded as zod runs it: its trim, then its pipe (`service_kit::schema` runs pipes).
 - `tests/freeze_pg.rs`: the freeze cases of `service.freeze.test.ts`, the clock-skew Postgres case and the freeze doors of `operator-http.test.ts`, on a real Postgres.
 
+The `ops-reads` slice is ported. It added:
+
+- `src/ops_reads.rs`: svc-ops' five reads. `feeRevenue` sums earned, returned and collected per venue and asset over a half-open window, and refuses an empty or inverted one with `ledger.fee_revenue_window_invalid`. `ownFunds` reads our house and module accounts and our own-funds places in one statement, then checks every row again with the custody split, so a customer's row is a 500, never counted as ours. `restoreWatermark` reads the chain tip, live or as of `{ asOf }` (`ledger.skew_bound_unset` with no bound, `ledger.restore_asof_unanswerable` before the cut-off is past it). `reconciliationEvaluations` reads settled runs after a microsecond cursor. `transactionsExist` answers ids only.
+- `src/door/mod.rs`: the door answers these five past their checks, with `httpError`'s statuses. `feeRevenue`, `reconciliationEvaluations` and `transactionsExist` now run their recorded input schemas at the door.
+- `src/door/schemas.json`: the four inputs, and the two replies the feed checks before it answers (`reconciliationControlRunSchema`, `reconciliationEvaluationFeedSchema`). A stored run the contract no longer reads is the ledger's 500, and the reply takes the contract's key order. The recorder now records literals and unions.
+- `tests/ops_reads_pg.rs`: `fee-revenue-postgres.test.ts`, `own-funds-postgres.test.ts`, `restore-watermark-asof.pg.test.ts`, the feed case of `reconciliation-controls.pg.test.ts` and the database side of `transactionsExist`, on a real Postgres. The port cannot post yet, so each book is written straight into the tables. The posts are the TypeScript tests' own, made by the same recipes (`tests/fixtures/ops-reads-books.json`).
+
 Left to later slices:
 
 - The recovery has one relay. `posting` adds the `ledgerTxPosted` one; until then a committed post's intent waits unsent.

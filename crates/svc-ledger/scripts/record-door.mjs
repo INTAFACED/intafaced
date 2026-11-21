@@ -46,6 +46,9 @@ const { operatorTraceInputSchema } = await import(`${SVC}ledger/operator-trace.t
 const { operatorTxListInputSchema, operatorAccountSearchInputSchema } = await import(`${SVC}ledger/operator-desk.ts`);
 const { accountMetadataReadInputSchema } = await import(`${SVC}ledger/operator-account-metadata.ts`);
 const { verifyAccessToken } = await import(`${ROOT}packages/auth/src/tokens.ts`);
+const { ledgerFeeRevenueInputSchema } = await import(`${ROOT}packages/contracts/src/ledger-fee-revenue.ts`);
+const { restoreWatermarkReadInputSchema } = await import(`${ROOT}packages/contracts/src/ops-restore-watermarks.ts`);
+const reconciliation = await import(`${ROOT}packages/contracts/src/ledger-reconciliation.ts`);
 
 // ── The inputs the door checks ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -69,6 +72,20 @@ const INPUTS = {
   accountSearch: operatorAccountSearchInputSchema,
   stats: z.object({}).strict(),
   metadataRead: accountMetadataReadInputSchema,
+  feeRevenue: ledgerFeeRevenueInputSchema,
+  transactionsExist: reconciliation.ledgerTransactionsExistInputSchema,
+  reconciliationEvaluations: reconciliation.reconciliationEvaluationFeedInputSchema,
+  restoreWatermark: restoreWatermarkReadInputSchema,
+};
+
+/**
+ * The replies a door checks before it answers (`schema.parse(reply)`): a stored row the contract no longer reads is the
+ * service's fault, a 500, never a reply that breaks its caller. The parse also gives the reply its keys in the
+ * contract's order.
+ */
+const OUTPUTS = {
+  controlRun: reconciliation.reconciliationControlRunSchema,
+  evaluationFeed: reconciliation.reconciliationEvaluationFeedSchema,
 };
 
 /** Refines, by their source as tsx loads it: the Rust door runs each by this name (`src/refines.rs`). */
@@ -179,6 +196,8 @@ function build(s) {
       return withChecks({ t: 'unknown' });
     case 'enum':
       return withChecks({ t: 'enum', values: s.options });
+    case 'literal':
+      return withChecks({ t: 'literal', values: d.values });
     case 'object': {
       const shape = Object.entries(d.shape).map(([k, v]) => [k, node(v)]);
       let catchall = null;
@@ -195,6 +214,13 @@ function build(s) {
     case 'optional':
     case 'nullable':
       return withChecks({ t: d.type, in: node(d.innerType) });
+    case 'union':
+      if (d.discriminator !== undefined) {
+        if (d.unionFallback) throw new Error('a discriminated union with a fallback');
+        return withChecks({ t: 'dunion', disc: d.discriminator, options: d.options.map(node) });
+      }
+      if (d.inclusive === false) throw new Error('an exclusive union');
+      return withChecks({ t: 'union', options: d.options.map(node) });
     case 'record':
       if (d.mode && d.mode !== 'strict') throw new Error(`record mode ${d.mode}`);
       return withChecks({ t: 'record', key: node(d.keyType), value: node(d.valueType) });
@@ -205,7 +231,7 @@ function build(s) {
   }
 }
 
-const inputs = Object.fromEntries(Object.entries(INPUTS).map(([door, schema]) => [door, node(schema)]));
+const inputs = Object.fromEntries(Object.entries({ ...INPUTS, ...OUTPUTS }).map(([door, schema]) => [door, node(schema)]));
 
 // ── zod's verdicts ─────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -252,6 +278,34 @@ const VALID = {
   accountSearch: { prefix: ' user:2222 ', after: ID },
   stats: {},
   metadataRead: { accountId: ID },
+  feeRevenue: { from: '2026-01-01T00:00:00Z', to: '2026-01-02T00:00:00.123456+02:00' },
+  transactionsExist: { txIds: [ID, ID.toUpperCase()] },
+  reconciliationEvaluations: { after: { finishedAt: '2026-01-01T00:00:00.123456Z', id: ID }, limit: 500 },
+  restoreWatermark: { asOf: '2026-01-01T00:00:00+08:00' },
+};
+const RUN = {
+  id: ID,
+  controlId: ID,
+  status: 'PASS',
+  compared: 1,
+  phase: { status: 'unset' },
+  errorCode: { status: 'set', value: 'rail.timeout' },
+  asOf: '2026-01-01T00:00:00.000Z',
+  readAt: '2026-01-01T00:00:00.000Z',
+  margin: { status: 'set', value: '0.5' },
+  sources: { ledger: { asOf: '2026-01-01T00:00:00.000Z' }, outside: { asOf: 'unset' }, parity: { asOf: '2026-01-01T00:00:00Z' } },
+  outsideSide: 'snapshot',
+  periodStart: '2026-01-01T00:00:00.000Z',
+  periodEnd: '2026-01-02T00:00:00.000Z',
+  accounts: [ID],
+  assets: [{ assetId: 'USDC', observed: '-1.5', expected: 'unset', difference: 'unset', tolerance: '0', missing: 'ledger' }],
+  reconcilingItems: [{ source: 'svc-pay', id: 'p1', kind: 'held', assetId: 'USDC', amount: '-2' }],
+};
+const { accounts: _accounts, ...EVALUATED } = RUN;
+VALID.controlRun = RUN;
+VALID.evaluationFeed = {
+  evaluations: [{ run: EVALUATED, finishedAt: '2026-01-01T00:00:00.123456Z', severity: { status: 'set', value: 'critical' } }],
+  next: { finishedAt: '2026-01-01T00:00:00.123456Z', id: ID },
 };
 const EXTRA = {
   post: [
@@ -297,6 +351,39 @@ const EXTRA = {
   ],
   accountSearch: [{ prefix: 'nobody:x' }, { prefix: 'user:' }, { prefix: 'user:x', after: 'not-a-uuid' }],
   trace: [{ businessKey: '   ' }, { businessKey: 'k'.repeat(513) }],
+  feeRevenue: [
+    { from: '2026-01-01T00:00:00', to: '2026-01-02T00:00:00Z' },
+    { from: '2026-02-30T00:00:00Z', to: '2026-01-02T00:00:00Z' },
+    { from: '2026-01-01T00:00:00Z', to: '2026-01-02T00:00:00+0200' },
+  ],
+  transactionsExist: [
+    { txIds: [] },
+    { txIds: Array.from({ length: 21 }, () => ID) },
+    { txIds: Array.from({ length: 20 }, () => ID) },
+    { txIds: ['22222222-2222-2222-2222-222222222222'] },
+    { txIds: ['not-a-guid'] },
+  ],
+  reconciliationEvaluations: [
+    { after: null, limit: 1 },
+    { after: null, limit: 0 },
+    { after: null, limit: 501 },
+    { after: null, limit: 1.5 },
+    { after: { finishedAt: '2026-01-01T00:00:00Z' }, limit: 1 },
+    { after: { finishedAt: '2026-01-01T00:00:00Z', id: ID, x: 1 }, limit: 1 },
+  ],
+  restoreWatermark: [{ asOf: '2026-01-01' }, { asOf: '2026-01-01T00:00:00Z', x: 1 }],
+  controlRun: [
+    { ...RUN, reconcilingItems: undefined },
+    { ...RUN, assets: [{ ...RUN.assets[0], observed: '01' }] },
+    { ...RUN, accounts: ['nope'] },
+    { ...RUN, sources: { ...RUN.sources, outside: { asOf: 'never' } } },
+    { ...RUN, status: 'started', margin: { status: 'set', value: '-1' } },
+  ],
+  evaluationFeed: [
+    { evaluations: [], next: null },
+    { evaluations: [{ ...VALID.evaluationFeed.evaluations[0], run: RUN }], next: null },
+    { evaluations: [{ ...VALID.evaluationFeed.evaluations[0], severity: { status: 'set', value: 'loud' } }], next: null },
+  ],
   unfreeze: [
     { approvalId: '', operationId: 'o' },
     { approvalId: 'a', operationId: 'o', confirmOperatorId: 'c'.repeat(129) },
@@ -319,7 +406,7 @@ function probes(door) {
 const verdicts = [];
 const verdictIndex = new Map();
 const cases = [];
-for (const [door, schema] of Object.entries(INPUTS)) {
+for (const [door, schema] of Object.entries({ ...INPUTS, ...OUTPUTS })) {
   for (const input of probes(door)) {
     const text = JSON.stringify(input) ?? null;
     const v = verdict(schema, input, text);
@@ -510,6 +597,94 @@ const codes = [
 ].sort();
 const copy = codes.map((code) => [code, userCopy(code)]);
 
+// ── The books the ops-reads database tests read ──────────────────────────────────────────────────────────────────
+
+/**
+ * The posts `fee-revenue-postgres.test.ts` and `own-funds-postgres.test.ts` book before they read, in their order, made
+ * by the same recipes and account helpers. The Rust port cannot post yet (the `posting` slice), so
+ * `tests/ops_reads_pg.rs` writes each straight into the book; the accounts and reasons are the recipes' own.
+ */
+const lc = await import(`${ROOT}packages/ledger-client/src/index.ts`);
+const PAYER = '11111111-1111-4111-8111-111111111111';
+const MERCHANT = '22222222-2222-4222-8222-222222222222';
+const amt = lc.parseAmount;
+const legs = (key, module, reason, debit, credit, value) => ({
+  idempotencyKey: key,
+  module,
+  reason,
+  entries: [
+    { account: debit, direction: 'debit', amount: amt(value) },
+    { account: credit, direction: 'credit', amount: amt(value) },
+  ],
+});
+const earn = (venueId, venueAccount, fillId, value) =>
+  lc.recipes.builderFeeEarn({ venueId, venueAccount, fillId, assetId: 'USDC', amount: amt(value), userId: PAYER });
+const feeFund = (asset) =>
+  legs(`fee-fund-${asset}`, 'bank', 'bank.transfer.in', lc.userAvailable(PAYER, asset), lc.railBoundary('crypto-native', asset), '1000');
+const fee = (key, module, asset, value) =>
+  legs(key, module, 'trade.fill.fee', lc.houseFees(module, asset), lc.userAvailable(PAYER, asset), value);
+const FEE_REVENUE = [
+  feeFund('USDT'),
+  feeFund('BTC'),
+  fee('fee-rev-1', 'trade', 'USDT', '10.123456789012345678'),
+  fee('fee-rev-2', 'pay', 'USDT', '2'),
+  fee('fee-rev-3', 'trade', 'BTC', '0.001'),
+  legs('fee-back-rev-1', 'trade', 'trade.fill.fee.correction', lc.userAvailable(PAYER, 'USDT'), lc.houseFees('trade', 'USDT'), '0.5'),
+  legs('insurance-rev-1', 'futures', 'futures.insurance.fund', lc.insuranceFund('USDT'), lc.userAvailable(PAYER, 'USDT'), '77'),
+  earn('test-venue', 'acct-1', 'f1', '3'),
+  earn('test-venue', 'acct-1', 'f2', '2'),
+  earn('other-venue', 'acct-9', 'f1', '7'),
+  lc.recipes.builderFeeReceive({ venueId: 'test-venue', claimId: 'claim-1', assetId: 'USDC', amount: amt('1.5') }),
+  fee('fee-rev-4', 'pay', 'USDT', '1'),
+];
+const rail = lc.railBoundary('crypto-native', 'USDT');
+const move = (key, from, to, value) => legs(key, 'bank', 'test.move', to, from, value);
+const OWN_FUNDS = [
+  move('own-funds-user', rail, lc.userAvailable(PAYER, 'USDT'), '1000'),
+  move('own-funds-merchant', rail, lc.merchantClearing(MERCHANT, 'USDT'), '40'),
+  move('own-funds-burn', rail, lc.burnAccount('USDT'), '5'),
+  move('own-funds-held', rail, lc.moduleAccount('ops', 'hold-confirm:test-held-funds', 'USDT'), '9'),
+  move('own-funds-reward', rail, lc.moduleAccount('campaigns', 'lock:reward-1', 'USDT'), '3'),
+  move('own-funds-clearing', rail, lc.futuresLossSink('USDT'), '11'),
+  move('own-funds-fee', lc.userAvailable(PAYER, 'USDT'), lc.houseFees('trade', 'USDT'), '12.500000000000000001'),
+  move('own-funds-insurance', rail, lc.insuranceFund('USDT'), '77'),
+  move('own-funds-mm', lc.railBoundary('crypto-native', 'BTC'), lc.marketMaker('BTC'), '0.25'),
+  move('own-funds-reserve', rail, lc.moduleAccount('bank', 'loan-reserve', 'USDT'), '300'),
+  earn('test-venue', 'acct-1', 'f1', '4'),
+  lc.recipes.builderFeeReceive({ venueId: 'test-venue', claimId: 'claim-1', assetId: 'USDC', amount: amt('4') }),
+  lc.recipes.ownFundsMove({
+    from: { kind: 'venue-builder-account', venueId: 'test-venue' },
+    to: { kind: 'partner-reserve', partnerId: 'bank' },
+    assetId: 'USDC',
+    amount: amt('1.5'),
+    reference: 'stmt-1',
+  }),
+];
+/** `restore-watermark-asof.pg.test.ts`'s `deposit(n)`, for n = 1. */
+const DEPOSIT = lc.recipes.deposit({
+  userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  assetId: 'USDT',
+  amount: amt('1'),
+  rail: 'crypto-native',
+  railRef: 'tx-wm-1',
+});
+const booked = (posts) =>
+  posts.map((p) => ({
+    idempotencyKey: p.idempotencyKey,
+    module: p.module,
+    reason: p.reason,
+    entries: p.entries.map((e) => ({
+      ownerType: e.account.ownerType,
+      ownerId: e.account.ownerId,
+      assetId: e.account.assetId,
+      kind: e.account.kind,
+      purpose: e.account.purpose ?? '',
+      direction: e.direction,
+      amount: lc.formatAmount(e.amount),
+    })),
+  }));
+const books = { feeRevenue: booked(FEE_REVENUE), ownFunds: booked(OWN_FUNDS), deposit: booked([DEPOSIT])[0] };
+
 // ── Writing ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const HEADER = '// @generated by crates/svc-ledger/scripts/record-door.mjs from the TypeScript svc-ledger. Do not edit by hand.\n';
@@ -539,6 +714,7 @@ const outputs = [
   [`${CRATE}tests/fixtures/input-parity.golden.json`, `${JSON.stringify({ verdicts, cases })}\n`],
   [`${CRATE}tests/fixtures/tokens.golden.json`, `${JSON.stringify({ cases: tokenCases }, null, 1)}\n`],
   [`${CRATE}tests/fixtures/env-parity.golden.json`, `${JSON.stringify({ cases: envCases }, null, 1)}\n`],
+  [`${CRATE}tests/fixtures/ops-reads-books.json`, `${JSON.stringify(books, null, 1)}\n`],
 ];
 
 const PRETTIER = fileURLToPath(new URL('../../../node_modules/.bin/prettier', import.meta.url));
