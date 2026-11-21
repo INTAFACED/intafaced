@@ -25,6 +25,11 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import type { Principal } from '@intafaced/auth';
+import type {
+  Conversion as ConversionAnswer,
+  ConvertPairs as ConvertPairsAnswer,
+  ConvertQuote as ConvertQuoteAnswer,
+} from '@intafaced/contracts/trade-venue-convert';
 import { add, div, formatAmount, mul, parseAmount, sub, type Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
@@ -873,7 +878,7 @@ function conversionOf({
 const assetAmount = (v: VenueAssetAmount) => ({ asset: v.asset, amount: formatAmount(v.amount) });
 
 /** A quote as the room and the API read it: every amount a decimal string, a figure the venue does not give `known: false`. */
-export function presentConvertQuote(q: ConvertQuote) {
+export function presentConvertQuote(q: ConvertQuote): ConvertQuoteAnswer {
   return {
     quoteId: q.quoteId,
     venueId: q.venueId,
@@ -928,7 +933,7 @@ const presentCashPrice = (c: CashPrice) => ({
   stableAmount: formatAmount(c.stableAmount),
 });
 
-export function presentConversion(c: Conversion) {
+export function presentConversion(c: Conversion): ConversionAnswer {
   return {
     actionKey: c.actionKey,
     kind: c.kind,
@@ -959,13 +964,13 @@ export function presentConversion(c: Conversion) {
   };
 }
 
-export function presentPairs(p: VenueConvertPairs) {
+export function presentPairs(p: VenueConvertPairs): ConvertPairsAnswer {
   return {
     venueId: p.venueId,
     test: p.test,
     paused: p.paused,
-    assets: p.assets,
-    restricted: p.restricted,
+    assets: [...p.assets],
+    restricted: [...p.restricted],
     pairs: p.pairs.map((x) => ({
       symbol: x.symbol,
       base: x.base,
