@@ -511,32 +511,28 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
     const dest = assertPersistableWithdrawDestination(input);
     const label = input.label === undefined ? null : assertDestinationLabel(input.label);
     const keepLabel = input.label === undefined;
-    const upsert = async () => {
-      const rows = await this.sql<DestinationRow[]>`
-        INSERT INTO bank.user_withdraw_destinations (user_id, kind, ref, label, origin)
-        VALUES (${input.userId}, ${dest.kind}, ${dest.ref}, ${label}, 'legacy')
-        ON CONFLICT (user_id, kind) WHERE origin = 'legacy'
-        DO UPDATE SET
-          ref = excluded.ref,
-          label = CASE WHEN ${keepLabel} THEN bank.user_withdraw_destinations.label ELSE excluded.label END,
-          updated_at = now()
-        RETURNING ${this.sql.unsafe(COLUMNS)}
-      `;
-      const row = rows[0];
-      if (!row) throw new Error('withdraw destination upsert returned no row');
-      return toDestination(row);
-    };
+    // Two first persists for one customer and kind race on two unique indexes at once, the legacy slot (the conflict
+    // target) and the label index (which the target does not absorb), and Postgres's speculative inserts can deadlock
+    // on each other there (40P01). So a persist takes the customer's address-book lock, the one `save` takes: the next
+    // persist starts only once the first committed, finds its legacy row and updates it, as a call made after it
+    // would. A label that still clashes is held by another of the customer's entries.
     try {
-      return await upsert();
-    } catch (err) {
-      if (!isUniqueViolation(err, LABEL_INDEX)) throw err;
-    }
-    // Two first persists for one customer and kind with the same label race: the loser's row clashes on the label
-    // index, which the conflict target does not absorb. Postgres raises that only once the winner committed, so one
-    // more upsert finds the winner's legacy row and updates it, as a call made after it would. If the label still
-    // clashes, another of the customer's entries holds it.
-    try {
-      return await upsert();
+      return await this.sql.begin(async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`withdraw-address-book:${input.userId}`}))`;
+        const rows = await tx<DestinationRow[]>`
+          INSERT INTO bank.user_withdraw_destinations (user_id, kind, ref, label, origin)
+          VALUES (${input.userId}, ${dest.kind}, ${dest.ref}, ${label}, 'legacy')
+          ON CONFLICT (user_id, kind) WHERE origin = 'legacy'
+          DO UPDATE SET
+            ref = excluded.ref,
+            label = CASE WHEN ${keepLabel} THEN bank.user_withdraw_destinations.label ELSE excluded.label END,
+            updated_at = now()
+          RETURNING ${tx.unsafe(COLUMNS)}
+        `;
+        const row = rows[0];
+        if (!row) throw new Error('withdraw destination upsert returned no row');
+        return toDestination(row);
+      });
     } catch (err) {
       if (isUniqueViolation(err, LABEL_INDEX)) throw LABEL_TAKEN();
       throw err;
