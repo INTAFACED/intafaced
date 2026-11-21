@@ -173,13 +173,12 @@ function VenueCard({
   const convert = useConvertApi();
   const wallet = useWallet();
   const account = useVenueAccount(owner);
-  const initial = useMemo(() => {
+  const [chosen, setChosen] = useState(() => {
     const p = (asked.from && asked.to && pairOf(pairs, asked.from, asked.to)) || null;
     if (p || cash) return { from: asked.from!, to: asked.to! };
     const first = pairs[0];
     return first ? { from: first.quote, to: first.base } : null;
-  }, [pairs, asked]);
-  const [chosen, setChosen] = useState(initial);
+  });
   const [amount, setAmount] = useState('');
   const [target, setTarget] = useState('');
   const [tab, setTab] = useState<'instant' | 'limit'>('instant');
