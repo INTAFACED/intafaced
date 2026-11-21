@@ -1,10 +1,43 @@
 {
   "inputs": {
-    "bridge.routes.list": { "sample": "null", "sample-nulls": "null" }
+    "bridge.routes.list": { "sample": "null", "sample-nulls": "null" },
+    "bridge.transfers.burnSubmitted": {
+      "sample": "{\"wallet\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"id\":\"22222222-2222-4222-8222-222222222222\",\"txHash\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "sample-nulls": "{\"wallet\":null,\"id\":null,\"txHash\":null}"
+    },
+    "bridge.transfers.list": {
+      "sample": "{\"wallet\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "sample-nulls": "{\"wallet\":null}"
+    },
+    "bridge.transfers.start": {
+      "sample": "{\"wallet\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"fromChainId\":1,\"toChainId\":1,\"asset\":\"placeholder\",\"amount\":\"placeholder\",\"clientKey\":\"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "sample-nulls": "{\"wallet\":null,\"fromChainId\":null,\"toChainId\":null,\"asset\":null,\"amount\":null,\"clientKey\":null}"
+    }
   },
   "bodies": [
     "{\"error\":{\"message\":\"bridge.routes_unset: the owner has published no bridge route\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"bridge.routes.list\",\"requestId\":\"req-replay\",\"cause\":{\"code\":\"bridge.routes_unset\"}}}}",
-    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"bridge.routes.list\",\"requestId\":\"req-replay\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}"
+    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"bridge.routes.list\",\"requestId\":\"req-replay\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.burnSubmitted\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.burnSubmitted\",\"requestId\":\"req-replay\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.burnSubmitted\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.burnSubmitted\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"wallet\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"txHash\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.burnSubmitted\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"bridge.routes_unset: the owner has published no bridge route\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.burnSubmitted\",\"requestId\":\"req-replay\",\"cause\":{\"code\":\"bridge.routes_unset\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"wallet\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"id\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"txHash\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.burnSubmitted\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.list\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.list\",\"requestId\":\"req-replay\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.list\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.list\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"wallet\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.list\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"bridge.routes_unset: the owner has published no bridge route\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.list\",\"requestId\":\"req-replay\",\"cause\":{\"code\":\"bridge.routes_unset\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"wallet\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.list\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.start\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"The United States is not served at launch.\",\"code\":-32003,\"data\":{\"code\":\"FORBIDDEN\",\"httpStatus\":403,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.start\",\"requestId\":\"req-replay\",\"intafacedCode\":\"denied.region_blocked\",\"cause\":{\"code\":\"denied.region_blocked\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.start\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"object\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [],\\n    \\\"message\\\": \\\"Invalid input: expected object, received number\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.start\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"wallet\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"fromChainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"toChainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"asset\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"amount\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"clientKey\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received undefined\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.start\",\"requestId\":\"req-replay\"}}}",
+    "{\"error\":{\"message\":\"bridge.routes_unset: the owner has published no bridge route\",\"code\":-32012,\"data\":{\"code\":\"PRECONDITION_FAILED\",\"httpStatus\":412,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.start\",\"requestId\":\"req-replay\",\"cause\":{\"code\":\"bridge.routes_unset\"}}}}",
+    "{\"error\":{\"message\":\"[\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"wallet\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"fromChainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"number\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"toChainId\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected number, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"asset\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"amount\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  },\\n  {\\n    \\\"expected\\\": \\\"string\\\",\\n    \\\"code\\\": \\\"invalid_type\\\",\\n    \\\"path\\\": [\\n      \\\"clientKey\\\"\\n    ],\\n    \\\"message\\\": \\\"Invalid input: expected string, received null\\\"\\n  }\\n]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,\"stack\":\"<stack>\",\"path\":\"bridge.transfers.start\",\"requestId\":\"req-replay\"}}}"
   ],
   "answers": {
     "bridge.routes.list": {
@@ -32,6 +65,84 @@
       "sample-nulls no-scope": [412, 0],
       "sample-nulls all": [412, 0],
       "sample-nulls all-US": [403, 1]
+    },
+    "bridge.transfers.burnSubmitted": {
+      "absent anon": [400, 2],
+      "absent no-scope": [400, 2],
+      "absent all": [400, 2],
+      "absent all-US": [403, 3],
+      "null anon": [400, 4],
+      "null no-scope": [400, 4],
+      "null all": [400, 4],
+      "null all-US": [403, 3],
+      "wrong-type anon": [400, 5],
+      "wrong-type no-scope": [400, 5],
+      "wrong-type all": [400, 5],
+      "wrong-type all-US": [403, 3],
+      "empty anon": [400, 6],
+      "empty no-scope": [400, 6],
+      "empty all": [400, 6],
+      "empty all-US": [403, 3],
+      "sample anon": [412, 7],
+      "sample no-scope": [412, 7],
+      "sample all": [412, 7],
+      "sample all-US": [403, 3],
+      "sample-nulls anon": [400, 8],
+      "sample-nulls no-scope": [400, 8],
+      "sample-nulls all": [400, 8],
+      "sample-nulls all-US": [403, 3]
+    },
+    "bridge.transfers.list": {
+      "absent anon": [400, 9],
+      "absent no-scope": [400, 9],
+      "absent all": [400, 9],
+      "absent all-US": [403, 10],
+      "null anon": [400, 11],
+      "null no-scope": [400, 11],
+      "null all": [400, 11],
+      "null all-US": [403, 10],
+      "wrong-type anon": [400, 12],
+      "wrong-type no-scope": [400, 12],
+      "wrong-type all": [400, 12],
+      "wrong-type all-US": [403, 10],
+      "empty anon": [400, 13],
+      "empty no-scope": [400, 13],
+      "empty all": [400, 13],
+      "empty all-US": [403, 10],
+      "sample anon": [412, 14],
+      "sample no-scope": [412, 14],
+      "sample all": [412, 14],
+      "sample all-US": [403, 10],
+      "sample-nulls anon": [400, 15],
+      "sample-nulls no-scope": [400, 15],
+      "sample-nulls all": [400, 15],
+      "sample-nulls all-US": [403, 10]
+    },
+    "bridge.transfers.start": {
+      "absent anon": [400, 16],
+      "absent no-scope": [400, 16],
+      "absent all": [400, 16],
+      "absent all-US": [403, 17],
+      "null anon": [400, 18],
+      "null no-scope": [400, 18],
+      "null all": [400, 18],
+      "null all-US": [403, 17],
+      "wrong-type anon": [400, 19],
+      "wrong-type no-scope": [400, 19],
+      "wrong-type all": [400, 19],
+      "wrong-type all-US": [403, 17],
+      "empty anon": [400, 20],
+      "empty no-scope": [400, 20],
+      "empty all": [400, 20],
+      "empty all-US": [403, 17],
+      "sample anon": [412, 21],
+      "sample no-scope": [412, 21],
+      "sample all": [412, 21],
+      "sample all-US": [403, 17],
+      "sample-nulls anon": [400, 22],
+      "sample-nulls no-scope": [400, 22],
+      "sample-nulls all": [400, 22],
+      "sample-nulls all-US": [403, 17]
     }
   }
 }
