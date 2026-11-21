@@ -53,6 +53,14 @@ const REFUSED_TYPES: Readonly<Partial<Record<z.core.$ZodTypes['_zod']['def']['ty
   intersection: 'intersection (merge semantics differ by generator)',
 };
 
+/**
+ * Any JSON value, declared on purpose: a stored document whose shape the service does not fix (a proposal's body). zod's
+ * own `z.json()`, which the export writes whole (a recursive `anyOf` of the six JSON kinds), so nothing is erased. The one
+ * recursive schema the walk lets through, and only this instance of it: `z.unknown()` and any other `z.lazy` stay refused.
+ */
+export const jsonValueSchema = z.json();
+export type JsonValue = z.infer<typeof jsonValueSchema>;
+
 /** Regex features the JSON Schema dialect (ECMA-262) has and Rust's `regex` crate does not. */
 const NON_PORTABLE_REGEX = /\(\?<?[=!]|\\[1-9]|\\k</;
 
@@ -81,6 +89,7 @@ function walk(schema: z.core.$ZodType, w: Walk): void {
     w.out.push({ at: w.at, construct: 'a schema zod does not name' });
     return;
   }
+  if (schema === jsonValueSchema) return;
   const def = schema._zod.def;
   const refused = REFUSED_TYPES[def.type];
   if (refused !== undefined) {

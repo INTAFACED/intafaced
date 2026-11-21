@@ -24,7 +24,8 @@ function signed() {
     sub: USER,
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
-    scopes: ['token:read', 'token:stake'],
+    // A member's and a founder's scopes together, so every record's guard admits it and the input decides.
+    scopes: ['token:read', 'token:stake', 'admin:read', 'admin:write'],
     tier: 'full',
     mfa: true,
     expiresAt: new Date('2099-01-01T00:00:00Z'),

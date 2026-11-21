@@ -45,7 +45,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo",
-    "procedures:write": "node ../contracts/scripts/procedure-registry.mjs . LEDGER_PROCEDURES @intafaced/contracts/procedure && tsc -p tsconfig.json && node scripts/write-procedures.mjs && prettier --write procedures.schema.json"
+    "procedures:write": "node ../contracts/scripts/procedure-registry.mjs . LEDGER_PROCEDURES @intafaced/contracts/procedure && tsc -p tsconfig.json && node ../contracts/scripts/write-procedures.mjs ./dist/procedure-registry.js LEDGER_PROCEDURES && prettier --write procedures"
   },
   "dependencies": {
     "@intafaced/contracts": "workspace:*",
