@@ -1,4 +1,3 @@
-import { P2P_CANCEL_REASONS, P2P_CANCELLED_BY } from '@intafaced/contracts/p2p-cancel';
 import {
   P2P_CHAT_MESSAGES_LIST,
   P2P_CHAT_MESSAGES_SEND,
@@ -12,6 +11,19 @@ import {
   P2P_REPUTATION_GET,
   P2P_REVIEWS_FOR_TRADE,
   P2P_REVIEWS_LEAVE,
+  P2P_SETTLEMENT,
+  P2P_TRADES_CONTRACT_ESCROW,
+  P2P_TRADES_EXPORT,
+  P2P_TRADES_GET,
+  P2P_TRADES_PAGE,
+  P2P_TRADES_PAYMENT_INSTRUMENT,
+  P2P_TRADES_QUOTE,
+  P2P_TRADES_RECEIPT,
+  P2P_TRADES_REMARK_CASE,
+  P2P_TRADES_REMIND,
+  P2P_TRADES_REPORT_MISMATCH,
+  P2P_TRADES_REPORT_SENSITIVE_REMARK,
+  P2P_TRADES_TAKE,
 } from '@intafaced/contracts/p2p-procedures';
 import type { ProcedureOutput } from '@intafaced/contracts/procedure';
 import { z } from 'zod';
@@ -93,171 +105,6 @@ export type BoardQuery = {
   fiatAmount?: string;
   sort?: BoardSort;
 };
-/** svc-p2p's readable status, derived on the server from the state, the resolution and how it was reached. */
-export const displayStatuses = [
-  'waiting_for_escrow',
-  'waiting_for_buyer_to_pay',
-  'waiting_for_seller_to_release',
-  'appealing',
-  'completed',
-  'completed_by_dispute_ruling',
-  'cancelled',
-  'cancelled_by_timeout',
-  'cancelled_by_dispute_ruling',
-] as const;
-/** How money on a payment method arrives in one market (svc-p2p settlement profile). */
-export const methodSettlementSchema = z.union([
-  z.object({ instant: z.literal(true) }),
-  z.object({ instant: z.literal(false), windowSeconds: z.number().int().positive().nullable() }),
-]);
-export type MethodSettlement = z.infer<typeof methodSettlementSchema>;
-export const tradeSchema = z.object({
-  id,
-  offerId: id,
-  /** P-ads-merchant-07: the order was taken through a share link. */
-  sharedFrom: z.boolean().optional(),
-  sellerId: z.string(),
-  buyerId: z.string(),
-  asset,
-  amount,
-  fiatCurrency: z.string(),
-  fiatAmount: amount,
-  price: amount,
-  method: z.string(),
-  status: z.enum(['created', 'escrowed', 'fiat_sent', 'released', 'cancelled', 'disputed']),
-  resolution: z.enum(['released', 'refunded', 'voided']).nullable(),
-  deadlineAt: z.string().nullable(),
-  createdAt: z.string(),
-  escrowedAt: z.string().nullable(),
-  resolvedAt: z.string().nullable(),
-  settledAt: z.string().nullable(),
-  /** RC-p2p-02: who holds the coins: the ledger, or the escrow contract (no ledger entry). Fixed at take. */
-  escrowKind: z.enum(['ledger', 'contract']).optional(),
-  /** RC-p2p-02: the contract deal's terms (fixed at take) and, once the seller attached it, the deal. Null on a ledger order. */
-  contract: z
-    .object({
-      chainId: z.number().int().positive(),
-      token: z.string(),
-      units: z.string().regex(/^[1-9][0-9]*$/),
-      buyerWallet: z.string(),
-      disputeWindowSeconds: z.number().int().positive(),
-      timeout: z.literal('refund_seller'),
-      dealId: z.string().nullable(),
-      sellerWallet: z.string().nullable(),
-    })
-    .nullable()
-    .optional(),
-  /** `trades.get` only: the ad's terms when the order was placed (later ad edits never change them); null when the order predates the copy. */
-  terms: z.string().nullable().optional(),
-  /** `trades.get` only: the readable status the order list shows. */
-  displayStatus: z.enum(displayStatuses).optional(),
-  /** `trades.get` only: the fee rate frozen at take, and for a released order the split the ledger posted from it (null otherwise). */
-  feeBps: z.number().int().min(0).max(9_999).optional(),
-  fee: amount.nullable().optional(),
-  netAmount: amount.nullable().optional(),
-  /** `trades.get` only: the method's settlement profile in the market the buyer pays into, copied at take. */
-  settlement: methodSettlementSchema.optional(),
-  /** `trades.get` only: while the escrow is held, the split a release would post (null once it is not held). */
-  releasePreview: z.object({ fee: amount, netAmount: amount }).nullable().optional(),
-  /** `trades.get` only: what of this order is still in escrow (zero once the release or refund posted; null while `created`). */
-  escrowHeld: amount.nullable().optional(),
-  /** `trades.get` only: the buyer's reminders to the seller (P-trade-orders-15). */
-  reminders: z.lazy(() => tradeRemindersSchema).optional(),
-  mismatch: z.lazy(() => tradeMismatchSchema.nullable()).optional(),
-  /** svc-p2p `trades.get` `paymentValidation`: what stops the bank rail checking this order, or null. */
-  paymentValidation: z.object({ blocker: z.enum(['rail.bank', 'p2p.method_not_rail_validated']).nullable() }).optional(),
-  /** svc-p2p `trades.get` `cancelReason` (P-trade-orders-19): on a cancelled order, who cancelled it and the code they chose. */
-  cancelReason: z
-    .object({ by: z.enum(P2P_CANCELLED_BY), code: z.enum(P2P_CANCEL_REASONS).nullable().catch(null) })
-    .nullable()
-    .optional(),
-});
-/** svc-p2p `trades.remind` and `trades.get` `reminders`: how many went, the last, when the next may go, the owner's count. */
-export const tradeRemindersSchema = z.object({
-  count: z.number().int().nonnegative(),
-  lastAt: z.string().datetime().nullable(),
-  nextAt: z.string().datetime().nullable(),
-  max: z.number().int().positive().nullable(),
-});
-export type TradeReminders = z.infer<typeof tradeRemindersSchema>;
-/** svc-p2p `trades.reportSensitiveRemark` (P-ads-merchant-19): the case a party's report of a payment-note remark opened. */
-export const remarkCaseSchema = z.object({
-  id,
-  tradeId: id,
-  reporterId: z.string(),
-  reportedId: z.string(),
-  reporterRole: z.enum(['buyer', 'seller']),
-  remark: z.string(),
-  status: z.literal('open'),
-  openedAt: z.string(),
-});
-export type RemarkCase = z.infer<typeof remarkCaseSchema>;
-/** svc-p2p `trades.remarkCase`: the person's own report on the order, and whether the other party reported them (no quote). */
-export const remarkCasesOnSchema = z.object({
-  mine: remarkCaseSchema.nullable(),
-  againstMe: z.object({ caseId: id, openedAt: z.string() }).nullable(),
-});
-export type RemarkCasesOn = z.infer<typeof remarkCasesOnSchema>;
-/**
- * svc-p2p `trades.reportMismatch` and `trades.get` `mismatch`: the seller's report of what arrived, and the owner's band
- * it was classified by (`reported` when the band is blank and a person decides).
- */
-export const tradeMismatchSchema = z.object({
-  kind: z.enum(['under', 'over', 'partial']),
-  amountReceived: z.string(),
-  expected: z.string(),
-  classification: z.enum(['within_tolerance', 'outside_tolerance', 'reported']),
-  toleranceBps: z.number().int().nonnegative().nullable(),
-  reportedAt: z.string().datetime(),
-});
-export type TradeMismatch = z.infer<typeof tradeMismatchSchema>;
-/** svc-p2p `trades.validatePayment`: released on an exact match, or pending while the bank shows nothing. */
-export const validatePaymentSchema = z.object({ outcome: z.enum(['released', 'pending']), trade: tradeSchema });
-/** svc-p2p `trades.page`: one keyset page newest first, the server's tab and readable status per row, and exact per-tab counts. */
-export const orderTabs = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;
-export const orderPageSchema = z.object({
-  trades: z.array(
-    tradeSchema.extend({
-      tab: z.enum(orderTabs),
-      displayStatus: z.enum(displayStatuses),
-    }),
-  ),
-  nextCursor: z.string().nullable(),
-  counts: z.object({
-    in_progress: z.number().int().nonnegative(),
-    in_dispute: z.number().int().nonnegative(),
-    completed: z.number().int().nonnegative(),
-    cancelled: z.number().int().nonnegative(),
-  }),
-});
-/** svc-p2p `trades.export`: the CSV the service generated, its row count and its per-pair totals as decimal strings. */
-export const orderExportSchema = z.object({
-  csv: z.string(),
-  rows: z.number().int().nonnegative(),
-  format: z.literal('csv'),
-  totals: z.array(z.object({ asset, fiatCurrency: z.string(), amount, fiatAmount: amount })),
-});
-/** svc-p2p `trades.receipt`: one released trade, the caller's own side only, and what is left of the download quotas. */
-export const orderReceiptSchema = z.object({
-  receipt: z.object({
-    tradeId: id,
-    offerId: id,
-    role: z.enum(['buyer', 'seller']),
-    asset,
-    amount,
-    fiatCurrency: z.string(),
-    fiatAmount: amount,
-    price: amount,
-    feeBps: z.number().int().nonnegative(),
-    method: z.string(),
-    createdAt: z.string(),
-    escrowedAt: z.string().nullable(),
-    fiatSentAt: z.string().nullable(),
-    resolvedAt: z.string().nullable(),
-  }),
-  dailyRemaining: z.number().int().nonnegative(),
-  tradeRemaining: z.number().int().nonnegative(),
-});
 export const instrumentSchema = z.object({
   id,
   methodId: z.string(),
@@ -291,26 +138,13 @@ export const methodSchema = z.object({
   label: z.string(),
   fields: z.array(methodFieldSchema),
   enabled: z.boolean(),
-  settlement: methodSettlementSchema.optional(),
+  settlement: P2P_SETTLEMENT.optional(),
   /** P-ads-merchant-19: the row's payment-note rules and cash-in-person rules (cash in person when set), or null. */
   noteRules: z
     .object({ guidance: z.string(), forbidden: z.array(z.string()) })
     .nullable()
     .optional(),
   cashRules: z.object({ meetingGuidance: z.string(), proof: z.string(), releaseWindowSeconds: z.number().int() }).nullable().optional(),
-});
-export const tradeDestinationSchema = z.object({
-  tradeId: id,
-  methodId: z.string(),
-  country: z.string(),
-  fiatCurrency: z.string(),
-  label: z.string(),
-  details: z.record(z.string(), z.string()),
-  /** Each detail's label from the method schema, in its order. */
-  fields: z.array(z.object({ key: z.string(), label: z.string() })),
-  attachedAt: z.string(),
-  /** The seller changed or removed this destination after the order was placed; the order still pays the details above. */
-  payeeChange: z.object({ kind: z.enum(['changed', 'removed']) }).nullable(),
 });
 export const disputeSchema = z.object({
   id,
@@ -343,24 +177,6 @@ export const disputeOpenedSchema = z.object({
   moderationConfigured: z.boolean(),
   moderation: P2P_MODERATION,
 });
-/** `trades.stepUpWindow`: until when this session's takes need no new confirmation, or null. */
-export const takeStepUpWindowSchema = z.object({ confirmedUntil: z.string().datetime({ offset: true }).nullable() });
-/** What `trades.quote` returns: exact figures for one take, before anything is locked. */
-export const takeQuoteSchema = z.object({
-  amount: positiveAmount,
-  price: amount,
-  fiatAmount: amount,
-  feeBps: z.number().int().nonnegative().max(9999),
-  fee: amount,
-  netAmount: amount,
-  reservationExpiresAt: z.string().datetime({ offset: true }),
-  /** Set only on a locked quote (`trades.lockQuote`): the take names it, and `reservationExpiresAt` is when it ends. */
-  quoteId: id.optional(),
-});
-/** What `trades.lockQuote` returns: the quote held until `expiresAt`. */
-export const lockedQuoteSchema = takeQuoteSchema
-  .omit({ reservationExpiresAt: true, quoteId: true })
-  .extend({ quoteId: id, expiresAt: z.string().datetime({ offset: true }), expiresInMs: z.number().int().nonnegative() });
 /** A versioned acceptance: the owner-published version and when this person accepted it (advertiser terms). */
 export type P2PRiskNotice = ProcedureOutput<typeof P2P_MERCHANTS_ADVERTISER_TERMS>;
 /** P-ads-merchant-01: the caller's free balance of one coin, as svc-p2p reads it from the ledger. */
@@ -630,16 +446,26 @@ export const webhookDeliverySchema = z.object({
   deliveredAt: z.string().nullable(),
 });
 export type Offer = z.infer<typeof offerSchema>;
-export type Trade = z.infer<typeof tradeSchema>;
-export type TradeDestination = z.infer<typeof tradeDestinationSchema>;
-export type OrderPage = z.infer<typeof orderPageSchema>;
-export type OrderTab = (typeof orderTabs)[number];
-export type OrderExport = z.infer<typeof orderExportSchema>;
+export type MethodSettlement = z.infer<typeof P2P_SETTLEMENT>;
+type TradeBase = ProcedureOutput<typeof P2P_TRADES_TAKE>;
+/** One order: every trade call's fields, and the ones only `trades.get` adds (its terms, readable status, fee split and more). */
+export type Trade = TradeBase & Partial<Omit<ProcedureOutput<typeof P2P_TRADES_GET>, keyof TradeBase>>;
+export type TradeReminders = ProcedureOutput<typeof P2P_TRADES_REMIND>;
+export type TradeMismatch = ProcedureOutput<typeof P2P_TRADES_REPORT_MISMATCH>;
+export type RemarkCase = ProcedureOutput<typeof P2P_TRADES_REPORT_SENSITIVE_REMARK>;
+export type RemarkCasesOn = ProcedureOutput<typeof P2P_TRADES_REMARK_CASE>;
+export type TradeDestination = ProcedureOutput<typeof P2P_TRADES_PAYMENT_INSTRUMENT>;
+export type OrderPage = ProcedureOutput<typeof P2P_TRADES_PAGE>;
+export type OrderTab = OrderPage['trades'][number]['tab'];
+export type OrderExport = ProcedureOutput<typeof P2P_TRADES_EXPORT>;
+export type OrderReceipt = ProcedureOutput<typeof P2P_TRADES_RECEIPT>;
+/** A take's figures: a preview quote, or a locked one, which carries its `quoteId` and counts down on this device. */
+export type TakeQuote = ProcedureOutput<typeof P2P_TRADES_QUOTE> & { quoteId?: string };
+export type ContractEscrowOffer = ProcedureOutput<typeof P2P_TRADES_CONTRACT_ESCROW>;
 /** svc-p2p `reviews.*`: one good/bad review per party of a released order. */
 export type OrderReview = ProcedureOutput<typeof P2P_REVIEWS_LEAVE>;
 /** `reviews.forTrade`: the viewer's own review of the order and the visible one about them. */
 export type TradeReviews = ProcedureOutput<typeof P2P_REVIEWS_FOR_TRADE>;
-export type OrderReceipt = z.infer<typeof orderReceiptSchema>;
 /** svc-p2p `chat.messages.list`: oldest first; `nextCursor` is set while a full page was returned. */
 export type ChatPage = ProcedureOutput<typeof P2P_CHAT_MESSAGES_LIST>;
 export type ChatMessage = ChatPage['messages'][number];
@@ -647,7 +473,6 @@ export type ChatMessage = ChatPage['messages'][number];
 export type ChatSent = ProcedureOutput<typeof P2P_CHAT_MESSAGES_SEND>;
 /** `contacts.list` and every contacts change answer with the caller's whole lists of account ids. */
 export type Contacts = ProcedureOutput<typeof P2P_CONTACTS_LIST>;
-export type TakeQuote = z.infer<typeof takeQuoteSchema>;
 export type Reputation = ProcedureOutput<typeof P2P_REPUTATION_GET>;
 /** P-trade-orders-21: the person's one completion appeal (`reputation.myAppeal`, `reputation.appeal`). */
 export type CompletionAppeal = ProcedureOutput<typeof P2P_REPUTATION_APPEAL>;
@@ -711,17 +536,3 @@ export const shareLinkSchema = z.object({
   revokedAt: z.string().datetime().nullable(),
 });
 export type ShareLink = z.infer<typeof shareLinkSchema>;
-
-/** RC-p2p-02 `trades.contractEscrow`: the contract escrow for one asset, offered or refused with its blocker. */
-export const contractEscrowOfferSchema = z.object({
-  available: z.boolean(),
-  blocker: z.string().nullable(),
-  reason: z.string().nullable(),
-  network: z.object({ chainId: z.number().int().positive(), label: z.string(), escrow: z.string() }).nullable(),
-  token: z.object({ address: z.string(), decimals: z.number().int() }).nullable(),
-  disputeWindowSeconds: z.number().int().positive().nullable(),
-  timeout: z.literal('refund_seller'),
-  mainnet: z.object({ available: z.literal(false), blocker: z.literal('audit.external') }),
-  audited: z.literal(false),
-});
-export type ContractEscrowOffer = z.infer<typeof contractEscrowOfferSchema>;

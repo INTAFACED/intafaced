@@ -86,6 +86,17 @@ const schema = serviceEnvSchema
        */
       TRADE_BUILDER_FEE_RECON_INTERVAL_MS: z.coerce.number().int().min(10_000).max(86_400_000).default(300_000),
       /**
+       * J-ops-console-28: how often svc-trade reads our builder address's account mode at each venue, with the door on and
+       * our builder address set; the founder console's view checks again on every read.
+       */
+      TRADE_BUILDER_MODE_CHECK_INTERVAL_MS: z.coerce.number().int().min(1_000).max(86_400_000).default(60_000),
+      /**
+       * J-ops-console-28 (owner value): the named contact an alert goes to when our builder address leaves the mode a venue
+       * requires to accrue builder fees. Blank: the console still shows the modes, and alerting refuses
+       * `trade.builder_mode_alert_contact_unset`; no alert is recorded.
+       */
+      TRADE_BUILDER_MODE_ALERT_CONTACT: z.string().default(''),
+      /**
        * J-derivatives-17, J-campaigns-03 (launch money model, rule 5): how often svc-trade reads each venue's own record of
        * the claims of our builder fees and posts `builderFeeReceive` once per claim. A venue whose adapter does not read
        * the claim record collects nothing and says so. `off` stops it; the next run posts each claim once.

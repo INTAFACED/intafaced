@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ZodType } from 'zod';
-import type { ApiResult } from '../../shared/api';
+import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useApi } from '../session';
@@ -11,17 +10,20 @@ export const STRATEGY_PAGE = 20;
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type Page<T> = { strategies: T[]; nextCursor: string | null };
+/** One page read of a strategy list: the first (no cursor) or the next one. */
+export type StrategyPageRead<T> = (
+  api: ApiClient,
+  input: { limit: number; cursor?: string },
+  signal?: AbortSignal,
+) => Promise<ApiResult<Page<T>>>;
 
 /**
  * One list of saved strategies, a page at a time: the first read, then Show more reads the next page with the cursor
- * the service gave. Studio, the Algo dev home and the strategy list all page the same way.
+ * the service gave. Studio, the Algo dev home and the strategy list all page the same way. `name` keys the read.
  */
-export function useStrategyPages<T>(procedure: 'studio.list' | 'studio.listDeleted', schema: ZodType<Page<T>>, reloadKey: string) {
+export function useStrategyPages<T>(name: string, read: StrategyPageRead<T>, reloadKey: string) {
   const api = useApi();
-  const first = useResource(
-    (signal) => api.query('quant', procedure, { limit: STRATEGY_PAGE }, schema, { signal }),
-    `quant-${procedure}:${reloadKey}`,
-  );
+  const first = useResource((signal) => read(api, { limit: STRATEGY_PAGE }, signal), `quant-${name}:${reloadKey}`);
   const [later, setLater] = useState<{ rows: T[]; cursor: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failed | null>(null);
@@ -32,7 +34,7 @@ export function useStrategyPages<T>(procedure: 'studio.list' | 'studio.listDelet
   async function more(cursor: string) {
     setBusy(true);
     setFailure(null);
-    const res = await api.query('quant', procedure, { limit: STRATEGY_PAGE, cursor }, schema);
+    const res = await read(api, { limit: STRATEGY_PAGE, cursor });
     setBusy(false);
     if (res.ok) setLater((prev) => ({ rows: [...(prev?.rows ?? []), ...res.data.strategies], cursor: res.data.nextCursor }));
     else setFailure(res);

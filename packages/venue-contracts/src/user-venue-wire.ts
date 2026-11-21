@@ -211,6 +211,9 @@ const OPAQUE_FIELDS: ReadonlySet<string> = new Set([
   'marginAccount',
   // A funding rate's published rule (J-derivatives-08 #1): text.
   'rule',
+  // A builder address's account mode and the mode the venue requires (J-ops-console-28): the venue's own words.
+  'mode',
+  'required',
 ]);
 
 export class VenueWireError extends Error {

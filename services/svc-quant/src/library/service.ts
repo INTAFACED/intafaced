@@ -8,14 +8,13 @@ import {
   type QuantLineage,
   type QuantListing,
   type QuantListingCheck,
-  type QuantListingCheckInput,
   type QuantListingPage,
   type QuantListingPreview,
-  type QuantListingPublishInput,
   type QuantModerationAction,
   type QuantModerationEntry,
   type QuantModerationQueue,
 } from '@intafaced/contracts';
+import type { QuantListingCheckInput, QuantListingPublishInput } from '@intafaced/contracts/quant-library-procedures';
 import { z } from 'zod';
 import {
   BACKTEST_HISTORY_PAGE_MAX,

@@ -72,6 +72,14 @@ async function venueFetch(url, init) {
 /** The stack's second TEST venue (local-test-stack.mjs PORTS['test-venue-b']), on with LOCAL_STACK_USER_VENUE=two. */
 export const TEST_VENUE_B = stackUrl('test-venue-b');
 
+/** A TEST venue's id and name, by its base URL, with the base it was read at. */
+export async function testVenueInfoAt(base) {
+  const { status, body } = await testVenueAt(base, '/venue');
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  expect(body.label).toBe('TEST');
+  return { id: body.venue.id, displayName: body.venue.displayName, base };
+}
+
 /** One call to either TEST venue by its base URL. */
 export async function testVenueAt(base, path, body) {
   const res = await venueFetch(`${base}${path}`, {

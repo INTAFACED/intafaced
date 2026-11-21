@@ -5,21 +5,14 @@ import {
   QUANT_RUN_NOT_FOUND,
   QuantError,
 } from '../errors.js';
-import {
-  QUANT_PAPER_FEEDS,
-  QUANT_PAPER_LIST_MAX,
-  TRPCError,
-  publicJurisdictionProcedure,
-  quantPaperListSchema,
-  quantPaperRunSchema,
-  quantPaperStartInputSchema,
-  router,
-} from '@intafaced/contracts';
+import { QUANT_PAPER_FEEDS, TRPCError, router } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { QUANT_PAPER_GET, QUANT_PAPER_LIST, QUANT_PAPER_START, QUANT_PAPER_STOP } from '@intafaced/contracts/quant-paper-procedures';
 import { paperKey, paperSettingsOf } from '../paper/view.js';
 import { withQuantSpan } from '../tracing.js';
-import { z } from 'zod';
-import { toTrpc, accountField, missingStrategy, type QuantCore } from './core.js';
+import { quantRefusal, toTrpc, missingStrategy, type QuantCore } from './core.js';
 
+/** `quant.paper.*`, mounted from its records (`@intafaced/contracts/quant-paper-procedures`). */
 export function paperRoutes(core: QuantCore) {
   const { strategies, runs, presentPaper, accountOf } = core;
   return router({
@@ -28,10 +21,9 @@ export function paperRoutes(core: QuantCore) {
      * from the version's run count the start dialog read, so a retry after a lost reply reads the same run. An outside
      * market feed refuses `feed.market` and stores nothing. The start counts against the plan (AL-limits-01).
      */
-    start: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantPaperStartInputSchema.extend(accountField))
-      .output(quantPaperRunSchema)
-      .mutation(async ({ input, ctx }) =>
+    start: mountRecord(
+      QUANT_PAPER_START,
+      async ({ input, ctx }) =>
         withQuantSpan('quant.paper.start', { language: 'rules' }, async () => {
           try {
             const accountId = accountOf(ctx, input.accountId);
@@ -72,13 +64,13 @@ export function paperRoutes(core: QuantCore) {
             toTrpc(err);
           }
         }),
-      ),
+      quantRefusal,
+    ),
 
     /** Stops one of the caller's paper runs: no new order after this, and the record stays. Stopping again changes nothing. */
-    stop: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ runId: z.string().min(1).max(128), ...accountField }))
-      .output(quantPaperRunSchema)
-      .mutation(async ({ input, ctx }) => {
+    stop: mountRecord(
+      QUANT_PAPER_STOP,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const paper = await runs.paperRun({ userId: accountId, id: input.runId });
@@ -102,19 +94,14 @@ export function paperRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /** The caller's paper runs of one strategy, newest first, with each version's run count. A blank page size refuses. */
-    list: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z.object({
-          strategyId: z.string().min(1).max(128),
-          limit: z.number().int().min(1).max(QUANT_PAPER_LIST_MAX).optional(),
-          ...accountField,
-        }),
-      )
-      .output(quantPaperListSchema)
-      .query(async ({ input, ctx }) => {
+    list: mountRecord(
+      QUANT_PAPER_LIST,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           if (input.limit === undefined) {
@@ -143,13 +130,14 @@ export function paperRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /** One of the caller's paper runs, with its fills, position and equity derived on this read. */
-    get: publicJurisdictionProcedure('quant', 'fiat')
-      .input(z.object({ runId: z.string().min(1).max(128), ...accountField }))
-      .output(quantPaperRunSchema)
-      .query(async ({ input, ctx }) => {
+    get: mountRecord(
+      QUANT_PAPER_GET,
+      async ({ input, ctx }) => {
         try {
           const accountId = accountOf(ctx, input.accountId);
           const paper = await runs.paperRun({ userId: accountId, id: input.runId });
@@ -158,6 +146,8 @@ export function paperRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }
