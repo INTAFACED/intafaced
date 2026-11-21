@@ -10,14 +10,15 @@
 //!    reaches the ledger (`schemas.json`).
 //!
 //! Past those the call is its slice's: [`Outcome::Owed`] names which, until the slice is ported. Ported so far:
-//! `/health` and `/ready` (the `store` slice, `crate::status`), the freeze doors (the `freeze` slice, `freeze.rs`),
-//! the asset registry's doors (the `assets` slice, `assets.rs`) and the history doors (the `history` slice,
-//! `history.rs`).
+//! `/health` and `/ready` (the `store` slice, `crate::status`), the freeze doors (the `freeze` slice, `freeze.rs`), the
+//! asset registry's doors (the `assets` slice, `assets.rs`), the history doors (the `history` slice, `history.rs`) and
+//! `/operator/reconcile` (the `reconcile` slice, `reconcile.rs`).
 
 mod assets;
 mod callers;
 mod freeze;
 mod history;
+mod reconcile;
 
 pub use callers::DOOR_CALLERS;
 
@@ -420,6 +421,10 @@ pub struct DoorConfig {
     pub now_ms: fn() -> i64,
     /// `app.log`.
     pub log: Logger,
+    /// `LEDGER_CUSTODY_LAYER`: the switch posts enforce and reconciliation checks customer balances against.
+    pub custody: crate::reconcile::CustodyLayer,
+    /// `LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS`.
+    pub reconcile_statement_timeout_ms: i64,
 }
 
 /// The door.
@@ -769,6 +774,7 @@ impl LedgerDoor {
             Slice::Assets => {
                 Outcome::Answer(self.assets_operator(route.path, &principal, &body_value(body)))
             }
+            Slice::Reconcile => Outcome::Answer(self.reconcile_door(&principal, &input)),
             slice => Outcome::Owed(slice),
         };
         match route.input {

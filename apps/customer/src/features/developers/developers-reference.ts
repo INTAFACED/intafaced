@@ -1088,6 +1088,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'Your venue account’s mode, its spot and perps balances in standard mode, and today’s action count, as the venue reports them',
   },
   {
+    name: 'venueVaultHoldings',
+    method: 'GET',
+    path: '/api/v1/venue/vault-holdings',
+    product: 'accounts',
+
+    summary: 'Your vault positions with each lock-up’s end, your account value as the venue counts it, and your vault transfers',
+  },
+  {
     name: 'venueLiquidation',
     method: 'GET',
     path: '/api/v1/venue/liquidation',
@@ -1134,6 +1142,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     product: 'accounts',
 
     summary: 'The venue’s own insurance fund and where to read it, or “not published by this venue”, never 0',
+  },
+  {
+    name: 'venueVaults',
+    method: 'GET',
+    path: '/api/v1/venue/vaults',
+    product: 'accounts',
+
+    summary: 'The venue’s vaults, each with its lock-up, leader profit share, value and past return as the venue publishes them',
   },
   {
     name: 'venueLiquidationAlerts',
