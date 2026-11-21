@@ -27,6 +27,7 @@ import {
   QUANT_VENUE_VAULT_UNSET,
 } from './errors.js';
 import type { BacktestLake } from './backtest/lake.js';
+import { QUANT_SANDBOX_CAPABILITIES } from '@intafaced/contracts/quant-sandbox-procedures';
 import { createQuantRouter, type QuantRouter } from './router.js';
 import { createMemoryQuota } from './quota/memory.js';
 
@@ -257,7 +258,7 @@ describe('svc-quant mount — sandbox.run', () => {
     const caller = createQuantRouter({ wired: true, venueVaultSet: false, paperFeeBps: '0', quota: testQuota(), limits }).createCaller(
       anonymous(),
     );
-    const caps = await caller.sandbox.capabilities();
+    const caps = QUANT_SANDBOX_CAPABILITIES.output.parse(await caller.sandbox.capabilities(undefined));
     expect(caps.isolate).toBe('wired');
     expect(caps.venueVault).toBe('unset');
     expect(caps.languages).toContain('python');

@@ -30,6 +30,27 @@ import {
   P2P_REVIEWS_FOR_TRADE,
   P2P_REVIEWS_LEAVE,
   P2P_REVIEWS_REPLY,
+  P2P_TRADES_ATTACH_CONTRACT_DEAL,
+  P2P_TRADES_CANCEL,
+  P2P_TRADES_CONFIRM_RECEIVED,
+  P2P_TRADES_CONTRACT_ESCROW,
+  P2P_TRADES_EXPORT,
+  P2P_TRADES_GET,
+  P2P_TRADES_LOCK_QUOTE,
+  P2P_TRADES_MARK_FIAT_SENT,
+  P2P_TRADES_PAGE,
+  P2P_TRADES_PAYMENT_INSTRUMENT,
+  P2P_TRADES_QUOTE,
+  P2P_TRADES_RECEIPT,
+  P2P_TRADES_RELEASE_STEP_UP_WINDOW,
+  P2P_TRADES_REMARK_CASE,
+  P2P_TRADES_REMIND,
+  P2P_TRADES_REPORT_MISMATCH,
+  P2P_TRADES_REPORT_SENSITIVE_REMARK,
+  P2P_TRADES_STEP_UP_WINDOW,
+  P2P_TRADES_SYNC_CONTRACT_DEAL,
+  P2P_TRADES_TAKE,
+  P2P_TRADES_VALIDATE_PAYMENT,
 } from '@intafaced/contracts/p2p-procedures';
 import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
@@ -434,7 +455,7 @@ export function createPersonalPayApi(
     const denied = signedIn();
     if (denied) return denied;
     if (!p2pCurrent()) return p2pDeparted();
-    const result = await api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema, { signal });
+    const result = await api.call(P2P_TRADES_GET, { tradeId }, { signal });
     if (!p2pCurrent()) return p2pDeparted();
     if (!result.ok) return result;
     if (result.data.id.toLowerCase() !== tradeId.toLowerCase())
@@ -557,17 +578,12 @@ export function createPersonalPayApi(
     orderPage: ({ tab, cursor, limit }: { limit: number; tab?: s.OrderTab; cursor?: string | null }, signal?: AbortSignal) =>
       signedIn()
         ? Promise.resolve(signedIn()!)
-        : api.query('p2p', 'trades.page', { limit, ...(tab ? { tab } : {}), ...(cursor ? { cursor } : {}) }, s.orderPageSchema, {
-            signal,
-          }),
+        : api.call(P2P_TRADES_PAGE, { limit, ...(tab ? { tab } : {}), ...(cursor ? { cursor } : {}) }, { signal }),
     /** The caller's orders created in [from, to] as the service's CSV; a range or row count over the owner cap refuses. */
     exportOrders: (range: { from: string; to: string }, signal?: AbortSignal) =>
-      signedIn()
-        ? Promise.resolve(signedIn()!)
-        : api.query('p2p', 'trades.export', { ...range, format: 'csv' }, s.orderExportSchema, { signal }),
+      signedIn() ? Promise.resolve(signedIn()!) : api.call(P2P_TRADES_EXPORT, { ...range, format: 'csv' }, { signal }),
     /** A receipt for one released order. Each call spends one download of the owner quotas, so it is a write. */
-    receipt: (tradeId: string) =>
-      signedIn() ? Promise.resolve(signedIn()!) : api.mutate('p2p', 'trades.receipt', { tradeId }, s.orderReceiptSchema),
+    receipt: (tradeId: string) => (signedIn() ? Promise.resolve(signedIn()!) : api.call(P2P_TRADES_RECEIPT, { tradeId })),
     /** This order's review by the caller and the visible one about them (svc-p2p `reviews.forTrade`, parties only). */
     orderReviews: (tradeId: string, signal?: AbortSignal) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.call(P2P_REVIEWS_FOR_TRADE, { tradeId }, { signal }),
@@ -590,7 +606,7 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      const result = await api.query('p2p', 'trades.paymentInstrument', { tradeId }, s.tradeDestinationSchema, { signal });
+      const result = await api.call(P2P_TRADES_PAYMENT_INSTRUMENT, { tradeId }, { signal });
       if (!p2pCurrent()) return p2pDeparted();
       if (!result.ok) return result;
       if (
@@ -616,13 +632,11 @@ export function createPersonalPayApi(
       return { ok: true, data: key === undefined ? '0' : result.data.balances[key]!.free };
     },
     /** RC-p2p-02: the contract escrow for one asset: offered, or refused with its blocker; mainnet is always off. */
-    contractEscrow: (asset: string, signal?: AbortSignal) =>
-      api.query('p2p', 'trades.contractEscrow', { asset }, s.contractEscrowOfferSchema, { signal }),
+    contractEscrow: (asset: string, signal?: AbortSignal) => api.call(P2P_TRADES_CONTRACT_ESCROW, { asset }, { signal }),
     /** RC-p2p-02: the seller attaches the deal they opened and locked; svc-p2p reads it from the chain and checks it. */
-    attachContractDeal: (tradeId: string, dealId: string) =>
-      api.mutate('p2p', 'trades.attachContractDeal', { tradeId, dealId }, s.tradeSchema),
+    attachContractDeal: (tradeId: string, dealId: string) => api.call(P2P_TRADES_ATTACH_CONTRACT_DEAL, { tradeId, dealId }),
     /** RC-p2p-02: either party brings the order to its deal's chain state (released, refunded, disputed). */
-    syncContractDeal: (tradeId: string) => api.mutate('p2p', 'trades.syncContractDeal', { tradeId }, s.tradeSchema),
+    syncContractDeal: (tradeId: string) => api.call(P2P_TRADES_SYNC_CONTRACT_DEAL, { tradeId }),
     reputation: async (counterparty: string, signal?: AbortSignal) => {
       const denied = signedIn();
       if (denied) return denied;
@@ -833,26 +847,24 @@ export function createPersonalPayApi(
         return payRefusal('thisOrderCannotBeCancelledInIts', { code: 'pay.trade_action_invalid' });
       return guard.run(
         `${userId}:trade:${tradeId}`,
-        () =>
-          api.mutate(
-            'p2p',
-            `trades.${action}`,
-            {
-              tradeId,
-              ...(action === 'cancel' && reason ? (typeof reason === 'string' ? { reason } : { reasonCode: reason.code }) : {}),
-              ...(action === 'confirmReceived' && stepUpApprovalId ? { stepUpApprovalId } : {}),
-            },
-            s.tradeSchema.refine(
-              (result) =>
-                sameImmutableTerms(result, trade) &&
-                (action === 'markFiatSent'
-                  ? result.status === 'fiat_sent'
-                  : action === 'confirmReceived'
-                    ? result.status === 'released' && result.resolution === 'released'
-                    : result.status === 'cancelled' && ['refunded', 'voided'].includes(result.resolution ?? '')),
-              'The reply does not match this owner, order, reviewed asset/payment terms and original action.',
-            ),
-          ),
+        () => {
+          // The reply must match this owner, order, reviewed asset and payment terms, and the original action.
+          const accept = (result: s.Trade) =>
+            sameImmutableTerms(result, trade) &&
+            (action === 'markFiatSent'
+              ? result.status === 'fiat_sent'
+              : action === 'confirmReceived'
+                ? result.status === 'released' && result.resolution === 'released'
+                : result.status === 'cancelled' && ['refunded', 'voided'].includes(result.resolution ?? ''));
+          if (action === 'markFiatSent') return api.call(P2P_TRADES_MARK_FIAT_SENT, { tradeId }, { accept });
+          if (action === 'confirmReceived')
+            return api.call(P2P_TRADES_CONFIRM_RECEIVED, { tradeId, ...(stepUpApprovalId ? { stepUpApprovalId } : {}) }, { accept });
+          return api.call(
+            P2P_TRADES_CANCEL,
+            { tradeId, ...(reason ? (typeof reason === 'string' ? { reason } : { reasonCode: reason.code }) : {}) },
+            { accept },
+          );
+        },
         action,
         current,
         p2pCurrent,
@@ -865,7 +877,7 @@ export function createPersonalPayApi(
         `${userId}:trade:${tradeId}`,
         async (original) => {
           const action = original.reference;
-          const latest = await api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema);
+          const latest = await api.call(P2P_TRADES_GET, { tradeId });
           if (!latest.ok) return latest;
           const trade = latest.data;
           if (trade.id !== tradeId)
@@ -926,9 +938,7 @@ export function createPersonalPayApi(
       if (isOwnOffer(offer, userId)) return takeRefusal('pay.take_own_offer', 'forbidden');
       if (request.offerId.toLowerCase() !== offer.id.toLowerCase()) return takeRefusal('pay.take_terms_changed', 'invalid_response');
       if (!p2pCurrent()) return p2pDeparted();
-      const result = shareLinkRefusal(
-        await api.query('p2p', 'trades.quote', { ...request, ...shareOf(offer.id) }, s.takeQuoteSchema, { signal }),
-      );
+      const result = shareLinkRefusal(await api.call(P2P_TRADES_QUOTE, { ...request, ...shareOf(offer.id) }, { signal }));
       if (!p2pCurrent()) return p2pDeparted();
       if (!result.ok) return result;
       return quoteIsConsistent(offer, request, result.data) ? result : takeRefusal('pay.take_quote_invalid', 'invalid_response');
@@ -951,9 +961,7 @@ export function createPersonalPayApi(
       } catch {
         return takeRefusal('pay.take_quote_invalid', 'not_supported');
       }
-      const result = shareLinkRefusal(
-        await api.mutate('p2p', 'trades.lockQuote', { ...request, ...shareOf(offer.id), quoteId }, s.lockedQuoteSchema, { signal }),
-      );
+      const result = shareLinkRefusal(await api.call(P2P_TRADES_LOCK_QUOTE, { ...request, ...shareOf(offer.id), quoteId }, { signal }));
       if (!p2pCurrent()) return p2pDeparted();
       if (!result.ok) return result;
       // Count down from the time left the service gave, on this device's clock: a device clock that runs fast or slow
@@ -972,11 +980,9 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      const result = await api.query(
-        'p2p',
-        'trades.quote',
+      const result = await api.call(
+        P2P_TRADES_QUOTE,
         { offerId: offer.id.toLowerCase(), fiatAmount: input.fiatAmount, method: input.method, ...shareOf(offer.id) },
-        s.takeQuoteSchema,
         { signal },
       );
       if (!p2pCurrent()) return p2pDeparted();
@@ -1017,7 +1023,7 @@ export function createPersonalPayApi(
       if (request.offerId.toLowerCase() !== offer.id.toLowerCase()) return takeRefusal('pay.take_terms_changed', 'invalid_response');
       const key = `${me}:take:${offer.id.toLowerCase()}`;
       const readOrder = async (tradeId: string, against: Pick<TakeRequest, 'amount' | 'method'> | null) => {
-        const latest = await api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema);
+        const latest = await api.call(P2P_TRADES_GET, { tradeId });
         if (!latest.ok) return latest;
         return tradeMatchesTake(latest.data, offer, me, against, tradeId) ? latest : takeRefusal('pay.take_unconfirmed', 'uncertain');
       };
@@ -1029,7 +1035,7 @@ export function createPersonalPayApi(
         if (isOwnOffer(latest.data, me)) return takeRefusal('pay.take_own_offer', 'forbidden');
         if (latest.data.status !== 'active') return takeRefusal('pay.take_offer_unavailable', 'forbidden');
         if (!sameTakeTerms(latest.data, offer)) return takeRefusal('pay.take_terms_changed', 'invalid_response');
-        const again = await api.query('p2p', 'trades.quote', { ...request, ...shareOf(offer.id) }, s.takeQuoteSchema);
+        const again = await api.call(P2P_TRADES_QUOTE, { ...request, ...shareOf(offer.id) });
         if (!current()) return p2pDeparted();
         if (!again.ok) return again;
         if (!quoteIsConsistent(latest.data, request, again.data) || !sameQuoteFigures(again.data, reviewed.quote))
@@ -1037,22 +1043,17 @@ export function createPersonalPayApi(
         return null;
       };
       const place = async (tradeId: string): Promise<ApiResult<s.Trade>> => {
-        const sent = await api.mutate(
-          'p2p',
-          'trades.take',
-          {
-            offerId: request.offerId,
-            tradeId,
-            amount: request.amount,
-            method: request.method,
-            ...(reviewed.quote.quoteId ? { quoteId: reviewed.quote.quoteId } : {}),
-            ...shareOf(offer.id),
-            // The fresh confirmation of exactly this review; inside this session's confirmed ten minutes there is none.
-            ...(reviewed.stepUpApprovalId ? { stepUpApprovalId: reviewed.stepUpApprovalId } : {}),
-            ...(reviewed.contractEscrow ? { escrowKind: 'contract', buyerWallet: reviewed.contractEscrow.buyerWallet } : {}),
-          },
-          s.tradeSchema,
-        );
+        const sent = await api.call(P2P_TRADES_TAKE, {
+          offerId: request.offerId,
+          tradeId,
+          amount: request.amount,
+          method: request.method,
+          ...(reviewed.quote.quoteId ? { quoteId: reviewed.quote.quoteId } : {}),
+          ...shareOf(offer.id),
+          // The fresh confirmation of exactly this review; inside this session's confirmed ten minutes there is none.
+          ...(reviewed.stepUpApprovalId ? { stepUpApprovalId: reviewed.stepUpApprovalId } : {}),
+          ...(reviewed.contractEscrow ? { escrowKind: 'contract' as const, buyerWallet: reviewed.contractEscrow.buyerWallet } : {}),
+        });
         if (sent.ok)
           return tradeMatchesTake(sent.data, offer, me, request, tradeId) ? sent : takeRefusal('pay.take_unconfirmed', 'uncertain');
         if (takeRefusalIsDefinite(sent)) return shareLinkRefusal(sent);
@@ -1116,10 +1117,9 @@ export function createPersonalPayApi(
       return guard.run(key, () => place(tradeId), tradeId, current, reviewed.recoveryCurrent ?? p2pCurrent);
     },
     /** Until when this session's orders need no new confirmation, or null when the next one does. */
-    takeStepUpWindow: (signal?: AbortSignal) => api.query('p2p', 'trades.stepUpWindow', undefined, s.takeStepUpWindowSchema, { signal }),
+    takeStepUpWindow: (signal?: AbortSignal) => api.call(P2P_TRADES_STEP_UP_WINDOW, undefined, { signal }),
     /** Until when this session's releases need no new confirmation (svc-p2p `trades.releaseStepUpWindow`), or null. */
-    releaseStepUpWindow: (signal?: AbortSignal) =>
-      api.query('p2p', 'trades.releaseStepUpWindow', undefined, s.takeStepUpWindowSchema, { signal }),
+    releaseStepUpWindow: (signal?: AbortSignal) => api.call(P2P_TRADES_RELEASE_STEP_UP_WINDOW, undefined, { signal }),
     /** Look up an unconfirmed take by the order id stored before it was sent. Clears the stored id only when found. */
     async reconcileTake(offer: s.Offer, frameCurrent: () => boolean = () => true) {
       const denied = signedIn();
@@ -1130,7 +1130,7 @@ export function createPersonalPayApi(
         async (original) => {
           const tradeId = original.reference;
           if (!tradeId || !s.id.safeParse(tradeId).success) return takeRefusal('pay.take_unconfirmed', 'uncertain');
-          const latest = await api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema);
+          const latest = await api.call(P2P_TRADES_GET, { tradeId });
           if (!latest.ok)
             return isTradeAbsent(latest)
               ? takeRefusal('pay.take_not_found', 'uncertain')
@@ -1149,12 +1149,7 @@ export function createPersonalPayApi(
       ),
     /** P-trade-orders-15: the buyer of a paid order reminds the seller to release. Moves nothing; svc-p2p decides when. */
     remindSeller: (tradeId: string) =>
-      guard.run(
-        `${userId}:remind:${tradeId}`,
-        () => api.mutate('p2p', 'trades.remind', { tradeId }, s.tradeRemindersSchema),
-        undefined,
-        p2pCurrent,
-      ),
+      guard.run(`${userId}:remind:${tradeId}`, () => api.call(P2P_TRADES_REMIND, { tradeId }), undefined, p2pCurrent),
     /**
      * P-ads-merchant-19: the seller reports a sensitive remark the buyer wrote in the payment note. Moves nothing; a case
      * opens and the buyer is told. `caseId` is made once per quote, so a lost reply sent again answers the same case.
@@ -1165,20 +1160,20 @@ export function createPersonalPayApi(
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      return api.mutate('p2p', 'trades.reportSensitiveRemark', { caseId, tradeId, remark }, s.remarkCaseSchema);
+      return api.call(P2P_TRADES_REPORT_SENSITIVE_REMARK, { caseId, tradeId, remark });
     },
     /** P-ads-merchant-19: the person's own remark report on this order, and whether the other party reported them. */
     async remarkCase(tradeId: string, signal?: AbortSignal): Promise<ApiResult<s.RemarkCasesOn>> {
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      return api.query('p2p', 'trades.remarkCase', { tradeId }, s.remarkCasesOnSchema, { signal });
+      return api.call(P2P_TRADES_REMARK_CASE, { tradeId }, { signal });
     },
     /** P-trade-orders-20: the seller reports what arrived in their bank. Moves nothing; svc-p2p classifies it. */
     reportMismatch: (tradeId: string, kind: s.TradeMismatch['kind'], amountReceived: string) =>
       guard.run(
         `${userId}:mismatch:${tradeId}`,
-        () => api.mutate('p2p', 'trades.reportMismatch', { tradeId, kind, amountReceived }, s.tradeMismatchSchema),
+        () => api.call(P2P_TRADES_REPORT_MISMATCH, { tradeId, kind, amountReceived }),
         undefined,
         p2pCurrent,
       ),
@@ -1186,13 +1181,7 @@ export function createPersonalPayApi(
     validatePayment: (tradeId: string, stepUpApprovalId?: string) =>
       guard.run(
         `${userId}:validate:${tradeId}`,
-        () =>
-          api.mutate(
-            'p2p',
-            'trades.validatePayment',
-            { tradeId, ...(stepUpApprovalId ? { stepUpApprovalId } : {}) },
-            s.validatePaymentSchema,
-          ),
+        () => api.call(P2P_TRADES_VALIDATE_PAYMENT, { tradeId, ...(stepUpApprovalId ? { stepUpApprovalId } : {}) }),
         undefined,
         p2pCurrent,
       ),

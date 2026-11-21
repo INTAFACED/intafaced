@@ -234,12 +234,8 @@ describe('the api', () => {
   it('calls the bank module’s global procedures and nothing else', async () => {
     const calls: string[] = [];
     const fake = {
-      query: async (module: string, procedure: string) => (
-        calls.push(`${module}.${procedure}`),
-        { ok: false as const, reason: 'error' as const, message: 'x' }
-      ),
-      mutate: async (module: string, procedure: string) => (
-        calls.push(`${module}.${procedure}`),
+      call: async (record: { module: string; path: string }) => (
+        calls.push(`${record.module}.${record.path}`),
         { ok: false as const, reason: 'error' as const, message: 'x' }
       ),
     };

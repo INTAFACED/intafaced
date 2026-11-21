@@ -63,6 +63,10 @@ const trade: Trade = {
   escrowedAt: '2026-10-23T20:00:01.000Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   feeBps: 100,
   releasePreview: { fee: '0.1', netAmount: '9.9' },
 };

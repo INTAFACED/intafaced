@@ -54,6 +54,23 @@ const trade = (tradeId: string, over: Partial<Trade> = {}): Trade => ({
   escrowedAt: '2026-10-18T10:00:01.000Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
+  // What `trades.get` adds to every order it returns.
+  terms: null,
+  displayStatus: 'waiting_for_buyer_to_pay',
+  feeBps: 30,
+  fee: null,
+  netAmount: null,
+  settlement: { instant: true },
+  releasePreview: null,
+  escrowHeld: '100',
+  reminders: { count: 0, lastAt: null, nextAt: null, max: null },
+  mismatch: null,
+  paymentValidation: { blocker: null },
+  cancelReason: null,
   ...over,
 });
 const asked = (current = offer()) => {
