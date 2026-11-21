@@ -27,7 +27,11 @@ import {
   type Method,
 } from './developers-reference';
 import { SERVED_ROUTES } from './served-routes.generated';
-import { declarationKey } from '../../../../../services/svc-trade/src/route-declarations.test-harness';
+import {
+  declarationKey,
+  isRouteSource,
+  tradeDeclarations as parseTradeDeclarations,
+} from '../../../../../services/svc-trade/src/route-declarations.test-harness';
 import { declaredRoutes } from '../../../../../tooling/ci/published-routes.mjs';
 
 const repo = (path: string) => readFileSync(new URL(`../../../../../${path}`, import.meta.url), 'utf8');
@@ -35,7 +39,7 @@ const repo = (path: string) => readFileSync(new URL(`../../../../../${path}`, im
 const REPO = fileURLToPath(new URL('../../../../../', import.meta.url));
 
 /** svc-trade's registrations, read by svc-trade's own parser through the published-routes gate, which writes the list. */
-const tradeDeclarations = () => declaredRoutes(REPO);
+const tradeDeclarations = () => declaredRoutes(REPO, { isRouteSource, tradeDeclarations: parseTradeDeclarations });
 
 describe('the published route list matches what the services really mount', () => {
   const contract = repo('packages/exchange-contract/src/api.ts');
@@ -62,8 +66,8 @@ describe('the published route list matches what the services really mount', () =
     }
   });
 
-  it('publishes every /api/v1 route svc-trade declares, each once, with the access and scopes its registration declares', async () => {
-    const declared = await tradeDeclarations();
+  it('publishes every /api/v1 route svc-trade declares, each once, with the access and scopes its registration declares', () => {
+    const declared = tradeDeclarations();
     // Every registration resolved to a real /api/v1 path; none is left as a variable name.
     for (const route of declared) expect(route.path, `${route.method} ${route.path} in ${route.file}`).toMatch(/^\/api\/v1\//);
     // The access and scopes are generated from the registrations, never written by hand (tooling/ci/published-routes.mjs).
@@ -89,8 +93,8 @@ describe('the published route list matches what the services really mount', () =
     ).toEqual([]);
   });
 
-  it('registers a route twice only where the resting refusal stands in for futures matching, and marks both sets', async () => {
-    const declared = await tradeDeclarations();
+  it('registers a route twice only where the resting refusal stands in for futures matching, and marks both sets', () => {
+    const declared = tradeDeclarations();
     const lines = declared.map((route) => `${route.method} ${route.path}`);
     const twice = [...new Set(lines.filter((line, i) => lines.indexOf(line) !== i))].sort();
     const inFile = (file: string) => declared.filter((route) => route.file === file).map((route) => `${route.method} ${route.path}`);

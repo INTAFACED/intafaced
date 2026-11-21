@@ -52,12 +52,10 @@ export function generatedLines(text) {
 }
 
 /** The served route lines, sorted, from svc-trade's sources; refuses a parse that lost routes or a route declared two ways. */
-/** svc-trade's route registrations under `root`, read by svc-trade's own parser: what the portal's test compares too. */
-export async function declaredRoutes(root = ROOT) {
+/** svc-trade's route registrations under `root`, read by svc-trade's own parser (`isRouteSource`, `tradeDeclarations`
+ *  from route-declarations.test-harness.ts): the walk this gate and the portal's test share. */
+export function declaredRoutes(root, { isRouteSource, tradeDeclarations }) {
   const src = join(root, 'services/svc-trade/src');
-  const harness = join(src, 'route-declarations.test-harness.ts');
-  if (!existsSync(harness)) throw new Error(`${harness.slice(root.length + 1)} is missing`);
-  const { isRouteSource, tradeDeclarations } = await import(pathToFileURL(harness).href);
   const files = readdirSync(src, { recursive: true })
     .filter((file) => file.endsWith('.ts') && isRouteSource(file))
     .map((file) => ({ file, text: readFileSync(join(src, file), 'utf8') }));
@@ -65,8 +63,10 @@ export async function declaredRoutes(root = ROOT) {
 }
 
 export async function servedRoutes() {
-  const declared = await declaredRoutes();
-  const { declarationKey } = await import(pathToFileURL(HARNESS).href);
+  if (!existsSync(HARNESS)) throw new Error(`${HARNESS.slice(ROOT.length + 1)} is missing`);
+  const parser = await import(pathToFileURL(HARNESS).href);
+  const declared = declaredRoutes(ROOT, parser);
+  const { declarationKey } = parser;
   if (declared.length < 100) throw new Error(`read ${declared.length} svc-trade routes, fewer than 100: the parser lost them`);
   const lines = [...new Set(declared.map(declarationKey))].sort();
   const seen = new Map();
