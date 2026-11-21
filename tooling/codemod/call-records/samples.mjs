@@ -156,7 +156,15 @@ async function main() {
       const next = src.indexOf('\nexport const ', start + 1);
       const block = src.slice(start, next === -1 ? undefined : next);
       if (!PLACEHOLDER.test(block)) continue;
-      out = out.replace(block, block.replace(PLACEHOLDER, `samples: ${samplesFor(mod[name])}`));
+      // A record the step can find no accepted (or refused) input for goes back to its router the same way, named.
+      let samples;
+      try {
+        samples = samplesFor(mod[name]);
+      } catch (err) {
+        unportable[mod[name].path] = String(err.message).split('\n')[0];
+        continue;
+      }
+      out = out.replace(block, block.replace(PLACEHOLDER, `samples: ${samples}`));
       n++;
     }
     writeFileSync(file, out);
