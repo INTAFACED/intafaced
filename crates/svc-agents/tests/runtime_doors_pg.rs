@@ -381,6 +381,7 @@ impl World {
             metering: self.metering(enabled),
             runtime: rt,
             ops,
+            advisors: svc_agents::advisors::Advisors::unwired(),
         })
         .unwrap()
     }

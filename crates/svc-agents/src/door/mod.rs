@@ -33,6 +33,7 @@ use service_kit::server::{Door, Request, RequestIds, Response};
 use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
 
+use crate::advisors::Advisors;
 use crate::db::Store;
 use crate::gateway::desk::GatewaySlice;
 use crate::gateway::readiness::{self, ReadyInput};
@@ -275,6 +276,8 @@ pub struct DoorConfig {
     pub runtime: Runtime,
     /// The operator desks' owner values: the log's reasons, limit and retention, the registry's page, the baseline.
     pub ops: Ops,
+    /// The advisors' curriculum, holdings, prices and switches (`advisors`).
+    pub advisors: Advisors,
 }
 
 pub struct AgentsDoor {
@@ -292,6 +295,7 @@ pub struct AgentsDoor {
     metering: Metering,
     runtime: Runtime,
     ops: Ops,
+    advisors: Advisors,
 }
 
 /// The system clock.
@@ -336,6 +340,7 @@ impl AgentsDoor {
             metering: config.metering,
             runtime: config.runtime,
             ops: config.ops,
+            advisors: config.advisors,
         })
     }
 
@@ -382,6 +387,17 @@ impl AgentsDoor {
                 &self.runtime,
             ),
             Slice::Ops => crate::ops::handle(ctx, &self.store, &self.metering, &self.ops),
+            Slice::Advisors => crate::advisors::slice::handle(
+                ctx,
+                &crate::advisors::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    advisors: &self.advisors,
+                    jurisdiction: &self.jurisdiction,
+                },
+            ),
             other => Err(not_ported(other)),
         }
     }

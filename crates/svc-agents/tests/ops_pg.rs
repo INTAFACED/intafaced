@@ -125,6 +125,7 @@ impl World {
             metering: metering(&self.bus),
             runtime: Runtime::unwired(),
             ops,
+            advisors: svc_agents::advisors::Advisors::unwired(),
         })
         .unwrap()
     }

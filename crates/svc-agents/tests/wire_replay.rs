@@ -79,6 +79,21 @@ const CALLERS: [Caller; 5] = [
     },
 ];
 
+/// The replay's `loadCoachGrounding` throws; everything else of the advisors is left out, as the recording's.
+struct ThrowingCurriculum;
+
+impl svc_agents::advisors::grounding::Curriculum for ThrowingCurriculum {
+    fn load(&self) -> Result<svc_agents::advisors::grounding::Grounding, String> {
+        Err("coach grounding is unset in the wire replay".to_owned())
+    }
+}
+
+fn replay_advisors() -> svc_agents::advisors::Advisors {
+    let mut a = svc_agents::advisors::Advisors::unwired();
+    a.curriculum = Box::new(ThrowingCurriculum);
+    a
+}
+
 fn serve() -> AgentsDoor {
     // The TypeScript replay's process: vitest sets NODE_ENV to `test`; svc-agents' vitest config and the replay the rest.
     let env: BTreeMap<String, String> = [
@@ -102,6 +117,7 @@ fn serve() -> AgentsDoor {
         metering: svc_agents::metering::Metering::unwired("USDC", 60),
         runtime: svc_agents::runtime::Runtime::unwired(),
         ops: svc_agents::ops::Ops::unwired(),
+        advisors: replay_advisors(),
     })
     .unwrap()
 }
