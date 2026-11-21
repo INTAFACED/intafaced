@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
+import { rewrite } from '../codemod/tsc-entry/rewrite.mjs';
 import { checkerOf, installShims, planOf } from './tsc.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -241,6 +242,7 @@ test('every package.json script and every tool runs tsc only through tooling/scr
   assert.ok(bareTsc('tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs'), "the 527 runs' shape is caught");
   assert.ok(bareTsc('tsc -p tsconfig.json'), 'a package build is caught (#3609)');
   assert.ok(bareTsc('tsc --noEmit && vite build'));
+  assert.equal(rewrite('tsc --noEmit && vite build', 'apps/x'), 'node ../../tooling/scripts/tsc.mjs --noEmit && vite build');
   assert.ok(!bareTsc('node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs'));
   assert.ok(spawnsTsc("  const r = spawnSync('npx', ['tsc', '--noEmit', '-p', '.'], {"), "report.mjs's old spawn is caught");
   assert.ok(spawnsTsc("spawnSync(BIN('tsc'), ['-p', config])"));
