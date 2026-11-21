@@ -3,8 +3,9 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { CommerceService } from './commerce-service.js';
 import { decimalPriceFromDriver } from './commerce-price.js';
-import { createMarketRouter, listingDetailOut } from '../router.js';
-import { ReviewsService, REVIEW_MEAN_ROUNDING } from '../reviews/reviews-service.js';
+import { createMarketRouter } from '../router.js';
+import { marketListingDetailSchema, REVIEW_MEAN_ROUNDING } from '@intafaced/contracts/market-procedures';
+import { ReviewsService } from '../reviews/reviews-service.js';
 import { userCopy } from '../user-copy.js';
 import { MarketError } from '../vendor-service.js';
 
@@ -213,7 +214,7 @@ describe('market.listing on the router', () => {
   it('serves the detail to an anonymous caller and labels performance unreported', async () => {
     const caller = mount(scripted([[listingRow()], [{ id: 'slot' }], [{ n: '1' }]]), scripted([[{ score: 5 }]]));
     const reply = await caller.listing({ listingId: LISTING });
-    expect(listingDetailOut.parse(reply)).toEqual(reply);
+    expect(marketListingDetailSchema.parse(reply)).toEqual(reply);
     expect(reply.terms).toEqual({
       offerType: reply.listing.offerType,
       assetId: reply.listing.assetId,

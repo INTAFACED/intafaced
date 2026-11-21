@@ -330,7 +330,9 @@ enum Kind {
     String,
     Number,
     Boolean,
-    Date { coerce: bool },
+    Date {
+        coerce: bool,
+    },
     Unknown,
     Enum(Vec<Json>),
     Literal(Vec<Json>),
@@ -343,6 +345,8 @@ enum Kind {
     Dunion(String, Vec<usize>),
     Record(usize, usize),
     Lazy(usize),
+    /// `.pipe()`: the first part's output into the second; any issue but an unrecognized key stops the pipe.
+    Pipe(usize, usize),
 }
 
 #[derive(Debug, Clone)]
@@ -569,12 +573,17 @@ fn read_node(n: &Json) -> Result<Node, String> {
             ids(n, "options")?,
         ),
         "record" => Kind::Record(field_usize(n, "key")?, field_usize(n, "value")?),
+        "pipe" => Kind::Pipe(field_usize(n, "in")?, field_usize(n, "out")?),
         other => return Err(format!("an unknown part {other}")),
     };
-    let checks = match n.get("checks") {
+    let checks: Vec<Check> = match n.get("checks") {
         Some(Json::Array(c)) => c.iter().map(read_check).collect::<Result<_, _>>()?,
         _ => Vec::new(),
     };
+    // A stopped pipe marks its payload aborted, which skips its own checks; no recorded pipe carries any.
+    if matches!(kind, Kind::Pipe(..)) && !checks.is_empty() {
+        return Err("a pipe with its own checks".to_owned());
+    }
     Ok(Node { kind, checks })
 }
 
@@ -646,7 +655,7 @@ impl Schema {
                 | Kind::Default(a, _)
                 | Kind::Lazy(a) => vec![*a],
                 Kind::Union(o) | Kind::Dunion(_, o) => o.clone(),
-                Kind::Record(k, v) => vec![*k, *v],
+                Kind::Record(k, v) | Kind::Pipe(k, v) => vec![*k, *v],
                 _ => Vec::new(),
             };
             if let Some(bad) = refs.iter().find(|r| **r >= schema.nodes.len()) {
@@ -706,6 +715,8 @@ impl Schema {
             }
             Kind::Default(..) => (Optin::Defaulted, false),
             Kind::Nullable(inner) | Kind::Lazy(inner) => self.optin(*inner, depth + 1),
+            // `optin` is the first part's, `optout` the second's.
+            Kind::Pipe(from, to) => (self.optin(*from, depth + 1).0, self.optin(*to, depth + 1).1),
             Kind::Union(options) | Kind::Dunion(_, options) => {
                 let each: Vec<_> = options.iter().map(|o| self.optin(*o, depth + 1)).collect();
                 let optin = if each.iter().any(|(i, _)| *i == Optin::Defaulted) {
@@ -739,7 +750,9 @@ impl Schema {
                 v.push(Some(Json::Null));
                 Some(v)
             }
-            Kind::Default(inner, _) | Kind::Lazy(inner) => self.admitted(*inner, depth + 1),
+            Kind::Default(inner, _) | Kind::Lazy(inner) | Kind::Pipe(inner, _) => {
+                self.admitted(*inner, depth + 1)
+            }
             _ => None,
         }
     }
@@ -1215,6 +1228,14 @@ impl Schema {
                 return Ok(r);
             }
             Kind::Lazy(inner) => return self.run(*inner, p, refiner, d),
+            // `handlePipeResult`: the second part runs only on what passed the first.
+            Kind::Pipe(from, to) => {
+                let left = self.run(*from, p, refiner, d)?;
+                if left.issues.iter().any(|i| i.code() != "unrecognized_keys") {
+                    return Ok(left);
+                }
+                return self.run(*to, left, refiner, d);
+            }
             Kind::Union(options) => {
                 if let [only] = options.as_slice() {
                     return self.run(*only, p, refiner, d);
