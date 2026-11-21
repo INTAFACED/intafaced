@@ -29,6 +29,7 @@ import { crossFeatureImportRules } from './cross-feature-import-rule.js';
 import { sourceTextTestRules } from './source-text-test-rule.js';
 import { composeOnlyRules } from './compose-only-rule.js';
 import { serviceSentenceRules } from './service-sentence-rule.js';
+import { kitLookRules } from './kit-look-rules.js';
 
 const TEST_FILE = /(\.(test|spec|testkit)\.[cm]?[jt]sx?$)|(\.pw\.[cm]?[jt]s$)|(\/(test|tests|__tests__)\/)/u;
 const isTest = (context) => TEST_FILE.test(context.filename ?? context.getFilename());
@@ -235,5 +236,6 @@ export default {
     ...sourceTextTestRules,
     ...composeOnlyRules,
     ...serviceSentenceRules,
+    ...kitLookRules,
   },
 };
