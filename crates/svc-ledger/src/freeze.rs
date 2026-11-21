@@ -13,7 +13,7 @@
 
 use std::sync::Mutex;
 
-use postgres::IsolationLevel;
+use postgres::{GenericClient, IsolationLevel};
 use service_kit::json::{self, Json};
 use service_kit::time::zod_datetime;
 
@@ -105,82 +105,88 @@ fn attributed(current: &FreezeState, reason: &str, actor: &str) -> StoreError {
 /// and whether it moved. A refused thaw is a `StoreError` coded `missing_operator`.
 pub fn write(store: &Store, next: Command<'_>) -> Result<(FreezeState, bool), StoreError> {
     transaction(store.pool()?, IsolationLevel::ReadCommitted, |tx| {
-        let rows = tx.query(
-            &format!(
-                "SELECT {FREEZE_COLUMNS} FROM ledger.posting_freeze WHERE id = true FOR UPDATE"
-            ),
-            &[],
-        )?;
-        let Some(row) = rows.first() else {
-            return Err(StoreError::new(
-                FREEZE_MISSING,
-                Some("ledger.uninitialised"),
-            ));
-        };
-        let current = freeze_row(row)?;
-        let (frozen, reason, actor) = match next {
-            Command::Freeze { reason, actor } => {
-                if current.frozen {
-                    // `resolveAttributedFreeze`.
-                    if current.reason.as_deref() == Some(reason)
-                        && current.actor.as_deref() == Some(actor)
-                    {
-                        return Ok((current, false));
-                    }
-                    return Err(attributed(&current, reason, actor));
-                }
-                (true, Some(reason), actor)
-            }
-            Command::Thaw {
-                actor,
-                confirm_operator_id,
-            } => {
-                if !current.frozen {
+        write_in(tx, next)
+    })
+}
+
+/// `writeFreezeInTransaction(tx, next)`: [`write`] inside a transaction the caller holds open, so the switch and its
+/// intent commit with whatever else that transaction writes (reconciliation's mismatch run row).
+pub fn write_in(
+    tx: &mut impl GenericClient,
+    next: Command<'_>,
+) -> Result<(FreezeState, bool), StoreError> {
+    let rows = tx.query(
+        &format!("SELECT {FREEZE_COLUMNS} FROM ledger.posting_freeze WHERE id = true FOR UPDATE"),
+        &[],
+    )?;
+    let Some(row) = rows.first() else {
+        return Err(StoreError::new(
+            FREEZE_MISSING,
+            Some("ledger.uninitialised"),
+        ));
+    };
+    let current = freeze_row(row)?;
+    let (frozen, reason, actor) = match next {
+        Command::Freeze { reason, actor } => {
+            if current.frozen {
+                // `resolveAttributedFreeze`.
+                if current.reason.as_deref() == Some(reason)
+                    && current.actor.as_deref() == Some(actor)
+                {
                     return Ok((current, false));
                 }
-                if let Some(refused) = unfreeze_refusal(&current, Some(actor), confirm_operator_id)
-                {
-                    return Err(StoreError::new(refused, Some(MISSING_OPERATOR)));
-                }
-                (false, None, actor)
+                return Err(attributed(&current, reason, actor));
             }
-        };
-        let updated = tx.query_one(
-            &format!(
-                "UPDATE ledger.posting_freeze
-                    SET frozen = $1, reason = $2, actor = $3, changed_at = clock_timestamp()
-                  WHERE id = true
-                 RETURNING {FREEZE_COLUMNS}"
-            ),
-            &[&frozen, &reason, &actor],
-        )?;
-        let state = freeze_row(&updated)?;
-        // `freezeOutboxPayload`: the JS instant the column returned; `actor ?? 'unknown'`.
-        let payload = Json::Object(vec![
-            ("frozen".to_owned(), Json::Bool(state.frozen)),
-            (
-                "reason".to_owned(),
-                state.reason.clone().map_or(Json::Null, Json::String),
-            ),
-            (
-                "actor".to_owned(),
-                Json::str(state.actor.clone().unwrap_or_else(|| "unknown".to_owned())),
-            ),
-            ("changedAt".to_owned(), Json::str(state.changed_at.clone())),
-        ])
-        .compact();
-        // The order is allocated under the singleton row lock: an earlier start cannot take an earlier place.
-        tx.execute(
-            "WITH next_switch AS (
-               SELECT nextval(pg_get_serial_sequence('ledger.ledger_freeze_outbox', 'switch_seq')) AS seq
-             )
-             INSERT INTO ledger.ledger_freeze_outbox (switch_seq, idempotency_key, payload)
-             SELECT seq, 'ledger.freeze:seq:' || seq::text, $1::text::jsonb
-               FROM next_switch",
-            &[&payload],
-        )?;
-        Ok((state, true))
-    })
+            (true, Some(reason), actor)
+        }
+        Command::Thaw {
+            actor,
+            confirm_operator_id,
+        } => {
+            if !current.frozen {
+                return Ok((current, false));
+            }
+            if let Some(refused) = unfreeze_refusal(&current, Some(actor), confirm_operator_id) {
+                return Err(StoreError::new(refused, Some(MISSING_OPERATOR)));
+            }
+            (false, None, actor)
+        }
+    };
+    let updated = tx.query_one(
+        &format!(
+            "UPDATE ledger.posting_freeze
+                SET frozen = $1, reason = $2, actor = $3, changed_at = clock_timestamp()
+              WHERE id = true
+             RETURNING {FREEZE_COLUMNS}"
+        ),
+        &[&frozen, &reason, &actor],
+    )?;
+    let state = freeze_row(&updated)?;
+    // `freezeOutboxPayload`: the JS instant the column returned; `actor ?? 'unknown'`.
+    let payload = Json::Object(vec![
+        ("frozen".to_owned(), Json::Bool(state.frozen)),
+        (
+            "reason".to_owned(),
+            state.reason.clone().map_or(Json::Null, Json::String),
+        ),
+        (
+            "actor".to_owned(),
+            Json::str(state.actor.clone().unwrap_or_else(|| "unknown".to_owned())),
+        ),
+        ("changedAt".to_owned(), Json::str(state.changed_at.clone())),
+    ])
+    .compact();
+    // The order is allocated under the singleton row lock: an earlier start cannot take an earlier place.
+    tx.execute(
+        "WITH next_switch AS (
+           SELECT nextval(pg_get_serial_sequence('ledger.ledger_freeze_outbox', 'switch_seq')) AS seq
+         )
+         INSERT INTO ledger.ledger_freeze_outbox (switch_seq, idempotency_key, payload)
+         SELECT seq, 'ledger.freeze:seq:' || seq::text, $1::text::jsonb
+           FROM next_switch",
+        &[&payload],
+    )?;
+    Ok((state, true))
 }
 
 /// The event bus's publish side (`JetStreamEventBus.publish`): one envelope on a subject, deduplicated by `msg_id`.
@@ -303,10 +309,23 @@ pub fn envelope(
     payload: Json,
     occurred_at_ms: i64,
 ) -> Result<Json, String> {
+    event_envelope(SUBJECT, VERSION, producer, key, payload, occurred_at_ms)
+}
+
+/// `buildEnvelope(name, payload, producer, { idempotencyKey })` for any of the ledger's events, by its catalogue subject
+/// and version: `createEnvelope`'s fields in its order.
+pub fn event_envelope(
+    subject: &str,
+    version: i64,
+    producer: &str,
+    key: &str,
+    payload: Json,
+    occurred_at_ms: i64,
+) -> Result<Json, String> {
     Ok(Json::obj([
         ("id", Json::str(service_kit::approvals::random_uuid()?)),
-        ("subject", Json::str(SUBJECT)),
-        ("version", Json::int(VERSION)),
+        ("subject", Json::str(subject)),
+        ("version", Json::int(version)),
         (
             "occurredAt",
             Json::str(service_kit::time::Instant(occurred_at_ms).iso()),
