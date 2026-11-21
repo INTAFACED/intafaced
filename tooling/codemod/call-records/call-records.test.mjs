@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import { answerChecks, Changes, pruneImports, pruneSchemas, recordName, rewriteSite } from './index.mjs';
 import { applyEdits, freeNames, load, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
+import { closureOf } from './closure.mjs';
 import { CALL_METHOD, doublesIn } from './doubles.mjs';
 import { armsOf, callsOf } from './door.mjs';
 import { canon, doorTree, treeOf } from './door-check.mjs';
@@ -613,4 +614,47 @@ test('a schema const the moved call left unread goes, and the one it read after 
   assert.match(out, /const read = z\.string\(\);/);
   assert.match(out, /^const shared = z\.number\(\);$/m);
   assert.match(out, /const impure = makeSchema\(\);/);
+});
+
+test('a name a service file re-exports is followed to where it is declared, renamed or not, and a renamed declaration is named', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-reexport-'));
+  const put = (path, lines) => {
+    mkdirSync(dirname(join(repo, path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  put('packages/contracts/src/wire.ts', ['export const quantAccountField = { accountId: z.string().optional() };']);
+  put('svc/core.ts', [
+    "import { z } from 'zod';",
+    "import { quantAccountField as accountField } from '@intafaced/contracts/wire';",
+    'const keyField = { key: z.string() };',
+    'const local = { n: z.number() };',
+    'export { accountField, keyField };',
+    'export { local as renamed };',
+    "export { keyField as passed } from './more.js';",
+  ]);
+  put('svc/more.ts', ["import { z } from 'zod';", 'export const keyField = { more: z.string() };']);
+  put('svc/router.ts', [
+    "import { z } from 'zod';",
+    "import { accountField, keyField, renamed, passed } from './core.js';",
+    'const a = z.object({ ...accountField });',
+    'const b = z.object({ ...keyField });',
+    'const c = z.object({ ...renamed });',
+    'const d = z.object({ ...passed });',
+  ]);
+  const p = load(join(repo, 'svc/router.ts'));
+  const root = (i) => ({ p, node: p.program.body[2 + i].declarations[0].init, where: 'r' });
+  const a = closureOf(repo, [root(0)]);
+  assert.deepEqual(
+    [...a.fromContracts].map(([n, c]) => [n, c.imported]),
+    [['accountField', 'quantAccountField']],
+  );
+  assert.deepEqual(a.problems, []);
+  const b = closureOf(repo, [root(1)]);
+  assert.deepEqual(
+    b.moved.map((m) => m.name),
+    ['keyField'],
+  );
+  assert.deepEqual(b.problems, []);
+  assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: local is re-exported as renamed']);
+  assert.deepEqual(closureOf(repo, [root(3)]).problems, ['r: keyField is imported as passed']);
 });
