@@ -42,6 +42,14 @@ import {
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 const SERVICES_DIR = join(REPO_ROOT, 'services');
 
+/**
+ * svc-edge's live route table, imported at run time. Its path is a URL rather
+ * than a static specifier only so this package's type program does not pull a
+ * services/ file under its own rootDir; the value is the module's real export.
+ */
+const EDGE_ROUTES_URL = new URL('../../../services/svc-edge/src/routes.ts', import.meta.url).href;
+const { UPSTREAMS: EDGE_UPSTREAMS } = (await import(EDGE_ROUTES_URL)) as { UPSTREAMS: readonly { module: string }[] };
+
 function serviceSourceFiles(): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
@@ -246,13 +254,11 @@ describe('why the edge does not gate on these flags', () => {
    * (`services/svc-edge/src/kill-switch.ts`); the launch flags are the rollout
    * plan on top of it, and the console now says so.
    *
-   * Read off `routes.ts` rather than hardcoded, so raising `LAUNCH_DROP`'s
+   * Taken from svc-edge's own route table (`UPSTREAMS`) rather than hardcoded, so raising `LAUNCH_DROP`'s
    * default or moving a flag's drop turns this red and forces the argument to be
    * made again with the new numbers.
    */
-  const ROUTES = readFileSync(join(SERVICES_DIR, 'svc-edge', 'src', 'routes.ts'), 'utf8');
-
-  const ROUTED_MODULES = [...new Set([...ROUTES.matchAll(/\bmodule:\s*'([a-z0-9-]+)'/g)].map((m) => m[1] as string))];
+  const ROUTED_MODULES: string[] = [...new Set(EDGE_UPSTREAMS.map((u) => u.module))];
 
   const DEFAULT_DROP = '0' as const;
 

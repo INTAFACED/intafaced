@@ -1,0 +1,165 @@
+[
+  {
+    "file": "packages/config/src/database-pool-max-compose-pin.test.ts",
+    "target": "./env.ts",
+    "verdict": "rewrite",
+    "asserts": "A blank or unset DATABASE_POOL_MAX refuses boot and no pool size of 10 is invented; only whole sizes 1 to 200 parse.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/config/src/database-pool-max-compose-pin.test.ts#postgresEnvSchema refuses a blank pool size and invents no 10"
+    },
+    "why": "Calls loadEnv(postgresEnvSchema) with the size unset, blank, whitespace, 0, 201, 2.5 and text (all refuse) and with 1, 200 and ' 7 ' (parsed)."
+  },
+  {
+    "file": "packages/config/src/env-database-pool-max-refuse-closed.test.ts",
+    "target": "env.ts",
+    "verdict": "rewrite",
+    "asserts": "The pool size production loadEnv parses refuses out-of-range and fractional sizes and has no default.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/config/src/env-database-pool-max-refuse-closed.test.ts#a pool size outside 1..200, or not a whole number, refuses; the bounds parse"
+    },
+    "why": "Calls loadEnv with 201, -1, 2.5 and text (refuse) and 1 and 200 (parse); the file's other tests already hold unset, blank, whitespace and 0 refusing."
+  },
+  {
+    "file": "packages/config/src/flag-enforcement.test.ts",
+    "target": "../../../services/svc-edge/src/routes.ts",
+    "verdict": "rewrite",
+    "asserts": "Every module svc-edge routes has its flags off at the default drop, so gating the edge on flags would refuse live traffic.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/config/src/flag-enforcement.test.ts#reads the route table (otherwise the assertions below are vacuous)"
+    },
+    "why": "The routed modules now come from svc-edge's exported UPSTREAMS table, imported at run time, instead of a regex over routes.ts."
+  },
+  {
+    "file": "packages/config/src/internal-service-body-bind-compose-pin.test.ts",
+    "target": "./env.ts",
+    "verdict": "rewrite",
+    "asserts": "internalServiceEnvSchema defaults INTERNAL_SERVICE_BODY_BIND to accept-both, honours require, and refuses any other value.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/config/src/internal-service-body-bind-compose-pin.test.ts#internalServiceEnvSchema still defaults INTERNAL_SERVICE_BODY_BIND to accept-both"
+    },
+    "why": "Calls loadEnv(internalServiceEnvSchema) without the key (accept-both), with require (require) and with off (EnvError)."
+  },
+  {
+    "file": "packages/config/src/modules.test.ts",
+    "target": "./modules.ts",
+    "verdict": "rewrite",
+    "asserts": "custody-scan walks exactly the services modules.ts declares protocol-plane-only and non-custodial, never a custodial one.",
+    "guard": { "kind": "test", "ref": "packages/config/src/modules.test.ts#walks exactly the services modules.ts declares protocol-only" },
+    "why": "Runs the real custody-scan.mjs over a scratch tree holding the real modules.ts and a ledger.post() in every registered service, and compares the services it flags with protocolPlaneOnlyModules() and MODULES."
+  },
+  {
+    "file": "packages/connect-data-lake/src/package-export-mount.test.ts",
+    "target": "index.ts",
+    "verdict": "rewrite",
+    "asserts": "The package entry mounts the batch ingest, persistence, retention, quant honesty and fill-amendment doors.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/connect-data-lake/src/package-export-mount.test.ts#the entry mounts %s from its implementing module"
+    },
+    "why": "Imports the entry and asserts each of the 18 names is the implementing module's own export (functions callable, doors the quant honesty paths), and calls the describe doors."
+  },
+  {
+    "file": "packages/contracts/src/academy-cert-perks.test.ts",
+    "target": "academy-cert-perks.ts",
+    "verdict": "rewrite",
+    "asserts": "The cert perk law posts nothing to the ledger, reads no ledger env, and carries no perk amount, payout or cert-to-perk map.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/contracts/src/academy-cert-perks.test.ts#nothing it exports or answers seeds a perk amount, a cert→perk map or a payout"
+    },
+    "why": "Asserts contracts' manifest names no ledger client, loads the module under a recording process.env (no LEDGER key read), walks every export and zero-argument answer for banned keys and any number, and pins the identity doors by type."
+  },
+  {
+    "file": "packages/contracts/src/campaigns-kinds.test.ts",
+    "target": "./campaigns-catalogue.ts",
+    "verdict": "rewrite",
+    "asserts": "A campaign kind lives in its own file: the catalogue declares only the campaign object and writes no new refusal code.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/contracts/src/campaigns-kinds.test.ts#campaigns-catalogue.ts declares only the campaign object and its catalogue"
+    },
+    "why": "Compares the catalogue module's runtime exports, less those of the modules it re-exports, with the own list, and counts CAMPAIGN_REFUSAL_CODES less the risk and kind codes."
+  },
+  {
+    "file": "packages/db/src/connection-create-max-refuse.test.ts",
+    "target": "connection.ts",
+    "verdict": "rewrite",
+    "asserts": "createDb takes the pool size as a required number and never invents 10.",
+    "guard": { "kind": "type", "ref": "packages/db/src/connection.ts#DbOptions" },
+    "why": "expectTypeOf pins DbOptions['max'] to a required number and a ts-expect-error refuses options without it (checked by test-typecheck); the file's behaviour tests hold unset, null and 0 refusing."
+  },
+  {
+    "file": "packages/i18n/src/i18n.test.ts",
+    "target": "./format.ts",
+    "verdict": "rewrite",
+    "asserts": "No formatter converts an amount through a float (Number(), parseFloat, parseInt).",
+    "guard": { "kind": "test", "ref": "packages/i18n/src/i18n.test.ts#converts no amount through a float on any formatting path" },
+    "why": "Swaps Number, parseFloat and parseInt for counting wrappers while every money, number, compact and percent formatter runs, and asserts none was called and 18 decimals survive."
+  },
+  {
+    "file": "packages/i18n/src/locale-files.test.ts",
+    "target": "locales",
+    "verdict": "rule",
+    "asserts": "The generated locale index holds exactly the JSON language files on disk, each well formed.",
+    "guard": { "kind": "test", "ref": "packages/i18n/src/locale-files.test.ts#has a generated index that holds exactly the files on disk" },
+    "why": "Both reads parse locales/*.json, translation data, not source text."
+  },
+  {
+    "file": "packages/ledger-client/src/recipes/registry.test.ts",
+    "target": "../../../../services/svc-pay/src/chargeback-ledger.ts",
+    "verdict": "rewrite",
+    "asserts": "The four chargeback recipes are live: svc-pay's chargeback doors post them.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/ledger-client/src/recipes/registry.test.ts#RECIPES.md states the chargeback four as live and names the svc-pay post"
+    },
+    "why": "Calls svc-pay's postDisputeOpening, postDisputeShortfall, postDisputeWon and postDisputeShortfallRecovered against a recording ledger and asserts each posts exactly recipes.chargebackX(input)."
+  },
+  {
+    "file": "packages/sdk-ts/src/client.test.ts",
+    "target": "sign.ts",
+    "verdict": "rewrite",
+    "asserts": "Signatures are compared in constant time, and the helper keeps no signing window of its own.",
+    "guard": {
+      "kind": "test",
+      "ref": "packages/sdk-ts/src/client.test.ts#compares signatures in constant time and ignores a length mismatch"
+    },
+    "why": "A pass-through spy on crypto.timingSafeEqual shows equal and same-length mismatching signatures both go through it; signPayRequest signs timestamps from 0 to a year ahead unrefused."
+  },
+  {
+    "file": "packages/sdk-ts/src/client.test.ts",
+    "target": "operations.ts",
+    "verdict": "rewrite",
+    "asserts": "The generated merchant SDK surface has no founder or operator operation or path.",
+    "guard": { "kind": "test", "ref": "packages/sdk-ts/src/client.test.ts#has no founder or operator paths" },
+    "why": "Binds the generated operations to a recording client, calls every one, and checks each name and path; the OpenAPI JSON read stays."
+  },
+  {
+    "file": "packages/ui/src/components/coins/coin-art.test.ts",
+    "target": "/coin-art.generated.ts",
+    "verdict": "rule",
+    "asserts": "The generated coin art file is what its generator renders from the SVG files.",
+    "guard": { "kind": "test", "ref": "packages/ui/src/components/coins/coin-art.test.ts#generated art is in sync with the SVG files" },
+    "why": "A generated file compared to its generator's output (renderCoinArt), not an assertion on source words."
+  },
+  {
+    "file": "packages/ui/src/lit/fx/fx-entry.test.ts",
+    "target": "./",
+    "verdict": "rewrite",
+    "asserts": "The light objects' eager files never load three.js before first paint.",
+    "guard": { "kind": "test", "ref": "packages/ui/src/lit/fx/fx-entry.test.ts#never imports three.js before first paint" },
+    "why": "Imports each eager file in a fresh module graph with three, the engine, bloom and every object recorded, and checks three.js core never stamped window.__THREE__."
+  },
+  {
+    "file": "packages/ui/src/theme/tokens.test.ts",
+    "target": ".",
+    "verdict": "rule",
+    "asserts": "tokens.css and customer-legacy.css are exactly what tokens.ts generates, and theme.css and base.css hold no hex colour.",
+    "guard": { "kind": "test", "ref": "packages/ui/src/theme/tokens.test.ts#tokens.css is exactly what tokens.ts generates" },
+    "why": "The read helper reads stylesheets in theme/: generated CSS compared to its generator, and hand CSS scanned for hex; no TypeScript source."
+  }
+]
