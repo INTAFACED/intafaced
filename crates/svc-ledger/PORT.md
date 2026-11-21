@@ -25,6 +25,13 @@ The `freeze` slice is ported. It added:
 - `src/door/freeze.rs`: `GET` and `POST /operator/freeze`, `POST /operator/unfreeze` and `GET /operator/integrity/clock`. `freezeSchema` is recorded as zod runs it: its trim, then its pipe (`service_kit::schema` runs pipes).
 - `tests/freeze_pg.rs`: the freeze cases of `service.freeze.test.ts`, the clock-skew Postgres case and the freeze doors of `operator-http.test.ts`, on a real Postgres.
 
+The `assets` slice is ported. It added:
+
+- `src/assets.rs`: the registry's reads (`listAssets`, `getAsset`, `listOperatorAssets`) and `applyAssetEdit`: the edit's payload hash (`assetEditPayloadHash`), the founder pair it spends, applied once per operation id, stale against the revision it was approved at. Every input and every row read out runs through the schemas recorded from `packages/contracts/src/asset-registry.ts`, the body's own check as the `asset_body` refine in `src/refines.rs`.
+- `src/door/assets.rs`: `assetsList`, `assetsGet`, `GET /operator/assets` and `POST /operator/assets/apply-edit`, past the door's caller and scope checks.
+- The kit's `Replay` may leave out the consuming operator: the asset edit sends its replay key (`requestId`) alone, as `applyAssetEdit` does; the desk's writes send both.
+- `tests/assets_pg.rs`: `supported-assets.pg.test.ts` case for case, and the doors of `asset-registry-doors.test.ts`, on a real Postgres.
+
 The `reports` slice is ported. It added:
 
 - `src/reports.rs`: `statementPnl`, `reportExport`, `custody`, `financeClose` and `resilience`, each answering as its TypeScript handler does. None of them posts. `statementPnl` reads the owner's balances when no lots are sent, and still refuses, because posted cash is not lots, marks or NAV. A failed read fails the call. A statement sum or product that does not fit `i128` (past about 1.7e20 units) is refused as the ledger's own fault. The TypeScript's bigint answers it, but the port never answers a wrapped or saturated figure. Custody's difference is worked out exactly.

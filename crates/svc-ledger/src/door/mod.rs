@@ -11,12 +11,13 @@
 //!
 //! Past those the call is its slice's: [`Outcome::Owed`] names which, until the slice is ported. Ported so far:
 //! `/health` and `/ready` (the `store` slice, `crate::status`), the freeze doors (the `freeze` slice, `freeze.rs`), the
-//! history doors (the `history` slice, `history.rs`), `/operator/reconcile` (the `reconcile` slice, `reconcile.rs`),
-//! the account and transaction reads (the `balances` slice, `crate::balances`), the five report doors (the `reports`
-//! slice, `crate::reports`), the ledger desk's reads and account metadata writes (the `desk` slice, `desk.rs` over
-//! `crate::desk`), svc-ops' five reads (the `ops-reads` slice, `crate::ops_reads`) and `post` (the `posting` slice,
-//! `crate::posting`).
+//! asset registry's doors (the `assets` slice, `assets.rs`), the history doors (the `history` slice, `history.rs`),
+//! `/operator/reconcile` (the `reconcile` slice, `reconcile.rs`), the account and transaction reads (the `balances`
+//! slice, `crate::balances`), the five report doors (the `reports` slice, `crate::reports`), the ledger desk's reads
+//! and account metadata writes (the `desk` slice, `desk.rs` over `crate::desk`), svc-ops' five reads (the
+//! `ops-reads` slice, `crate::ops_reads`) and `post` (the `posting` slice, `crate::posting`).
 
+mod assets;
 mod callers;
 mod desk;
 mod freeze;
@@ -521,6 +522,14 @@ enum Body {
     Parsed(Json),
 }
 
+/// The body as the handler reads it: `undefined` when absent.
+fn body_value(body: &Body) -> Value {
+    match body {
+        Body::Absent => Value::Undefined,
+        Body::Parsed(j) => Value::from_json(j),
+    }
+}
+
 /// `assertNoPrototypePoison`: an own `__proto__` key anywhere, or a `constructor` object with its own `prototype`.
 fn poisoned(v: &Json) -> bool {
     match v {
@@ -786,6 +795,9 @@ impl LedgerDoor {
                 format!("Caller {service} may not call {door}."),
             )));
         }
+        if route.slice == Slice::Assets {
+            return Outcome::Answer(self.assets_service(door, body_value(body)));
+        }
         let Input::Body(name) = route.input else {
             return self.past_the_door(route, door, &Value::Undefined, body);
         };
@@ -797,11 +809,7 @@ impl LedgerDoor {
         {
             return answer(errors::http_error(&crate::history::page_socket(f).into()));
         }
-        let value = match body {
-            Body::Absent => Value::Undefined,
-            Body::Parsed(j) => Value::from_json(j),
-        };
-        match parse(name, value) {
+        match parse(name, body_value(body)) {
             // Posting judges the caller the door proved, so it is answered here rather than past the door.
             Ok(Parsed::Ok(input)) if route.slice == Slice::Posting => {
                 let caller = if auth.scheme == Some("keypair") {
@@ -874,6 +882,10 @@ impl LedgerDoor {
         let past = |input: Value| match route.slice {
             Slice::Freeze => {
                 Outcome::Answer(self.freeze_door(route.method, route.path, &principal, &input))
+            }
+            // The registry's handlers parse the body themselves, as sent.
+            Slice::Assets => {
+                Outcome::Answer(self.assets_operator(route.path, &principal, &body_value(body)))
             }
             Slice::Desk => {
                 Outcome::Answer(self.desk_door(route, &principal, &input, body, params, request_id))

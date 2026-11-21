@@ -464,9 +464,12 @@ impl Approvals for Stub {
             input.operation_id.to_owned(),
             input.target_service.to_owned(),
             input.target_id.to_owned(),
-            input
-                .replay
-                .map(|r| (r.request_id.to_owned(), r.consumer_principal_id.to_owned())),
+            input.replay.map(|r| {
+                (
+                    r.request_id.to_owned(),
+                    r.consumer_principal_id.unwrap_or_default().to_owned(),
+                )
+            }),
         ));
         if let Some(url) = &self.freeze_after {
             freeze_at(url, true);

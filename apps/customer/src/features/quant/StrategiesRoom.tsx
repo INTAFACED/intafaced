@@ -5,9 +5,14 @@ import {
   quantStrategyCardSchema,
   type QuantStrategyCard,
 } from '@intafaced/contracts/quant-algo';
-import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
+import {
+  QUANT_STUDIO_DELETE,
+  QUANT_STUDIO_LIST,
+  QUANT_STUDIO_LIST_DELETED,
+  QUANT_STUDIO_ORGANISE,
+  QUANT_STUDIO_RESTORE,
+} from '@intafaced/contracts/quant-studio-procedures';
 import { useState } from 'react';
-import { z } from 'zod';
 import { parsesAs, type ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel, Tabs } from '../../shared/ui';
 import { Read, Select, preservePaperHref } from '../more';
@@ -27,7 +32,6 @@ const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
 type ListTab = 'saved' | 'bin';
 const TABS: readonly ListTab[] = ['saved', 'bin'];
 const ALL = '\u0000all';
-const deletedOk = z.object({ ok: z.literal(true) });
 
 /** The tab the address names (`?tab=bin`), so the recycle bin can be linked to and survives a reload. */
 function tabOf(search: string): ListTab {
@@ -86,7 +90,7 @@ export function StrategiesRoom({ paper }: { paper: boolean }) {
 const savedPage: StrategyPageRead<QuantStrategyCard> = (api, input, signal) =>
   api.call(QUANT_STUDIO_LIST, input, { signal, accept: parsesAs(quantStrategyCardPageSchema) });
 const binPage: StrategyPageRead<QuantStrategyCard> = (api, input, signal) =>
-  api.query('quant', 'studio.listDeleted', input, quantStrategyCardPageSchema, { signal });
+  api.call(QUANT_STUDIO_LIST_DELETED, input, { signal, accept: parsesAs(quantStrategyCardPageSchema) });
 
 function SavedList({ paper, onChanged }: { paper: boolean; onChanged: (note: string) => void }) {
   const api = useApi();
@@ -102,12 +106,10 @@ function SavedList({ paper, onChanged }: { paper: boolean; onChanged: (note: str
     setBusyId(strategy.id);
     setFailure(null);
     // Keyed by the restores the list read, so a delete after a restore is a new delete, not a replay of the first.
-    const res = await api.mutate(
-      'quant',
-      'studio.delete',
-      { id: strategy.id, idempotencyKey: `studio.delete:${strategy.id}:${strategy.restores}` },
-      deletedOk,
-    );
+    const res = await api.call(QUANT_STUDIO_DELETE, {
+      id: strategy.id,
+      idempotencyKey: `studio.delete:${strategy.id}:${strategy.restores}`,
+    });
     setBusyId(null);
     if (res.ok) onChanged(t('deletedNote', { name: strategy.name, version: strategy.version }));
     else setFailure(res);
@@ -218,11 +220,10 @@ function OrganiseForm(props: { strategy: QuantStrategyCard; onCancel: () => void
     setBusy(true);
     setFailure(null);
     // Keyed by how many times the head was organised when the list read it: a lost reply replays this same write.
-    const res = await api.mutate(
-      'quant',
-      'studio.organise',
+    const res = await api.call(
+      QUANT_STUDIO_ORGANISE,
       { id: strategy.id, name, folder, description, idempotencyKey: `studio.organise:${strategy.id}:${strategy.organised}` },
-      quantStrategyCardSchema,
+      { accept: parsesAs(quantStrategyCardSchema) },
     );
     setBusy(false);
     if (!res.ok) {
@@ -281,11 +282,10 @@ function RecycleBin({ onChanged }: { onChanged: (note: string) => void }) {
     setBusyId(strategy.id);
     setFailure(null);
     // Keyed by the delete it undoes, so a lost reply replays this restore and a later delete can be restored again.
-    const res = await api.mutate(
-      'quant',
-      'studio.restore',
+    const res = await api.call(
+      QUANT_STUDIO_RESTORE,
       { id: strategy.id, idempotencyKey: `studio.restore:${strategy.id}:${strategy.deletedAt ?? ''}` },
-      quantStrategyCardSchema,
+      { accept: parsesAs(quantStrategyCardSchema) },
     );
     setBusyId(null);
     if (res.ok) onChanged(t('restoredNote', { name: res.data.name, version: res.data.version }));
