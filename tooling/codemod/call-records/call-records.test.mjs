@@ -109,3 +109,22 @@ test("a schema the caller's own function builds is an answer check, so its call 
   assert.match(answerChecks(p, init('a'))[0], /^mine\(\) builds the schema/);
   assert.deepEqual(answerChecks(p, init('b')), []);
 });
+
+test('the report sorts each hand reason into the kind one script change or one decision closes', async () => {
+  const { reasonOf } = await import('./report.mjs');
+  assert.equal(reasonOf('founderEdgeCall has no record form yet'), 'no record form: founderEdgeCall');
+  assert.equal(
+    reasonOf('its own schema checks the answer, mine() builds the schema (a.ts:3): move it'),
+    "schema built by the caller's own function",
+  );
+  assert.equal(
+    reasonOf('its own schema checks the answer, .refine() (a.ts:3): move it'),
+    'caller schema checks the answer (.refine and the like)',
+  );
+  assert.equal(reasonOf('identity.x: no accepted input found; write its samples by hand'), 'no sample inputs');
+  assert.equal(
+    reasonOf('helper amountString clashes with another amountString in this record file: a rerun places it'),
+    'helper name clash (a rerun places it)',
+  );
+  assert.equal(reasonOf('something new'), 'other');
+});

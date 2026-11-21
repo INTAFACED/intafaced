@@ -74,7 +74,7 @@ function deep(rows) {
     git('status', '--porcelain', '--', 'packages/contracts/src')
       .split('\n')
       .map((l) => l.slice(3))
-      .filter((f) => /-procedures\.ts$/.test(f));
+      .filter((f) => f.endsWith('-procedures.ts'));
   const touched = new Map();
   for (const row of rows) {
     if (!row.sites) continue;
