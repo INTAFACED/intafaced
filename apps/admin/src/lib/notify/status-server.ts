@@ -1,15 +1,21 @@
 import 'server-only';
-import { statusPageSchema, type StatusPageConfigureInput, type StatusReadingInput } from '@intafaced/contracts';
+import { type StatusPageConfigureInput, type StatusReadingInput } from '@intafaced/contracts';
 import {
-  founderCall,
-  parseWith,
   type FounderCallContext,
   type FounderCallResult,
   partFrom,
   type PartLabels,
   explainRefusal,
+  founderRecordRead,
+  founderRecordCall,
 } from '@/lib/desk';
 import { readDefinition, type StatusDeskReply, type StatusDeskView } from './status-model';
+import {
+  NOTIFY_STATUS_PAGE_DEFINITION,
+  NOTIFY_STATUS_PAGE_READ,
+  NOTIFY_STATUS_PAGE_RECORD,
+  NOTIFY_STATUS_PAGE_CONFIGURE,
+} from '@intafaced/contracts/notify-status-page-procedures';
 
 /**
  * svc-notify's status page as the signed-in founder: the definition (`statusPage.definition`, admin:write), the page a
@@ -26,8 +32,8 @@ const LABELS: PartLabels = {
 
 export async function loadStatusDesk(ctx: FounderCallContext): Promise<StatusDeskView> {
   const [definition, page] = await Promise.all([
-    founderCall(ctx, 'notify', 'statusPage.definition', 'GET', undefined, readDefinition),
-    founderCall(ctx, 'notify', 'statusPage.read', 'GET', undefined, parseWith(statusPageSchema)),
+    founderRecordRead(ctx, NOTIFY_STATUS_PAGE_DEFINITION, undefined, readDefinition),
+    founderRecordCall(ctx, NOTIFY_STATUS_PAGE_READ, undefined),
   ]);
   return { definition: partFrom(definition, (d) => d, LABELS), page: partFrom(page, (d) => d, LABELS), asOf: new Date().toISOString() };
 }
@@ -64,10 +70,10 @@ function reply<T>(result: FounderCallResult<T>, what: 'configured' | 'recorded')
 }
 
 export async function configureStatusPage(ctx: FounderCallContext, input: StatusPageConfigureInput) {
-  return reply(await founderCall(ctx, 'notify', 'statusPage.configure', 'POST', input, readDefinition), 'configured');
+  return reply(await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_CONFIGURE, input, readDefinition), 'configured');
 }
 
 export async function recordStatusReading(ctx: FounderCallContext, input: StatusReadingInput) {
   const parse = (raw: unknown) => (raw && typeof raw === 'object' && 'componentId' in raw ? raw : null);
-  return reply(await founderCall(ctx, 'notify', 'statusPage.record', 'POST', input, parse), 'recorded');
+  return reply(await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_RECORD, input, parse), 'recorded');
 }

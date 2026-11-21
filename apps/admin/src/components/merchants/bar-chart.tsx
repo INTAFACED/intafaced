@@ -1,4 +1,4 @@
-import { addDecimal, compareDecimal, formatAmount, isDecimalString, permille } from '@/lib/merchants/money';
+import { addDecimal, compareDecimal, formatAmount, isDecimalString, permille } from '@/lib/money';
 
 export interface BarPoint {
   /** `YYYY-MM-DD` */

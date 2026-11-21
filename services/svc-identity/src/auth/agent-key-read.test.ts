@@ -90,6 +90,7 @@ describe('POST /internal/agent-keys/calls', () => {
         method: 'POST',
         path: '/api/v1/venue/agent/orders',
         status: 200,
+        errorCode: null,
         outsideIpList: false,
         at: '2026-11-13T00:00:00.000Z',
       },

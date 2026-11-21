@@ -106,6 +106,7 @@ import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
 import { ApiVersionDefaults, createApiVersionRouter } from './api-version-default.js';
+import { createDeveloperSupportRouter } from './ops/developer-support.js';
 import { createHandleRouter } from './profile/handle-router.js';
 import { createReceiveContactsRouter } from './account/receive-contacts-router.js';
 import { ReceiveContactService, receiveContactSettings } from './account/receive-contacts.js';
@@ -902,6 +903,7 @@ export const appRouter = mergeRouters(
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
   createApiVersionRouter(new ApiVersionDefaults(sql)),
+  createDeveloperSupportRouter(sql),
   createHandleRouter(new HandleSettingsService(sql, env.IDENTITY_HANDLE_CHANGE_MAX ?? null)),
   createReceiveContactsRouter(
     new ReceiveContactService({

@@ -13,12 +13,14 @@ import {
 import { NOTIFY_CHANNELS, NOTIFY_DELIVERIES, NOTIFY_MARK_READ, NOTIFY_TARGETS } from '@intafaced/contracts/notify-procedures';
 import { customerRoomHref } from '../../app/navigation';
 import { useResource, type Resource } from '../../shared/resource';
-import type { ApiResult } from '../../shared/api';
+import { parsesAs, type ApiResult } from '../../shared/api';
 import { Button, EmptyState, Failure, Loading, Page } from '../../shared/ui';
 import { useSession } from '../session';
 import { notificationsCopy as copy } from './notifications-copy';
 import { NotificationTargets } from './NotificationTargets';
 import './notifications.css';
+import { NOTIFY_LIST, NOTIFY_MUTE_PREFS, NOTIFY_SET_MUTE } from '@intafaced/contracts/notify-notify-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 const notification = accountNotificationSchema;
 const outOfApp = accountNotifyOutOfAppSchema;
@@ -63,18 +65,21 @@ function NotificationRoom({ userId }: { userId: string }) {
   }, []);
   const inbox = useResource(
     (signal) =>
-      api.query(
-        'notify',
-        'notify.list',
+      api.call(
+        NOTIFY_LIST,
         { limit: 50, ...(cursor ? { cursor } : {}), unreadOnly: unread },
-        accountInboxSchema(50).refine(
-          (data) =>
-            data.items.every((row) => row.userId === userId) &&
-            new Set(data.items.map((row) => row.id)).size === data.items.length &&
-            (!cursor || data.nextCursor !== cursor),
-          'Inbox ownership, IDs or continuation are invalid',
-        ),
-        { signal },
+        {
+          signal,
+          accept: parsesAs(
+            accountInboxSchema(50).refine(
+              (data) =>
+                data.items.every((row) => row.userId === userId) &&
+                new Set(data.items.map((row) => row.id)).size === data.items.length &&
+                (!cursor || data.nextCursor !== cursor),
+              'Inbox ownership, IDs or continuation are invalid',
+            ),
+          ),
+        },
       ),
     `notifications:${userId}:${cursor}:${unread}:${readCycle}`,
   );
@@ -306,7 +311,7 @@ function NotificationSettings({ userId }: { userId: string }) {
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState<OutOfApp | null>(null);
   const [blocked, setBlocked] = useState<{ channel: OutOfApp; revision: number } | null>(null);
-  const [result, setResult] = useState<ApiResult<z.infer<typeof preferences>> | null>(null);
+  const [result, setResult] = useState<ApiResult<ProcedureOutput<typeof NOTIFY_MUTE_PREFS>> | null>(null);
   const [confirmed, setConfirmed] = useState<{ channel: OutOfApp; muted: boolean } | null>(null);
   const [readNote, setReadNote] = useState(false);
   const running = useRef(false),
@@ -326,7 +331,7 @@ function NotificationSettings({ userId }: { userId: string }) {
     `notification-targets:${userId}:${revision}`,
   );
   const prefs = useResource(
-    (signal) => api.query('notify', 'notify.mutePrefs', undefined, preferences, { signal }),
+    (signal) => api.call(NOTIFY_MUTE_PREFS, undefined, { signal }),
     `notification-preferences:${userId}:${revision}`,
   );
   useEffect(() => {
@@ -349,14 +354,17 @@ function NotificationSettings({ userId }: { userId: string }) {
     setConfirmed(null);
     setReadNote(false);
     setResult(null);
-    const outcome = await api.mutate(
-      'notify',
-      'notify.setMute',
+    const outcome = await api.call(
+      NOTIFY_SET_MUTE,
       { channel, muted },
-      preferences.refine(
-        (rows) => rows.some((row) => row.channel === channel && row.muted === muted),
-        'Returned preference does not match the requested setting',
-      ),
+      {
+        accept: parsesAs(
+          preferences.refine(
+            (rows) => rows.some((row) => row.channel === channel && row.muted === muted),
+            'Returned preference does not match the requested setting',
+          ),
+        ),
+      },
     );
     running.current = false;
     if (!mounted.current) return;

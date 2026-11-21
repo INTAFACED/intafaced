@@ -26,8 +26,8 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 // The signed-out overview inside Campaigns reads the session.
-vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
+vi.mock('../session', async (original) => {
+  const real = await original<typeof import('../session')>();
   const api = { query: () => new Promise(() => undefined), canWrite: () => true };
   return {
     ...real,

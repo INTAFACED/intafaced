@@ -16,7 +16,7 @@ import {
   StateBlock,
   TreasuryView,
 } from '@/components/merchants';
-import { buildCsv } from '@/lib/merchants/csv';
+import { buildCsv } from '@/lib/csv';
 import { Chip } from '@/components/chip';
 import { LiveRefresh } from './navigation';
 import { MetricsCharts } from './metrics';

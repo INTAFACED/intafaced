@@ -3,9 +3,8 @@
 import { useRef, useState } from 'react';
 import { StepReplyView } from '@/components/approval-workbench';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
+import { REASON_MAX, REASON_MIN } from '@/lib/approval-fields';
 import {
-  REASON_MAX,
-  REASON_MIN,
   validReason,
   type CardFundingKind,
   type CardStatus,
