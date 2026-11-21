@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { assetIdSchema } from './asset-id.js';
 import { signedAmountSchema, unsignedAmountSchema } from './wire-amount.js';
-import { venueGridSchema } from './trade-grid-procedures.js';
+import { gridExitsSchema, venueGridSchema } from './trade-grid-procedures.js';
 
 export const copyDeskSchema = z.object({
   feeSharePublished: z.boolean(),
@@ -196,6 +196,8 @@ export const gridBotSchema = z.object({
       pairProfit: signedAmountSchema.nullable(),
     }),
   ),
+  /** The grid's price and RSI exits (CB-bots-03): only a grid on our own book has them. */
+  exits: gridExitsSchema.optional(),
   gridProfit: signedAmountSchema,
   closedPairs: z.number(),
   withdrawableProfit: unsignedAmountSchema,
