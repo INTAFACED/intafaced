@@ -1088,6 +1088,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "svc-agents"
+version = "0.0.0"
+dependencies = [
+ "service-kit",
+ "url",
+]
+
+[[package]]
 name = "svc-ledger"
 version = "0.0.0"
 dependencies = [

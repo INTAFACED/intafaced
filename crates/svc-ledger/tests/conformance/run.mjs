@@ -1,12 +1,13 @@
-// The posting slice's TypeScript proofs against the Rust binary, run and judged in one command (`vitest.config.mts`
-// names the four projects). From the repository root, with Postgres and NATS up and the binary built:
+// The posting and post-recipe slices' TypeScript proofs against the Rust binary, run and judged in one command
+// (`vitest.config.mts` names the five projects). From the repository root, with Postgres and NATS up and the binary built:
 //   cargo build -p svc-ledger
 //   TEST_DATABASE_URL=postgres://…/<admin>_test NATS_URL=nats://127.0.0.1:4222 node crates/svc-ledger/tests/conformance/run.mjs
 // It passes when:
 // - every conformance case passes or fails the same way through the TypeScript door and the Rust one, with the same
 //   failure (a case both fail is the door refusing before the engine, which the suite, written for engines, does not
 //   expect: the input schema, the recipe gate);
-// - every case of the slice's own Postgres tests passes on the Rust door;
+// - every case of the slices' own Postgres tests (the four binding files, `post-recipe-door.pg.test.ts`) passes on the
+//   Rust door;
 // - every case of the engine's Postgres tests ends the same through the TypeScript door and the Rust one.
 // A fresh NATS is needed per run: the binary refuses a stream left by another run over the same subjects.
 import { spawnSync } from 'node:child_process';
@@ -50,8 +51,8 @@ const NOT_A_DOOR = new Map([
 ]);
 let failed = false;
 
-// 1. Conformance, both doors in one report, and the binding tests on the Rust door.
-const door = run('door', ['conformance', 'binding-pg']);
+// 1. Conformance, both doors in one report, and the slices' own Postgres tests (binding, postRecipe) on the Rust door.
+const door = run('door', ['conformance', 'binding-pg', 'post-recipe-pg']);
 const conf = { 'ts door': new Map(), 'rust door': new Map() };
 const binding = { passed: 0, other: [] };
 for (const file of door.testResults) {
@@ -91,7 +92,7 @@ function compare(label, ts, rust) {
 }
 
 compare('conformance', conf['ts door'], conf['rust door']);
-console.log(`the slice's Postgres tests on the Rust door: ${binding.passed} passed, ${binding.other.length} not`);
+console.log(`the slices' Postgres tests on the Rust door: ${binding.passed} passed, ${binding.other.length} not`);
 for (const o of binding.other) console.error(`  ${o}`);
 if (binding.passed === 0 || binding.other.length) failed = true;
 
