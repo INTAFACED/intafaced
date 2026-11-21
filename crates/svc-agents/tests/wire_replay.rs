@@ -25,6 +25,7 @@ use service_kit::edge;
 use service_kit::json::{self, Json};
 use service_kit::server::Request;
 use service_kit::time::Instant;
+use svc_agents::db::Store;
 use svc_agents::door::{self, AgentsDoor, DoorConfig, Kind, Pre, ServiceAuth, Slice};
 
 const SECRET: &str = "an-agents-wire-replay-edge-secret-long-enough";
@@ -92,6 +93,7 @@ fn serve() -> AgentsDoor {
         services: ServiceAuth::unwired(),
         env,
         now,
+        store: Store::Down("svc-agents: the replay has no database".to_owned()),
     })
     .unwrap()
 }

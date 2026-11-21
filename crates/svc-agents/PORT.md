@@ -1,10 +1,11 @@
 # svc-agents in Rust: the port notes
 
-Each slice of svc-agents' move to Rust starts here, in a fresh thread. `services/svc-agents` stays the service that runs until the switch; nothing is served from this crate yet. This crate holds the shell every slice builds on:
+Each slice of svc-agents' move to Rust starts here, in a fresh thread. `services/svc-agents` stays the service that runs until the switch; nothing is served from this crate in any stack yet. This crate holds the shell every slice builds on:
 
 - `src/door/`: every call `router.ts` serves (193), who may call each, the checks its own middleware runs before the input, its input check (`schemas.json`, run by the kit's zod engine with `src/refines.rs`), and the person checks its handler runs first after the input. Past those a call answers "the `<slice>` slice is not ported" (500). `health` is the door's own and is served.
 - `src/env.rs`: the environment, held to `env.ts` by `tests/env_parity.rs` (47 environments).
 - `src/errors.rs`: `AgentError` (every `AgentErrorCode`, listed in `src/errors_table.rs`) and `toTRPCError`, the main router's guard.
+- The store (slice `store`): `src/db.rs` (one pool, `search_path` `agents,public` and the service's `application_name`, the transaction helper; `DATABASE_SSL=true` refuses to start, as the kit's pool has no TLS), `src/migrate.rs` and `migrations/` (the 43 migrations of `services/svc-agents/drizzle`, byte for byte, run by the kit's runner: `svc-agents migrate [--down]`), `src/boot.rs` (the schema check and the boot upsert of `src/boot_agents.json`, the ten rows the TypeScript boot writes), `src/timers.rs` (the timers `index.ts` starts, their periods and owners, and the loop that drives one) and `src/main.rs` (the binary, in `index.ts`'s boot order). The door holds the store and passes it to every slice.
 
 `scripts/record-door.mjs` writes the recorded files from the TypeScript: it runs each call's middlewares on probe callers to read its checks, and sends each call a valid input from callers that differ in one thing to read its handler's first person checks. Its `--check` fails when a written file is stale. Run it with the workspace packages built (`pnpm --filter "@intafaced/svc-agents^..." build`).
 
@@ -13,6 +14,7 @@ Each slice of svc-agents' move to Rust starts here, in a fresh thread. `services
 - `tests/wire_replay.rs` sends every request of `services/svc-agents/wire-replay.golden/` (193 calls, five inputs, five callers: 4,825 answers) to the door. Every answer the door decides is held byte for byte: route and method refusals, 401s, scope, region, service and person 403s, input 400s, and `health`. Any other answer is owed by its call's slice while the door answers "not ported", counted per slice. `WIRE_REPLAY_SLICE=<slice>` prints a slice's owed answers; `WIRE_REPLAY_STRICT=<slice>` fails while it owes any. A slice is done when its strict run passes.
 - `tests/input_parity.rs`: 5,971 inputs over the 193 calls, each against zod's own verdict.
 - `tests/env_parity.rs`: the environment, value for value and refusal for refusal.
+- `tests/store_pg.rs`, on a real Postgres (`TEST_DATABASE_URL_AGENTS` or `TEST_DATABASE_URL`): the binary's `migrate` up, re-run and `--down`, every table below, the schema check, the boot upsert (an operator's switch survives a reboot), the pool's session settings and transactions, `/health` and `/ready`. `services/svc-agents/src/fleet/boot-agents-rust.test.ts` fails while `src/boot_agents.json` is not the TypeScript boot's rows.
 
 ## The doors
 
@@ -71,8 +73,8 @@ Each call's slice is `scripts/record-door.mjs`'s `SLICES`, written into `src/doo
 
 ## Slices
 
-- `store`: the Postgres pool and transaction helper, the 43 migrations copied from `services/svc-agents/drizzle` (a test keeps them byte for byte), `migrate [--down]`, the binary serving the door, `/health` and `/ready`, the boot upsert of the factories' guardrails, and the timers' and trigger consumer's wiring
-- `gateway` (after `store`): `routes.list`, `routes.desk`, `routes.propose`, `routes.withdraw`, `routes.confirm`, the routing table and the provider adapters
+- `store` (ported): the Postgres pool and transaction helper, the 43 migrations copied from `services/svc-agents/drizzle` (a test keeps them byte for byte), `migrate [--down]`, the binary serving the door, `/health`, the boot upsert of the factories' guardrails, and the timers' table and loop. `/ready` answers 503 until `gateway`. A timer runs only once its slice hands the binary its job (`main.rs`, `jobs`): the transcript purge and the alert evaluation (`ops`), the unpublished sweep (`own-builder`), the own agents' background test runs and the schedule workers (`own-runs`), the background ticker (`background`). The bus consumers (`fillSettled` for the triggers, `own-runs`; `selfFreezeApplied`, `own-sharing`) come with their slices and need a JetStream consumer in the kit, which has none yet: the binary subscribes to nothing until then, so no event is taken and dropped.
+- `gateway` (after `store`): `routes.list`, `routes.desk`, `routes.propose`, `routes.withdraw`, `routes.confirm`, the routing table and its sync from `route_overrides`, the provider adapters, and `/ready` (`readiness.ts`: the providers, the routes and the useful path)
 - `metering` (after `store`): `usage.current`, `usage.summary`, `usage.settle`, `usage.settleSession`, `spend.limits.get`, `spend.limits.set`, `analytics.summary`, the meter and the window charge through svc-ledger's `postRecipe`
 - `runtime` (after `gateway`, `metering`): `agent.get`, `agent.catalogue`, `session.open`, `session.close`, `session.log`, `session.detail`, `session.events`, `session.mine`, `session.selected`, `session.select`, `run.complete`, `run.get`, `run.list`, `run.trace`, `run.events`, `log.mine`, `log.count`, `log.export`
 - `background` (after `runtime`): `run.background.start`, `run.background.get`, `run.background.pause`, `run.background.resume`, `run.background.stop`, `run.background.askMore`, and the background ticker
@@ -82,6 +84,6 @@ Each call's slice is `scripts/record-door.mjs`'s `SLICES`, written into `src/doo
 - `ops` (after `runtime`): `ops.sessions`, `opsLog.*`, `opsAlerts.*`, `fleet.*` (20 calls), the transcript purge and the alert evaluation
 - `team` (after `runtime`): `team.*` (11 calls)
 - `own-builder` (after `runtime`): `own.catalogue`, `own.create`, `own.save`, `own.get`, `own.list`, `own.delete`, `own.publish`, `own.publication`, `own.status`, `own.assistant.*`, `own.rules.*`, `own.reviewer.*`, `own.review.*`, `own.evals.*`, `own.dryRun`, `own.testRun`, `own.testRuns`, `own.testApprove`, `own.toolTest`, `own.tool.try`, and the unpublished sweep
-- `own-runs` (after `own-builder`): `own.run`, `own.runs`, `own.session.*`, `own.schedules.*`, `own.triggers.*`, `own.backgroundRun`, `own.backgroundRuns`, `own.inbox`, `own.approval.*`, `own.approvals`, `own.holds`, `own.trade.draft`, the schedule workers and the trigger consumer
+- `own-runs` (after `own-builder`): `own.run`, `own.runs`, `own.session.*`, `own.schedules.*`, `own.triggers.*`, `own.backgroundRun`, `own.backgroundRuns`, `own.inbox`, `own.approval.*`, `own.approvals`, `own.holds`, `own.trade.draft`, the own agents' background test runs, the schedule workers and the trigger consumer
 - `own-controls` (after `own-builder`): `own.limits.*`, `own.usageLimits.*`, `own.usage`, `own.usageByDay`, `own.analytics`, `own.paymentMethod.*`, `own.policy.*` (with `own.policy.forService`), `own.privacy.*`, `own.memory.*`, `own.consents.*`
-- `own-sharing` (after `own-builder`): `own.access.*`, `own.coOwners.*`, `own.share.*`, `own.sharedWithMe`, `own.identity.*`
+- `own-sharing` (after `own-builder`): `own.access.*`, `own.coOwners.*`, `own.share.*`, `own.sharedWithMe`, `own.identity.*`, and the `selfFreezeApplied` consumer

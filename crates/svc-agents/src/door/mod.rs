@@ -33,6 +33,8 @@ use service_kit::server::{Door, Request, RequestIds, Response};
 use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
 
+use crate::db::Store;
+
 /// A query answers GET, a mutation POST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -267,6 +269,8 @@ pub struct DoorConfig {
     pub env: BTreeMap<String, String>,
     /// The clock.
     pub now: fn() -> Instant,
+    /// The `agents` schema, opened once by the binary (`db::open`).
+    pub store: Store,
 }
 
 pub struct AgentsDoor {
@@ -278,6 +282,7 @@ pub struct AgentsDoor {
     now: fn() -> Instant,
     requests: RequestIds,
     edge_key: Option<EdgeKey>,
+    store: Store,
 }
 
 /// The system clock.
@@ -316,6 +321,7 @@ impl AgentsDoor {
             now: config.now,
             requests: RequestIds::new(),
             edge_key: None,
+            store: config.store,
         })
     }
 
@@ -323,6 +329,16 @@ impl AgentsDoor {
     pub fn with_edge_key(mut self, key: EdgeKey) -> AgentsDoor {
         self.edge_key = Some(key);
         self
+    }
+
+    /// The database every slice reads and writes through.
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
+    /// `sql.end()`: closes the pool once the server has stopped.
+    pub fn end(&self) {
+        self.store.end();
     }
 
     /// Answers one request under a fresh request id.
@@ -482,5 +498,26 @@ impl Door for AgentsDoor {
 
     fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response {
         AgentsDoor::handle_as(self, req, request_id)
+    }
+
+    /// `/ready` (`agentsReadiness`) reports the providers, the routing table and whether a completion can leave the
+    /// process: all the gateway's. Until that slice is ported the door says so with a 503, never a ready it cannot
+    /// back. `/health` is the server's own `{ ok, service }`, as `index.ts` answers it.
+    fn status(&self, req: &Request<'_>) -> Option<Response> {
+        let path = req.url.split_once('?').map_or(req.url, |(p, _)| p);
+        (path == "/ready").then(|| Response {
+            status: 503,
+            body: Json::obj([
+                ("ready", Json::Bool(false)),
+                (
+                    "residual",
+                    Json::str(format!(
+                        "svc-agents in Rust: the {} slice is not ported",
+                        Slice::Gateway.name()
+                    )),
+                ),
+            ])
+            .compact(),
+        })
     }
 }
