@@ -19,6 +19,18 @@
   border-radius: var(--lit-radius-tile);
   background: var(--lit-solid-bg-sunken);
 }
+/* The rows read as one sunken well with a tile's corners (today's medium radius is Volt's pill, which rounded the two
+   rows into one capsule); the rows are square inside it, a hairline between them. */
+[data-direction='volt'] .buy-form__rows {
+  border-radius: var(--lit-radius-tile);
+  background: var(--lit-solid-bg-sunken);
+}
+[data-direction='volt'] .buy-form__rows .buy-row {
+  border-radius: 0;
+}
+[data-direction='volt'] .buy-row + .buy-row {
+  border-block-start: 1px solid var(--lit-line);
+}
 [data-direction='volt'] .buy-card [data-slot='button'] {
   border-radius: var(--lit-radius-key);
 }
@@ -34,7 +46,7 @@
   color: var(--lit-page);
 }
 
-/* The buy itself is the spark: the citron pill (in light, ink with a citron word). */
+/* The buy itself is the spark: the chartreuse pill (in light, ink with a chartreuse word). */
 [data-direction='volt'] .buy-card [data-slot='button']:is([data-variant='buy'], [data-variant='sell']):not(:disabled, [data-disabled]) {
   background: var(--lit-primary-bg);
   color: var(--lit-primary-fg);

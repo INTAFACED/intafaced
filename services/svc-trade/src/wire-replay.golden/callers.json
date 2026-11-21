@@ -112,6 +112,8 @@
   { "path": "bots.grid.list", "type": "query", "caller": "scope" },
   { "path": "bots.grid.modify", "type": "mutation", "caller": "scope" },
   { "path": "bots.grid.presets", "type": "query", "caller": "scope" },
+  { "path": "bots.grid.setExits", "type": "mutation", "caller": "scope" },
+  { "path": "bots.grid.setIdleYield", "type": "mutation", "caller": "scope" },
   { "path": "bots.grid.setup", "type": "query", "caller": "scope" },
   { "path": "bots.grid.stop", "type": "mutation", "caller": "scope" },
   { "path": "bots.grid.submitPermission", "type": "mutation", "caller": "scope" },

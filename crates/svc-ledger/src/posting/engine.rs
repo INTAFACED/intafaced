@@ -338,8 +338,8 @@ fn book(
         accounts.push((key, id, Wide::of(balance)));
     }
 
-    let tx_id =
-        crate::posting::random_uuid().map_err(|e| PostError::Store(StoreError::new(e, None)))?;
+    let tx_id = service_kit::approvals::random_uuid()
+        .map_err(|e| PostError::Store(StoreError::new(e, None)))?;
     let posted_at_ms = clock_ms();
     let posted_at = Instant(posted_at_ms).iso();
     let mut legs: Vec<(String, Wide)> = Vec::with_capacity(r.entries.len());

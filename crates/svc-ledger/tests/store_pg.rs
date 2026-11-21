@@ -13,152 +13,35 @@
     reason = "a test: a failure is the point"
 )]
 
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
+mod support;
 
-use postgres::{Client, NoTls};
+use postgres::Client;
+
 use service_kit::json::{self, Json};
 use service_kit::s2s::system_seconds;
 use service_kit::s2s_verify::BodyBind;
 use service_kit::server::App;
 use service_kit::tokens::TokenConfig;
+use support::TestDb;
 use svc_ledger::boot::{
     self, CUSTODY_LAYER_OPEN_BALANCES, STARTUP_FREEZE_ACTOR, STARTUP_FREEZE_REASON,
 };
 use svc_ledger::db::{self, Store};
 use svc_ledger::door::{DoorConfig, LedgerDoor};
-use svc_ledger::migrate::{self, FILES};
+use svc_ledger::freeze::{self, FreezeRelay, MemoryBus};
+use svc_ledger::migrate::FILES;
 
-fn admin_url() -> Option<String> {
-    let pick = |k: &str| {
-        std::env::var(k)
-            .ok()
-            .map(|v| v.trim().to_owned())
-            .filter(|v| !v.is_empty())
-    };
-    let url = pick("TEST_DATABASE_URL_LEDGER").or_else(|| pick("TEST_DATABASE_URL"));
-    let required = std::env::var("REQUIRE_POSTGRES").is_ok_and(|v| v == "1");
-    assert!(
-        url.is_some() || !required,
-        "TEST_DATABASE_URL_LEDGER or TEST_DATABASE_URL is required"
-    );
-    url
-}
-
-fn assert_test_database(c: &mut Client) {
-    let name: String = c
-        .query_one("SELECT current_database()", &[])
-        .unwrap()
-        .get(0);
-    assert!(
-        name.ends_with("_test"),
-        "refusing: {name} is not a test database (its name must end in _test)"
-    );
-}
-
-struct TestDb {
-    admin: String,
-    name: String,
-    url: String,
-}
-
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-impl TestDb {
-    fn new() -> Option<TestDb> {
-        let admin = admin_url()?;
-        let mut a = Client::connect(&admin, NoTls).expect("the admin database answers");
-        assert_test_database(&mut a);
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.subsec_nanos());
-        let name = format!(
-            "itf_run_ledger_{}_{}_{nanos:x}_test",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::SeqCst)
-        );
-        a.batch_execute(&format!("CREATE DATABASE \"{name}\""))
-            .unwrap();
-        let mut parsed = url::Url::parse(&admin).unwrap();
-        parsed.set_path(&format!("/{name}"));
-        let db = TestDb {
-            admin,
-            name,
-            url: parsed.to_string(),
-        };
-        let mut c = db.client();
-        assert_test_database(&mut c);
-        // The database bootstrap's part (tooling/infra/postgres-init): the extensions and the schema.
-        c.batch_execute(
-            "CREATE EXTENSION IF NOT EXISTS \"pgcrypto\"; CREATE EXTENSION IF NOT EXISTS \"citext\"; CREATE SCHEMA IF NOT EXISTS \"ledger\"",
-        )
-        .unwrap();
-        Some(db)
-    }
-
-    fn client(&self) -> Client {
-        Client::connect(&self.url, NoTls).unwrap()
-    }
-
-    /// `runMigrations(sql, { migrationsDir, down })` over these files.
-    fn migrate(&self, files: &[(&str, &str)], down: bool) -> Result<String, String> {
-        let mut out = Vec::new();
-        migrate::apply(&mut self.client(), files, down, &mut out)
-            .map(|()| String::from_utf8(out).unwrap())
-    }
-
-    /// `svc-ledger migrate [--down]`, the binary itself: its exit code and what it printed.
-    fn binary(&self, down: bool) -> (i32, String) {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_svc-ledger"));
-        cmd.arg("migrate").env("DATABASE_URL", &self.url);
-        if down {
-            cmd.arg("--down");
-        }
-        let out = cmd.output().unwrap();
-        (
-            out.status.code().unwrap_or(-1),
-            format!(
-                "{}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            ),
-        )
-    }
-
-    fn count(&self, sql: &str) -> i64 {
-        self.client().query_one(sql, &[]).unwrap().get(0)
-    }
-
-    fn names(&self) -> Vec<String> {
-        self.client()
-            .query("SELECT name FROM ledger.__migrations ORDER BY name", &[])
-            .unwrap()
-            .iter()
-            .map(|r| r.get(0))
-            .collect()
-    }
-
-    fn regclass(&self, name: &str) -> Option<String> {
-        self.client()
-            .query_one("SELECT to_regclass($1)::text", &[&name])
-            .unwrap()
-            .get(0)
-    }
-
-    fn store(&self) -> Store {
-        db::open(&self.url, "svc-ledger", 2, false).unwrap()
+/// The freeze relay over a memory bus, as the binary drives it over NATS.
+fn relay(bus: &MemoryBus) -> FreezeRelay<'_> {
+    FreezeRelay {
+        bus,
+        producer: "svc-ledger".to_owned(),
+        now_ms: svc_ledger::clock::system_ms,
     }
 }
 
-impl Drop for TestDb {
-    fn drop(&mut self) {
-        if let Ok(mut a) = Client::connect(&self.admin, NoTls) {
-            let _ = a.batch_execute(&format!(
-                "DROP DATABASE IF EXISTS \"{}\" WITH (FORCE)",
-                self.name
-            ));
-        }
-    }
+fn halt<'a>(reason: &'a str, actor: &'a str) -> freeze::Command<'a> {
+    freeze::Command::Freeze { reason, actor }
 }
 
 fn real(pred: impl Fn(&str) -> bool) -> Vec<(&'static str, &'static str)> {
@@ -533,15 +416,21 @@ fn the_startup_policy_can_freeze_and_never_thaws() {
     let Some(db) = TestDb::new() else { return };
     db.migrate(&FILES, false).unwrap();
     let store = db.store();
+    let bus = MemoryBus::default();
+    let relay = relay(&bus);
     // Enabled on an open book: nothing moves.
-    assert!(!boot::apply_startup_policy(&store, true).unwrap().frozen);
+    assert!(
+        !boot::apply_startup_policy(&store, true, &relay)
+            .unwrap()
+            .frozen
+    );
     assert_eq!(
         db.count("SELECT count(*) FROM ledger.ledger_freeze_outbox"),
         0
     );
 
-    // Disabled: a durable, attributed freeze and its one intent, committed together.
-    let state = boot::apply_startup_policy(&store, false).unwrap();
+    // Disabled: a durable, attributed freeze and its one intent, committed together, then published once.
+    let state = boot::apply_startup_policy(&store, false, &relay).unwrap();
     assert!(state.frozen);
     assert_eq!(state.reason.as_deref(), Some(STARTUP_FREEZE_REASON));
     assert_eq!(state.actor.as_deref(), Some(STARTUP_FREEZE_ACTOR));
@@ -549,7 +438,7 @@ fn the_startup_policy_can_freeze_and_never_thaws() {
         let r = db
             .client()
             .query_one(
-                "SELECT idempotency_key, payload::text FROM ledger.ledger_freeze_outbox WHERE published_at IS NULL",
+                "SELECT idempotency_key, payload::text FROM ledger.ledger_freeze_outbox WHERE published_at IS NOT NULL",
                 &[],
             )
             .unwrap();
@@ -565,22 +454,37 @@ fn the_startup_policy_can_freeze_and_never_thaws() {
         Some(&Json::str(state.changed_at.clone()))
     );
     assert_eq!(state.changed_at.len(), "2026-11-21T00:00:00.000Z".len());
+    let sent = bus.emitted(freeze::SUBJECT);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].get("idempotencyKey"), Some(&Json::str(key)));
+    // The payload as `ledgerFreezeUpdatedPayload` rebuilds it, in the catalogue's key order (jsonb keeps its own).
+    let sent_payload = sent[0].get("payload").unwrap();
+    for key in ["frozen", "reason", "actor", "changedAt"] {
+        assert_eq!(sent_payload.get(key), p.get(key), "{key}");
+    }
 
     // A second boot with the flag still off is a true no-op; a boot with it on never thaws.
-    assert_eq!(boot::apply_startup_policy(&store, false).unwrap(), state);
-    assert_eq!(boot::apply_startup_policy(&store, true).unwrap(), state);
+    assert_eq!(
+        boot::apply_startup_policy(&store, false, &relay).unwrap(),
+        state
+    );
+    assert_eq!(
+        boot::apply_startup_policy(&store, true, &relay).unwrap(),
+        state
+    );
     assert_eq!(
         db.count("SELECT count(*) FROM ledger.ledger_freeze_outbox"),
         1
     );
 
     // Another attribution never overwrites the standing freeze.
-    let refused = boot::write_freeze(&store, "operator halt", "op-1").unwrap_err();
+    let refused = freeze::write(&store, halt("operator halt", "op-1")).unwrap_err();
     assert_eq!(refused.code.as_deref(), Some("ledger.freeze_attributed"));
     assert_eq!(
-        boot::write_freeze(&store, STARTUP_FREEZE_REASON, STARTUP_FREEZE_ACTOR).unwrap(),
+        freeze::write(&store, halt(STARTUP_FREEZE_REASON, STARTUP_FREEZE_ACTOR)).unwrap(),
         (state, false)
     );
+    assert_eq!(bus.emitted(freeze::SUBJECT).len(), 1);
     store.end();
 }
 
@@ -589,8 +493,9 @@ fn a_book_frozen_by_an_operator_boots_frozen_by_that_operator() {
     let Some(db) = TestDb::new() else { return };
     db.migrate(&FILES, false).unwrap();
     let store = db.store();
-    boot::write_freeze(&store, "operator halt", "op-1").unwrap();
-    let state = boot::apply_startup_policy(&store, false).unwrap();
+    freeze::write(&store, halt("operator halt", "op-1")).unwrap();
+    let bus = MemoryBus::default();
+    let state = boot::apply_startup_policy(&store, false, &relay(&bus)).unwrap();
     assert_eq!(state.actor.as_deref(), Some("op-1"));
     assert_eq!(
         db.count("SELECT count(*) FROM ledger.ledger_freeze_outbox"),
@@ -615,8 +520,13 @@ fn served(db: &TestDb) -> App<LedgerDoor> {
             clock: system_seconds,
             store: db.store(),
             service_name: "svc-ledger".to_owned(),
+            bus: std::sync::Arc::new(svc_ledger::freeze::MemoryBus::default()),
+            approvals: Box::new(svc_ledger::approval::Unwired),
+            clock_skew_bound_ms: None,
+            now_ms: svc_ledger::clock::system_ms,
+            log: service_kit::telemetry::Logger::new("info", Box::new(std::io::sink())),
             posting: svc_ledger::posting::Posting::new(
-                std::sync::Arc::new(svc_ledger::posting::NoBus),
+                std::sync::Arc::new(svc_ledger::freeze::MemoryBus::default()),
                 "svc-ledger".to_owned(),
                 false,
                 svc_ledger::posting::engine::EngineOptions {
@@ -661,7 +571,7 @@ fn health_and_ready_say_what_the_database_says() {
         )
         .unwrap();
     // Frozen by the startup setting: alive, not ready.
-    boot::apply_startup_policy(app.wire.store(), false).unwrap();
+    boot::apply_startup_policy(app.wire.store(), false, &relay(&MemoryBus::default())).unwrap();
     assert_eq!(
         get(&app, "/ready"),
         (

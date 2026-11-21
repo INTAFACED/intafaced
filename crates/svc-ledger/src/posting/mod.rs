@@ -22,6 +22,7 @@ use service_kit::time::Instant;
 use crate::boot::Relay;
 use crate::db::{Store, StoreError, with_client};
 use crate::errors::{self, Failure};
+use crate::freeze::Bus;
 use crate::posting::bindings::Reader;
 use crate::posting::engine::{EngineOptions, Mismatch, Posted};
 use crate::posting::gate::{Caller, Violation, Why};
@@ -44,24 +45,6 @@ impl From<StoreError> for PostError {
     fn from(s: StoreError) -> PostError {
         PostError::Store(s)
     }
-}
-
-/// `crypto.randomUUID()`.
-pub fn random_uuid() -> Result<String, String> {
-    let mut b = [0u8; 16];
-    getrandom::fill(&mut b).map_err(|e| e.to_string())?;
-    b[6] = (b[6] & 0x0f) | 0x40;
-    b[8] = (b[8] & 0x3f) | 0x80;
-    let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
-    let part = |r: std::ops::Range<usize>| hex.get(r).unwrap_or_default().to_owned();
-    Ok(format!(
-        "{}-{}-{}-{}-{}",
-        part(0..8),
-        part(8..12),
-        part(12..16),
-        part(16..20),
-        part(20..32)
-    ))
 }
 
 /// `classifyWriteBlock`: the write-block code of a store error, or none when it is not a store condition.
@@ -99,28 +82,6 @@ fn as_fault(e: PostError) -> Failure {
     match e {
         PostError::Refused(f) => f,
         PostError::Store(_) => Failure::Fault,
-    }
-}
-
-/// The publish side of the event bus (`JetStreamEventBus.publish`): one message on a subject, deduplicated by its id.
-pub trait Bus: Send + Sync {
-    fn publish(&self, subject: &str, msg_id: &str, payload: &[u8]) -> Result<(), String>;
-}
-
-impl Bus for service_kit::nats::JetStream {
-    fn publish(&self, subject: &str, msg_id: &str, payload: &[u8]) -> Result<(), String> {
-        service_kit::nats::JetStream::publish(self, subject, msg_id, payload)
-            .map(|_| ())
-            .map_err(|e| e.0)
-    }
-}
-
-/// No bus: every publish fails, so a committed intent stays in its outbox (a test's store, the replay's).
-pub struct NoBus;
-
-impl Bus for NoBus {
-    fn publish(&self, _subject: &str, _msg_id: &str, _payload: &[u8]) -> Result<(), String> {
-        Err("no event bus".to_owned())
     }
 }
 
@@ -418,7 +379,10 @@ impl TxRelay<'_> {
             let mut env = vec![
                 (
                     "id".to_owned(),
-                    Json::str(random_uuid().map_err(|e| StoreError::new(e, None))?),
+                    Json::str(
+                        service_kit::approvals::random_uuid()
+                            .map_err(|e| StoreError::new(e, None))?,
+                    ),
                 ),
                 ("subject".to_owned(), Json::str(TX_POSTED_SUBJECT)),
                 ("version".to_owned(), Json::int(1)),
@@ -444,7 +408,7 @@ impl TxRelay<'_> {
                 .publish(
                     TX_POSTED_SUBJECT,
                     &format!("ledger.tx:{}", row.tx_id),
-                    Json::Object(env).compact().as_bytes(),
+                    &Json::Object(env),
                 )
                 .map_err(|e| StoreError::new(e, None))?;
             with_client(pool, |c| engine::mark_published(c, &row.id))?;

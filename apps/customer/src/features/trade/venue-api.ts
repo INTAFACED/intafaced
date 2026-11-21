@@ -217,10 +217,18 @@ export const keys = {
   ownMove: (owner: string, draft: string) => `own:move:${part(owner)}:${draft}`,
   leverage: (owner: string, symbol: string, mode: VenueMarginMode, leverageBps: number, draft: string) =>
     `leverage:${part(owner)}:${part(symbol)}:${mode}:${leverageBps}:${draft}`,
-  builderApproval: (owner: string, builder: string, maxFeeBps: string, venueId?: string) =>
+  /**
+   * One asking for our builder-fee approval, by the draft minted when the page asked: a double press or a lost answer is
+   * the same approval, and an approval asked again after a revoke (J-derivatives-30 #4) is a new one, never the stored
+   * answer of the approval it revoked.
+   */
+  builderApproval: (owner: string, builder: string, maxFeeBps: string, venueId: string | undefined, draft: string) =>
     venueId
-      ? `builder-approval:${part(owner)}:${part(venueId)}:${part(builder)}:${maxFeeBps}`
-      : `builder-approval:${part(owner)}:${part(builder)}:${maxFeeBps}`,
+      ? `builder-approval:${part(owner)}:${part(venueId)}:${part(builder)}:${maxFeeBps}:${draft}`
+      : `builder-approval:${part(owner)}:${part(builder)}:${maxFeeBps}:${draft}`,
+  /** One reviewed revoke of our builder-fee approval on one venue (J-derivatives-30 #3): pressed again, the same revoke. */
+  builderRevoke: (owner: string, venueId: string, builder: string, draft: string) =>
+    `builder-revoke:${part(owner)}:${part(venueId)}:${part(builder)}:${draft}`,
   withdraw: (owner: string, draft: string) => `withdraw:${part(owner)}:${draft}`,
   /** One lowering of a resting order, by the venue's client id and the amount left: the same change asked twice is one. */
   amend: (owner: string, venueClientOrderId: string, amount: string) =>

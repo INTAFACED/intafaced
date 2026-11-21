@@ -8,7 +8,8 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
-import { createMarketRouter, reviewPublicOut, reviewedListingOut } from './router.js';
+import { marketPublicReviewSchema, marketReviewedListingSchema } from '@intafaced/contracts/market-procedures';
+import { createMarketRouter } from './router.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { userCopy } from './user-copy.js';
 import {
@@ -1328,7 +1329,7 @@ describe('svc-market mount — listings array and public reviews', () => {
     const caller = mount().createCaller(anonymous());
     const reply = await caller.listings({ limit: 50 });
     expect(Array.isArray(reply)).toBe(true);
-    expect(z.array(reviewedListingOut).parse(reply)).toEqual(reply);
+    expect(z.array(marketReviewedListingSchema).parse(reply)).toEqual(reply);
     expect(reply.map((row) => row.id)).toEqual([earlier.id, later.id]);
     // Both rows' seller passed the operators' review, so the catalogue answers each with that review state.
     expect(reply.map((row) => row.reviewState)).toEqual(['approved', 'approved']);
@@ -1367,6 +1368,6 @@ describe('svc-market mount — listings array and public reviews', () => {
     }
     expect(JSON.stringify(listed)).not.toContain(BUYER_A);
     expect(JSON.stringify(listed)).not.toContain(purchase.id);
-    expect(z.array(reviewPublicOut).parse(listed.reviews)).toEqual(listed.reviews);
+    expect(z.array(marketPublicReviewSchema).parse(listed.reviews)).toEqual(listed.reviews);
   });
 });

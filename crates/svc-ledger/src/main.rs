@@ -21,13 +21,16 @@ use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 use service_kit::tokens::TokenConfig;
 
+use svc_ledger::approval::{self, Approvals};
 use svc_ledger::boot::{self, OUTBOX_RECOVER_MS, Relay};
+use svc_ledger::clock::system_ms;
 use svc_ledger::db::{self, Store};
 use svc_ledger::door::{DoorConfig, Keys, LedgerDoor};
 use svc_ledger::env::{self, DEFAULT_PORT, LedgerEnv};
+use svc_ledger::freeze::{Bus, FreezeRelay, JetStreamBus};
 use svc_ledger::migrate;
 use svc_ledger::posting::engine::{Conflict, EngineOptions};
-use svc_ledger::posting::{Bus, Posting, TxRelay};
+use svc_ledger::posting::{Posting, TxRelay};
 
 fn process_env() -> BTreeMap<String, String> {
     std::env::vars_os()
@@ -56,18 +59,12 @@ fn main() -> ExitCode {
     }
 }
 
-/// The app clock, in milliseconds since the epoch.
-fn system_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
-}
-
 /// The door, built once from the environment, as `index.ts` mounts its doors.
 fn door(
     env: &LedgerEnv,
     store: Store,
     bus: Arc<dyn Bus>,
+    fetch: Arc<dyn Fetch>,
     log: &Logger,
 ) -> Result<LedgerDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
@@ -91,7 +88,7 @@ fn door(
         }),
     };
     let posting = Posting::new(
-        bus,
+        bus.clone(),
         str_of("SERVICE_NAME"),
         env.str("LEDGER_CUSTODY_LAYER") == Some("on"),
         EngineOptions {
@@ -101,7 +98,7 @@ fn door(
                 Conflict::Detect
             },
             clock_skew_bound_ms: env.clock_skew_bound_ms,
-            clock_ms: system_millis,
+            clock_ms: system_ms,
         },
         keys.is_some(),
         Some(log.clone()),
@@ -121,8 +118,26 @@ fn door(
         clock: system_seconds,
         store,
         service_name: str_of("SERVICE_NAME"),
+        bus,
+        approvals: approvals(env, fetch),
+        clock_skew_bound_ms: env.clock_skew_bound_ms,
+        now_ms: system_ms,
+        log: log.clone(),
         posting,
     })
+}
+
+/// `env.IDENTITY_URL ? createIdentityApprovalClient(IDENTITY_URL, INTERNAL_SERVICE_SECRET) : unwiredApprovalConsumer()`.
+fn approvals(env: &LedgerEnv, fetch: Arc<dyn Fetch>) -> Box<dyn Approvals> {
+    match env.str("IDENTITY_URL").filter(|u| !u.is_empty()) {
+        Some(url) => Box::new(approval::Identity::new(
+            url,
+            env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default(),
+            fetch,
+            system_seconds,
+        )),
+        None => Box::new(approval::Unwired),
+    }
 }
 
 fn failed(e: &db::StoreError) -> String {
@@ -137,6 +152,7 @@ fn run() -> Result<(), String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let log = Logger::stdout(&str_of("LOG_LEVEL"));
     let fetch: Arc<dyn Fetch> = Arc::new(UreqFetch::new());
+    let fetch_for_approvals = fetch.clone();
     let telemetry = Telemetry::start(
         env.flag("OTEL_ENABLED"),
         &str_of("SERVICE_NAME"),
@@ -145,12 +161,17 @@ fn run() -> Result<(), String> {
         fetch,
         log.clone(),
     );
-    let out = serve(&env, &log, &telemetry);
+    let out = serve(&env, &log, &telemetry, fetch_for_approvals);
     telemetry.shutdown();
     out
 }
 
-fn serve(env: &LedgerEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), String> {
+fn serve(
+    env: &LedgerEnv,
+    log: &Logger,
+    telemetry: &Telemetry,
+    fetch: Arc<dyn Fetch>,
+) -> Result<(), String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let pool_max = usize::try_from(env.int("DATABASE_POOL_MAX").unwrap_or(1)).unwrap_or(1);
     let store = db::open(
@@ -171,27 +192,34 @@ fn serve(env: &LedgerEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Str
             .map(|()| js)
     })
     .map_err(|e| e.0)?;
-    let bus = Arc::new(bus);
-    let door = door(env, store, bus.clone(), log)?;
+    let bus = Arc::new(JetStreamBus(bus));
+    let door = door(env, store, bus.clone(), fetch, log)?;
+    let freeze_relay = FreezeRelay {
+        bus: &*bus,
+        producer: str_of("SERVICE_NAME"),
+        now_ms: system_ms,
+    };
     // Before the first request, never after: the custody guard, then the startup freeze (it can freeze, never thaw).
     boot::assert_custody_layer_bootable(
         door.store(),
         env.str("LEDGER_CUSTODY_LAYER") == Some("on"),
     )
     .map_err(|e| failed(&e))?;
-    let freeze_at_boot =
-        boot::apply_startup_policy(door.store(), env.flag("LEDGER_POSTING_ENABLED"))
-            .map_err(|e| failed(&e))?;
+    let freeze_at_boot = boot::apply_startup_policy(
+        door.store(),
+        env.flag("LEDGER_POSTING_ENABLED"),
+        &freeze_relay,
+    )
+    .map_err(|e| failed(&e))?;
 
     let app = App {
         wire: door,
         service_name: str_of("SERVICE_NAME"),
         ready_body: String::new(),
     };
-    // The relays the outbox recovery drives: `posting`'s `ledgerTxPosted`. The `freeze` slice adds
-    // `ledgerFreezeUpdated`; until then its intents stay committed and unsent, as they do while the bus is down.
+    // The relays the outbox recovery drives: `ledgerFreezeUpdated` and `ledgerTxPosted`.
     let tx_relay = TxRelay(app.wire.posting());
-    let relays: Vec<&dyn Relay> = vec![&tx_relay];
+    let relays: Vec<&dyn Relay> = vec![&freeze_relay, &tx_relay];
     // Outbox recovery is not inside the startup policy: that path only freezes. Committed, unsent intents drain here,
     // then on the timer below.
     if let Err(e) = boot::recover_outbox(app.wire.store(), &relays) {
@@ -254,7 +282,7 @@ fn serve(env: &LedgerEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), Str
         server::serve(&server, &app, log, telemetry, stop);
     });
     drop(server);
-    bus.close();
+    bus.0.close();
     app.wire.end();
     log.info(Vec::new(), "svc-ledger stopped");
     Ok(())

@@ -3,7 +3,17 @@
 // the calls both rooms share. Only fields the screen shows are kept, and no service sentence is ever kept
 // (`residual` and `statusLine` are deliberately left out of the schema).
 import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
-import { GRID_SUBMIT_PERMISSION } from '@intafaced/contracts/trade-grid-procedures';
+import { GRID_SET_EXITS, GRID_SET_IDLE_YIELD, GRID_SUBMIT_PERMISSION } from '@intafaced/contracts/trade-grid-procedures';
+import {
+  MARKET_SIGNALS_ARCHIVE,
+  MARKET_SIGNALS_CRITERIA,
+  MARKET_SIGNALS_EARNINGS,
+  MARKET_SIGNALS_LIST,
+  MARKET_SIGNALS_MINE,
+  MARKET_SIGNALS_PUBLISH,
+  type MarketSignal,
+  type MarketSignalVetting,
+} from '@intafaced/contracts/market-procedures';
 import { z } from 'zod';
 import {
   LEADER_MODES,
@@ -38,13 +48,7 @@ import {
   leaderTradeSchema,
   leaderTradesSchema,
   myLeadSchema,
-  mySignalsSchema,
   platformPausesSchema,
-  providerSignalSchema,
-  signalCriteriaSchema,
-  signalEarningsSchema,
-  signalPublishSchema,
-  signalVettingSchema,
   signalWebhookSchema,
   studioListSchema,
   studioStrategySchema,
@@ -56,12 +60,6 @@ import { algoSchema, copyFollowSchema, createToolApi } from '../../../features/t
 export {
   copyDeskSchema,
   signalWebhookSchema,
-  providerSignalSchema,
-  signalVettingSchema,
-  signalCriteriaSchema,
-  signalPublishSchema,
-  mySignalsSchema,
-  signalEarningsSchema,
   platformPausesSchema,
   algoPolicySchema,
   botListRowSchema,
@@ -86,9 +84,9 @@ export {
 export type CopyDesk = z.infer<typeof copyDeskSchema>;
 
 export type SignalWebhook = z.infer<typeof signalWebhookSchema>;
-export type ProviderSignal = z.infer<typeof providerSignalSchema>;
-export type SignalVetting = z.infer<typeof signalVettingSchema>;
-export type SignalEarnings = z.infer<typeof signalEarningsSchema>;
+export type ProviderSignal = MarketSignal;
+export type SignalVetting = MarketSignalVetting;
+export type SignalEarnings = z.output<typeof MARKET_SIGNALS_EARNINGS.output>;
 export type SignalPublishRequest = {
   publishKey: string;
   title: string;
@@ -127,6 +125,8 @@ export type GridBot = z.infer<typeof gridBotSchema>;
 export type GridWithdrawal = z.infer<typeof gridWithdrawalSchema>;
 export type GridTopUpRequest = { botId: string; requestId: string; asset: string; amount: string };
 export type GridModifyRequest = { botId: string; trailing: boolean; shiftLimitPercent: string; minGridCount: number | null };
+/** A grid's exits: blank prices clear an exit, and an RSI value is sent as typed so the service names its refusal. */
+export type GridExitsRequest = { botId: string; stopBelow: string; stopAbove: string; rsiBelow?: string };
 export type GridWithdrawRequest = {
   botId: string;
   requestId: string;
@@ -267,14 +267,12 @@ export function createRoomApi(api: ApiClient) {
     webhooks: (signal?: AbortSignal) => api.query('trade', 'signals.webhooks.list', undefined, z.array(signalWebhookSchema), { signal }),
     createWebhook: (input: { symbol: string; venueOwner: string; clientRequestId: string }) =>
       api.mutate('trade', 'signals.webhooks.create', input, signalWebhookSchema),
-    signalCriteria: (signal?: AbortSignal) => api.query('market', 'signals.criteria', undefined, signalCriteriaSchema, { signal }),
-    publishSignal: (input: SignalPublishRequest) => api.mutate('market', 'signals.publish', input, signalPublishSchema),
-    archiveSignal: (signalId: string) => api.mutate('market', 'signals.archive', { signalId }, providerSignalSchema),
-    mySignals: (signal?: AbortSignal) => api.query('market', 'signals.mine', { limit: SIGNAL_PAGE }, mySignalsSchema, { signal }),
-    signalList: (signal?: AbortSignal) =>
-      api.query('market', 'signals.list', { limit: SIGNAL_PAGE }, z.array(providerSignalSchema), { signal }),
-    signalEarnings: (window: { from: string; to: string }, signal?: AbortSignal) =>
-      api.query('market', 'signals.earnings', window, signalEarningsSchema, { signal }),
+    signalCriteria: (signal?: AbortSignal) => api.call(MARKET_SIGNALS_CRITERIA, undefined, { signal }),
+    publishSignal: (input: SignalPublishRequest) => api.call(MARKET_SIGNALS_PUBLISH, input),
+    archiveSignal: (signalId: string) => api.call(MARKET_SIGNALS_ARCHIVE, { signalId }),
+    mySignals: (signal?: AbortSignal) => api.call(MARKET_SIGNALS_MINE, { limit: SIGNAL_PAGE }, { signal }),
+    signalList: (signal?: AbortSignal) => api.call(MARKET_SIGNALS_LIST, { limit: SIGNAL_PAGE }, { signal }),
+    signalEarnings: (window: { from: string; to: string }, signal?: AbortSignal) => api.call(MARKET_SIGNALS_EARNINGS, window, { signal }),
     leadEarnings: (signal?: AbortSignal) =>
       api.query('trade', 'copy.leadEarnings', { limit: LEAD_EARNINGS_PAGE }, leadEarningsSchema, { signal }),
     leadLevel: (signal?: AbortSignal) => api.query('trade', 'copy.leadLevel', undefined, leadLevelSchema, { signal }),
@@ -307,6 +305,8 @@ export function createRoomApi(api: ApiClient) {
       api.query('trade', 'bots.grid.topUpFree', { botId }, gridTopUpFreeSchema, { signal }),
     gridTopUp: (input: GridTopUpRequest) => api.mutate('trade', 'bots.grid.topUp', input, gridTopUpSchema),
     gridModify: (input: GridModifyRequest) => api.mutate('trade', 'bots.grid.modify', input, gridBotSchema),
+    gridSetExits: (input: GridExitsRequest) => api.call(GRID_SET_EXITS, input),
+    gridSetIdleYield: (input: { botId: string; on: boolean }) => api.call(GRID_SET_IDLE_YIELD, input),
     gridWithdraw: (input: GridWithdrawRequest) => api.mutate('trade', 'bots.grid.withdrawProfit', input, gridWithdrawalSchema),
     // The room shows only strategies whose amounts read as unsigned amounts; a page with any other reads as unverified.
     studio: (signal?: AbortSignal) => api.call(QUANT_STUDIO_LIST, { limit: 50 }, { signal, accept: parsesAs(studioListSchema) }),

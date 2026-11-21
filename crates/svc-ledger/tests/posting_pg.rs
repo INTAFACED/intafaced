@@ -14,18 +14,19 @@
     reason = "a test: a failure is the point"
 )]
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use postgres::{Client, NoTls};
 use service_kit::json::{self, Json};
 use svc_ledger::boot;
 use svc_ledger::db::{self, Store};
 use svc_ledger::errors::Failure;
+use svc_ledger::freeze::{self, MemoryBus};
 use svc_ledger::migrate::{self, FILES};
 use svc_ledger::posting::engine::{Conflict, EngineOptions};
 use svc_ledger::posting::gate::Caller;
-use svc_ledger::posting::{self, Bus, Posting, TX_POSTED_SUBJECT, TxRelay};
+use svc_ledger::posting::{self, Posting, TX_POSTED_SUBJECT, TxRelay};
 
 struct TestDb {
     admin: String,
@@ -109,28 +110,7 @@ impl Drop for TestDb {
     }
 }
 
-/// A bus that keeps what it was handed, and refuses while `down`.
-#[derive(Default)]
-struct Recorded {
-    sent: Mutex<Vec<(String, String, Json)>>,
-    down: AtomicBool,
-}
-
-impl Bus for Recorded {
-    fn publish(&self, subject: &str, msg_id: &str, payload: &[u8]) -> Result<(), String> {
-        if self.down.load(Ordering::SeqCst) {
-            return Err("the bus is down".to_owned());
-        }
-        let body = json::parse(std::str::from_utf8(payload).unwrap()).unwrap();
-        self.sent
-            .lock()
-            .unwrap()
-            .push((subject.to_owned(), msg_id.to_owned(), body));
-        Ok(())
-    }
-}
-
-fn posting(bus: &Arc<Recorded>, custody_layer_on: bool) -> Posting {
+fn posting(bus: &Arc<MemoryBus>, custody_layer_on: bool) -> Posting {
     Posting::new(
         bus.clone(),
         "svc-ledger".to_owned(),
@@ -198,7 +178,7 @@ fn code(f: &Failure) -> &str {
 fn a_post_is_booked_once_and_its_intent_published_once_in_the_events_shape() {
     let Some(db) = TestDb::new() else { return };
     let store = db.store();
-    let bus = Arc::new(Recorded::default());
+    let bus = Arc::new(MemoryBus::default());
     let p = posting(&bus, true);
 
     let ack = post(&store, &p, &deposit("relay-1", "12.5")).unwrap();
@@ -267,11 +247,11 @@ fn a_post_is_booked_once_and_its_intent_published_once_in_the_events_shape() {
 fn a_failed_publish_answers_a_fault_and_the_booked_post_is_sent_by_its_retry_or_the_recovery() {
     let Some(db) = TestDb::new() else { return };
     let store = db.store();
-    let bus = Arc::new(Recorded::default());
+    let bus = Arc::new(MemoryBus::default());
     let p = posting(&bus, true);
 
     // The bus is down after commit: the caller is told it failed, the booking and its intent stay.
-    bus.down.store(true, Ordering::SeqCst);
+    bus.failing.store(true, Ordering::SeqCst);
     assert_eq!(
         post(&store, &p, &deposit("down-1", "3")),
         Err(Failure::Fault)
@@ -283,7 +263,7 @@ fn a_failed_publish_answers_a_fault_and_the_booked_post_is_sent_by_its_retry_or_
     );
 
     // The caller retries the same key once the bus is back: the booked post, and its intent sent.
-    bus.down.store(false, Ordering::SeqCst);
+    bus.failing.store(false, Ordering::SeqCst);
     let ack = post(&store, &p, &deposit("down-1", "3")).unwrap();
     assert_eq!(db.count("SELECT count(*) FROM ledger.ledger_tx"), 1);
     assert_eq!(
@@ -296,12 +276,12 @@ fn a_failed_publish_answers_a_fault_and_the_booked_post_is_sent_by_its_retry_or_
     );
 
     // A caller that never retries: the recovery sends it, once.
-    bus.down.store(true, Ordering::SeqCst);
+    bus.failing.store(true, Ordering::SeqCst);
     assert_eq!(
         post(&store, &p, &deposit("down-2", "4")),
         Err(Failure::Fault)
     );
-    bus.down.store(false, Ordering::SeqCst);
+    bus.failing.store(false, Ordering::SeqCst);
     assert_eq!(boot::recover_outbox(&store, &[&TxRelay(&p)]).unwrap(), 1);
     assert_eq!(boot::recover_outbox(&store, &[&TxRelay(&p)]).unwrap(), 0);
     assert_eq!(bus.sent.lock().unwrap().len(), 2);
@@ -311,11 +291,18 @@ fn a_failed_publish_answers_a_fault_and_the_booked_post_is_sent_by_its_retry_or_
 fn a_frozen_book_refuses_a_new_post_and_writes_nothing_but_answers_a_booked_one() {
     let Some(db) = TestDb::new() else { return };
     let store = db.store();
-    let bus = Arc::new(Recorded::default());
+    let bus = Arc::new(MemoryBus::default());
     let p = posting(&bus, true);
     let booked = post(&store, &p, &deposit("before-freeze", "5")).unwrap();
 
-    boot::write_freeze(&store, "reconcile mismatch (test)", "ops-test").unwrap();
+    freeze::write(
+        &store,
+        freeze::Command::Freeze {
+            reason: "reconcile mismatch (test)",
+            actor: "ops-test",
+        },
+    )
+    .unwrap();
     let refused = post(&store, &p, &deposit("after-freeze", "5")).unwrap_err();
     assert_eq!(code(&refused), "ledger.frozen");
     assert_eq!(db.count("SELECT count(*) FROM ledger.ledger_tx"), 1);
@@ -336,7 +323,7 @@ fn a_frozen_book_refuses_a_new_post_and_writes_nothing_but_answers_a_booked_one(
 fn with_custody_off_a_customer_post_is_refused_before_any_write_and_our_own_books() {
     let Some(db) = TestDb::new() else { return };
     let store = db.store();
-    let bus = Arc::new(Recorded::default());
+    let bus = Arc::new(MemoryBus::default());
     let on = posting(&bus, true);
     let off = posting(&bus, false);
     let booked = post(&store, &on, &deposit("while-on", "6")).unwrap();

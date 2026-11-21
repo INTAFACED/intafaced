@@ -7,12 +7,15 @@
 //! slice; `PORT.md` lists the slices and what each ports. The `posting` slice books `post`: the caller binding, the
 //! recipe gate, the binding checks, the custody switch, the engine, and the `ledgerTxPosted` relay.
 
+pub mod approval;
 pub mod boot;
+pub mod clock;
 pub mod db;
 pub mod door;
 pub mod env;
 pub mod errors;
 pub mod errors_table;
+pub mod freeze;
 pub mod migrate;
 pub mod posting;
 pub mod refines;

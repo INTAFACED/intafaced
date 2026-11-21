@@ -49,6 +49,9 @@ export type GridErrorCode =
   | 'trade.bots_grid_min_count_invalid'
   | 'trade.bots_grid_min_count_above_count'
   | 'trade.bots_grid_trailing_not_built'
+  | 'trade.bots_grid_rsi_source_not_set'
+  | 'trade.bots_grid_exit_price_invalid'
+  | 'trade.bots_grid_idle_yield_unwired'
   | 'trade.api_withdraw_not_allowed'
   // The venue grid (venue-grid.ts; J-copy-bots-otc-14 on the venue).
   | 'trade.bots_grid_wallet_required'
