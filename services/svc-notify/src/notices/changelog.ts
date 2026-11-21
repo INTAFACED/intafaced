@@ -1,23 +1,4 @@
-/**
- * Developer changelog entries. A changelog notice can carry the product area it
- * belongs to, whether it breaks callers, the endpoints and scopes it adds, the
- * dates it was added and takes effect, a before-and-after example, a migration
- * note and the endpoints it retires. A release date is never filled in for the
- * author: an entry with none reads `releaseOn: null` and is not listed as
- * upcoming.
- */
-
-export const CHANGELOG_AREAS = [
-  'trading',
-  'market_data',
-  'account',
-  'wallet',
-  'payments',
-  'webhooks',
-  'websocket',
-  'fix',
-  'authentication',
-] as const;
+import { CHANGELOG_AREAS } from '@intafaced/contracts/notify-call-schemas';
 export type ChangelogArea = (typeof CHANGELOG_AREAS)[number];
 
 export type ChangelogCode =
@@ -167,3 +148,4 @@ export function retiredEndpoints(entries: readonly ChangelogEntryRef[]): Retired
   }
   return [...byEndpoint.values()].sort((a, b) => a.endpoint.localeCompare(b.endpoint));
 }
+export { CHANGELOG_AREAS };

@@ -1,9 +1,15 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
-import { founderCall, type FounderCallContext, partFrom } from '@/lib/desk';
+import { type FounderCallContext, partFrom, founderRecordRead } from '@/lib/desk';
 import { readDefinition } from './status-model';
 import { NOTIFY, anyData, loadPublishApprovals, reply } from './incidents-server';
 import { readWindows, type MaintenanceDeskView, type MaintenanceDraftInput, type MaintenanceTarget } from './maintenance-model';
+import { NOTIFY_DRAFT_NOTICE } from '@intafaced/contracts/notify-notify-procedures';
+import {
+  NOTIFY_STATUS_PAGE_DEFINITION,
+  NOTIFY_STATUS_PAGE_MAINTENANCE_WINDOWS,
+  NOTIFY_STATUS_PAGE_MAINTENANCE_MOVE,
+} from '@intafaced/contracts/notify-status-page-procedures';
 
 /**
  * The maintenance desk as the signed-in founder. svc-notify holds the windows with their derived state, moves and
@@ -15,8 +21,8 @@ const LIST_LIMIT = 50;
 
 export async function loadMaintenanceDesk(ctx: FounderCallContext): Promise<MaintenanceDeskView> {
   const [windows, definition, approvals] = await Promise.all([
-    founderCall(ctx, 'notify', 'statusPage.maintenance.windows', 'GET', { limit: LIST_LIMIT }, readWindows),
-    founderCall(ctx, 'notify', 'statusPage.definition', 'GET', undefined, readDefinition),
+    founderRecordRead(ctx, NOTIFY_STATUS_PAGE_MAINTENANCE_WINDOWS, { limit: LIST_LIMIT }, readWindows),
+    founderRecordRead(ctx, NOTIFY_STATUS_PAGE_DEFINITION, undefined, readDefinition),
     loadPublishApprovals(ctx),
   ]);
   return {
@@ -50,11 +56,9 @@ export function maintenanceDraftKey(founder: string, input: MaintenanceDraftInpu
 
 export async function draftMaintenance(ctx: FounderCallContext, input: MaintenanceDraftInput & { basis: string | null }) {
   return reply(
-    await founderCall(
+    await founderRecordRead(
       ctx,
-      'notify',
-      'notify.draftNotice',
-      'POST',
+      NOTIFY_DRAFT_NOTICE,
       {
         kind: 'maintenance',
         title: input.title.trim(),
@@ -74,7 +78,7 @@ export async function draftMaintenance(ctx: FounderCallContext, input: Maintenan
 /** One operator move with its reason. The same move again answers the window as it stands. */
 export async function moveMaintenance(ctx: FounderCallContext, input: { id: string; to: MaintenanceTarget; reason: string }) {
   return reply(
-    await founderCall(ctx, 'notify', 'statusPage.maintenance.move', 'POST', { ...input, reason: input.reason.trim() }, anyData),
+    await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_MAINTENANCE_MOVE, { ...input, reason: input.reason.trim() }, anyData),
     `moved to ${input.to.replace('_', ' ')}`,
   );
 }

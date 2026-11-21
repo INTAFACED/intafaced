@@ -7,8 +7,8 @@
  * incident must. The cap on how many active templates exist is a hard limit of the store, not an owner value.
  */
 import { INCIDENT_IMPACTS, STATUS_COMPONENTS, STATUS_COMPONENT_PATTERN, type IncidentImpact } from '../notices/board.js';
+import { TEMPLATE_ID_PATTERN } from '@intafaced/contracts/notify-status-page-procedures';
 
-export const TEMPLATE_ID_PATTERN = /^[a-z][a-z0-9-]{1,39}$/;
 export const TEMPLATES_MAX = 100;
 
 export type TemplateCode =
@@ -137,3 +137,4 @@ export class MemoryTemplateStore implements TemplateStore {
     return this.rows.delete(id);
   }
 }
+export { TEMPLATE_ID_PATTERN };

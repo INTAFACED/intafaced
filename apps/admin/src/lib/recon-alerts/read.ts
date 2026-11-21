@@ -9,11 +9,11 @@ import {
   type OpsAlertList,
   type OpsPlatformIncidents,
   type OpsReconciliationPeriods,
-  notifyReconAlertFeedSchema,
   type NotifyReconAlertFeed,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
-import { founderCall, parseWith, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
+import { founderCall, parseWith, type FounderCallContext, partFrom, type Part, founderRecordCall } from '@/lib/desk';
 import { refusalWords } from './model';
+import { NOTIFY_RECONCILIATION_ALERT_FEED_LIST } from '@intafaced/contracts/notify-reconciliation-alert-feed-procedures';
 
 const labels = {
   service: 'svc-ops',
@@ -59,14 +59,7 @@ const feedLabels = {
 
 /** What svc-notify received of this alert's transitions: its own record, one per business key, read apart from svc-ops. */
 export async function readAlertFeed(ctx: FounderCallContext, alertId: string): Promise<Part<NotifyReconAlertFeed>> {
-  const result = await founderCall(
-    ctx,
-    'notify',
-    'reconciliationAlertFeed.list',
-    'GET',
-    { alertId },
-    parseWith(notifyReconAlertFeedSchema),
-  );
+  const result = await founderRecordCall(ctx, NOTIFY_RECONCILIATION_ALERT_FEED_LIST, { alertId });
   return partFrom(result, (d) => d, feedLabels);
 }
 

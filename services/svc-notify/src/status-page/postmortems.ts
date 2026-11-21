@@ -10,10 +10,9 @@
  */
 import { createHash } from 'node:crypto';
 import { fourEyesRefused, type NoticeApprovalConsumer } from '../notices/board.js';
+import { POSTMORTEMS_LIST_MAX, POSTMORTEM_BODY_MAX } from '@intafaced/contracts/notify-status-page-procedures';
 
 export const POSTMORTEM_PUBLISH_ACTION = 'notify.postmortem.publish';
-export const POSTMORTEM_BODY_MAX = 20_000;
-export const POSTMORTEMS_LIST_MAX = 200;
 
 export type PostmortemCode =
   | 'status.postmortem_requires_resolved'
@@ -281,3 +280,4 @@ export class MemoryPostmortemStore implements PostmortemStore {
     });
   }
 }
+export { POSTMORTEMS_LIST_MAX, POSTMORTEM_BODY_MAX };

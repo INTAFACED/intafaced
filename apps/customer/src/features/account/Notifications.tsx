@@ -19,6 +19,8 @@ import { useSession } from '../session';
 import { notificationsCopy as copy } from './notifications-copy';
 import { NotificationTargets } from './NotificationTargets';
 import './notifications.css';
+import { NOTIFY_MUTE_PREFS, NOTIFY_SET_MUTE } from '@intafaced/contracts/notify-notify-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 const notification = accountNotificationSchema;
 const outOfApp = accountNotifyOutOfAppSchema;
@@ -306,7 +308,7 @@ function NotificationSettings({ userId }: { userId: string }) {
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState<OutOfApp | null>(null);
   const [blocked, setBlocked] = useState<{ channel: OutOfApp; revision: number } | null>(null);
-  const [result, setResult] = useState<ApiResult<z.infer<typeof preferences>> | null>(null);
+  const [result, setResult] = useState<ApiResult<ProcedureOutput<typeof NOTIFY_MUTE_PREFS>> | null>(null);
   const [confirmed, setConfirmed] = useState<{ channel: OutOfApp; muted: boolean } | null>(null);
   const [readNote, setReadNote] = useState(false);
   const running = useRef(false),
@@ -326,7 +328,7 @@ function NotificationSettings({ userId }: { userId: string }) {
     `notification-targets:${userId}:${revision}`,
   );
   const prefs = useResource(
-    (signal) => api.query('notify', 'notify.mutePrefs', undefined, preferences, { signal }),
+    (signal) => api.call(NOTIFY_MUTE_PREFS, undefined, { signal }),
     `notification-preferences:${userId}:${revision}`,
   );
   useEffect(() => {
@@ -349,15 +351,7 @@ function NotificationSettings({ userId }: { userId: string }) {
     setConfirmed(null);
     setReadNote(false);
     setResult(null);
-    const outcome = await api.mutate(
-      'notify',
-      'notify.setMute',
-      { channel, muted },
-      preferences.refine(
-        (rows) => rows.some((row) => row.channel === channel && row.muted === muted),
-        'Returned preference does not match the requested setting',
-      ),
-    );
+    const outcome = await api.call(NOTIFY_SET_MUTE, { channel, muted });
     running.current = false;
     if (!mounted.current) return;
     setBusy(null);

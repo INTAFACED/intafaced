@@ -9,20 +9,37 @@ import {
   statusBadgeInputSchema,
   statusBadgeSchema,
   type StatusPage,
-  statusReadingInputSchema,
   STATUS_UPTIME_DAYS_MAX,
-  noticeCategorySchema,
 } from '@intafaced/contracts';
 import type { NoticeBoard } from '../notices/board.js';
 import { StatusPageError, type StatusPageBook } from './book.js';
 import { statusBadge } from './badge.js';
 import { buildStatusPage, uptimeStart } from './page.js';
 import type { StatusSubscriptions } from './subscriptions.js';
-import { TEMPLATE_ID_PATTERN, TemplateError, type IncidentTemplate, type IncidentTemplates } from './templates.js';
+import { TemplateError, type IncidentTemplate, type IncidentTemplates } from './templates.js';
 import { statusSubscriptionsRouter } from './subscriptions-router.js';
 import { MaintenanceError, type MaintenanceLifecycle, type MaintenanceWindow } from '../notices/maintenance.js';
 import { toOperatorNotice } from '../notices/board.js';
-import { POSTMORTEM_BODY_MAX, POSTMORTEMS_LIST_MAX, PostmortemError, type Postmortem, type Postmortems } from './postmortems.js';
+import { POSTMORTEMS_LIST_MAX, PostmortemError, type Postmortem, type Postmortems } from './postmortems.js';
+import {
+  postmortemOutput,
+  definitionOutput,
+  maintenanceWindowOutput,
+  NOTIFY_STATUS_PAGE_POSTMORTEMS_FOR_INCIDENTS,
+  NOTIFY_STATUS_PAGE_TEMPLATES_LIST,
+  NOTIFY_STATUS_PAGE_DEFINITION,
+  NOTIFY_STATUS_PAGE_POSTMORTEMS_PROPOSAL,
+  NOTIFY_STATUS_PAGE_POSTMORTEMS_WRITE,
+  NOTIFY_STATUS_PAGE_POSTMORTEMS_PUBLISH,
+  NOTIFY_STATUS_PAGE_TEMPLATES_DEFINE,
+  NOTIFY_STATUS_PAGE_TEMPLATES_RETIRE,
+  NOTIFY_STATUS_PAGE_MAINTENANCE_WINDOWS,
+  NOTIFY_STATUS_PAGE_MAINTENANCE_MOVE,
+  NOTIFY_STATUS_PAGE_READ,
+  NOTIFY_STATUS_PAGE_RECORD,
+} from '@intafaced/contracts/notify-status-page-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { notifyRefusal } from '../record-refusal.js';
 
 export type StatusPageDeps = {
   book: StatusPageBook;
@@ -39,94 +56,12 @@ export type StatusPageDeps = {
   now?: () => Date;
 };
 
-const definitionOutput = z.object({
-  components: z.array(z.object({ id: z.string(), name: z.string(), group: z.string().nullable(), source: z.string().nullable() })),
-  componentCap: z.number().int().nullable(),
-  stalenessSeconds: z.number().int().nullable(),
-  uptimeDays: z.number().int().nullable(),
-  challengeBits: z.number().int().nullable(),
-  subscribeRatePerHour: z.number().int().nullable(),
-  noticeCategories: z.array(noticeCategorySchema).nullable(),
-  revision: z.number().int(),
-  updatedAt: z.string().nullable(),
-  /** The public site address (no trailing slash) the founder console builds badge snippets on; null when not set. */
-  publicOrigin: z.string().nullable(),
-});
-
-const templateOutput = z.object({
-  id: z.string(),
-  name: z.string(),
-  group: z.string().nullable(),
-  title: z.string(),
-  body: z.string(),
-  impact: z.enum(['none', 'minor', 'major', 'critical']).nullable(),
-  components: z.array(z.string()),
-  definedBy: z.string(),
-  definedAt: z.string(),
-});
-
-const templateInput = z
-  .object({
-    id: z.string().regex(TEMPLATE_ID_PATTERN),
-    name: z.string().min(1).max(80),
-    group: z.string().max(80).nullable().optional(),
-    title: z.string().min(1).max(200),
-    body: z.string().min(1).max(8000),
-    impact: z.enum(['none', 'minor', 'major', 'critical']).nullable().optional(),
-    components: z
-      .array(z.string().regex(/^[a-z][a-z0-9-]{1,39}$/))
-      .max(100)
-      .nullable()
-      .optional(),
-  })
-  .strict();
-
-const postmortemOutput = z.object({
-  incidentId: z.string(),
-  body: z.string(),
-  version: z.number().int(),
-  status: z.enum(['draft', 'published']),
-  writtenBy: z.string(),
-  writtenAt: z.string(),
-  publishedAt: z.string().nullable(),
-});
-
 /** What a visitor reads: who wrote it stays with the founders. */
 const publishedPostmortemOutput = z.object({
   incidentId: z.string(),
   body: z.string(),
   version: z.number().int(),
   publishedAt: z.string(),
-});
-
-const postmortemProposalOutput = z.object({
-  actionType: z.string(),
-  targetService: z.literal('svc-notify'),
-  targetId: z.string(),
-  expectedVersion: z.string(),
-  payloadHash: z.string(),
-});
-
-const maintenanceWindowOutput = z.object({
-  notice: z.object({
-    id: z.string(),
-    title: z.string(),
-    body: z.string(),
-    status: z.enum(['draft', 'published']),
-    publishedAt: z.string().nullable(),
-    startsAt: z.string().nullable(),
-    endsAt: z.string().nullable(),
-    version: z.number().int(),
-    components: z.array(z.string()),
-    reminderOffsets: z.array(z.number().int()),
-    authorId: z.string(),
-    createdAt: z.string(),
-  }),
-  state: z.enum(['scheduled', 'in_progress', 'verifying', 'completed', 'cancelled']).nullable(),
-  moves: z.array(z.object({ state: z.string(), movedBy: z.string(), reason: z.string(), movedAt: z.string() })),
-  reminders: z.array(
-    z.object({ offsetMinutes: z.number().int(), dueAt: z.string(), sentAt: z.string().nullable(), skipped: z.string().nullable() }),
-  ),
 });
 
 const maintenanceWire = (w: MaintenanceWindow) =>
@@ -141,8 +76,6 @@ const maintenanceWire = (w: MaintenanceWindow) =>
       skipped: r.skipped,
     })),
   });
-
-const incidentIdInput = z.object({ incidentId: z.string().guid() }).strict();
 
 const postmortemWire = (p: Postmortem) => postmortemOutput.parse(p);
 
@@ -227,7 +160,7 @@ export function statusPageRouter(deps?: StatusPageDeps) {
   return router({
     subscriptions: statusSubscriptionsRouter(deps?.subscriptions, deps?.notices),
 
-    read: publicProcedure.output(statusPageSchema).query(() => call((deps) => readStatusPage(deps, now()))),
+    read: mountRecord(NOTIFY_STATUS_PAGE_READ, () => call((deps) => readStatusPage(deps, now())), notifyRefusal),
 
     badge: publicProcedure
       .input(statusBadgeInputSchema)
@@ -240,13 +173,14 @@ export function statusPageRouter(deps?: StatusPageDeps) {
         }),
       ),
 
-    definition: scopedProcedure('admin:write', { module: 'notify' })
-      .output(definitionOutput)
-      .query(() =>
+    definition: mountRecord(
+      NOTIFY_STATUS_PAGE_DEFINITION,
+      () =>
         call(async ({ book, publicOrigin }) =>
           definitionOutput.parse({ ...(await book.definition()), publicOrigin: originOrNull(publicOrigin) }),
         ),
-      ),
+      notifyRefusal,
+    ),
 
     configure: scopedProcedure('admin:write', { module: 'notify' })
       .input(statusPageConfigureInputSchema)
@@ -265,24 +199,26 @@ export function statusPageRouter(deps?: StatusPageDeps) {
      * honest answer until a founder defines one.
      */
     templates: router({
-      list: scopedProcedure('admin:write', { module: 'notify' })
-        .output(z.array(templateOutput))
-        .query(() => call(async ({ templates }) => (await requireTemplates(templates).list()).map(templateWire))),
-      define: scopedProcedure('admin:write', { module: 'notify' })
-        .input(templateInput)
-        .output(templateOutput)
-        .mutation(({ ctx, input }) =>
+      list: mountRecord(
+        NOTIFY_STATUS_PAGE_TEMPLATES_LIST,
+        () => call(async ({ templates }) => (await requireTemplates(templates).list()).map(templateWire)),
+        notifyRefusal,
+      ),
+      define: mountRecord(
+        NOTIFY_STATUS_PAGE_TEMPLATES_DEFINE,
+        ({ ctx, input }) =>
           call(async ({ templates }) => templateWire(await requireTemplates(templates).define(ctx.principal.userId, input))),
-        ),
-      retire: scopedProcedure('admin:write', { module: 'notify' })
-        .input(z.object({ id: z.string().regex(TEMPLATE_ID_PATTERN) }).strict())
-        .output(z.object({ id: z.string(), retired: z.literal(true) }))
-        .mutation(({ ctx, input }) =>
+        notifyRefusal,
+      ),
+      retire: mountRecord(
+        NOTIFY_STATUS_PAGE_TEMPLATES_RETIRE,
+        ({ ctx, input }) =>
           call(async ({ templates }) => {
             await requireTemplates(templates).retire(ctx.principal.userId, input.id);
             return { id: input.id, retired: true as const };
           }),
-        ),
+        notifyRefusal,
+      ),
     }),
 
     /**
@@ -308,44 +244,29 @@ export function statusPageRouter(deps?: StatusPageDeps) {
             })),
           ),
         ),
-      forIncidents: scopedProcedure('admin:write', { module: 'notify' })
-        .input(z.object({ incidentIds: z.array(z.string().guid()).max(POSTMORTEMS_LIST_MAX) }).strict())
-        .output(z.array(postmortemOutput))
-        .query(({ input }) =>
+      forIncidents: mountRecord(
+        NOTIFY_STATUS_PAGE_POSTMORTEMS_FOR_INCIDENTS,
+        ({ input }) =>
           call(async ({ postmortems }) => (await requirePostmortems(postmortems).forIncidents(input.incidentIds)).map(postmortemWire)),
-        ),
-      write: scopedProcedure('admin:write', { module: 'notify' })
-        .input(
-          z
-            .object({
-              incidentId: z.string().guid(),
-              body: z.string().min(1).max(POSTMORTEM_BODY_MAX),
-              expectedVersion: z.number().int().min(0),
-            })
-            .strict(),
-        )
-        .output(postmortemOutput)
-        .mutation(({ ctx, input }) =>
+        notifyRefusal,
+      ),
+      write: mountRecord(
+        NOTIFY_STATUS_PAGE_POSTMORTEMS_WRITE,
+        ({ ctx, input }) =>
           call(async ({ postmortems }) => postmortemWire(await requirePostmortems(postmortems).write(ctx.principal.userId, input))),
-        ),
-      proposal: scopedProcedure('admin:write', { module: 'notify' })
-        .input(incidentIdInput)
-        .output(postmortemProposalOutput)
-        .query(({ input }) => call(async ({ postmortems }) => requirePostmortems(postmortems).proposal(input.incidentId))),
-      publish: scopedProcedure('admin:write', { module: 'notify' })
-        .input(
-          z
-            .object({
-              incidentId: z.string().guid(),
-              approvalId: z.string().min(1).max(128),
-              operationId: z.string().min(1).max(128),
-            })
-            .strict(),
-        )
-        .output(postmortemOutput)
-        .mutation(({ ctx, input }) =>
+        notifyRefusal,
+      ),
+      proposal: mountRecord(
+        NOTIFY_STATUS_PAGE_POSTMORTEMS_PROPOSAL,
+        ({ input }) => call(async ({ postmortems }) => requirePostmortems(postmortems).proposal(input.incidentId)),
+        notifyRefusal,
+      ),
+      publish: mountRecord(
+        NOTIFY_STATUS_PAGE_POSTMORTEMS_PUBLISH,
+        ({ ctx, input }) =>
           call(async ({ postmortems }) => postmortemWire(await requirePostmortems(postmortems).publish(ctx.principal.userId, input))),
-        ),
+        notifyRefusal,
+      ),
     }),
 
     /**
@@ -353,47 +274,34 @@ export function statusPageRouter(deps?: StatusPageDeps) {
      * and the operator's moves. Drafting and the four-eyes publish are the notice board's (`notify.draftNotice` and on).
      */
     maintenance: router({
-      windows: scopedProcedure('admin:write', { module: 'notify' })
-        .input(
-          z
-            .object({ limit: z.number().int().min(1).max(50).default(50) })
-            .strict()
-            .optional(),
-        )
-        .output(z.array(maintenanceWindowOutput))
-        .query(({ input }) =>
+      windows: mountRecord(
+        NOTIFY_STATUS_PAGE_MAINTENANCE_WINDOWS,
+        ({ input }) =>
           call(async ({ notices, maintenance }) => {
             if (!notices || !maintenance) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.status_page_unavailable' });
             return (await maintenance.windows(await notices.maintenanceRows(input?.limit ?? 50))).map(maintenanceWire);
           }),
-        ),
-      move: scopedProcedure('admin:write', { module: 'notify' })
-        .input(
-          z
-            .object({
-              id: z.string().guid(),
-              to: z.enum(['verifying', 'completed', 'cancelled', 'in_progress']),
-              reason: z.string().min(1).max(500),
-            })
-            .strict(),
-        )
-        .output(maintenanceWindowOutput)
-        .mutation(({ ctx, input }) =>
+        notifyRefusal,
+      ),
+      move: mountRecord(
+        NOTIFY_STATUS_PAGE_MAINTENANCE_MOVE,
+        ({ ctx, input }) =>
           call(async ({ maintenance }) => {
             if (!maintenance) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.status_page_unavailable' });
             return maintenanceWire(await maintenance.move(ctx.principal.userId, input));
           }),
-        ),
+        notifyRefusal,
+      ),
     }),
 
-    record: scopedProcedure('admin:write', { module: 'notify' })
-      .input(statusReadingInputSchema)
-      .output(z.object({ componentId: z.string(), state: z.string(), observedAt: z.string(), source: z.string() }))
-      .mutation(({ ctx, input }) =>
+    record: mountRecord(
+      NOTIFY_STATUS_PAGE_RECORD,
+      ({ ctx, input }) =>
         call(async ({ book }) => {
           const stored = await book.record({ ...input, observedAt: new Date(input.observedAt) }, ctx.principal.userId, now());
           return { ...stored, observedAt: stored.observedAt.toISOString() };
         }),
-      ),
+      notifyRefusal,
+    ),
   });
 }

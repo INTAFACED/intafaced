@@ -1,30 +1,7 @@
 import type { Sql } from 'postgres';
 import type { OutOfAppChannel } from './channels/channel.js';
 import type { ChannelTarget } from './channel-store.js';
-
-/**
- * Recipient health: which addresses keep failing, and the quarantine that follows.
- *
- * A TERMINAL failure is the unit: a send that ended `abandoned` (the gateway
- * rejected it for good, or the attempt budget was spent). A `failed` attempt that
- * will be retried is not counted, so a short provider outage retried on the bus
- * does not quarantine anybody. Consecutive terminal failures to one address,
- * reaching the OWNER-SET threshold, quarantine it. A blank threshold quarantines
- * nobody: the page says so and the dispatcher never consults the table.
- *
- * What quarantine does: a non-critical send to the address is refused
- * `channel.recipient_quarantined` with the stored reason, and a release (reason
- * required, audited, keyed by a request id) lets sends resume. Critical messages
- * are still attempted: the one state where a margin call is not tried must not be
- * a bookkeeping state. If a provider outage abandons many sends at once, many
- * recipients can be quarantined; the release action and the threshold are the
- * owner's lever for that.
- *
- * No money moves. This holds no balance.
- */
-
-export type RecipientState = 'active' | 'unconfirmed' | 'quarantined';
-export const RECIPIENT_STATES: readonly RecipientState[] = ['active', 'unconfirmed', 'quarantined'];
+import { type RecipientState, RECIPIENT_STATES } from '@intafaced/contracts/notify-call-schemas';
 
 export const QUARANTINE_THRESHOLD_UNSET = 'notify.quarantine_threshold_unset' as const;
 export const RECIPIENT_UNKNOWN = 'notify.recipient_unknown' as const;
@@ -322,3 +299,4 @@ export class PostgresRecipientHealthStore implements RecipientHealthStore {
     });
   }
 }
+export { type RecipientState, RECIPIENT_STATES };

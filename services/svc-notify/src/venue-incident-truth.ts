@@ -11,24 +11,9 @@
 
 import { z } from 'zod';
 import type { MatchingVenueLoad } from './matching-venue-incident.js';
-
-export const VENUE_INCIDENT_CODES = [
-  'notify.venue_halted',
-  'notify.market_halted',
-  'notify.venue_halt_unavailable',
-  'notify.incident_silence',
-  'notify.incident_all_clear_refused',
-] as const;
+import { VENUE_INCIDENT_CODES, venueIncidentOutput } from '@intafaced/contracts/notify-call-schemas';
 
 export type VenueIncidentCode = (typeof VENUE_INCIDENT_CODES)[number];
-
-export const venueIncidentOutput = z.object({
-  allFine: z.boolean(),
-  matching: z.enum(['unwired', 'open', 'halted', 'unavailable']),
-  code: z.enum(VENUE_INCIDENT_CODES).nullable(),
-  incidentSilence: z.boolean(),
-  allClear: z.boolean(),
-});
 
 export type VenueIncidentTruth = z.infer<typeof venueIncidentOutput>;
 
@@ -117,3 +102,4 @@ export async function resolveVenueIncident(loader: VenueIncidentLoader | undefin
   if (!loader) return UNWIRED_VENUE_INCIDENT;
   return loader();
 }
+export { VENUE_INCIDENT_CODES, venueIncidentOutput };

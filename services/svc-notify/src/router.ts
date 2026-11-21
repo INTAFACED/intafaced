@@ -17,16 +17,7 @@ import { MemoryReconAlertFeedStore, type ReconAlertFeedStore } from './reconcili
 import type { NavMetricStore } from './nav-metrics/counts.js';
 import type { GuestNotificationService } from './guests/service.js';
 import type { GuestVerificationService } from './guests/verification.js';
-import {
-  router,
-  publicProcedure,
-  scopedProcedure,
-  TRPCError,
-  STATUS_COMPONENTS_MAX,
-  NOTICE_CATEGORY_ID,
-  noticeCategorySchema,
-  marketMaintenanceReadSchema,
-} from '@intafaced/contracts';
+import { router, publicProcedure, scopedProcedure, TRPCError, marketMaintenanceReadSchema } from '@intafaced/contracts';
 import {
   NotifyAnnouncementUnsetError,
   NotifyListLimitUnsetError,
@@ -38,7 +29,6 @@ import {
 import type { DeliveryRecord } from './channel-store.js';
 import { providerHealth } from './provider-health.js';
 import type { Notification } from './store.js';
-import { CHANNEL_IDS, OUT_OF_APP_CHANNELS } from './channels/channel.js';
 import { renderInboxCopy } from './channels/render.js';
 import {
   AlertLimitError,
@@ -53,23 +43,16 @@ import { AlertValidationError } from './alerts/store.js';
 import { AlertWebhookError, NO_WEBHOOK_POLICY } from './alerts/webhook.js';
 import { WatchRuleError, type WatchRule, type WatchRuleService } from './alerts/watch-rules.js';
 import {
-  ALERT_CONDITIONS,
-  ALERT_FREQUENCIES,
-  ALERT_OUT_CHANNELS,
-  ALERT_PRICE_SOURCES,
   type AlertOutChannel,
   AlertKindUnpublishedError,
   type AlertCondition,
   type AlertExtra,
   type AlertFrequency,
   type AlertPriceSource,
-  EXTRA_CONDITIONS,
   AlertPortfolioUnpublishedError,
   directionOfCondition,
   isSourcedAlertKind,
   isUnpublishedAlertKind,
-  SOURCED_ALERT_KINDS,
-  UNPUBLISHED_ALERT_KINDS,
   type PriceAlert,
 } from './alerts/types.js';
 import { describeChannelsPolicy } from './channels-policy.js';
@@ -91,28 +74,64 @@ import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { notifyRefusal } from './record-refusal.js';
 import { BLANK_INBOX_SETTINGS, describeInboxPolicy, type InboxSettings } from './inbox-policy.js';
 import { describeAlertsPolicy } from './alerts-policy.js';
-import { UNWIRED_VENUE_INCIDENT, resolveVenueIncident, venueIncidentOutput, type VenueIncidentLoader } from './venue-incident-truth.js';
+import { UNWIRED_VENUE_INCIDENT, resolveVenueIncident, type VenueIncidentLoader } from './venue-incident-truth.js';
 import { PreferenceError } from './preferences/account.js';
 import { CategoryPrefError } from './preferences/categories.js';
 import { QuietHoursError } from './preferences/quiet-hours.js';
 import { RecentDeliveriesError } from './preferences/recent.js';
-import {
-  NOTICE_KINDS,
-  INCIDENT_PHASES,
-  MAINTENANCE_REMINDER_MINUTES_MAX,
-  MAINTENANCE_REMINDERS_MAX,
-  NOTICE_ASSET_PATTERN,
-  NOTICE_NETWORK_PATTERN,
-  NoticeError,
-  NOTICES_LIST_LIMIT_MAX,
-  STATUS_COMPONENT_PATTERN,
-} from './notices/board.js';
-import { NOTICE_AUDIENCES } from './notices/audiences.js';
-import { CHANGELOG_AREAS } from './notices/changelog.js';
+import { NoticeError, NOTICES_LIST_LIMIT_MAX } from './notices/board.js';
 import { OpsConfigError } from './ops-config/four-eyes.js';
-import { RECIPIENT_STATES, RecipientHealthError } from './recipient-health.js';
-import { TEMPLATE_KEYS } from './ops-config/templates.js';
+import { RecipientHealthError } from './recipient-health.js';
 import { CONTACT_CHANNELS } from './ops-config/contact-policy.js';
+import {
+  outOfAppChannelSchema,
+  channelSettingOutput,
+  templateOutput,
+  noticeWireOutput,
+  proposalOutput,
+  operatorDeliveriesInput,
+  channelSchema,
+  operatorDeliveryOutput,
+  statusFeedOutput,
+} from '@intafaced/contracts/notify-call-schemas';
+import {
+  NOTIFY_CHANNEL_SETTINGS,
+  NOTIFY_TEMPLATES,
+  NOTIFY_OPERATOR_NOTICES,
+  NOTIFY_DRAFT_NOTICE,
+  NOTIFY_NOTICE_PROPOSAL,
+  NOTIFY_PUBLISH_NOTICE,
+  NOTIFY_NOTICE_AUDIENCES,
+  NOTIFY_OPERATOR_RECIPIENTS,
+  NOTIFY_OPERATOR_RELEASE_RECIPIENT,
+  NOTIFY_OPERATOR_DELIVERIES,
+  NOTIFY_NOTICES,
+  NOTIFY_MUTE_PREFS,
+  NOTIFY_SET_MUTE,
+  NOTIFY_FUNDING_NOTICES,
+  NOTIFY_NOTICE,
+  NOTIFY_NOTICE_STATUS,
+  NOTIFY_ALERTS,
+  NOTIFY_CREATE_ALERT,
+  NOTIFY_CANCEL_ALERT,
+  NOTIFY_EVALUATE_ALERT,
+  NOTIFY_CATEGORY_PREFS,
+  NOTIFY_SET_CATEGORY_PREF,
+  NOTIFY_UPDATE_ALERT,
+  NOTIFY_SET_ALERT_ACTIVE,
+  NOTIFY_DELETE_ALERT,
+  NOTIFY_ALERT_WEBHOOK_POLICY,
+  NOTIFY_ALERT_TRIGGERS,
+  NOTIFY_ALERT_QUOTA,
+  NOTIFY_CREATE_ALERTS,
+  NOTIFY_WATCHLIST_ALERTS,
+  NOTIFY_CREATE_WATCHLIST_ALERT,
+  NOTIFY_STOP_WATCHLIST_ALERT,
+  NOTIFY_STATUS_FEED,
+  NOTIFY_CHANGELOG,
+  NOTIFY_UPCOMING_CHANGES,
+} from '@intafaced/contracts/notify-notify-procedures';
+import { NOTIFY_HEALTH } from '@intafaced/contracts/notify-health-procedures';
 
 /**
  * svc-notify API — inbox, channels, and the delivery record.
@@ -134,8 +153,6 @@ import { CONTACT_CHANNELS } from './ops-config/contact-policy.js';
  */
 
 const severitySchema = z.enum(['info', 'action', 'critical']);
-const channelSchema = z.enum(CHANNEL_IDS);
-const outOfAppChannelSchema = z.enum(OUT_OF_APP_CHANNELS);
 
 const notificationOutput = z.object({
   id: z.string().guid(),
@@ -155,43 +172,6 @@ const notificationOutput = z.object({
   sourceIdempotencyKey: z.string(),
   createdAt: z.string(),
 });
-
-const deliveryOutput = z.object({
-  channel: channelSchema,
-  status: z.enum(['pending', 'accepted', 'refused', 'failed', 'abandoned']),
-  attempts: z.number().int().nonnegative(),
-  /** Non-null means a send was attempted. */
-  attemptedAt: z.string().nullable(),
-  /** Non-null means a transport accepted it. Two different facts, two columns. */
-  acceptedAt: z.string().nullable(),
-  /** A code, never a sentence — the client renders copy from `@intafaced/i18n`. */
-  refusalCode: z.string().nullable(),
-});
-
-/**
- * Operator view includes notification id so ops can correlate without user scope.
- * No address / detail / userId — those are not on the delivery row we return.
- * Status vocabulary is the store's (`pending`/`accepted`/`refused`/`failed`/`abandoned`).
- * There is no `delivered` stamp: in-app `accepted` is inbox write; OOA `accepted` is gateway accept.
- */
-const operatorDeliveryOutput = deliveryOutput.extend({
-  id: z.string().guid(),
-  notificationId: z.string().guid(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-/**
- * Page size. Optional here so omit reaches the named refuse
- * (`notify.operator_deliveries_limit_unset`) instead of a Zod "Required".
- * Blank is not 50; pass 50 explicitly when that is the page you want.
- */
-const operatorDeliveriesInput = z
-  .object({
-    limit: z.number().int().min(1).max(200).optional(),
-    status: z.enum(['pending', 'accepted', 'refused', 'failed', 'abandoned']).optional(),
-  })
-  .optional();
 
 function toWire(n: Notification) {
   const copy = renderInboxCopy(n, 'en');
@@ -239,25 +219,12 @@ function typedRefusal(err: unknown): never {
   throw err;
 }
 
-const channelSettingOutput = z.object({
-  channel: outOfAppChannelSchema,
-  configured: z.boolean(),
-  requires: z.array(z.string()),
-  enabled: z.boolean().nullable(),
-  adapter: z.string().nullable(),
-  version: z.number().int().nonnegative(),
-  effective: z.enum(['sending', 'disabled', 'unconfigured']),
-  notConnected: z.string().nullable(),
-});
-
 const approvalInput = {
   clientRequestId: z.string().min(1).max(128),
   approvalId: z.string().min(1).max(128),
   operationId: z.string().min(1).max(128),
 };
 
-const proposalOutput = z.object({ targetId: z.string(), expectedVersion: z.string(), payloadHash: z.string() });
-const templateKeySchema = z.enum(TEMPLATE_KEYS);
 const templateCopyInput = { key: z.string().min(1).max(64), subject: z.string().max(2000), body: z.string().max(50_000) };
 
 const contactPolicyInput = {
@@ -282,14 +249,6 @@ const contactPolicyOutput = z.discriminatedUnion('status', [
   }),
 ]);
 
-const templateOutput = z.object({
-  key: templateKeySchema,
-  fields: z.array(z.string()),
-  current: z
-    .object({ version: z.number().int().positive(), subject: z.string(), body: z.string(), authorId: z.string(), createdAt: z.string() })
-    .nullable(),
-});
-
 const typedUnavailable = (what: string): never => {
   throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `notify.${what}_unavailable` });
 };
@@ -299,20 +258,6 @@ const topicPrefOutput = z.object({
   channel: channelSchema,
   enabled: z.boolean(),
   configured: z.boolean(),
-});
-
-const categoryPrefRowOutput = z.object({
-  category: z.enum(['security', 'orders', 'price_alerts', 'promotions', 'news', 'status']),
-  channel: z.enum(['email', 'push', 'sms', 'in_app']),
-  enabled: z.boolean(),
-  locked: z.boolean(),
-  configured: z.boolean(),
-  notConnected: z.enum(['vendor.email', 'vendor.push', 'vendor.sms']).nullable(),
-});
-
-const categoryPrefResultOutput = z.object({
-  rows: z.array(categoryPrefRowOutput),
-  locked: z.boolean(),
 });
 
 const digestOutput = z.object({
@@ -336,115 +281,6 @@ const recentDeliveryOutput = z.object({
   acceptedAt: z.string().nullable(),
   refusalCode: z.string().nullable(),
 });
-
-const statusImpact = z.enum(['none', 'minor', 'major', 'critical']);
-const statusComponentId = z.enum(['api', 'webhooks', 'console']);
-
-const statusFeedOutput = z.object({
-  asOf: z.string(),
-  components: z.array(
-    z.object({
-      component: statusComponentId,
-      state: z.enum(['unknown', 'maintenance', 'degraded', 'partial_outage', 'major_outage']),
-      basis: z.enum(['incident', 'maintenance', 'no_measurement']),
-      since: z.string().nullable(),
-    }),
-  ),
-  incidents: z.array(
-    z.object({
-      id: z.string(),
-      title: z.string(),
-      impact: statusImpact.nullable(),
-      components: z.array(statusComponentId),
-      openedAt: z.string(),
-      resolvedAt: z.string().nullable(),
-      updates: z.array(
-        z.object({
-          id: z.string(),
-          body: z.string(),
-          impact: statusImpact.nullable(),
-          publishedAt: z.string(),
-          resolves: z.boolean(),
-        }),
-      ),
-    }),
-  ),
-  maintenance: z.array(
-    z.object({
-      id: z.string(),
-      title: z.string(),
-      components: z.array(statusComponentId),
-      startsAt: z.string().nullable(),
-      endsAt: z.string().nullable(),
-    }),
-  ),
-  history: z.object({
-    basis: z.literal('incident_notices_only'),
-    days: z.array(
-      z.object({
-        date: z.string(),
-        components: z.array(
-          z.object({ component: statusComponentId, incidentMinutes: z.number().int().min(0), worstImpact: statusImpact.nullable() }),
-        ),
-      }),
-    ),
-  }),
-});
-
-const changelogArea = z.enum(CHANGELOG_AREAS);
-const changelogDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const changelogOutput = z.object({
-  area: changelogArea,
-  breaking: z.boolean(),
-  endpoints: z.array(z.string()),
-  scopes: z.array(z.string()),
-  addedOn: changelogDay.nullable(),
-  releaseOn: changelogDay.nullable(),
-  before: z.string().nullable(),
-  after: z.string().nullable(),
-  migrationNote: z.string().nullable(),
-  retired: z.array(z.string()),
-});
-
-/** What an author sends for a changelog entry. Area, dates and the rest are validated again on the board. */
-const changelogInput = z.object({
-  area: z.string().max(32).nullable().optional(),
-  breaking: z.boolean().nullable().optional(),
-  endpoints: z.array(z.string().max(200)).max(50).nullable().optional(),
-  scopes: z.array(z.string().max(200)).max(50).nullable().optional(),
-  addedOn: changelogDay.nullable().optional(),
-  releaseOn: changelogDay.nullable().optional(),
-  before: z.string().max(4000).nullable().optional(),
-  after: z.string().max(4000).nullable().optional(),
-  migrationNote: z.string().max(4000).nullable().optional(),
-  retired: z.array(z.string().max(200)).max(50).nullable().optional(),
-});
-
-const noticeWireOutput = z.object({
-  id: z.string().guid(),
-  kind: z.enum(NOTICE_KINDS),
-  title: z.string(),
-  body: z.string(),
-  status: z.enum(['draft', 'published']),
-  publishedAt: z.string().nullable(),
-  startsAt: z.string().nullable(),
-  endsAt: z.string().nullable(),
-  version: z.number().int(),
-  asset: z.string().nullable(),
-  network: z.string().nullable(),
-  phase: z.enum(INCIDENT_PHASES).nullable(),
-  changelog: changelogOutput.nullable(),
-  category: noticeCategorySchema.nullable(),
-  audience: z.enum(NOTICE_AUDIENCES),
-});
-
-/** A notice read in one language: its text in that language or the source text, and which language it is in. */
-const localizedNoticeOutput = noticeWireOutput.extend({ language: z.string() });
-/** A language code as the app names one (`es`, `pt-BR`); one the app does not offer reads the source text. */
-const noticeLanguage = z.string().min(2).max(8);
-
-const noticeAsset = z.string().regex(NOTICE_ASSET_PATTERN);
-const noticeNetwork = z.string().regex(NOTICE_NETWORK_PATTERN);
 
 function operatorDeliveryToWire(d: DeliveryRecord) {
   return {
@@ -471,88 +307,6 @@ async function loadOperatorDeliveries(notify: NotifyService, limit: number | und
   }
 }
 
-/**
- * What an alert may carry beyond market, side and price (C-alerts-scan-01). The lengths here are only an input bound; the owner's
- * limits are checked by the service, which refuses when they are blank.
- */
-const alertExtras = {
-  /** How the mark is compared with the target. Omitted: a level in the direction given. */
-  condition: z.enum(ALERT_CONDITIONS).optional(),
-  name: z.string().max(2000).optional(),
-  message: z.string().max(2000).optional(),
-  /** ISO time. Omitted: open-ended. */
-  expiresAt: z.string().datetime({ offset: true }).optional(),
-  /** `once` (the default) or a repeating frequency the owner allows; a repeating alert must be a crossing. */
-  frequency: z.enum(ALERT_FREQUENCIES).optional(),
-  /** Which price a price alert is evaluated against: `mark` (the default: mid when two-sided, else last), `bid`, `ask` or `last`. */
-  source: z.enum(ALERT_PRICE_SOURCES).optional(),
-  /** Added level conditions on the same market; all must hold with the main one. */
-  extras: z
-    .array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string().min(1).max(64) }))
-    .max(20)
-    .optional(),
-  /** Out-of-app channels for this alert; in-app is always written. Omitted: the person's notification settings decide. */
-  channels: z.array(z.enum(ALERT_OUT_CHANNELS)).max(ALERT_OUT_CHANNELS.length).optional(),
-  /** The person's own https endpoint, posted to each time the alert fires. Checked by the service (alerts/webhook.ts). */
-  webhookUrl: z.string().max(2048).optional(),
-};
-
-/** One webhook attempt as the page shows it: a status and a cause code, never the endpoint's answer body. */
-const webhookAttemptOutput = z.object({
-  n: z.number().int(),
-  at: z.string(),
-  status: z.number().int().nullable(),
-  cause: z.enum(['ok', 'redirect', 'refused', 'unavailable', 'gateway_timeout', 'timeout', 'unreachable', 'private_address']),
-  durationMs: z.number().int(),
-});
-
-const priceAlertOutput = z.object({
-  id: z.string().guid(),
-  userId: z.string(),
-  marketId: z.string(),
-  kind: z.enum(SOURCED_ALERT_KINDS),
-  direction: z.enum(['above', 'below']),
-  targetPrice: z.string(),
-  status: z.enum(['active', 'fired', 'cancelled', 'expired', 'stopped']),
-  firedAt: z.string().nullable(),
-  createdAt: z.string(),
-  condition: z.enum(ALERT_CONDITIONS),
-  name: z.string().nullable(),
-  message: z.string().nullable(),
-  expiresAt: z.string().nullable(),
-  updatedAt: z.string(),
-  extras: z.array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string() })),
-  frequency: z.enum(ALERT_FREQUENCIES),
-  /** Which price the alert is evaluated against. `mark` for every alert made before the person could choose. */
-  source: z.enum(ALERT_PRICE_SOURCES),
-  /** Times a repeating alert has triggered; zero for a one-shot alert. */
-  fireCount: z.number().int(),
-  /** Why a stopped alert was stopped by the platform: `burst` (it triggered too often). Null for a pause by the person. */
-  stopReason: z.enum(['burst']).nullable(),
-  lastFiredAt: z.string().nullable(),
-  /** The out-of-app channels chosen for this alert; null follows the person's notification settings. */
-  channels: z.array(z.enum(ALERT_OUT_CHANNELS)).nullable(),
-  webhookUrl: z.string().nullable(),
-});
-
-/**
- * WHETHER A WATCH CAN FIRE — returned with the watchlist and with every watch
- * created, not parked behind a procedure a client might not call.
- *
- * D-S-13 done-bar item 6: reclassifying a promise-with-no-delivery requires the
- * disclosure to exist in code at the surface a user reads. Somebody who has just
- * created a price watch is exactly the person entitled to know that this
- * deployment has no mark feed and therefore nothing will cross.
- *
- * Codes, never sentences — clients render copy from `@intafaced/i18n` (§9), and
- * `canFire: true` is a statement about wiring, never an SLA (§8 item 9).
- */
-const alertEvaluationOutput = z.object({
-  markSource: z.enum(['dark', 'live']),
-  canFire: z.boolean(),
-  code: z.enum(['alert.price_unavailable', 'alerts.whale_mark_dark', 'channel.not_configured', 'channel.disabled']).nullable(),
-});
-
 /** The answer when this deployment has no alert service at all. */
 const NO_ALERT_SERVICE = { markSource: 'dark', canFire: false, code: 'alert.price_unavailable' } as const;
 
@@ -574,19 +328,6 @@ function alertManagerError(err: unknown): unknown {
   }
   return err;
 }
-
-const watchRuleOutput = z.object({
-  id: z.string(),
-  listId: z.string(),
-  listName: z.string(),
-  condition: z.enum(ALERT_CONDITIONS),
-  targetPrice: z.string(),
-  status: z.enum(['active', 'stopped']),
-  markets: z.array(z.string()),
-  createdAt: z.string(),
-  lastSyncAt: z.string().nullable(),
-  lastSyncCode: z.string().nullable(),
-});
 
 function watchRuleToWire(row: WatchRule) {
   return {
@@ -666,21 +407,16 @@ export function createNotifyRouter(
     supportCharts: supportChartsRouter(alerts),
     navMetrics: navMetricsRouter(navMetrics),
     statusPage: statusPageRouter(statusPage),
-    health: publicProcedure
-      .output(
-        z.object({
-          ok: z.boolean(),
-          service: z.literal('svc-notify'),
-          fanoutEnabled: z.boolean(),
-          venueIncident: venueIncidentOutput,
-        }),
-      )
-      .query(async () => ({
+    health: mountRecord(
+      NOTIFY_HEALTH,
+      async () => ({
         ok: true,
         service: 'svc-notify' as const,
         fanoutEnabled: notify.fanoutEnabled,
         venueIncident: await resolveVenueIncident(loadVenueIncident ?? (() => UNWIRED_VENUE_INCIDENT)),
-      })),
+      }),
+      notifyRefusal,
+    ),
 
     notify: router({
       list: scopedProcedure('notify:read', { module: 'notify' })
@@ -912,10 +648,11 @@ export function createNotifyRouter(
        * is self-scoped. `accepted` ≠ end-device delivered (mountain honesty).
        * Bound limit (max 200). Omit is not 50. Canonical door: `notify.ops.deliveries`.
        */
-      operatorDeliveries: scopedProcedure('admin:read', { module: 'notify' })
-        .input(operatorDeliveriesInput)
-        .output(z.array(operatorDeliveryOutput))
-        .query(async ({ input }) => loadOperatorDeliveries(notify, input?.limit, input?.status)),
+      operatorDeliveries: mountRecord(
+        NOTIFY_OPERATOR_DELIVERIES,
+        async ({ input }) => loadOperatorDeliveries(notify, input?.limit, input?.status),
+        notifyRefusal,
+      ),
 
       operatorDeliveryAggregates: scopedProcedure('admin:read', { module: 'notify' })
         .output(
@@ -1026,33 +763,9 @@ export function createNotifyRouter(
        * the count: nothing is quarantined meanwhile and the page says so. Page size
        * is owner-published like the deliveries list: omit refuses.
        */
-      operatorRecipients: scopedProcedure('admin:read', { module: 'notify' })
-        .input(
-          z.object({
-            state: z.enum(RECIPIENT_STATES as unknown as [string, ...string[]]),
-            limit: z.number().int().min(1).max(200).optional(),
-          }),
-        )
-        .output(
-          z.object({
-            threshold: z.number().int().nullable(),
-            thresholdCode: z.literal('notify.quarantine_threshold_unset').nullable(),
-            items: z.array(
-              z.object({
-                userId: z.string(),
-                channel: outOfAppChannelSchema,
-                address: z.string(),
-                state: z.enum(['active', 'unconfirmed', 'quarantined']),
-                consecutiveFailures: z.number().int(),
-                lastFailureAt: z.string().nullable(),
-                lastFailureCode: z.string().nullable(),
-                quarantinedAt: z.string().nullable(),
-                quarantineReason: z.string().nullable(),
-              }),
-            ),
-          }),
-        )
-        .query(async ({ input }) => {
+      operatorRecipients: mountRecord(
+        NOTIFY_OPERATOR_RECIPIENTS,
+        async ({ input }) => {
           const r = await notify.operatorRecipients(input.state as 'active' | 'unconfirmed' | 'quarantined', input.limit);
           return {
             threshold: r.threshold,
@@ -1063,26 +776,22 @@ export function createNotifyRouter(
               quarantinedAt: i.quarantinedAt?.toISOString() ?? null,
             })),
           };
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /** Lift a quarantine. Reason required; `reasonId` makes a replay a no-op; audited. */
-      operatorReleaseRecipient: scopedProcedure('admin:write', { module: 'notify' })
-        .input(
-          z.object({
-            userId: z.string().min(1).max(128),
-            channel: outOfAppChannelSchema,
-            reason: z.string().max(500),
-            reasonId: z.string().min(1).max(128),
-          }),
-        )
-        .output(z.object({ released: z.literal(true), replayed: z.boolean() }))
-        .mutation(async ({ ctx, input }) => {
+      operatorReleaseRecipient: mountRecord(
+        NOTIFY_OPERATOR_RELEASE_RECIPIENT,
+        async ({ ctx, input }) => {
           try {
             return await notify.operatorReleaseRecipient(ctx.principal.userId, input);
           } catch (err) {
             typedRefusal(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       ops: router({
         deliveries: scopedProcedure('admin:read', { module: 'notify' })
@@ -1092,31 +801,16 @@ export function createNotifyRouter(
       }),
 
       /** Out-of-app mute prefs. Critical severity never respects mute (dispatch law). */
-      mutePrefs: scopedProcedure('notify:read', { module: 'notify' })
-        .output(
-          z.array(
-            z.object({
-              channel: z.enum(['email', 'push', 'sms']),
-              muted: z.boolean(),
-            }),
-          ),
-        )
-        .query(async ({ ctx }) => notify.listMutePrefs(ctx.principal.userId)),
+      mutePrefs: mountRecord(NOTIFY_MUTE_PREFS, async ({ ctx }) => notify.listMutePrefs(ctx.principal.userId), notifyRefusal),
 
-      setMute: scopedProcedure('notify:write', { module: 'notify' })
-        .input(z.object({ channel: z.enum(['email', 'push', 'sms']), muted: z.boolean() }))
-        .output(
-          z.array(
-            z.object({
-              channel: z.enum(['email', 'push', 'sms']),
-              muted: z.boolean(),
-            }),
-          ),
-        )
-        .mutation(async ({ ctx, input }) => {
+      setMute: mountRecord(
+        NOTIFY_SET_MUTE,
+        async ({ ctx, input }) => {
           await notify.setChannelMute(ctx.principal.userId, input.channel, input.muted);
           return notify.listMutePrefs(ctx.principal.userId);
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * Per-topic out-of-app choices. Inbox is always enabled. Unset means enabled.
@@ -1156,25 +850,19 @@ export function createNotifyRouter(
        * The category-by-channel grid. `security` and the inbox are locked on.
        * `notConnected` names the delivery vendor a switched-off channel is missing.
        */
-      categoryPrefs: scopedProcedure('notify:read', { module: 'notify' })
-        .output(z.array(categoryPrefRowOutput))
-        .query(async ({ ctx }) => {
+      categoryPrefs: mountRecord(
+        NOTIFY_CATEGORY_PREFS,
+        async ({ ctx }) => {
           if (!notify.categories) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.preferences_unavailable' });
           return [...(await notify.categories.rows(ctx.principal.userId))];
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /** A write to a locked cell stores nothing and answers `locked: true`. */
-      setCategoryPref: scopedProcedure('notify:write', { module: 'notify' })
-        .input(
-          z.object({
-            category: z.string().min(1).max(32),
-            channel: z.string().min(1).max(16),
-            enabled: z.boolean(),
-            clientRequestId: z.string().min(1).max(128),
-          }),
-        )
-        .output(categoryPrefResultOutput)
-        .mutation(async ({ ctx, input }) => {
+      setCategoryPref: mountRecord(
+        NOTIFY_SET_CATEGORY_PREF,
+        async ({ ctx, input }) => {
           if (!notify.categories) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.preferences_unavailable' });
           try {
             const out = await notify.categories.set(ctx.principal.userId, input);
@@ -1182,7 +870,9 @@ export function createNotifyRouter(
           } catch (err) {
             typedRefusal(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       digestPrefs: scopedProcedure('notify:read', { module: 'notify' })
         .output(digestOutput)
@@ -1247,17 +937,9 @@ export function createNotifyRouter(
         }),
 
       /** Published notices only. Signed-out callers can read this. Drafts are absent. */
-      notices: publicProcedure
-        .input(
-          z.object({
-            kind: z.enum(NOTICE_KINDS).optional(),
-            limit: z.number().int().min(1),
-            /** The id of the last notice of the page before: answers the page after it. */
-            after: z.string().guid().optional(),
-          }),
-        )
-        .output(z.array(noticeWireOutput))
-        .query(async ({ input }) => {
+      notices: mountRecord(
+        NOTIFY_NOTICES,
+        async ({ input }) => {
           if (!notify.notices) return [];
           try {
             return [
@@ -1270,16 +952,22 @@ export function createNotifyRouter(
           } catch (err) {
             typedRefusal(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * Who a notice can be for: `everyone` (the public board) and each member audience, with whether its membership can
        * be read here. `p2p-merchants` is unavailable while P2P_URL is unset.
        */
-      noticeAudiences: publicProcedure.output(z.array(z.object({ id: z.enum(NOTICE_AUDIENCES), available: z.boolean() }))).query(() => {
-        if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
-        return [...notify.notices.audiences()];
-      }),
+      noticeAudiences: mountRecord(
+        NOTIFY_NOTICE_AUDIENCES,
+        () => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+          return [...notify.notices.audiences()];
+        },
+        notifyRefusal,
+      ),
 
       /**
        * Open announcements for the member audiences the signed-in account is in (P2P merchants), newest first. Not one of
@@ -1297,34 +985,26 @@ export function createNotifyRouter(
           }
         }),
 
-      notice: publicProcedure
-        .input(z.object({ id: z.string().guid() }))
-        .output(noticeWireOutput)
-        .query(async ({ input }) => {
+      notice: mountRecord(
+        NOTIFY_NOTICE,
+        async ({ input }) => {
           if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notice_not_found' });
           try {
             return await notify.notices.notice(input.id);
           } catch (err) {
             typedRefusal(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * Published changelog entries, newest first, optionally one area or breaking
        * entries only. Signed-out. An entry with no release date reads `releaseOn: null`.
        */
-      changelog: publicProcedure
-        .input(
-          z.object({
-            area: changelogArea.optional(),
-            breaking: z.boolean().optional(),
-            limit: z.number().int().min(1),
-            /** The reader's chosen language: each entry comes in it when the operator wrote it, and names its language. */
-            language: noticeLanguage.optional(),
-          }),
-        )
-        .output(z.array(localizedNoticeOutput))
-        .query(async ({ input }) => {
+      changelog: mountRecord(
+        NOTIFY_CHANGELOG,
+        async ({ input }) => {
           if (!notify.notices) return [];
           try {
             return [
@@ -1338,42 +1018,35 @@ export function createNotifyRouter(
           } catch (err) {
             typedRefusal(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * Advance notice. Breaking entries whose release date has not passed, soonest
        * first (an entry with no date is never listed), and every endpoint a published
        * entry retires. Signed-out.
        */
-      upcomingChanges: publicProcedure
-        .input(z.object({ language: noticeLanguage.optional() }).optional())
-        .output(
-          z.object({
-            upcoming: z.array(localizedNoticeOutput),
-            retired: z.array(
-              z.object({ endpoint: z.string(), entryId: z.string().guid(), title: z.string(), releaseOn: changelogDay.nullable() }),
-            ),
-          }),
-        )
-        .query(async ({ input }) => {
+      upcomingChanges: mountRecord(
+        NOTIFY_UPCOMING_CHANGES,
+        async ({ input }) => {
           if (!notify.notices) return { upcoming: [], retired: [] };
           const read = await notify.notices.upcomingChanges(undefined, input?.language ?? null);
           return { upcoming: [...read.upcoming], retired: [...read.retired] };
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /** Open published incidents and maintenance windows. Signed-out. */
-      noticeStatus: publicProcedure
-        .output(
-          z.object({
-            incidents: z.array(noticeWireOutput),
-            maintenance: z.array(noticeWireOutput),
-          }),
-        )
-        .query(async () => {
+      noticeStatus: mountRecord(
+        NOTIFY_NOTICE_STATUS,
+        async () => {
           if (!notify.notices) return { incidents: [], maintenance: [] };
           const status = await notify.notices.noticeStatus();
           return { incidents: [...status.incidents], maintenance: [...status.maintenance] };
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /** Maintenance windows that name a market and have not ended, for svc-trade's lifecycle read (J-cex-spot-14 #5). Signed-out. */
       marketMaintenance: publicProcedure.output(marketMaintenanceReadSchema).query(async () => {
@@ -1387,17 +1060,9 @@ export function createNotifyRouter(
        * the deposit and withdraw banners. Signed-out. Another network of the same
        * asset is not included. Each incident carries its newest entry and phase.
        */
-      fundingNotices: publicProcedure
-        .input(z.object({ asset: noticeAsset, network: noticeNetwork }))
-        .output(
-          z.object({
-            asset: z.string(),
-            network: z.string(),
-            incidents: z.array(z.object({ root: noticeWireOutput, latest: noticeWireOutput })),
-            maintenance: z.array(noticeWireOutput),
-          }),
-        )
-        .query(async ({ input }) => {
+      fundingNotices: mountRecord(
+        NOTIFY_FUNDING_NOTICES,
+        async ({ input }) => {
           if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
           try {
             const read = await notify.notices.fundingNotices(input);
@@ -1405,86 +1070,44 @@ export function createNotifyRouter(
           } catch (err) {
             typedRefusal(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * Machine-readable status. Signed-out. A component nothing measures reads
        * `unknown`. History is incident minutes per day with no uptime percentage.
        * `days` above the feed maximum is clamped to it.
        */
-      statusFeed: publicProcedure
-        .input(z.object({ days: z.number().int().min(1) }))
-        .output(statusFeedOutput)
-        .query(async ({ input }) => {
+      statusFeed: mountRecord(
+        NOTIFY_STATUS_FEED,
+        async ({ input }) => {
           if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
           return statusFeedOutput.parse(await notify.notices.statusFeed(input));
-        }),
+        },
+        notifyRefusal,
+      ),
 
-      draftNotice: scopedProcedure('admin:write', { module: 'notify' })
-        .input(
-          z.object({
-            kind: z.enum(NOTICE_KINDS),
-            title: z.string().min(1).max(200),
-            body: z.string().min(1).max(8000),
-            startsAt: z.string().datetime({ offset: true }).nullable().optional(),
-            endsAt: z.string().datetime({ offset: true }).nullable().optional(),
-            impact: statusImpact.nullable().optional(),
-            components: z.array(z.string().regex(STATUS_COMPONENT_PATTERN)).max(STATUS_COMPONENTS_MAX).nullable().optional(),
-            parentId: z.string().guid().nullable().optional(),
-            resolves: z.boolean().nullable().optional(),
-            asset: noticeAsset.nullable().optional(),
-            network: noticeNetwork.nullable().optional(),
-            phase: z.enum(INCIDENT_PHASES).nullable().optional(),
-            changelog: changelogInput.nullable().optional(),
-            reminderOffsets: z
-              .array(z.number().int().min(1).max(MAINTENANCE_REMINDER_MINUTES_MAX))
-              .max(MAINTENANCE_REMINDERS_MAX)
-              .nullable()
-              .optional(),
-            /** One id from the founders' category list (statusPage.configure noticeCategories). */
-            category: z.string().regex(NOTICE_CATEGORY_ID).nullable().optional(),
-            /** Announcements only: a member audience instead of everyone. */
-            audience: z.enum(NOTICE_AUDIENCES).nullable().optional(),
-            /**
-             * The operator's own title and body in other languages the app offers, keyed by language code. Never machine
-             * text; approved with the source text (notices/translations.ts).
-             */
-            translations: z
-              .record(z.string().min(2).max(8), z.object({ title: z.string().min(1).max(200), body: z.string().min(1).max(8000) }))
-              .nullable()
-              .optional(),
-            clientRequestId: z.string().min(1).max(128),
-          }),
-        )
-        .output(noticeWireOutput)
-        .mutation(async ({ ctx, input }) => {
+      draftNotice: mountRecord(
+        NOTIFY_DRAFT_NOTICE,
+        async ({ ctx, input }) => {
           if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
           try {
             return await notify.notices.draft(ctx.principal.userId, input);
           } catch (err) {
             typedRefusal(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * The founders' notice desk: drafts and published notices, newest written first, with the incident fields and the
        * author. Drafts never leave this door; the signed-out reads list published rows only.
        */
-      operatorNotices: scopedProcedure('admin:write', { module: 'notify' })
-        .input(z.object({ kind: z.enum(NOTICE_KINDS).optional(), limit: z.number().int().min(1) }))
-        .output(
-          z.array(
-            noticeWireOutput.extend({
-              impact: statusImpact.nullable(),
-              components: z.array(z.string()),
-              parentId: z.string().guid().nullable(),
-              resolves: z.boolean(),
-              authorId: z.string(),
-              createdAt: z.string(),
-            }),
-          ),
-        )
-        .query(async ({ input }) => {
+      operatorNotices: mountRecord(
+        NOTIFY_OPERATOR_NOTICES,
+        async ({ input }) => {
           if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
           try {
             return (await notify.notices.operatorNotices({ kind: input.kind ?? null, limit: input.limit })).map((n) => ({
@@ -1494,39 +1117,36 @@ export function createNotifyRouter(
           } catch (err) {
             typedRefusal(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /** What identity's approval for one draft's publish has to carry: action, target, version and payload hash. */
-      noticeProposal: scopedProcedure('admin:write', { module: 'notify' })
-        .input(z.object({ id: z.string().guid() }))
-        .output(proposalOutput.extend({ actionType: z.literal('notify.notice.publish'), targetService: z.literal('svc-notify') }))
-        .query(async ({ input }) => {
+      noticeProposal: mountRecord(
+        NOTIFY_NOTICE_PROPOSAL,
+        async ({ input }) => {
           if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
           try {
             return await notify.notices.publishProposal(input.id);
           } catch (err) {
             typedRefusal(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
-      publishNotice: scopedProcedure('admin:write', { module: 'notify' })
-        .input(
-          z.object({
-            id: z.string().guid(),
-            clientRequestId: z.string().min(1).max(128),
-            approvalId: z.string().min(1).max(128),
-            operationId: z.string().min(1).max(128),
-          }),
-        )
-        .output(noticeWireOutput)
-        .mutation(async ({ ctx, input }) => {
+      publishNotice: mountRecord(
+        NOTIFY_PUBLISH_NOTICE,
+        async ({ ctx, input }) => {
           if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
           try {
             return await notify.notices.publish(ctx.principal.userId, input);
           } catch (err) {
             typedRefusal(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * Owner channel settings (I-order-01). Whether each out-of-app channel has
@@ -1534,9 +1154,11 @@ export function createNotifyRouter(
        * adapter name. A channel with no credentials stays `unconfigured`: a switch
        * cannot make it send.
        */
-      channelSettings: scopedProcedure('admin:read', { module: 'notify' })
-        .output(z.array(channelSettingOutput))
-        .query(async () => (notify.channelSettings ? [...(await notify.channelSettings.get())] : typedUnavailable('channel_settings'))),
+      channelSettings: mountRecord(
+        NOTIFY_CHANNEL_SETTINGS,
+        async () => (notify.channelSettings ? [...(await notify.channelSettings.get())] : typedUnavailable('channel_settings')),
+        notifyRefusal,
+      ),
 
       /** The hash, target and version the second person's approval has to carry for this exact change. */
       channelSettingProposal: scopedProcedure('admin:read', { module: 'notify' })
@@ -1606,9 +1228,11 @@ export function createNotifyRouter(
         }),
 
       /** Identity message templates: the newest version of each key and the fields it may use. */
-      templates: scopedProcedure('admin:read', { module: 'notify' })
-        .output(z.array(templateOutput))
-        .query(async () => (notify.templates ? [...(await notify.templates.list())] : typedUnavailable('templates'))),
+      templates: mountRecord(
+        NOTIFY_TEMPLATES,
+        async () => (notify.templates ? [...(await notify.templates.list())] : typedUnavailable('templates')),
+        notifyRefusal,
+      ),
 
       templateHistory: scopedProcedure('admin:read', { module: 'notify' })
         .input(z.object({ key: z.string().min(1).max(64) }))
@@ -1716,21 +1340,9 @@ export function createNotifyRouter(
        * Whale create stores; evaluate refuses `alerts.whale_mark_dark` without
        * a flow mark (a live price is not a volume). Intelligence stays unpublished.
        */
-      alerts: scopedProcedure('notify:read', { module: 'notify' })
-        .input(
-          z
-            .object({
-              /**
-               * Page size. Optional here so omit reaches the named refuse
-               * (`notify.alerts_list_limit_unset`) instead of a Zod "Required".
-               * Blank is not 20; pass 20 explicitly when that is the page you want.
-               */
-              limit: z.number().int().min(1).max(100).optional(),
-            })
-            .optional(),
-        )
-        .output(z.object({ items: z.array(priceAlertOutput), evaluation: alertEvaluationOutput }))
-        .query(async ({ ctx, input }) => {
+      alerts: mountRecord(
+        NOTIFY_ALERTS,
+        async ({ ctx, input }) => {
           try {
             const limit = assertNotifyAlertsListLimit(input?.limit);
             if (!alerts) return { items: [], evaluation: NO_ALERT_SERVICE };
@@ -1748,47 +1360,13 @@ export function createNotifyRouter(
             }
             throw err;
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
-      createAlert: scopedProcedure('notify:write', { module: 'notify' })
-        .input(
-          z.union([
-            z.object({
-              kind: z.literal('price').optional(),
-              marketId: z.string().min(1).max(64),
-              direction: z.enum(['above', 'below']),
-              /**
-               * Decimal string. Optional so a blank price reaches
-               * `notify.price_unset` instead of a Zod "Required".
-               * Blank is not a number.
-               */
-              targetPrice: z.string().max(64).optional(),
-              ...alertExtras,
-            }),
-            z.object({
-              kind: z.enum(SOURCED_ALERT_KINDS).optional(),
-              marketId: z.string().min(1).max(64),
-              direction: z.enum(['above', 'below']),
-              /** Decimal string — never a JSON number. */
-              targetPrice: z.string().min(1).max(64),
-              ...alertExtras,
-            }),
-            z.object({
-              kind: z.enum(UNPUBLISHED_ALERT_KINDS),
-              marketId: z.string().min(1).max(64).optional(),
-              direction: z.enum(['above', 'below']).optional(),
-              targetPrice: z.string().min(1).max(64).optional(),
-            }),
-            z.object({
-              kind: z.literal('portfolio'),
-            }),
-          ]),
-        )
-        // The watch AND whether it can fire, in the same answer. A create that
-        // returned only `status: 'active'` is what let this surface promise
-        // delivery it had no path for.
-        .output(z.object({ alert: priceAlertOutput, evaluation: alertEvaluationOutput }))
-        .mutation(async ({ ctx, input }) => {
+      createAlert: mountRecord(
+        NOTIFY_CREATE_ALERT,
+        async ({ ctx, input }) => {
           if (!alerts) {
             throw new TRPCError({
               code: 'PRECONDITION_FAILED',
@@ -1917,45 +1495,34 @@ export function createNotifyRouter(
             }
             throw err;
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * The owner's alert webhook policy as the alerts page publishes it (J-charts-desk-10 #4): the ports a webhook may use and the
        * resend schedule. Either blank is `null`, and the page says what that means: no webhook can be saved, or nothing is resent.
        */
-      alertWebhookPolicy: scopedProcedure('notify:read', { module: 'notify' })
-        .output(
-          z.object({
-            ports: z.array(z.number().int()).nullable(),
-            retrySeconds: z.array(z.number().int()).nullable(),
-            timeoutMs: z.number().int(),
-          }),
-        )
-        .query(() => {
+      alertWebhookPolicy: mountRecord(
+        NOTIFY_ALERT_WEBHOOK_POLICY,
+        () => {
           const policy = alerts?.webhookPolicy() ?? NO_WEBHOOK_POLICY;
           return {
             ports: policy.ports ? [...policy.ports] : null,
             retrySeconds: policy.retrySeconds ? [...policy.retrySeconds] : null,
             timeoutMs: policy.timeoutMs,
           };
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * A watchlist alert: the same price rule on each market named, one alert per market, all or none. Held to the price-alert
        * quota as a whole (a batch that would pass it creates nothing), and checked like a single create in every other way.
        */
-      createAlerts: scopedProcedure('notify:write', { module: 'notify' })
-        .input(
-          z.object({
-            marketIds: z.array(z.string().min(1).max(64)).min(1).max(100),
-            direction: z.enum(['above', 'below']),
-            /** Decimal string. Optional so a blank price reaches `notify.price_unset` instead of a Zod "Required". */
-            targetPrice: z.string().max(64).optional(),
-            ...alertExtras,
-          }),
-        )
-        .output(z.object({ alerts: z.array(priceAlertOutput).min(1), evaluation: alertEvaluationOutput }))
-        .mutation(async ({ ctx, input }) => {
+      createAlerts: mountRecord(
+        NOTIFY_CREATE_ALERTS,
+        async ({ ctx, input }) => {
           if (!alerts) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'alert.price_unavailable' });
           if (input.condition && input.condition !== 'crossing' && directionOfCondition(input.condition) !== input.direction) {
             throw new TRPCError({ code: 'BAD_REQUEST', message: 'alert.invalid_direction: condition and direction disagree' });
@@ -1979,7 +1546,9 @@ export function createNotifyRouter(
             if (err instanceof AlertValidationError) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
             throw alertManagerError(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * A watchlist alert (J-charts-desk-09 #7): one price rule on every market of one of the person's watchlists, read from
@@ -1987,17 +1556,9 @@ export function createNotifyRouter(
        * adds an alert for a market added to the list since. Refuses `identity.watchlists_unavailable` when identity gives no
        * answer and `alert.watchlist_not_found` for a list the person does not have: never an empty list standing in for either.
        */
-      createWatchlistAlert: scopedProcedure('notify:write', { module: 'notify' })
-        .input(
-          z.object({
-            listId: z.string().min(1).max(40),
-            condition: z.enum(ALERT_CONDITIONS),
-            /** Decimal string. Optional so a blank price reaches `notify.price_unset` instead of a Zod "Required". */
-            targetPrice: z.string().max(64).optional(),
-          }),
-        )
-        .output(z.object({ rule: watchRuleOutput, alerts: z.array(priceAlertOutput).min(1) }))
-        .mutation(async ({ ctx, input }) => {
+      createWatchlistAlert: mountRecord(
+        NOTIFY_CREATE_WATCHLIST_ALERT,
+        async ({ ctx, input }) => {
           if (!alerts || !watchRules) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'identity.watchlists_unavailable' });
           try {
             const made = await watchRules.create({ userId: ctx.principal.userId, ...input });
@@ -2013,52 +1574,45 @@ export function createNotifyRouter(
             // Named by code (`alert.invalid_market: …`), so the page can say which refusal it was.
             throw alertManagerError(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /** The person's watchlist alerts, newest first, each with the markets it covers and why its last sweep added nothing. */
-      watchlistAlerts: scopedProcedure('notify:read', { module: 'notify' })
-        .output(z.object({ items: z.array(watchRuleOutput) }))
-        .query(async ({ ctx }) => ({ items: watchRules ? (await watchRules.list(ctx.principal.userId)).map(watchRuleToWire) : [] })),
+      watchlistAlerts: mountRecord(
+        NOTIFY_WATCHLIST_ALERTS,
+        async ({ ctx }) => ({ items: watchRules ? (await watchRules.list(ctx.principal.userId)).map(watchRuleToWire) : [] }),
+        notifyRefusal,
+      ),
 
       /** Stop following a list. The alerts it made stay, each managed on its own. Stopping twice is harmless. */
-      stopWatchlistAlert: scopedProcedure('notify:write', { module: 'notify' })
-        .input(z.object({ id: z.string().guid() }))
-        .output(z.object({ rule: watchRuleOutput.nullable() }))
-        .mutation(async ({ ctx, input }) => {
+      stopWatchlistAlert: mountRecord(
+        NOTIFY_STOP_WATCHLIST_ALERT,
+        async ({ ctx, input }) => {
           const row = watchRules ? await watchRules.stop(ctx.principal.userId, input.id) : null;
           return { rule: row ? watchRuleToWire(row) : null };
-        }),
+        },
+        notifyRefusal,
+      ),
 
-      cancelAlert: scopedProcedure('notify:write', { module: 'notify' })
-        .input(z.object({ id: z.string().guid() }))
-        .output(z.object({ cancelled: z.boolean(), alert: priceAlertOutput.nullable() }))
-        .mutation(async ({ ctx, input }) => {
+      cancelAlert: mountRecord(
+        NOTIFY_CANCEL_ALERT,
+        async ({ ctx, input }) => {
           if (!alerts) return { cancelled: false, alert: null };
           const row = await alerts.cancel(ctx.principal.userId, input.id);
           if (!row) return { cancelled: false, alert: null };
           return { cancelled: row.status === 'cancelled', alert: priceAlertToWire(row) };
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * Change an alert that is active or stopped. Only what is sent changes; `null` clears a name, message or expiry. Checked as a
        * create is: a blank owner setting refuses, a value outside a set one is a bad request. Nothing is written on a refusal.
        */
-      updateAlert: scopedProcedure('notify:write', { module: 'notify' })
-        .input(
-          z.object({
-            id: z.string().guid(),
-            targetPrice: z.string().min(1).max(64).optional(),
-            condition: z.enum(ALERT_CONDITIONS).optional(),
-            name: z.string().max(2000).nullable().optional(),
-            message: z.string().max(2000).nullable().optional(),
-            expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
-            extras: alertExtras.extras,
-            frequency: alertExtras.frequency,
-            source: alertExtras.source,
-          }),
-        )
-        .output(z.object({ alert: priceAlertOutput }))
-        .mutation(async ({ ctx, input }) => {
+      updateAlert: mountRecord(
+        NOTIFY_UPDATE_ALERT,
+        async ({ ctx, input }) => {
           if (!alerts) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
           try {
             const row = await alerts.edit(ctx.principal.userId, input.id, {
@@ -2076,13 +1630,14 @@ export function createNotifyRouter(
           } catch (err) {
             throw alertManagerError(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /** Pause (`active: false`) an active alert or resume a stopped one. Repeating it is harmless: the alert is returned as it is. */
-      setAlertActive: scopedProcedure('notify:write', { module: 'notify' })
-        .input(z.object({ id: z.string().guid(), active: z.boolean() }))
-        .output(z.object({ changed: z.boolean(), alert: priceAlertOutput }))
-        .mutation(async ({ ctx, input }) => {
+      setAlertActive: mountRecord(
+        NOTIFY_SET_ALERT_ACTIVE,
+        async ({ ctx, input }) => {
           if (!alerts) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
           try {
             const before = await alerts.get(ctx.principal.userId, input.id);
@@ -2092,61 +1647,27 @@ export function createNotifyRouter(
           } catch (err) {
             throw alertManagerError(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /** How many price alerts the person holds open and the cap the owner set. `max: null` is a blank setting: creates refuse. */
-      alertQuota: scopedProcedure('notify:read', { module: 'notify' })
-        .output(
-          z.object({
-            kind: z.literal('price'),
-            used: z.number().int().min(0),
-            max: z.number().int().min(1).nullable(),
-            /** The burst auto-stop rule, or null while the owner has not set it (the rule is off). */
-            burst: z.object({ windowMinutes: z.number().int().min(1), maxTriggers: z.number().int().min(1) }).nullable(),
-            /** Most conditions one alert may hold, the main one included (`NOTIFY_ALERT_MAX_CONDITIONS`). Null while the owner has not set it. */
-            maxConditions: z.number().int().min(1).nullable(),
-          }),
-        )
-        .query(async ({ ctx }) => {
+      alertQuota: mountRecord(
+        NOTIFY_ALERT_QUOTA,
+        async ({ ctx }) => {
           if (!alerts) return { kind: 'price' as const, used: 0, max: null, burst: null, maxConditions: null };
           return alerts.quota(ctx.principal.userId);
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * The person's trigger log: each time an alert fired and the mark that fired it, newest first. The owner sets how long
        * rows are kept; blank refuses `notify.alert_trigger_log_retention_unset` rather than answering an empty list.
        */
-      alertTriggers: scopedProcedure('notify:read', { module: 'notify' })
-        .input(z.object({ alertId: z.string().guid().optional(), limit: z.number().int().min(1).max(200) }))
-        .output(
-          z.object({
-            retentionDays: z.number().int(),
-            items: z.array(
-              z.object({
-                alertId: z.string().guid(),
-                /** Which trigger of the alert this is, from 1. */
-                seq: z.number().int(),
-                marketId: z.string(),
-                condition: z.enum(['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than']),
-                targetPrice: z.string(),
-                markPrice: z.string(),
-                firedAt: z.string(),
-                notificationId: z.string().nullable(),
-                /** What happened on each channel for this firing, from the fan-out's own rows. In-app is one of them. */
-                deliveries: z.array(deliveryOutput),
-                /** The webhook's record for this firing, or null when the alert had none. */
-                webhook: z
-                  .object({
-                    status: z.enum(['pending', 'delivered', 'failed']),
-                    attempts: z.array(webhookAttemptOutput),
-                    nextAttemptAt: z.string().nullable(),
-                  })
-                  .nullable(),
-              }),
-            ),
-          }),
-        )
-        .query(async ({ ctx, input }) => {
+      alertTriggers: mountRecord(
+        NOTIFY_ALERT_TRIGGERS,
+        async ({ ctx, input }) => {
           if (!alerts) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET });
           try {
             const log = await alerts.triggers(ctx.principal.userId, {
@@ -2181,54 +1702,27 @@ export function createNotifyRouter(
           } catch (err) {
             throw alertManagerError(err);
           }
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /** Delete an alert whatever its state. Deleting one that is already gone answers `deleted: false`. */
-      deleteAlert: scopedProcedure('notify:write', { module: 'notify' })
-        .input(z.object({ id: z.string().guid() }))
-        .output(z.object({ deleted: z.boolean() }))
-        .mutation(async ({ ctx, input }) => {
+      deleteAlert: mountRecord(
+        NOTIFY_DELETE_ALERT,
+        async ({ ctx, input }) => {
           if (!alerts) return { deleted: false };
           return { deleted: await alerts.remove(ctx.principal.userId, input.id) };
-        }),
+        },
+        notifyRefusal,
+      ),
 
       /**
        * Condition eval against the sourced mark. Dark / missing MarkSource
        * refuses `alert.price_unavailable` and never returns fired as live.
        */
-      evaluateAlert: scopedProcedure('notify:write', { module: 'notify' })
-        .input(
-          z.union([
-            z.object({ id: z.string().guid() }),
-            z.object({ kind: z.enum(UNPUBLISHED_ALERT_KINDS) }),
-            z.object({ kind: z.literal('portfolio') }),
-          ]),
-        )
-        .output(
-          z.object({
-            alert: priceAlertOutput.nullable(),
-            outcome: z.discriminatedUnion('kind', [
-              z.object({ kind: z.literal('hold'), markPrice: z.string() }),
-              z.object({ kind: z.literal('fire'), markPrice: z.string() }),
-              z.object({
-                kind: z.literal('refuse'),
-                code: z.enum([
-                  'alert.price_unavailable',
-                  'alert.not_active',
-                  'alert.invalid_price',
-                  'alert.portfolio_view_unpublished',
-                  'alert.kind_unpublished',
-                  'alerts.whale_mark_dark',
-                  'channel.not_configured',
-                  'channel.disabled',
-                ]),
-                detail: z.string(),
-              }),
-            ]),
-            evaluation: alertEvaluationOutput,
-          }),
-        )
-        .mutation(async ({ ctx, input }) => {
+      evaluateAlert: mountRecord(
+        NOTIFY_EVALUATE_ALERT,
+        async ({ ctx, input }) => {
           if (!alerts) {
             return {
               alert: null,
@@ -2272,7 +1766,9 @@ export function createNotifyRouter(
             outcome: report.outcome,
             evaluation: report.evaluation,
           };
-        }),
+        },
+        notifyRefusal,
+      ),
     }),
   });
 }

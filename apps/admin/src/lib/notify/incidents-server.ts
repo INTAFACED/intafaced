@@ -10,6 +10,7 @@ import {
   type Part,
   type PartLabels,
   explainRefusal,
+  founderRecordRead,
 } from '@/lib/desk';
 import { readDefinition } from './status-model';
 import {
@@ -24,6 +25,22 @@ import {
   type PublishApproval,
   publishApprovalOf,
 } from './incidents-model';
+import {
+  NOTIFY_OPERATOR_NOTICES,
+  NOTIFY_DRAFT_NOTICE,
+  NOTIFY_NOTICE_PROPOSAL,
+  NOTIFY_PUBLISH_NOTICE,
+} from '@intafaced/contracts/notify-notify-procedures';
+import {
+  NOTIFY_STATUS_PAGE_POSTMORTEMS_FOR_INCIDENTS,
+  NOTIFY_STATUS_PAGE_TEMPLATES_LIST,
+  NOTIFY_STATUS_PAGE_DEFINITION,
+  NOTIFY_STATUS_PAGE_POSTMORTEMS_PROPOSAL,
+  NOTIFY_STATUS_PAGE_POSTMORTEMS_WRITE,
+  NOTIFY_STATUS_PAGE_POSTMORTEMS_PUBLISH,
+  NOTIFY_STATUS_PAGE_TEMPLATES_DEFINE,
+  NOTIFY_STATUS_PAGE_TEMPLATES_RETIRE,
+} from '@intafaced/contracts/notify-status-page-procedures';
 
 /**
  * The incident desk as the signed-in founder. svc-notify holds the incidents (`notify.operatorNotices`, drafts included),
@@ -67,7 +84,7 @@ async function postmortemsOf(ctx: FounderCallContext, notices: readonly Operator
   const chunks: string[][] = [];
   for (let i = 0; i < ids.length; i += POSTMORTEMS_PER_CALL) chunks.push(ids.slice(i, i + POSTMORTEMS_PER_CALL));
   const reads = await Promise.all(
-    chunks.map((incidentIds) => founderCall(ctx, 'notify', 'statusPage.postmortems.forIncidents', 'GET', { incidentIds }, readPostmortems)),
+    chunks.map((incidentIds) => founderRecordRead(ctx, NOTIFY_STATUS_PAGE_POSTMORTEMS_FOR_INCIDENTS, { incidentIds }, readPostmortems)),
   );
   const failed = reads.find((r) => r.kind !== 'ok');
   if (failed) return partFrom(failed, () => [], NOTIFY);
@@ -93,9 +110,9 @@ export async function loadPublishApprovals(ctx: FounderCallContext): Promise<Par
 
 export async function loadIncidentDesk(ctx: FounderCallContext): Promise<IncidentDeskView> {
   const [notices, templates, definition, approvals] = await Promise.all([
-    founderCall(ctx, 'notify', 'notify.operatorNotices', 'GET', { kind: 'incident', limit: LIST_LIMIT }, readOperatorNotices),
-    founderCall(ctx, 'notify', 'statusPage.templates.list', 'GET', undefined, readTemplates),
-    founderCall(ctx, 'notify', 'statusPage.definition', 'GET', undefined, readDefinition),
+    founderRecordRead(ctx, NOTIFY_OPERATOR_NOTICES, { kind: 'incident', limit: LIST_LIMIT }, readOperatorNotices),
+    founderRecordRead(ctx, NOTIFY_STATUS_PAGE_TEMPLATES_LIST, undefined, readTemplates),
+    founderRecordRead(ctx, NOTIFY_STATUS_PAGE_DEFINITION, undefined, readDefinition),
     loadPublishApprovals(ctx),
   ]);
   return {
@@ -155,11 +172,9 @@ export function draftKey(founder: string, input: IncidentDraftInput): string {
 
 export async function draftIncident(ctx: FounderCallContext, input: IncidentDraftInput) {
   return reply(
-    await founderCall(
+    await founderRecordRead(
       ctx,
-      'notify',
-      'notify.draftNotice',
-      'POST',
+      NOTIFY_DRAFT_NOTICE,
       {
         kind: 'incident',
         title: input.title.trim(),
@@ -187,8 +202,8 @@ export type PublishSubject =
 /** The proposal as svc-notify holds the subject now; never taken from the browser. */
 const proposalOf = (ctx: FounderCallContext, subject: PublishSubject) =>
   subject.kind === 'notice'
-    ? founderCall(ctx, 'notify', 'notify.noticeProposal', 'GET', { id: subject.id }, readProposal)
-    : founderCall(ctx, 'notify', 'statusPage.postmortems.proposal', 'GET', { incidentId: subject.incidentId }, readProposal);
+    ? founderRecordRead(ctx, NOTIFY_NOTICE_PROPOSAL, { id: subject.id }, readProposal)
+    : founderRecordRead(ctx, NOTIFY_STATUS_PAGE_POSTMORTEMS_PROPOSAL, { incidentId: subject.incidentId }, readProposal);
 
 /** Ask identity for the approval bound to this draft exactly as svc-notify holds it now. */
 export async function requestPublish(ctx: FounderCallContext, subject: PublishSubject) {
@@ -232,11 +247,9 @@ export async function approvePublish(ctx: FounderCallContext, subject: PublishSu
 /** svc-notify spends the approval once. The key is the approval: sending it again replays the stored answer. */
 export async function publishIncident(ctx: FounderCallContext, noticeId: string, approvalId: string, operationId: string) {
   return reply(
-    await founderCall(
+    await founderRecordRead(
       ctx,
-      'notify',
-      'notify.publishNotice',
-      'POST',
+      NOTIFY_PUBLISH_NOTICE,
       { id: noticeId, approvalId, operationId, clientRequestId: `incident-publish:${approvalId}` },
       anyData,
     ),
@@ -247,11 +260,9 @@ export async function publishIncident(ctx: FounderCallContext, noticeId: string,
 /** A postmortem draft, naming the version it was written over (0 for the first). The same words again are a replay. */
 export async function writePostmortem(ctx: FounderCallContext, input: { incidentId: string; body: string; expectedVersion: number }) {
   return reply(
-    await founderCall(
+    await founderRecordRead(
       ctx,
-      'notify',
-      'statusPage.postmortems.write',
-      'POST',
+      NOTIFY_STATUS_PAGE_POSTMORTEMS_WRITE,
       { incidentId: input.incidentId, body: input.body.trim(), expectedVersion: input.expectedVersion },
       anyData,
     ),
@@ -262,7 +273,7 @@ export async function writePostmortem(ctx: FounderCallContext, input: { incident
 /** svc-notify spends the approval once; the same approval sent again answers the published postmortem. */
 export async function publishPostmortem(ctx: FounderCallContext, incidentId: string, approvalId: string, operationId: string) {
   return reply(
-    await founderCall(ctx, 'notify', 'statusPage.postmortems.publish', 'POST', { incidentId, approvalId, operationId }, anyData),
+    await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_POSTMORTEMS_PUBLISH, { incidentId, approvalId, operationId }, anyData),
     'postmortem published',
   );
 }
@@ -278,9 +289,9 @@ export interface TemplateInput {
 }
 
 export async function defineTemplate(ctx: FounderCallContext, input: TemplateInput) {
-  return reply(await founderCall(ctx, 'notify', 'statusPage.templates.define', 'POST', input, anyData), 'template saved');
+  return reply(await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_TEMPLATES_DEFINE, input, anyData), 'template saved');
 }
 
 export async function retireTemplate(ctx: FounderCallContext, id: string) {
-  return reply(await founderCall(ctx, 'notify', 'statusPage.templates.retire', 'POST', { id }, anyData), 'template retired');
+  return reply(await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_TEMPLATES_RETIRE, { id }, anyData), 'template retired');
 }

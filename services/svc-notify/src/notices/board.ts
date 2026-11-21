@@ -34,12 +34,16 @@ import {
 } from './audiences.js';
 import { inLanguage, translationsField, translationsForHash, type NoticeTranslations } from './translations.js';
 import { buildStatusFeed, clampStatusDays, openIncidentRoots, STATUS_FEED_ROWS_MAX, type StatusFeed } from './status-feed.js';
+import {
+  NOTICE_KINDS,
+  INCIDENT_PHASES,
+  STATUS_COMPONENT_PATTERN,
+  NOTICE_ASSET_PATTERN,
+  NOTICE_NETWORK_PATTERN,
+  MAINTENANCE_REMINDER_MINUTES_MAX,
+  MAINTENANCE_REMINDERS_MAX,
+} from '@intafaced/contracts/notify-call-schemas';
 
-/**
- * `fee_change` announces a new trading fee schedule version: `startsAt` is the time it takes effect, and it has no end.
- * It is read before that time and changes no rate itself; the rate changes only with svc-trade's stored version.
- */
-export const NOTICE_KINDS = ['announcement', 'maintenance', 'incident', 'changelog', 'fee_change'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 export type NoticeStatus = 'draft' | 'published';
 
@@ -48,21 +52,11 @@ export type NoticeStatus = 'draft' | 'published';
 export const STATUS_COMPONENTS = ['api', 'webhooks', 'console'] as const;
 /** A component a notice names: a built-in one, or one the status page defines (same shape as its id). */
 export type StatusComponent = string;
-export const STATUS_COMPONENT_PATTERN = /^[a-z][a-z0-9-]{1,39}$/;
 
 export const INCIDENT_IMPACTS = ['none', 'minor', 'major', 'critical'] as const;
 export type IncidentImpact = (typeof INCIDENT_IMPACTS)[number];
 
-/**
- * Funding incident status flow. A scoped incident (one asset on one network)
- * names its phase on every entry; only the closing entry reads `resolved`.
- */
-export const INCIDENT_PHASES = ['investigating', 'identified', 'update', 'monitoring', 'resolved'] as const;
 export type IncidentPhase = (typeof INCIDENT_PHASES)[number];
-
-/** Asset symbol and network slug as the asset registry spells them. */
-export const NOTICE_ASSET_PATTERN = /^[A-Z0-9]{2,20}$/;
-export const NOTICE_NETWORK_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
 
 export type NoticeCode =
   | 'notify.notices_unavailable'
@@ -351,10 +345,6 @@ function payloadHash(row: NoticeRow): string {
   });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
 }
-
-/** At most this many reminders on one window, each 1 minute to 30 days before its start: storage bounds, not owner values. */
-export const MAINTENANCE_REMINDERS_MAX = 10;
-export const MAINTENANCE_REMINDER_MINUTES_MAX = 43_200;
 
 /**
  * Reminder offsets belong to maintenance alone and need its start. None given is none: no reminder is ever invented.
@@ -1016,3 +1006,12 @@ export class NoticeBoard {
     return wire;
   }
 }
+export {
+  NOTICE_KINDS,
+  INCIDENT_PHASES,
+  STATUS_COMPONENT_PATTERN,
+  NOTICE_ASSET_PATTERN,
+  NOTICE_NETWORK_PATTERN,
+  MAINTENANCE_REMINDER_MINUTES_MAX,
+  MAINTENANCE_REMINDERS_MAX,
+};

@@ -7,6 +7,8 @@
 import { z } from 'zod';
 import { NOTIFY_CHANGELOG_AREA_IDS, notifyNoticeEntrySchema as entrySchema } from '@intafaced/contracts/notify-public-notices';
 import type { ApiClient, ApiResult } from './api';
+import { NOTIFY_STATUS_FEED, NOTIFY_CHANGELOG, NOTIFY_UPCOMING_CHANGES } from '@intafaced/contracts/notify-notify-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 const impact = z.enum(['none', 'minor', 'major', 'critical']);
 export const STATUS_COMPONENT_IDS = ['api', 'webhooks', 'console'] as const;
@@ -55,7 +57,7 @@ export const statusFeedSchema = z.object({
     ),
   }),
 });
-export type StatusFeed = z.infer<typeof statusFeedSchema>;
+export type StatusFeed = ProcedureOutput<typeof NOTIFY_STATUS_FEED>;
 
 /** One notice entry and the changelog's areas, from `@intafaced/contracts/notify-public-notices`. */
 export { NOTIFY_CHANGELOG_AREA_IDS as CHANGELOG_AREA_IDS, entrySchema };
@@ -66,10 +68,10 @@ const upcomingSchema = z.object({
   upcoming: z.array(entrySchema),
   retired: z.array(z.object({ endpoint: z.string(), entryId: z.string().guid(), title: z.string(), releaseOn: day.nullable() })),
 });
-export type UpcomingChanges = z.infer<typeof upcomingSchema>;
+export type UpcomingChanges = ProcedureOutput<typeof NOTIFY_UPCOMING_CHANGES>;
 
 export const readStatusFeed = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<StatusFeed>> =>
-  api.query('notify', 'notify.statusFeed', { days: 30 }, statusFeedSchema, { signal });
+  api.call(NOTIFY_STATUS_FEED, { days: 30 }, { signal });
 
 /** The changelog in the reader's chosen language (`language`, the app's locale code): each entry names the language it is in. */
 export const readChangelog = (
@@ -78,13 +80,11 @@ export const readChangelog = (
   language: string,
   signal?: AbortSignal,
 ): Promise<ApiResult<ChangelogEntry[]>> =>
-  api.query(
-    'notify',
-    'notify.changelog',
+  api.call(
+    NOTIFY_CHANGELOG,
     { limit: 50, language, ...(filter.area ? { area: filter.area } : {}), ...(filter.breaking ? { breaking: true } : {}) },
-    z.array(entrySchema).max(50),
     { signal },
   );
 
 export const readUpcomingChanges = (api: ApiClient, language: string, signal?: AbortSignal): Promise<ApiResult<UpcomingChanges>> =>
-  api.query('notify', 'notify.upcomingChanges', { language }, upcomingSchema, { signal });
+  api.call(NOTIFY_UPCOMING_CHANGES, { language }, { signal });

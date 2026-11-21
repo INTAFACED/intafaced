@@ -24,12 +24,11 @@ import type { NoticeWire } from '../notices/board.js';
 import type { StatusPageBook } from './book.js';
 import type { MailOutcome, StatusMailer } from './mailer.js';
 import { pinnedPost, systemResolver, webhookTargetProblem, type Resolver, type WebhookPost } from './webhook.js';
+import { STATUS_IMPORT_MAX } from '@intafaced/contracts/notify-status-page-procedures';
 
 const HOUR_MS = 3_600_000;
 /** How long one sender holds a delivery row before another fan-out may try it: longer than any send waits. */
 const DELIVERY_LEASE_MS = 120_000;
-/** Storage bounds of one founder import, not owner values. */
-export const STATUS_IMPORT_MAX = 500;
 const EVENT_ROWS_MAX = 500;
 export const STATUS_IMPORT_SOURCE_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const EMAIL_PATTERN = /^[^\s@]{1,64}@[^\s@]+\.[^\s@]{2,}$/;
@@ -592,3 +591,4 @@ export class MemorySubscriptionStore implements SubscriptionStore {
     return { subscriber, added: true };
   }
 }
+export { STATUS_IMPORT_MAX };
