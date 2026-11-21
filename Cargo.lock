@@ -1131,6 +1131,7 @@ dependencies = [
  "service-kit",
  "sha2 0.10.9",
  "signal-hook",
+ "svc-agents",
  "tiny_http",
  "url",
 ]

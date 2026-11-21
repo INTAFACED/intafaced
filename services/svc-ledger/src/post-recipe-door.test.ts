@@ -82,7 +82,7 @@ async function mount(options: { doorCallers?: Record<string, readonly string[]>;
   const book = options.ledger ?? new MemoryLedger({ idempotencyConflict: 'refuse' });
   const posts: string[] = [];
   const service = new BookLedger(book, posts);
-  const callers: ServiceName[] = ['svc-academy', 'svc-ops', 'svc-bank'];
+  const callers: ServiceName[] = ['svc-academy', 'svc-agents', 'svc-ops', 'svc-bank'];
   const keys = callers.map((svc) => ({ svc, ...pair() }));
   const keyring: Keyring = keys.map((k) => ({ kid: `${k.svc}.a`, svc: k.svc, use: 's2s' as const, x: k.x }));
   const signers = Object.fromEntries(
@@ -111,15 +111,20 @@ async function mount(options: { doorCallers?: Record<string, readonly string[]>;
 }
 
 describe('postRecipe: who may call it', () => {
-  it('names exactly the services granted a recipe on the door, and only svc-academy now', () => {
+  it('names exactly the services granted a recipe on the door: svc-academy and svc-agents', () => {
     const granted = Object.entries(LEDGER_POST_ALLOWLIST)
       .filter(([, grants]) => POST_RECIPE_NAMES.some((name) => Object.hasOwn(grants, name)))
       .map(([service]) => service)
       .sort();
-    expect([...LEDGER_POST_RECIPE.access.callers].sort()).toEqual(granted);
-    expect(LEDGER_DOOR_CALLERS.postRecipe).toEqual(['svc-academy']);
-    expect(POST_RECIPE_NAMES).toEqual(['academyPurchase', 'academyPurchaseRefund']);
-    for (const name of POST_RECIPE_NAMES) expect(grantFor('svc-academy', name)?.module).toBe('academy');
+    // svc-trade holds a `feeCharge` grant (module trade) for `/trpc/post` only: it is not a caller of this door.
+    expect([...LEDGER_POST_RECIPE.access.callers].sort()).toEqual(granted.filter((s) => s !== 'svc-trade'));
+    expect(LEDGER_DOOR_CALLERS.postRecipe).toEqual(['svc-academy', 'svc-agents']);
+    expect(POST_RECIPE_NAMES).toEqual(['academyPurchase', 'academyPurchaseRefund', 'feeCharge', 'chargeEarn', 'chargeCollect']);
+    for (const name of ['academyPurchase', 'academyPurchaseRefund'] as const) expect(grantFor('svc-academy', name)?.module).toBe('academy');
+    for (const name of ['feeCharge', 'chargeEarn', 'chargeCollect'] as const) {
+      expect(grantFor('svc-agents', name)?.module).toBe('agents');
+      expect(grantFor('svc-academy', name)).toBeUndefined();
+    }
   });
 
   it('refuses an unsigned call (401), and books nothing', async () => {
@@ -238,6 +243,101 @@ describe('postRecipe: what it refuses from the body (400, nothing read or booked
     ]) {
       const res = await postRecipe(body);
       expect(res.statusCode, JSON.stringify(body)).toBe(400);
+      expect(res.json().code).toBe('ledger.recipe_input_invalid');
+    }
+    expect(posts).toEqual([]);
+  });
+});
+
+const BUSINESS = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const EARN = {
+  module: 'agents',
+  saleId: `${USER}.w1`,
+  userId: BUSINESS,
+  memberUserId: USER,
+  assetId: 'USDC',
+  price: { perUnit: '0.25' },
+  units: '1',
+};
+const COLLECT = {
+  module: 'agents',
+  userId: BUSINESS,
+  to: { kind: 'partner-reserve', partnerId: 'reserve-a' },
+  paymentId: 'pay_1',
+  assetId: 'USDC',
+  amount: '0.25',
+};
+const FEE = {
+  chargeId: `agent.usage:${USER}:w1`,
+  userId: USER,
+  module: 'agents',
+  mode: 'asset',
+  assetId: 'USDC',
+  amount: '0.25',
+  reason: 'agents.usage.metered',
+};
+
+describe("postRecipe: svc-agents' usage charge", () => {
+  it('books the earn and then the collect, each the post the registry recipe builds, under its business key', async () => {
+    const { postRecipe, book } = await mount();
+    const earned = await postRecipe({ recipe: 'chargeEarn', input: EARN }, 'svc-agents');
+    expect(earned.statusCode, earned.body).toBe(200);
+    const built = recipes.chargeEarn({ ...EARN, price: { perUnit: parseAmount('0.25') }, units: 1n });
+    expect(earned.json()).toMatchObject({ idempotencyKey: built.idempotencyKey, module: 'agents', reason: 'charge.earned' });
+    expect((await book.getTxByKey(built.idempotencyKey))?.meta).toEqual(built.meta);
+    const collected = await postRecipe({ recipe: 'chargeCollect', input: COLLECT }, 'svc-agents');
+    expect(collected.statusCode, collected.body).toBe(200);
+    expect(collected.json().idempotencyKey).toBe('charge:collected:partner-reserve:reserve-a:USDC:pay_1');
+    const fees = await book.balance({ ownerType: 'house', ownerId: 'fees:agents', assetId: 'USDC', kind: 'available' });
+    expect(formatAmount(fees.amount)).toBe('0.25');
+    const owed = await book.balance({
+      ownerType: 'treasury',
+      ownerId: `charge-receivable:agents.${BUSINESS}`,
+      assetId: 'USDC',
+      kind: 'available',
+    });
+    expect(formatAmount(owed.amount)).toBe('0');
+  });
+
+  it('a collect above what is owed is refused by the ledger (400 insufficient funds), nothing booked', async () => {
+    const { postRecipe, posts } = await mount();
+    const res = await postRecipe({ recipe: 'chargeCollect', input: COLLECT }, 'svc-agents');
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe('ledger.insufficient_funds');
+    expect(posts).toEqual(['charge:collected:partner-reserve:reserve-a:USDC:pay_1']);
+  });
+
+  it('the fee charge reaches the ledger as the registry recipe builds it', async () => {
+    const { postRecipe, posts } = await mount();
+    const res = await postRecipe({ recipe: 'feeCharge', input: FEE }, 'svc-agents');
+    // Custodial: refused with the custody layer off, or by the empty balance with it on; either way after the door built it.
+    expect([400, 412]).toContain(res.statusCode);
+    expect(posts).toEqual([`fee:agents:agent.usage:${USER}:w1`]);
+  });
+
+  it("refuses svc-agents' recipes from svc-academy, and svc-academy's from svc-agents (403), reading nothing", async () => {
+    const { postRecipe, posts } = await mount();
+    const a = await postRecipe({ recipe: 'chargeEarn', input: EARN }, 'svc-academy');
+    expect(a.statusCode).toBe(403);
+    const b = await postRecipe({ recipe: 'academyPurchase', input: PURCHASE }, 'svc-agents');
+    expect(b.statusCode).toBe(403);
+    expect(posts).toEqual([]);
+  });
+
+  it('refuses a module other than its grant (403), and inputs the recipe refuses (400), booking nothing', async () => {
+    const { postRecipe, posts } = await mount();
+    const other = await postRecipe({ recipe: 'chargeEarn', input: { ...EARN, module: 'academy' } }, 'svc-agents');
+    expect(other.statusCode).toBe(403);
+    expect(other.json().code).toBe('ledger.caller_forbidden');
+    for (const input of [
+      { ...EARN, price: { perUnit: '0' } },
+      { ...EARN, price: { perUnit: '99999999999999999999' }, units: '9999999999999999999' },
+      { ...COLLECT, amount: '0' },
+      { ...FEE, amount: '0' },
+    ]) {
+      const recipe = 'price' in input ? 'chargeEarn' : 'chargeId' in input ? 'feeCharge' : 'chargeCollect';
+      const res = await postRecipe({ recipe, input }, 'svc-agents');
+      expect(res.statusCode, JSON.stringify(input)).toBe(400);
       expect(res.json().code).toBe('ledger.recipe_input_invalid');
     }
     expect(posts).toEqual([]);
