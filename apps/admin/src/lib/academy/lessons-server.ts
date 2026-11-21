@@ -14,15 +14,27 @@ import {
   academySaveLessonInputSchema,
 } from '@intafaced/contracts/academy-courses';
 import {
-  founderCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
   partFrom,
   type PartLabels,
   explainRefusal,
+  founderRecordRead,
 } from '@/lib/desk';
 import type { AcademyLesson, LessonDeskReply, LessonView } from './lessons-model';
+import {
+  ACADEMY_ADMIN_LESSON,
+  ACADEMY_ADMIN_SAVE_LESSON,
+  ACADEMY_ADMIN_REVERT_LESSON,
+  ACADEMY_ADMIN_PUBLISH_LESSON,
+  ACADEMY_ADMIN_ASSISTANT_DRAFT,
+  ACADEMY_ADMIN_DECIDE_DRAFT,
+  ACADEMY_ADMIN_WITHDRAW_LESSON,
+  ACADEMY_ADMIN_DUPLICATE_ITEM,
+  ACADEMY_ADMIN_FEATURE_LESSON,
+  ACADEMY_ADMIN_IMPORT_LESSON,
+} from '@intafaced/contracts/academy-admin-records';
 
 /**
  * The lesson editor as the signed-in founder. svc-academy keeps every lesson revision and records the founder from their
@@ -40,7 +52,7 @@ const readLesson = parseWith(academyLessonSchema);
 const readImport = parseWith(academyImportLessonResultSchema);
 
 export async function loadLesson(ctx: FounderCallContext, itemId: string): Promise<LessonView> {
-  const lesson = await founderCall(ctx, 'academy', 'admin.lesson', 'GET', { itemId }, readLesson);
+  const lesson = await founderRecordRead(ctx, ACADEMY_ADMIN_LESSON, { itemId }, readLesson);
   return { lesson: partFrom(lesson, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
 
@@ -69,43 +81,43 @@ function reply(result: FounderCallResult<AcademyLesson | null>, what: string): {
 const OPS = {
   save: {
     schema: academySaveLessonInputSchema,
-    procedure: 'admin.saveLesson',
+    record: ACADEMY_ADMIN_SAVE_LESSON,
     what: 'lesson saved',
     why: 'Each block needs its content: text, an https address with its words, or code with its language. A lesson has 1 to 200 blocks.',
   },
   revert: {
     schema: academyRevertLessonInputSchema,
-    procedure: 'admin.revertLesson',
+    record: ACADEMY_ADMIN_REVERT_LESSON,
     what: 'reverted',
     why: 'Which lesson, read at which revision, back to which revision?',
   },
   publish: {
     schema: academyPublishLessonInputSchema,
-    procedure: 'admin.publishLesson',
+    record: ACADEMY_ADMIN_PUBLISH_LESSON,
     what: 'published to learners',
     why: 'Which revision goes to learners, and why? Say why in up to 500 characters.',
   },
   draft: {
     schema: academyAssistantDraftInputSchema,
-    procedure: 'admin.assistantDraft',
+    record: ACADEMY_ADMIN_ASSISTANT_DRAFT,
     what: 'draft ready to review',
     why: 'Which lesson, read at which revision, and which path: the template or a model?',
   },
   decide: {
     schema: academyDecideDraftInputSchema,
-    procedure: 'admin.decideDraft',
+    record: ACADEMY_ADMIN_DECIDE_DRAFT,
     what: 'draft decided',
     why: 'Which draft, and accept or discard?',
   },
   withdraw: {
     schema: academyWithdrawLessonInputSchema,
-    procedure: 'admin.withdrawLesson',
+    record: ACADEMY_ADMIN_WITHDRAW_LESSON,
     what: 'withdrawn from learners',
     why: 'Which lesson, read at which course revision, and why? Say why in up to 500 characters.',
   },
   duplicate: {
     schema: academyDuplicateItemInputSchema,
-    procedure: 'admin.duplicateItem',
+    record: ACADEMY_ADMIN_DUPLICATE_ITEM,
     what: 'duplicated',
     why: 'Which item, read at which course revision?',
   },
@@ -122,12 +134,9 @@ async function featureLesson(ctx: FounderCallContext, body: Record<string, unkno
   const { op: _op, ...input } = body;
   const parsed = academyFeatureLessonInputSchema.safeParse(input);
   if (!parsed.success) return { why: 'Which lesson, and why feature it? Say why in up to 500 characters.' };
-  const result = await founderCall(ctx, 'academy', 'admin.featureLesson', 'POST', parsed.data, readSlot);
+  const result = await founderRecordRead(ctx, ACADEMY_ADMIN_FEATURE_LESSON, parsed.data, readSlot);
   if (result.kind !== 'ok') return reply(result, 'featured');
-  return reply(
-    await founderCall(ctx, 'academy', 'admin.lesson', 'GET', { itemId: parsed.data.itemId }, readLesson),
-    'featured on the Learn hub',
-  );
+  return reply(await founderRecordRead(ctx, ACADEMY_ADMIN_LESSON, { itemId: parsed.data.itemId }, readLesson), 'featured on the Learn hub');
 }
 
 /** A lesson file: refused by size before it is read, or a report of each bad block with nothing created. */
@@ -135,7 +144,7 @@ async function importLesson(ctx: FounderCallContext, body: Record<string, unknow
   const { op: _op, ...input } = body;
   const parsed = academyImportLessonInputSchema.safeParse(input);
   if (!parsed.success) return { why: 'Which lesson, read at which revision, and which file?' };
-  const result = await founderCall(ctx, 'academy', 'admin.importLesson', 'POST', parsed.data, readImport);
+  const result = await founderRecordRead(ctx, ACADEMY_ADMIN_IMPORT_LESSON, parsed.data, readImport);
   if (result.kind === 'ok' && result.data?.outcome === 'invalid')
     return {
       status: 422,
@@ -163,5 +172,5 @@ export async function changeLesson(
   const { op: _op, ...input } = body;
   const parsed = spec.schema.safeParse(input);
   if (!parsed.success) return { why: spec.why };
-  return reply(await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readLesson), spec.what);
+  return reply(await founderRecordRead(ctx, spec.record, parsed.data, readLesson), spec.what);
 }

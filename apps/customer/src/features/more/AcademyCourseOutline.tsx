@@ -1,10 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import {
-  academyCourseOutlineSchema,
-  academyUndoCompletionSchema,
-  type AcademyCourseOutline,
-  type AcademyCourseOutlineItem,
-} from '@intafaced/contracts/academy-catalogue';
+import { type AcademyCourseOutline, type AcademyCourseOutlineItem } from '@intafaced/contracts/academy-catalogue';
 import { ACADEMY_MARK_CURRICULUM_COMPLETE } from '@intafaced/contracts/academy-learner-procedures';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
@@ -15,6 +10,8 @@ import { useApi, useSession } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref, formatDay } from './academy-lms';
 import { AcademyRefusal, GuardedButton, itemTypeLabel, pathLabel } from './AcademyLmsParts';
+import { ACADEMY_COURSE_OUTLINE } from '@intafaced/contracts/academy-course-outline-procedures';
+import { ACADEMY_UNDO_CURRICULUM_COMPLETE } from '@intafaced/contracts/academy-undo-curriculum-complete-procedures';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 
@@ -41,7 +38,7 @@ export function AcademyCourseOutline({ itemSlug, refresh, progress = 0 }: { item
   const { userId } = useSession();
   const { t } = copy.useCopy();
   const outline = useResource(
-    (signal) => api.query('academy', 'courseOutline', { itemSlug }, academyCourseOutlineSchema, { signal }),
+    (signal) => api.call(ACADEMY_COURSE_OUTLINE, { itemSlug }, { signal }),
     `course-outline:${userId}:${itemSlug}`,
   );
   // A completion recorded in the reader beside it can unlock items, and a finished quiz can meet a rule: read the outline again.
@@ -96,7 +93,7 @@ function useItemCompletion(current: string, reload: () => void) {
   const complete = () =>
     send(async () => {
       const sent = await api.call(ACADEMY_MARK_CURRICULUM_COMPLETE, { itemSlug: current });
-      const fresh = await api.query('academy', 'courseOutline', { itemSlug: current }, academyCourseOutlineSchema);
+      const fresh = await api.call(ACADEMY_COURSE_OUTLINE, { itemSlug: current });
       const recorded = fresh.ok && fresh.data.items.some((row) => row.slug === current && row.state === 'completed');
       if (!recorded) {
         if (!sent.ok) setFailure(sent);
@@ -111,12 +108,11 @@ function useItemCompletion(current: string, reload: () => void) {
   const undo = (completedAt: string) =>
     send(async () => {
       // The key names this one completion, so a replay after a lost reply undoes it once and a later completion is new.
-      const sent = await api.mutate(
-        'academy',
-        'undoCurriculumComplete',
-        { itemSlug: current, completedAt, clientRequestId: `undo:${current}:${completedAt}` },
-        academyUndoCompletionSchema,
-      );
+      const sent = await api.call(ACADEMY_UNDO_CURRICULUM_COMPLETE, {
+        itemSlug: current,
+        completedAt,
+        clientRequestId: `undo:${current}:${completedAt}`,
+      });
       if (!sent.ok) setFailure(sent);
       else setUndone(true);
       reload();

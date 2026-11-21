@@ -114,7 +114,24 @@ function candidates(schema, depth = 0, key = '') {
 
 const REFUSALS = [42, 'not-an-input', [], null, true, { '': 1 }];
 
-export function samplesFor(record) {
+/**
+ * A Rust door's own accepted input for each call: the `valid` request its wire replay sends (`tests/fixtures/
+ * wire-replay.golden.json`), when the operator's answer to it, with the store down, is not a 400. A handler may check
+ * its input past the schema (a date range, a slug), so only a request the door itself let through is an accepted sample.
+ */
+function doorAccepts(crateDir) {
+  const golden = JSON.parse(readFileSync(join(REPO, crateDir, 'tests/fixtures/wire-replay.golden.json'), 'utf8'));
+  const operator = 3; // the answers' callers: anon, read, write, operator (record-door.mjs), the last holding every scope
+  const out = new Map();
+  for (const c of golden.calls) {
+    const answer = golden.answers[c.path]?.['store-down valid'];
+    const body = answer === undefined ? undefined : golden.bodies[answer[operator]];
+    if (body !== undefined && !body.startsWith('400 ')) out.set(c.path, c.valid);
+  }
+  return out;
+}
+
+export function samplesFor(record, doorValid) {
   const input = record.input;
   if (input.def?.type === 'undefined' || input._zod?.def?.type === 'undefined') return "[{ verdict: 'accept' }]";
   const ok = (v) => input.safeParse(v).success;
@@ -125,7 +142,9 @@ export function samplesFor(record) {
   } catch {
     json = {};
   }
-  for (const v of [...candidates(json), undefined, {}]) {
+  // A door record takes the door's own accepted input, or none: a schema-only guess may be one its handler refuses.
+  const tries = doorValid ? [doorValid.get(record.path)].filter((v) => v !== undefined) : [...candidates(json), undefined, {}];
+  for (const v of tries) {
     if (ok(v)) {
       accept = v;
       break;
@@ -133,16 +152,19 @@ export function samplesFor(record) {
   }
   const refuse = REFUSALS.find((v) => !ok(v));
   if (refuse === undefined) throw new Error(`${record.name}: no refused input among ${JSON.stringify(REFUSALS)}`);
-  if (accept === undefined && !ok(undefined)) throw new Error(`${record.name}: no accepted input found; write its samples by hand`);
+  if (accept === undefined && (doorValid || !ok(undefined)))
+    throw new Error(`${record.name}: no accepted input found${doorValid ? ' the door lets through' : ''}; write its samples by hand`);
   const a = accept === undefined ? "{ verdict: 'accept' }" : `{ verdict: 'accept', input: ${JSON.stringify(accept)} }`;
   return `[${a}, { verdict: 'refuse', input: ${JSON.stringify(refuse)} }]`;
 }
 
 async function main() {
   const argv = process.argv.slice(2);
-  const at = argv.indexOf('--unportable');
-  const unportableOut = at === -1 ? undefined : argv[at + 1];
-  const files = argv.filter((_, i) => at === -1 || (i !== at && i !== at + 1));
+  const flag = (f) => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : undefined);
+  const unportableOut = flag('--unportable');
+  const door = flag('--door');
+  const doorValid = door ? doorAccepts(door) : undefined;
+  const files = argv.filter((a, i) => !a.startsWith('--') && !argv[i - 1]?.startsWith('--'));
   const { procedureJsonSchema } = await import(pathToFileURL(join(REPO, 'packages/contracts/dist/procedure.js')).href);
   const unportable = {};
   for (const file of files) {
@@ -167,7 +189,7 @@ async function main() {
       // A record the step can find no accepted (or refused) input for goes back to its router the same way, named.
       let samples;
       try {
-        samples = samplesFor(mod[name]);
+        samples = samplesFor(mod[name], doorValid);
       } catch (err) {
         unportable[mod[name].path] = String(err.message).split('\n')[0];
         continue;
