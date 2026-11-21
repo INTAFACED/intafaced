@@ -5,7 +5,8 @@ import { currentPreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
 import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
-import { authoredRefusal, type ApiResult } from '../../shared/api';
+import { authoredRefusal, type ApiResult, type AppProcedure } from '../../shared/api';
+import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { bankReads, bankWriteForReview, type BankRead, type BankWrite } from './contracts';
@@ -42,6 +43,25 @@ export function useBankRead<K extends BankRead>(procedure: K, input: unknown, en
       return api.query('bank', procedure, input, bankReads[procedure] as unknown as ZodType<z.infer<(typeof bankReads)[K]>>, { signal });
     },
     `${userId}:${procedure}:${JSON.stringify(input)}:${enabled}`,
+  );
+}
+/**
+ * `useBankRead` through the call's record: the path and input type come from the record, and the answer is parsed by
+ * `record.output` and the record's `accept` checks. The request, the refusals and the cache key are `useBankRead`'s.
+ */
+export function useBankRecord<R extends AppProcedure & { readonly module: 'bank'; readonly kind: 'query' }>(
+  record: R,
+  input: ProcedureInput<R>,
+  enabled = true,
+) {
+  const { api, userId } = useSession();
+  return useResource<ProcedureOutput<R>>(
+    async (signal) => {
+      if (!enabled) return { ok: false, reason: 'not_supported', message: copyText('components.select.a.record.to.load.its.details') };
+      if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
+      return api.call(record, input, { signal });
+    },
+    `${userId}:${record.path}:${JSON.stringify(input)}:${enabled}`,
   );
 }
 /** The person's spaces, by the `spaces.list` record and Money's row check (`readSpaces`). */

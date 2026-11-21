@@ -87,7 +87,7 @@ const relImport = (fromFile, toFile) => {
 const contractsSpec = (file) => `@intafaced/contracts/${basename(file).replace(/\.ts$/, '')}`;
 
 /** Per file: edits, and the imports to add (`spec -> Set(names)`). */
-class Changes {
+export class Changes {
   constructor() {
     this.files = new Map();
   }
@@ -121,7 +121,7 @@ function plan(opts) {
       continue;
     }
     const arg = schemaArgOf(s);
-    const checks = arg ? answerChecks(load(s.file), arg) : [];
+    const checks = s.schema ? answerChecks(s.schema.p, s.schema.node) : arg ? answerChecks(load(s.file), arg) : [];
     if (checks.length) {
       hand.push({
         site: s,
@@ -182,7 +182,8 @@ function plan(opts) {
 }
 
 /** The input argument of a site, and whether it is no input at all (`undefined`, `{}`, or absent). */
-const inputArg = (s) => s.node.arguments[s.shape === 'founderCall' ? 4 : 2];
+const INPUT_AT = { founderCall: 4, founderEdgeCall: 4, payCall: 3, useBankRead: 1 };
+const inputArg = (s) => s.node.arguments[INPUT_AT[s.shape] ?? 2];
 function noInput(s) {
   const a = inputArg(s);
   return !a || (a.type === 'Identifier' && a.name === 'undefined') || (a.type === 'ObjectExpression' && a.properties.length === 0);
@@ -292,8 +293,19 @@ function build(opts, planned) {
 /** The schema a caller parses the answer with, or undefined. */
 function schemaArgOf(s) {
   const a = s.node.arguments;
-  return s.shape === 'founderCall' ? (s.reader ? undefined : a[5]?.arguments?.[0]) : a[3];
+  if (s.shape === 'founderCall') return s.reader ? undefined : a[5]?.arguments?.[0];
+  if (s.shape === 'payCall') return s.reader ? undefined : a[4]?.arguments?.[0];
+  // useBankRead's schema is `bankReads[path]` in its own file (`s.schema`); founderEdgeCall parses nothing.
+  if (s.shape === 'useBankRead' || s.shape === 'founderEdgeCall') return undefined;
+  return a[3];
 }
+
+/** Each wrapper's record form, and what it keeps of the call after its record and input. */
+const RECORD_FORMS = {
+  founderEdgeCall: (s, a) => ({ fn: 'founderEdgeRecordCall', head: [a[0]], tail: a.slice(5) }),
+  payCall: (s, a) => (s.reader ? { fn: 'payRecordRead', head: [a[0]], tail: [a[4]] } : { fn: 'payRecordCall', head: [a[0]], tail: [] }),
+  useBankRead: (s, a) => ({ fn: 'useBankRecord', head: [], tail: a.slice(2) }),
+};
 
 // zod methods that check or change an answer beyond its shape: a record's `output` copies the router's shape, so a caller's
 // own check would be lost with its schema. Such a call stays as it is, for its check to move to `accept` by hand.
@@ -342,7 +354,7 @@ export function answerChecks(p, node, seen = new Set()) {
 }
 
 /** One caller, rewritten to its record. */
-function rewriteSite(changes, s, name, spec, takesNone) {
+export function rewriteSite(changes, s, name, spec, takesNone) {
   const p = load(s.file);
   const n = s.node;
   const a = n.arguments;
@@ -365,6 +377,11 @@ function rewriteSite(changes, s, name, spec, takesNone) {
     const rest = [text(p, a[0]), name, input, ...(s.reader ? [text(p, a[5])] : []), ...(a[6] ? [text(p, a[6])] : [])];
     changes.edit(s.file, n.start, n.end, `${fn}(${rest.join(', ')})`);
     changes.imp(s.file, s.founderCallFrom, fn);
+  } else if (RECORD_FORMS[s.shape]) {
+    const { fn, head, tail } = RECORD_FORMS[s.shape](s, a);
+    const rest = [...head.map((x) => text(p, x)), name, input, ...tail.map((x) => text(p, x))];
+    changes.edit(s.file, n.start, n.end, `${fn}(${rest.join(', ')})`);
+    if (s.wrapperFrom) changes.imp(s.file, s.wrapperFrom, fn);
   }
   changes.imp(s.file, spec, name);
 }

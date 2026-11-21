@@ -142,7 +142,7 @@ export function parseWith<T>(schema: {
   };
 }
 
-type PayRecord = ProcedureRecord & TrpcTransport & { readonly service: 'svc-pay'; readonly module: 'pay' };
+type PayRecord = ProcedureRecord & TrpcTransport & { readonly module: 'pay' | 'identity' };
 
 /**
  * `payCall` through the call's record: the path and method come from the record, the input is checked by it before it
@@ -160,8 +160,32 @@ export async function payRecordCall<R extends PayRecord>(
     if (!parsed.success) return { kind: 'refused', refusal: { code: null, message: parsed.error.message, status: 400 }, requestId: null };
     checked = parsed.data;
   }
-  return payCall(ctx, record.path, record.kind === 'query' ? 'GET' : 'POST', checked, (raw) => {
-    const parsed = record.output.safeParse(raw);
-    return parsed.success && replyAccepted(record, parsed.data) ? (parsed.data as ProcedureOutput<R>) : null;
-  });
+  // A null answer reads as unreadable, as `payCall` by name with `parseWith` read it.
+  return payCall(
+    ctx,
+    record.path,
+    record.kind === 'query' ? 'GET' : 'POST',
+    checked,
+    (raw) => {
+      const parsed = record.output.safeParse(raw);
+      return parsed.success && replyAccepted(record, parsed.data) ? (parsed.data as ProcedureOutput<R>) : null;
+    },
+    record.module,
+  );
+}
+
+/**
+ * `payRecordCall` whose page reads the record's answer into its own view: `read` gets the answer the record already
+ * parsed, and its null reads as unreadable, as it did when the page called by name.
+ */
+export async function payRecordRead<R extends PayRecord, T>(
+  ctx: PayCallContext,
+  record: R,
+  input: ProcedureInput<R>,
+  read: (reply: ProcedureOutput<R>) => T | null,
+): Promise<PayCallResult<T>> {
+  const result = await payRecordCall(ctx, record, input);
+  if (result.kind !== 'ok') return result;
+  const view = read(result.data);
+  return view === null ? { kind: 'invalid', requestId: null } : { kind: 'ok', data: view };
 }
