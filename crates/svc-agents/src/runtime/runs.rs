@@ -372,6 +372,8 @@ pub struct RunInput<'a> {
     pub request_id: &'a str,
     pub task: &'a str,
     pub asset_id: &'a str,
+    /// `provenanceOf`: a research answer's provenance from its reply, stored in the same write as the reply.
+    pub provenance_of: Option<&'a dyn Fn(&str) -> Json>,
 }
 
 const ENGINE_FAILURES: [&str; 2] = ["agents.provider_unavailable", "agents.provider_failed"];
@@ -456,7 +458,7 @@ pub fn run_recorded(
             metered: Some(result.metered),
             action_id: Some(result.action.id.clone()),
             code: None,
-            provenance: None,
+            provenance: input.provenance_of.map(|of| of(&result.text)),
         },
     )
     .unwrap_or(running);
