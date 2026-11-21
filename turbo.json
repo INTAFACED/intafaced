@@ -158,6 +158,23 @@
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
     },
+    "@intafaced/config#typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/auth/**",
+        "$TURBO_ROOT$/packages/connect-data-lake/**",
+        "$TURBO_ROOT$/packages/contracts/**",
+        "$TURBO_ROOT$/packages/i18n/**",
+        "$TURBO_ROOT$/packages/ledger-client/**",
+        "$TURBO_ROOT$/packages/quant-honesty/**",
+        "$TURBO_ROOT$/packages/telemetry/**",
+        "$TURBO_ROOT$/services/svc-edge/**",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
     "@intafaced/contracts#typecheck": {
       "dependsOn": ["^build"],
       "outputs": [],
