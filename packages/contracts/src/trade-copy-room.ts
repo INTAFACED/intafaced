@@ -1,6 +1,6 @@
 /**
- * The Copy and Bots rooms' replies (svc-trade `copy.*`, `algo.*`, `bots.grid.*`, `signals.webhooks.*`; svc-market
- * `signals.*`; svc-quant `studio.list`), as the customer app reads them. Only fields the screen shows are kept, and no
+ * The Copy and Bots rooms' replies (svc-trade `copy.*`, `algo.*`, `bots.grid.*`, `signals.webhooks.*`; svc-quant
+ * `studio.list`), as the customer app reads them. Only fields the screen shows are kept, and no
  * service sentence is ever kept (`residual` and `statusLine` are deliberately left out). Browser-safe: zod only.
  */
 import { z } from 'zod';
@@ -34,52 +34,6 @@ export const signalWebhookSchema = z.object({
   state: z.enum(['active', 'paused', 'ended']),
   createdAt: z.string(),
   token: z.string().nullable().optional(),
-});
-
-/** A published signal (svc-market `signals.*`, J-copy-bots-otc-22): free or a monthly fee, never a profit share. */
-export const providerSignalSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string(),
-  assetId: assetIdSchema,
-  recommendedAmount: unsignedAmountSchema.nullable(),
-  feeModel: z.enum(['free', 'monthly']),
-  price: unsignedAmountSchema.nullable(),
-  periodSeconds: z.number().int().nullable(),
-  /** A monthly fee signal's Market listing, where a buyer pays one period. Null on a free signal. */
-  listingId: z.string().nullable(),
-  state: z.enum(['pending', 'published', 'archived']),
-  createdAt: z.string(),
-  archivedAt: z.string().nullable(),
-});
-
-/** The provider's one vetting against the platform's criteria, and what it saw. */
-export const signalVettingSchema = z.object({
-  minTier: z.string(),
-  minFills: z.number().int(),
-  tierSeen: z.string(),
-  fillsSeen: z.number().int(),
-  firstFillAt: z.string().nullable(),
-  passedAt: z.string(),
-});
-
-export const signalCriteriaSchema = z.object({ set: z.boolean(), minTier: z.string().nullable(), minFills: z.number().int().nullable() });
-export const signalPublishSchema = z.object({ signal: providerSignalSchema, vetting: signalVettingSchema, replayed: z.boolean() });
-export const mySignalsSchema = z.object({ signals: z.array(providerSignalSchema), vetting: signalVettingSchema.nullable() });
-export const signalEarningsSchema = z.object({
-  from: z.string(),
-  to: z.string(),
-  settlement: z.literal('at_sale'),
-  assets: z.array(
-    z.object({
-      assetId: assetIdSchema,
-      gross: unsignedAmountSchema,
-      commission: unsignedAmountSchema,
-      net: unsignedAmountSchema,
-      sales: z.number().int(),
-    }),
-  ),
-  profitShare: z.null(),
 });
 
 /** The scopes the platform has paused now (svc-trade `copy.platformPauses`, CB-ops-03). */

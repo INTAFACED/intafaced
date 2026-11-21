@@ -9,21 +9,27 @@
 //! 4. the door's first input check, where the handler parses its body, path or query with one schema before it
 //!    reaches the ledger (`schemas.json`).
 //!
-//! Past those the call is its slice's: [`Outcome::Owed`] names which. The door itself reads the book only for
-//! `/health` and `/ready` (the `store` slice, `crate::status`).
+//! Past those the call is its slice's: [`Outcome::Owed`] names which, until the slice is ported. Ported so far:
+//! `/health` and `/ready` (the `store` slice, `crate::status`) and the freeze doors (the `freeze` slice,
+//! `freeze.rs`).
 
 mod callers;
+mod freeze;
 
 pub use callers::DOOR_CALLERS;
 
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use service_kit::json::{self, Json};
 use service_kit::s2s::Mode;
 use service_kit::s2s_verify::{self, BodyBind, Incoming, ServiceVerifier};
 use service_kit::schema::{self, Outcome as Parsed, Schema, Value};
 use service_kit::server::{Door, Request, RequestIds, Response};
+use service_kit::telemetry::Logger;
 use service_kit::tokens::{self, TokenConfig};
+
+use crate::approval::Approvals;
+use crate::freeze::Bus;
 
 use crate::errors::{self, Failure};
 use crate::refines::LedgerRefines;
@@ -100,6 +106,8 @@ pub enum Input {
     Body(&'static str),
     /// An operator write: `schema.parse(body ?? {})`; a refusal is `guarded`'s 400 with the error's message.
     BodyOrEmpty(&'static str),
+    /// An operator write: `schema.parse(body)`, an absent body included; a refusal as [`Input::BodyOrEmpty`]'s.
+    OperatorBody(&'static str),
     /// An operator lookup: `schema.safeParse(<from the path or query>)`; a refusal is 400 with the door's sentence.
     Lookup(&'static str, LookupFrom, &'static str),
 }
@@ -273,8 +281,13 @@ pub const ROUTES: [Route; 44] = [
         Input::None,
         Freeze,
     ),
-    // `freezeSchema` trims, then pipes into its length checks: the freeze slice parses it.
-    op("POST", "/operator/freeze", Treasury, Input::None, Freeze),
+    op(
+        "POST",
+        "/operator/freeze",
+        Treasury,
+        Input::OperatorBody("freeze"),
+        Freeze,
+    ),
     op(
         "POST",
         "/operator/unfreeze",
@@ -387,8 +400,18 @@ pub struct DoorConfig {
     pub clock: fn() -> i64,
     /// The book: one pool for every slice.
     pub store: crate::db::Store,
-    /// `SERVICE_NAME`, as `/health` names it.
+    /// `SERVICE_NAME`, as `/health` names it and as events name their producer.
     pub service_name: String,
+    /// The event bus the outbox relays publish on.
+    pub bus: Arc<dyn Bus>,
+    /// The identity approvals the operator writes spend (`IDENTITY_URL`, or none).
+    pub approvals: Box<dyn Approvals>,
+    /// `LEDGER_CLOCK_SKEW_BOUND_MS`: none when the owner has not set it.
+    pub clock_skew_bound_ms: Option<i64>,
+    /// The wall clock in milliseconds.
+    pub now_ms: fn() -> i64,
+    /// `app.log`.
+    pub log: Logger,
 }
 
 /// The door.
@@ -712,17 +735,26 @@ impl LedgerDoor {
         if let Err((message, code)) = authorize(&principal, authority) {
             return answer(errors::auth_error(&message, &code));
         }
+        let past = |input: Value| match route.slice {
+            Slice::Freeze => {
+                Outcome::Answer(self.freeze_door(route.method, route.path, &principal, &input))
+            }
+            slice => Outcome::Owed(slice),
+        };
         match route.input {
-            Input::None | Input::Body(_) => Outcome::Owed(route.slice),
-            Input::BodyOrEmpty(name) => {
+            Input::None | Input::Body(_) => past(Value::Undefined),
+            Input::BodyOrEmpty(name) | Input::OperatorBody(name) => {
                 let value = match body {
-                    Body::Absent | Body::Parsed(Json::Null) => {
+                    Body::Absent | Body::Parsed(Json::Null)
+                        if matches!(route.input, Input::BodyOrEmpty(_)) =>
+                    {
                         Value::from_json(&Json::Object(Vec::new()))
                     }
+                    Body::Absent => Value::Undefined,
                     Body::Parsed(j) => Value::from_json(j),
                 };
                 match parse(name, value) {
-                    Ok(Parsed::Ok(_)) => Outcome::Owed(route.slice),
+                    Ok(Parsed::Ok(input)) => past(input),
                     Ok(Parsed::Issues(issues)) => {
                         answer(errors::operator_failed(&schema::message(&issues)))
                     }

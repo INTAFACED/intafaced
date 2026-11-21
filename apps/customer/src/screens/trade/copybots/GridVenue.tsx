@@ -5,7 +5,7 @@ import { displayAmount } from '../../../shared/money';
 import { useResource } from '../../../shared/resource';
 import { useWallet } from '../../../features/protocol/wallet/WalletProvider';
 import { TestMark, WalletBar, useOwner, useVenueApi } from '../../../features/trade/venue/VenueKit';
-import { keys, preparedAnswerSchema, walletTypedData, type PreparedAnswer, type VenueUp } from '../../../features/trade/venue-api';
+import { draftId, keys, preparedAnswerSchema, walletTypedData, type PreparedAnswer, type VenueUp } from '../../../features/trade/venue-api';
 import type { ApiResult } from '../../../shared/api';
 import type { createRoomApi, GridBot, GridRequest } from './api';
 import { roomCopy } from './copy';
@@ -70,6 +70,8 @@ export function useVenueGrid(api: RoomApi, status: VenueUp, symbol: string) {
   const venue = useVenueApi();
   const owner = useOwner();
   const sign = useSigner();
+  // The draft this wizard's builder approval is asked under (keys.builderApproval).
+  const [approvalDraft] = useState(() => draftId());
   const markets = useResource((signal) => venue.markets(signal), 'grid-venue-markets');
   const spot = useMemo(
     () =>
@@ -94,7 +96,7 @@ export function useVenueGrid(api: RoomApi, status: VenueUp, symbol: string) {
     const prepared = await venue.prepare({
       owner,
       intent: { kind: 'approve_builder_fee', builder: builder.address, maxFeeBps: builder.feeBps },
-      actionKey: keys.builderApproval(owner, builder.address, builder.feeBps),
+      actionKey: keys.builderApproval(owner, builder.address, builder.feeBps, undefined, approvalDraft),
     });
     if (!prepared.ok) return prepared;
     if (prepared.data.lastOutcome?.definite && prepared.data.lastOutcome.accepted) return null;

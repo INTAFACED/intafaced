@@ -28,7 +28,7 @@ import {
   type AgentAccount,
 } from '../../../features/more/agent-connect-api';
 import { useVenueApi, WalletBar } from '../../../features/trade/venue/VenueKit';
-import { keys, walletTypedData, type PreparedAnswer, type VenueUp } from '../../../features/trade/venue-api';
+import { draftId, keys, walletTypedData, type PreparedAnswer, type VenueUp } from '../../../features/trade/venue-api';
 import type { Failure } from './guard';
 import type { CopyDesk, FollowRequest, LeaderRow, RoomApi } from './api';
 import { bpsText, deskState } from './desk';
@@ -88,6 +88,8 @@ export function VenueFollowWizard({
   const { api: transport } = useSession();
   const owner = wallet.status === 'connected' && wallet.address ? wallet.address.toLowerCase() : null;
   const [step, setStep] = useState<Step>(1);
+  // The draft this wizard's builder approval is asked under (keys.builderApproval).
+  const [approvalDraft] = useState(() => draftId());
   const [leader, setLeader] = useState(initialLeader);
   const [region, setRegion] = useState('');
   const [picked, setPicked] = useState<string[]>([]);
@@ -252,7 +254,7 @@ export function VenueFollowWizard({
       owner,
       subAccount: account.subAccount,
       intent: { kind: 'approve_builder_fee', builder: builder.address, maxFeeBps: builder.feeBps },
-      actionKey: `${keys.builderApproval(owner, builder.address, builder.feeBps)}:${account.subAccount}`,
+      actionKey: `${keys.builderApproval(owner, builder.address, builder.feeBps, undefined, approvalDraft)}:${account.subAccount}`,
     });
     if (!prepared.ok) return (setFailure(prepared), false);
     if (prepared.data.lastOutcome?.definite && prepared.data.lastOutcome.accepted) return true;

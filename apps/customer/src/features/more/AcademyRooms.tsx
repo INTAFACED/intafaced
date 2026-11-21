@@ -3,12 +3,15 @@ import { useState } from 'react';
 import { z } from 'zod';
 import {
   ACADEMY_CREATE_ROOM,
+  ACADEMY_END_SESSION,
   ACADEMY_JOIN,
   ACADEMY_LEAVE,
   ACADEMY_ROOMS,
+  ACADEMY_ROOM,
   ACADEMY_SESSION,
+  ACADEMY_START_SESSION,
   ACADEMY_ROOM_KINDS,
-  academyRoomSchema,
+  academySessionSchema,
 } from '@intafaced/contracts/academy-learner-procedures';
 import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
@@ -17,23 +20,9 @@ import { Button, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, type ActionControls } from './common';
 import { SessionMedia } from './SessionMedia';
 import { RoomNotes } from './AcademyRoomNotes';
-import { ROOM_KINDS, RoomCalendar, RoomKindFilter, RoomPinnedLessons, pinnedLessonSchema } from './AcademyRoomPage';
-const uuid = z.string().guid(),
-  // `room`, `startSession`, `endSession`, `scheduleSession`, `updateScene` and `invite` have no record yet: their replies
-  // carry a session's stored scene (any JSON object) or their input a coerced date, which a record cannot export.
-  room = academyRoomSchema.extend({ minStake: decimalSchema });
-const session = z.object({
-  id: uuid,
-  roomId: uuid,
-  title: z.string(),
-  hostId: uuid,
-  status: z.enum(['scheduled', 'live', 'ended', 'cancelled']),
-  startsAt: z.string(),
-  endsAt: z.string().nullable(),
-  streamProvider: z.string().nullable(),
-  scene: z.record(z.string(), z.unknown()),
-  sceneFingerprint: z.string().min(1),
-});
+import { ROOM_KINDS, RoomCalendar, RoomKindFilter, RoomPinnedLessons } from './AcademyRoomPage';
+// `scheduleSession`, `invite` and `updateScene` have no record: the door coerces their dates and takes any scene object,
+// which no exported schema reaches the same verdicts on (`packages/contracts/src/academy-learner-procedures.test.ts`).
 export function AcademyRooms({ action }: { action: ActionControls }) {
   const api = useApi(),
     { userId } = useSession();
@@ -59,15 +48,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
     ),
     detail = useResource(
       (signal) =>
-        selected
-          ? api.query(
-              'academy',
-              'room',
-              { roomId: selected, limit },
-              z.object({ room, sessions: z.array(session), pinnedLessons: z.array(pinnedLessonSchema) }),
-              { signal },
-            )
-          : Promise.resolve({ ok: true as const, data: null }),
+        selected ? api.call(ACADEMY_ROOM, { roomId: selected, limit }, { signal }) : Promise.resolve({ ok: true as const, data: null }),
       `room:${userId}:${selected}:${limit}`,
     );
   return (
@@ -209,7 +190,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                                       <Text k="academyrooms.for.its.participants" />
                                     </p>
                                   ),
-                                  run: () => api.mutate('academy', 'startSession', { sessionId: s.id }, session),
+                                  run: () => api.call(ACADEMY_START_SESSION, { sessionId: s.id }),
                                   done: detail.reload,
                                 })
                               }
@@ -231,7 +212,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                                       <Text k="academyrooms.for.all.participants" />
                                     </p>
                                   ),
-                                  run: () => api.mutate('academy', 'endSession', { sessionId: s.id }, session),
+                                  run: () => api.call(ACADEMY_END_SESSION, { sessionId: s.id }),
                                   done: detail.reload,
                                 })
                               }
@@ -286,8 +267,12 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                               api.mutate(
                                 'academy',
                                 'scheduleSession',
-                                { roomId: selected, title: title.trim(), startsAt: new Date(starts).toISOString() },
-                                session,
+                                {
+                                  roomId: selected,
+                                  title: title.trim(),
+                                  startsAt: new Date(starts).toISOString(),
+                                },
+                                academySessionSchema,
                               ),
                             done: detail.reload,
                           });
@@ -328,7 +313,11 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                               api.mutate(
                                 'academy',
                                 'invite',
-                                { roomId: selected, userId: invite, ...(expires ? { expiresAt: new Date(expires).toISOString() } : {}) },
+                                {
+                                  roomId: selected,
+                                  userId: invite,
+                                  ...(expires ? { expiresAt: new Date(expires).toISOString() } : {}),
+                                },
                                 z.object({ ok: z.literal(true) }),
                               ),
                           });
@@ -345,7 +334,7 @@ export function AcademyRooms({ action }: { action: ActionControls }) {
                           value={expires}
                           onChange={(e) => setExpires(e.target.value)}
                         />
-                        <Button type="submit" disabled={action.disabled || !uuid.safeParse(invite).success}>
+                        <Button type="submit" disabled={action.disabled || !z.guid().safeParse(invite).success}>
                           <Text k="academyrooms.review.invitation" />
                         </Button>
                       </form>
@@ -520,7 +509,7 @@ function Scene({ id, action }: { id: string; action: ActionControls }) {
                           'academy',
                           'updateScene',
                           { sessionId: id, scene: next, expectedFingerprint: d.session.sceneFingerprint },
-                          session,
+                          academySessionSchema,
                         ),
                       done: () => {
                         setPoint(null);
