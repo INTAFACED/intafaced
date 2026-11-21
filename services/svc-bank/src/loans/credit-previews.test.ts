@@ -6,8 +6,8 @@ import {
   CREDIT_PREVIEW_ENGINES,
   REVOLVING_SECTIONS,
   SAMPLE_UNSECURED_LOAN_ID,
-  createCreditPreviewsRouter,
-} from './credit-previews.js';
+} from '@intafaced/contracts/bank-credit-preview-procedures';
+import { createCreditPreviewsRouter } from './credit-previews.js';
 import { loanServicingPreviewProcedures } from './loan-servicing-preview.js';
 
 /** J-bank-12 (BK-loan-08, BK-loan-09 sample schedule, BK-cops-09 revolving credit): TEST reads and refusals only. */

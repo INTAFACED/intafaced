@@ -253,7 +253,7 @@ test(`${J} #5 opens the revolving credit page over test data: a labelled preview
   const { page: desk } = await founders.console('a');
   await desk.goto('/bank-ops/cards/fraud');
   const fraud = desk.getByTestId('fraud-preview');
-  await expect(fraud.getByRole('heading', { name: 'Card fraud risk', level: 1 })).toBeVisible();
+  await expect(fraud.getByRole('heading', { name: 'Card fraud risk', exact: true, level: 1 })).toBeVisible();
   await expect(desk.getByTestId('fraud-preview-label')).toHaveText(LABEL);
   const scores = fraud.getByTestId('preview-engine');
   await expect(scores).toHaveAttribute('data-blurred', 'true');

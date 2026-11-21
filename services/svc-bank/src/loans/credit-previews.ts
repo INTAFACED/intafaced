@@ -22,31 +22,14 @@ import {
   type CreditPreviewOverview,
   type CreditPreviewRevolving,
   type CreditPreviewSchedule,
-} from '@intafaced/contracts/bank-credit-preview-procedures';
-import { PREVIEW_REFUSAL_CODE, previewRefusalOf, router } from '@intafaced/contracts';
-import { mountRecord, TRPCError, type RefusalOf } from '@intafaced/contracts/procedure-mount';
-import {
   BANK_CREDIT_PREVIEWS_ACT,
   BANK_CREDIT_PREVIEWS_OVERVIEW,
   BANK_CREDIT_PREVIEWS_REVOLVING,
   BANK_CREDIT_PREVIEWS_SCHEDULE,
 } from '@intafaced/contracts/bank-credit-preview-procedures';
-import { throwPreviewRefusal } from './loan-servicing-preview.js';
-
-export {
-  CREDIT_PREVIEW_ACTIONS,
-  REVOLVING_SECTIONS,
-  CREDIT_PREVIEW_CURRENCY,
-  CREDIT_PREVIEW_ENGINES,
-  CREDIT_PREVIEW_LABEL,
-  SAMPLE_UNSECURED_LOAN_ID,
-  creditPreviewActInputSchema,
-  creditPreviewOverviewSchema,
-  creditPreviewRevolvingSchema,
-  creditPreviewScheduleSchema,
-  type CreditPreviewActInput,
-  type CreditPreviewOverview,
-} from '@intafaced/contracts/bank-credit-preview-procedures';
+import { router } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { previewRefusalOnly, throwPreviewRefusal } from './loan-servicing-preview.js';
 const T = true as const;
 
 const OVERVIEW: CreditPreviewOverview = {
@@ -134,20 +117,16 @@ const REVOLVING: CreditPreviewRevolving = {
 };
 
 /** Copies, so no caller can change the fixtures. */
-export const creditPreviewOverview = (): CreditPreviewOverview => structuredClone(OVERVIEW);
-export const creditPreviewSchedule = (): CreditPreviewSchedule => structuredClone(SCHEDULE);
-export const creditPreviewRevolving = (): CreditPreviewRevolving => structuredClone(REVOLVING);
+const creditPreviewOverview = (): CreditPreviewOverview => structuredClone(OVERVIEW);
+const creditPreviewSchedule = (): CreditPreviewSchedule => structuredClone(SCHEDULE);
+const creditPreviewRevolving = (): CreditPreviewRevolving => structuredClone(REVOLVING);
 
 /** Always throws the typed Preview refusal (PRECONDITION_FAILED, `error.data.preview`). Nothing is read or written. */
-export function refuseCreditPreviewAct(input: CreditPreviewActInput): never {
+function refuseCreditPreviewAct(input: CreditPreviewActInput): never {
   return throwPreviewRefusal(CREDIT_PREVIEW_ENGINES[input.product], input.action);
 }
 
 /** `bank.creditPreviews.*`: TEST reads and one refusing action door. The router takes no services, so it can touch none. */
-
-/** The credit previews' one refusal: the typed Preview refusal `throwPreviewRefusal` raises, read from its cause. */
-const previewRefusalOnly: RefusalOf = (err) =>
-  err instanceof TRPCError && previewRefusalOf(err.cause) ? { code: PREVIEW_REFUSAL_CODE, error: err } : undefined;
 
 /** `bank.creditPreviews.*`, mounted from its records: TEST reads and one refusing action door. It takes no services, so it can touch none. */
 export function createCreditPreviewsRouter() {

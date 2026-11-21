@@ -129,7 +129,7 @@ function usePreviewNotice(c: Copy): Notice[] {
 }
 
 /** The room's state from its read: signed out and a failed read are said in words; never an empty page. */
-function roomState<T>(c: Copy, resource: { status: string; failure?: Failed }, path: string): RoomState {
+function roomState(c: Copy, resource: { status: string; failure?: Failed }, path: string): RoomState {
   if (resource.status === 'loading') return { kind: 'loading' };
   if (resource.status === 'failed') {
     const failed = resource.failure;

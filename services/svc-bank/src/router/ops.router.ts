@@ -2,15 +2,7 @@ import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
-import {
-  FRAUD_BLOCK_STANCES,
-  FRAUD_PREVIEW_ACTIONS,
-  FRAUD_RISK_BANDS,
-  FRAUD_SIGNALS,
-  fraudPreview,
-  refuseFraudPreviewAction,
-  fraudPreviewDoor,
-} from '../cards/fraud-preview.js';
+import { FRAUD_PREVIEW_ACTIONS, fraudPreviewDoor, refuseFraudPreviewAction } from '../cards/fraud-preview.js';
 import { poolTotalsProcedure } from '../ops/pool-totals.js';
 import { loanBookProcedure } from '../ops/loan-book.js';
 import { assetPausesProcedure, setAssetPauseProcedure } from '../ops/asset-pause.js';

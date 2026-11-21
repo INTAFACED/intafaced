@@ -4,10 +4,8 @@ import { BANK_CREDIT_CARD_APPLICATION, BANK_CREDIT_CARD_PREVIEW } from '@intafac
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { previewRefusalOnly } from './loan-servicing-preview.js';
 import {
-  CREDIT_CARD_PREVIEW_LABEL,
   CREDIT_CARD_REPAYMENT_OPTIONS,
   CREDIT_CARD_RESTRICTIONS,
-  CREDIT_CARD_TABS,
   creditCardPreview,
   refuseCreditCardAction,
   type CreditCardPreviewAction,
