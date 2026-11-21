@@ -30,7 +30,10 @@ process.stdout.write(${JSON.stringify(reply)});
   try {
     return await fn(() => JSON.parse(readFileSync(log, 'utf8')));
   } finally {
-    for (const [k, v] of Object.entries(saved)) v === undefined ? delete process.env[k] : (process.env[k] = v);
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
     rmSync(dir, { recursive: true, force: true });
   }
 }
