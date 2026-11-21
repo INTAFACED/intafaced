@@ -21,7 +21,9 @@ use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::schema::Value;
 
 use crate::approval::{Approvals, Refused, consume_ledger_approval};
+use crate::balances::{Entry, Tx, tx_by_id, tx_by_key};
 use crate::db::{Store, StoreError, with_client};
+use crate::errors::Failure;
 
 /// `DESK_PAGE_SIZE`: one page of the desk. A page size, not a money magnitude.
 pub const DESK_PAGE_SIZE: usize = 50;
@@ -32,7 +34,6 @@ pub const LOOKUP_UNRECORDED: &str = "ledger.lookup_unrecorded";
 pub const TX_NOT_FOUND: &str = "ledger.tx_not_found";
 pub const BOOKING_RECORD_MISSING: &str = "ledger.booking_record_missing";
 pub const TRACE_INCONSISTENT: &str = "ledger.trace_inconsistent";
-pub const POSTED_CLAIM_MISMATCH: &str = "ledger.posted_claim_mismatch";
 pub const ACCOUNT_METADATA_INVALID: &str = "ledger.account_metadata_invalid";
 pub const ACCOUNT_NOT_FOUND: &str = "ledger.account_not_found";
 pub const ACCOUNT_METADATA_STALE: &str = "ledger.account_metadata_stale";
@@ -254,113 +255,12 @@ pub fn list_transactions(store: &Store, input: &Value) -> Result<Json, StoreErro
 
 // ── #2 / #3 one transaction, and the booking record beside it ────────────────────────────────────────────────────────
 
-/// One booked entry, as `hydrate` reads it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Entry {
-    pub id: String,
-    pub account_id: String,
-    pub asset_id: String,
-    pub direction: String,
-    pub amount: Amount,
-    pub balance_after: Amount,
-}
-
-/// One booked transaction (`LedgerTx`), the fields the desk answers.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Tx {
-    pub id: String,
-    pub idempotency_key: String,
-    pub module: String,
-    pub reason: String,
-    pub posted_at: String,
-    pub hash: String,
-    pub previous_hash: Option<String>,
-    pub entries: Vec<Entry>,
-}
-
-/// The transaction's columns and whether its immutable claim still matches it (`ClaimRow`).
-fn tx_columns() -> String {
-    format!(
-        "t.id::text, t.idempotency_key, t.module, t.reason, {}, t.hash, t.previous_hash,
-         (k.idempotency_key IS NOT DISTINCT FROM t.idempotency_key
-          AND k.posted_hash IS NOT DISTINCT FROM t.hash
-          AND k.posted_meta IS NOT DISTINCT FROM t.meta)",
-        iso("t.posted_at")
-    )
-}
-
-/// `assertPostedClaim(rows)`, then `hydrate`: exactly one row whose claim matches, its entries in id order.
-fn claimed(c: &mut impl GenericClient, rows: &[Row]) -> Result<Option<Tx>, StoreError> {
-    let Some(row) = rows.first() else {
-        return Ok(None);
-    };
-    let matches: Option<bool> = row.try_get(7)?;
-    if rows.len() != 1 || matches != Some(true) {
-        return Err(ledger(
-            POSTED_CLAIM_MISMATCH,
-            "Posted transaction differs from its immutable idempotency claim",
-        ));
-    }
-    let id: String = row.try_get(0)?;
-    let entries = c
-        .query(
-            "SELECT id::text, account_id::text, asset_id, direction::text, amount::text, balance_after::text
-               FROM ledger_entries WHERE tx_id = $1::text::uuid ORDER BY id ASC",
-            &[&id],
-        )?
-        .iter()
-        .map(|e| {
-            Ok(Entry {
-                id: e.try_get(0)?,
-                account_id: e.try_get(1)?,
-                asset_id: e.try_get(2)?,
-                direction: e.try_get(3)?,
-                amount: stored(&e.try_get::<_, String>(4)?)?,
-                balance_after: stored(&e.try_get::<_, String>(5)?)?,
-            })
-        })
-        .collect::<Result<Vec<_>, StoreError>>()?;
-    Ok(Some(Tx {
-        idempotency_key: row.try_get(1)?,
-        module: row.try_get(2)?,
-        reason: row.try_get(3)?,
-        posted_at: row.try_get(4)?,
-        hash: row.try_get(5)?,
-        previous_hash: row.try_get(6)?,
-        id,
-        entries,
-    }))
-}
-
-/// `PostgresLedger.getTx(txId)`.
-pub fn tx_by_id(c: &mut impl GenericClient, tx_id: &str) -> Result<Option<Tx>, StoreError> {
-    let rows = c.query(
-        &format!(
-            "SELECT {} FROM ledger_tx t LEFT JOIN ledger_posted_keys k ON k.tx_id = t.id WHERE t.id = $1::text::uuid",
-            tx_columns()
-        ),
-        &[&tx_id],
-    )?;
-    claimed(c, &rows)
-}
-
-/// `PostgresLedger.getTxByKey(key)`: the key's claim or its journal row, in one statement so a concurrent commit
-/// cannot fall between two probes.
-pub fn tx_by_key(c: &mut impl GenericClient, key: &str) -> Result<Option<Tx>, StoreError> {
-    let rows = c.query(
-        &format!(
-            "WITH target AS (
-               SELECT tx_id AS id FROM ledger_posted_keys WHERE idempotency_key = $1
-               UNION
-               SELECT id FROM ledger_tx WHERE idempotency_key = $1
-             )
-             SELECT {} FROM target JOIN ledger_tx t ON t.id = target.id
-               LEFT JOIN ledger_posted_keys k ON k.tx_id = t.id",
-            tx_columns()
-        ),
-        &[&key],
-    )?;
-    claimed(c, &rows)
+/// `getTx` and `getTxByKey` are the `balances` slice's reads (`crate::balances`); their refusal as the desk's.
+fn book(r: Result<Option<Tx>, Failure>) -> Result<Option<Tx>, StoreError> {
+    r.map_err(|f| match f {
+        Failure::Ledger { code, message } => StoreError::new(message, Some(&code)),
+        _ => StoreError::new("Ledger request failed", None),
+    })
 }
 
 /// `readBookingRecord(sql, txId)`: the transaction's place in the log, the database's time for the booking, the
@@ -455,7 +355,7 @@ pub fn operator_tx_get(store: &Store, actor: Actor<'_>, tx_id: &str) -> Result<J
     record_lookup(store, actor, "transaction", tx_id, "transaction.read")?;
     let pool = store.pool()?;
     Ok(with_client(pool, |c| {
-        let tx = tx_by_id(c, tx_id)?
+        let tx = book(tx_by_id(c, tx_id))?
             .ok_or_else(|| ledger(TX_NOT_FOUND, format!("no transaction {tx_id}")))?;
         let booking = booking_of(c, &tx)?;
         let mut body = vec![
@@ -473,7 +373,7 @@ pub fn operator_trace(store: &Store, actor: Actor<'_>, key: &str) -> Result<Json
     record_lookup(store, actor, "business_key", key, "trace.read")?;
     let pool = store.pool()?;
     Ok(with_client(pool, |c| {
-        let Some(tx) = tx_by_key(c, key)? else {
+        let Some(tx) = book(tx_by_key(c, key))? else {
             return Ok(obj(vec![
                 ("found", Json::Bool(false)),
                 ("businessKey", Json::str(key)),

@@ -191,6 +191,8 @@ fn door(mode: Option<Mode>, keyring: &[KeyringEntry]) -> LedgerDoor {
         log: service_kit::telemetry::Logger::new("info", Box::new(std::io::sink())),
         custody: svc_ledger::reconcile::CustodyLayer::On,
         reconcile_statement_timeout_ms: svc_ledger::reconcile::DEFAULT_STATEMENT_TIMEOUT_MS,
+        indexer_url: None,
+        fetch: std::sync::Arc::new(service_kit::http::UreqFetch::new()),
     })
     .unwrap()
 }

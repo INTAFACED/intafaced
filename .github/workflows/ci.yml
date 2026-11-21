@@ -334,7 +334,7 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     needs: [changes]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15 # healthy run: 1-2 min while the workspace holds one empty crate
+    timeout-minutes: 20 # healthy run: 6-9 min (rust:check took 5-8 min on main and PRs, 2026-11-20/21; the planted faults then under 1 min)
     # svc-tax's Postgres stores and its `migrate` command are tested against a real database, each test in a throwaway
     # `*_test` database it makes from this one (crates/svc-tax/tests/stores_pg.rs). REQUIRE_POSTGRES makes a missing URL a
     # failure, never a skip.
@@ -365,12 +365,14 @@ jobs:
       - name: rust:check
         run: pnpm rust:check
       # Every run also proves the check can fail: rust:check must fail, for the planted reason, on a clippy warning
-      # (warnings are errors) and on a failing test, each planted in an untracked test file and removed after.
+      # (warnings are errors) and on a failing test, each planted in an untracked test file and removed after. The
+      # failing-test run appends a name filter (pnpm passes it to the script's last command, `cargo test --workspace`),
+      # so it runs only the planted test, not the whole Postgres suite the step above just passed (5-6 min each time).
       - name: rust:check fails on a planted clippy warning and on a planted failing test
         run: |
           plant() {
             printf '%s\n' "$2" > crates/svc-tax/tests/planted.rs
-            if pnpm -s rust:check > "$RUNNER_TEMP/planted-$1.log" 2>&1; then
+            if pnpm -s rust:check ${4:+"$4"} > "$RUNNER_TEMP/planted-$1.log" 2>&1; then
               cat "$RUNNER_TEMP/planted-$1.log"; echo "::error::rust:check passed a planted $1"; exit 1
             fi
             if ! grep -q "$3" "$RUNNER_TEMP/planted-$1.log"; then
@@ -379,7 +381,7 @@ jobs:
             echo "rust:check failed the planted $1, as it must: $(grep -m1 "$3" "$RUNNER_TEMP/planted-$1.log")"
           }
           plant 'clippy warning' $'#[test]\nfn planted_warning() {\n    let v = vec![1];\n    assert_eq!(v.len(), 1);\n}' 'clippy::useless-vec. implied by .-D warnings'
-          plant 'failing test' $'#[test]\nfn planted_failure() {\n    assert_eq!(svc_tax::SERVICE, "planted");\n}' 'test planted_failure ... FAILED'
+          plant 'failing test' $'#[test]\nfn planted_failure() {\n    assert_eq!(svc_tax::SERVICE, "planted");\n}' 'test planted_failure ... FAILED' planted_failure
           rm crates/svc-tax/tests/planted.rs
 
   build:

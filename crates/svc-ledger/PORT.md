@@ -44,6 +44,12 @@ Where the port cannot be the TypeScript's:
 - A connection failure's code is the server's SQLSTATE, else the socket's errno name as Node gives it (`ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `EPIPE`, `EHOSTUNREACH`, `ENETUNREACH`), else `unknown`. A TLS failure cannot happen yet: the pool has no TLS.
 - The custody switch is a type with two values, so the TypeScript's refusal of a missing or unknown one cannot be reached.
 
+The `balances` slice is ported. It added:
+
+- `src/balances.rs`: `balance`, `balances`, `portfolio`, `txByKey` and `txById`, answered by the door once their input parses. Each read runs `PostgresLedger`'s query: an untouched account reads as zero without a row being made, purpose is matched after its trim, and a booked transaction whose claim (`ledger_posted_keys`) no longer matches is refused with `ledger.posted_claim_mismatch`.
+- `portfolio`'s chain half: `INDEXER_URL` (read from the process, as `handleS2sPortfolio` reads it; `env.ts` does not hold it) and the indexer's `positions` record, through the door's one `Fetch`. Anything it cannot verify is named absent.
+- `tests/balances_pg.rs`: the TypeScript cases for these doors (`s2s-http.test.ts`, `s2s-tx-by-key.test.ts`, `s2s-tx-by-id.test.ts`, the claim check of `ledger/tx-hash-bind.test.ts`) through the door, on a real Postgres.
+
 The `desk` slice is ported. It added:
 
 - `src/desk.rs`: the desk's reads (the transaction list with its total and cursor, one transaction and a business key's trace with their booking record, the address search with volumes, the book's counts, an account's metadata) and the metadata set and delete. Each read that names a customer writes its `operator_access_log` row first and is refused with nothing read when it cannot. A delete spends identity's approval with its operation as the replay key (`service_kit::approvals::Replay`).
