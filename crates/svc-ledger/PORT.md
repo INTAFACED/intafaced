@@ -57,6 +57,19 @@ The `balances` slice is ported. It added:
 - `portfolio`'s chain half: `INDEXER_URL` (read from the process, as `handleS2sPortfolio` reads it; `env.ts` does not hold it) and the indexer's `positions` record, through the door's one `Fetch`. Anything it cannot verify is named absent.
 - `tests/balances_pg.rs`: the TypeScript cases for these doors (`s2s-http.test.ts`, `s2s-tx-by-key.test.ts`, `s2s-tx-by-id.test.ts`, the claim check of `ledger/tx-hash-bind.test.ts`) through the door, on a real Postgres.
 
+The `desk` slice is ported. It added:
+
+- `src/desk.rs`: the desk's reads (the transaction list with its total and cursor, one transaction and a business key's trace with their booking record, the address search with volumes, the book's counts, an account's metadata) and the metadata set and delete. Each read that names a customer writes its `operator_access_log` row first and is refused with nothing read when it cannot. A delete spends identity's approval with its operation as the replay key (`service_kit::approvals::Replay`).
+- `src/door/desk.rs`: the eight desk doors, with `lookup`'s and `metadataWrite`'s answers. The metadata writes' input schemas are recorded beside the doors' (`metadataSet`, `metadataDelete`); they run after the token, as `parseOrRefuse` does.
+- `tests/desk_pg.rs`: `operator-desk.pg.test.ts` and `operator-account-metadata.pg.test.ts` case for case, and the door cases of the three desk `*-http.test.ts` files that need a real book. The book is seeded in SQL as `recipes.deposit` posts, until `posting` is ported.
+
+The `ops-reads` slice is ported. It added:
+
+- `src/ops_reads.rs`: svc-ops' five reads. `feeRevenue` sums earned, returned and collected per venue and asset over a half-open window, and refuses an empty or inverted one with `ledger.fee_revenue_window_invalid`. `ownFunds` reads our house and module accounts and our own-funds places in one statement, then checks every row again with the custody split, so a customer's row is a 500, never counted as ours. `restoreWatermark` reads the chain tip, live or as of `{ asOf }` (`ledger.skew_bound_unset` with no bound, `ledger.restore_asof_unanswerable` before the cut-off is past it). `reconciliationEvaluations` reads settled runs after a microsecond cursor. `transactionsExist` answers ids only.
+- `src/door/mod.rs`: the door answers these five past their checks, with `httpError`'s statuses. `feeRevenue`, `reconciliationEvaluations` and `transactionsExist` now run their recorded input schemas at the door.
+- `src/door/schemas.json`: the four inputs, and the two replies the feed checks before it answers (`reconciliationControlRunSchema`, `reconciliationEvaluationFeedSchema`). A stored run the contract no longer reads is the ledger's 500, and the reply takes the contract's key order. The recorder now records literals and unions.
+- `tests/ops_reads_pg.rs`: `fee-revenue-postgres.test.ts`, `own-funds-postgres.test.ts`, `restore-watermark-asof.pg.test.ts`, the feed case of `reconciliation-controls.pg.test.ts` and the database side of `transactionsExist`, on a real Postgres. The port cannot post yet, so each book is written straight into the tables. The posts are the TypeScript tests' own, made by the same recipes (`tests/fixtures/ops-reads-books.json`).
+
 Left to later slices:
 
 - The recovery has one relay. `posting` adds the `ledgerTxPosted` one; until then a committed post's intent waits unsent.
@@ -74,7 +87,7 @@ Left to later slices:
 - **`tests/tokens.rs`**: 41 access tokens, against `verifyAccessToken`. The verifier is the kit's `service_kit::tokens`.
 - **`tests/env_parity.rs`**: 36 environments, against `env.ts`.
 
-The replay's store refuses every query, so `/health` and `/ready` answer its 500 there; `tests/store_pg.rs` proves their real answers. The replay never gets past the input check of `post`, the balance reads or `/operator/reconcile`: every recorded sample is refused there. For those slices the proof is the TypeScript database tests named below, run against the Rust code.
+The replay's store refuses every query, so `/health` and `/ready` answer its 500 there; `tests/store_pg.rs` proves their real answers. A transaction (`sql.begin`) on the replay's store is refused as `replay stub: sql.begin`, as the TypeScript stub names it. The replay never gets past the input check of `post`, the balance reads or `/operator/reconcile`: every recorded sample is refused there. For those slices the proof is the TypeScript database tests named below, run against the Rust code.
 
 ## The doors
 

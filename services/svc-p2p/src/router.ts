@@ -6,10 +6,12 @@ import { mountRecords, type RefusalOf } from '@intafaced/contracts/procedure-mou
 import {
   P2P_MERCHANTS_PRESENCE,
   P2P_MODERATION,
+  P2P_OFFER,
   P2P_PROCEDURES,
   P2P_REMARK_CASE,
   P2P_REVIEW,
   P2P_SETTLEMENT,
+  P2P_SHARE_LINK,
   P2P_TRADE,
   P2P_TRADE_MISMATCH,
   P2P_TRADE_REMINDERS,
@@ -51,8 +53,8 @@ import {
   parseFieldSpecs,
   type MethodSettlement,
 } from './instruments.js';
-import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
-import { BULK_ACTIONS, MAX_BULK_OFFERS, type Presence } from './merchant-console.js';
+import type { BoardSort } from './customer-depth.js';
+import type { Presence } from './merchant-console.js';
 import { TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
 import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
@@ -165,97 +167,13 @@ const presentPresence = (presence: Presence): ProcedureOutput<typeof P2P_MERCHAN
   updatedAt: presence.updatedAt ? presence.updatedAt.toISOString() : null,
 });
 
-/**
- * Shared board filters. `offers.list` stays an array for the live customer
- * parser. `offers.page` is the cursor page. Cursor is not a list input.
- */
-/** P-ads-merchant-07: a share token as `offers.shareLinks.create` makes it (32 base64url characters). */
-const shareTokenInput = z.string().regex(/^[A-Za-z0-9_-]{32}$/);
-
 /** A take sized in the coin (`amount`) or in the ad's fiat (`fiatAmount`): exactly one. */
 const takeAmountOf = (input: { amount?: string; fiatAmount?: string }): { amount: Amount } | { fiatAmount: Amount } =>
   input.amount !== undefined ? { amount: parseAmount(input.amount) } : { fiatAmount: parseAmount(input.fiatAmount!) };
 
-const offerListShape = {
-  asset: z.string().optional(),
-  fiatCurrency: z.string().length(3).optional(),
-  side: z.enum(['buy', 'sell']).optional(),
-  /**
-   * Page size. Optional here so omit reaches the service named refuse
-   * (`p2p.offer_list_limit_unset`) instead of a Zod "Required" that looks
-   * like a typo. Blank is not 50; pass 50 explicitly when that is the page
-   * you want.
-   */
-  limit: z.number().int().min(1).max(200).optional(),
-  methodId: z.string().min(1).max(64).optional(),
-  makerId: z.string().min(1).max(128).optional(),
-  /** Minimum fiat the offer can still trade, as an exact decimal. Float offers are left out: no reference is invented. */
-  minFiat: amountString.optional(),
-  /** P-trade-orders-01: a fiat amount the ad can take whole (within its limits and what is left). Fixed price only. */
-  fiatAmount: amountString.optional(),
-  /** P-trade-orders-01: fixed-price ads by price, cheapest or dearest first, then floating ads. Default cheapest. */
-  sort: z.enum(BOARD_SORTS).optional(),
-};
-
-const offerOutput = z.object({
-  id: z.string().guid(),
-  makerId: z.string(),
-  side: z.enum(['buy', 'sell']),
-  asset: z.string(),
-  fiatCurrency: z.string(),
-  priceType: z.enum(['fixed', 'float']),
-  price: amountString,
-  minAmount: amountString,
-  maxAmount: amountString,
-  remainingAmount: amountString,
-  totalAmount: amountString,
-  filledAmount: amountString,
-  tradesCompleted: z.number().int().nonnegative(),
-  /**
-   * Board reads only, floating ads only: the market reference the multiplier applies to, or null when no market feed
-   * prices this pair (the ad then cannot be priced or taken). Absent on fixed-price ads and on single-offer reads.
-   */
-  referencePrice: amountString.nullable().optional(),
-  methods: z.array(z.unknown()),
-  /**
-   * P-disputes-security-09: the listed methods whose money arrives within a settlement window, with the longest window
-   * any market sets (null when a market leaves it blank and the published payment deadline applies). Instant methods
-   * are not listed. The order carries the exact profile of the market it pays into.
-   */
-  nonInstantMethods: z.array(z.object({ methodId: z.string(), windowSeconds: z.number().int().positive().nullable() })),
-  /** P-disputes-security-09: the seller consented at post to non-instant methods. */
-  acceptsNonInstant: z.boolean(),
-  /** P-trade-orders-15: the ad's own release window in seconds, or null when it keeps the published release clock. */
-  releaseWindowSeconds: z.number().int().positive().nullable(),
-  terms: z.string(),
-  status: z.enum(['active', 'paused', 'closed']),
-  /** P-ads-merchant-18: why the service paused the ad (`method_removed`); null when active, closed or paused by hand. */
-  pauseReason: z.enum(['method_removed']).nullable(),
-  /** P-ads-merchant-06: why the ad is closed (`by_you`, `sold_out`); null when not closed or closed before reasons. */
-  closeReason: z.enum(['by_you', 'sold_out']).nullable(),
-  /** P-ads-merchant-07: `public` (on the board) or `private` (by share link only). */
-  visibility: z.enum(['public', 'private']),
-  /** P-ads-merchant-06: when the ad came into its present status. */
-  statusSince: z.string(),
-  /** P-ads-merchant-06: the closed ad this one relisted, or null. */
-  relistedFrom: z.string().guid().nullable(),
-  /** P-ads-merchant-06: `offers.mine` only, the ad a closed one was relisted as, or null. Absent elsewhere. */
-  relistedAs: z.string().guid().nullable().optional(),
-  createdAt: z.string(),
-});
-
-/** P-ads-merchant-07: one share link, as its maker reads it. */
-const shareLinkOutput = z.object({
-  id: z.string().guid(),
-  offerId: z.string().guid(),
-  createdAt: z.string(),
-  expiresAt: z.string(),
-  revokedAt: z.string().nullable(),
-});
-
 function toShareLinkOut<T extends ShareLinkRecord>(
   link: T,
-): z.infer<typeof shareLinkOutput> & (T extends { token: string } ? { token: string } : unknown) {
+): z.infer<typeof P2P_SHARE_LINK> & (T extends { token: string } ? { token: string } : unknown) {
   return {
     id: link.id,
     offerId: link.offerId,
@@ -348,7 +266,7 @@ const disputeOutput = z.object({
   lastSeenByModeratorAt: z.string().nullable(),
 });
 
-type OfferOut = z.infer<typeof offerOutput>;
+type OfferOut = z.infer<typeof P2P_OFFER>;
 type TradeOut = z.infer<typeof P2P_TRADE>;
 
 /**
@@ -1036,326 +954,6 @@ export function createP2pRouter(
   });
 
   const handWritten = router({
-    offers: router({
-      create: merchantApiProcedure('p2p:write')
-        .input(
-          z
-            .object({
-              side: z.enum(['buy', 'sell']),
-              asset: z.string().min(1).max(16),
-              fiatCurrency: z.string().length(3),
-              priceType: z.enum(['fixed', 'float']),
-              price: amountString,
-              minAmount: amountString,
-              maxAmount: amountString,
-              totalAmount: amountString.optional(),
-              /**
-               * REQUIRED, and `min(1)`. An offer with no declared methods
-               * accepts anything, so the only thing that can refuse a take on it
-               * is the seller's instrument set — a clean per-method probe of the
-               * maker. The service refuses it too; this is the message a client
-               * can act on rather than a 400 from deeper down.
-               *
-               * Each entry is a method id (string) or `{ id }` — not `{}` / null /
-               * numbers. `methodAllowed` only matches those shapes; junk would
-               * board an offer that can never be taken.
-               */
-              methods: z.array(z.union([z.string().min(1).max(64), z.object({ id: z.string().min(1).max(64) })])).min(1),
-              terms: z.string().max(4000).optional(),
-              /**
-               * P-disputes-security-09: the seller accepts methods whose money arrives within a settlement window. A sell
-               * ad listing one without it refuses `p2p.non_instant_not_accepted`.
-               */
-              acceptsNonInstant: z.boolean().optional(),
-              /** Client-chosen id. A retry with the same id must not publish a second offer. */
-              offerId: z.string().guid().optional(),
-              /** Client-chosen key. Required together with offerId: at least one. */
-              idempotencyKey: z.string().min(8).max(128).optional(),
-              /**
-               * P-ads-merchant-01: the advertiser terms version the form showed. Optional for a merchant key, which
-               * posts under the terms its person accepted; when sent, it must be the published version.
-               */
-              advertiserTermsVersion: z.string().min(1).max(64).optional(),
-              /**
-               * P-trade-orders-15: this ad's release window in seconds, copied onto each order at take. It may only
-               * shorten the published release clock; outside 60 s and that clock refuses `p2p.release_window_out_of_bounds`.
-               */
-              releaseWindowSeconds: z.number().int().positive().optional(),
-            })
-            .refine((value) => value.offerId !== undefined || value.idempotencyKey !== undefined, {
-              message: 'p2p.idempotency_key_required',
-              path: ['idempotencyKey'],
-            }),
-        )
-        .output(offerOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            if (options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
-            return presentOffer(
-              await p2p.createOffer({
-                makerId: ctx.principal.userId,
-                side: input.side,
-                asset: input.asset,
-                fiatCurrency: input.fiatCurrency,
-                priceType: input.priceType,
-                price: parseAmount(input.price),
-                minAmt: parseAmount(input.minAmount),
-                maxAmt: parseAmount(input.maxAmount),
-                ...(input.totalAmount === undefined ? {} : { totalAmt: parseAmount(input.totalAmount) }),
-                methods: input.methods,
-                ...(input.terms === undefined ? {} : { terms: input.terms }),
-                ...(input.offerId === undefined ? {} : { offerId: input.offerId }),
-                ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
-                makerTier: ctx.principal.tier,
-                ...(input.acceptsNonInstant === undefined ? {} : { acceptsNonInstant: input.acceptsNonInstant }),
-                ...(input.advertiserTermsVersion === undefined ? {} : { advertiserTermsVersion: input.advertiserTermsVersion }),
-                ...(input.releaseWindowSeconds === undefined ? {} : { releaseWindowSeconds: input.releaseWindowSeconds }),
-              }),
-            );
-          }),
-        ),
-
-      /**
-       * P-ads-merchant-01: the caller's own free balance of a coin, which a new sell ad's total may not exceed. The
-       * same ledger read the post check makes. Nothing is reserved at post.
-       */
-      sellBalance: merchantApiProcedure('p2p:read')
-        .input(z.object({ asset: z.string().min(1).max(16) }))
-        .output(z.object({ asset: z.string(), available: z.string() }))
-        .query(async ({ ctx, input }) =>
-          guard(async () => {
-            // A wallet balance is the person's to read: an API key's P2P scope covers ads and orders, not balances.
-            if (ctx.principal.kid) throw new TRPCError({ code: 'FORBIDDEN', message: 'Your free balance is read signed in only.' });
-            return { asset: input.asset, available: formatAmount(await p2p.sellBalance(requireUser(ctx), input.asset)) };
-          }),
-        ),
-
-      list: merchantApiProcedure('p2p:read')
-        .input(z.object(offerListShape).optional())
-        .output(z.array(offerOutput))
-        .query(async ({ ctx, input }) => guard(async () => (await presentBoard(ctx.principal.userId, input, false)).offers)),
-
-      /** Cursor page: the customer board reads this, filtered and sorted here, and continues with `nextCursor`. */
-      page: merchantApiProcedure('p2p:read')
-        .input(z.object({ ...offerListShape, cursor: z.string().max(500).nullable().optional() }).optional())
-        .output(z.object({ offers: z.array(offerOutput), nextCursor: z.string().nullable() }))
-        .query(async ({ ctx, input }) => guard(async () => presentBoard(ctx.principal.userId, input, true))),
-
-      get: merchantApiProcedure('p2p:read')
-        .input(z.object({ offerId: z.string().guid(), shareToken: shareTokenInput.optional() }))
-        .output(offerOutput)
-        .query(async ({ ctx, input }) =>
-          guard(async () => presentOffer(await p2p.getOffer(input.offerId, ctx.principal.userId, input.shareToken))),
-        ),
-
-      /** P-ads-merchant-18: the caller's own ads in one status, newest first; the board lists active ads only. */
-      mine: merchantApiProcedure('p2p:read')
-        .input(z.object({ status: z.enum(['active', 'paused', 'closed']), limit: z.number().int().min(1).max(200).optional() }))
-        .output(z.array(offerOutput))
-        .query(async ({ ctx, input }) =>
-          guard(async () => {
-            return presentOffers(await p2p.listOwnOffers(ctx.principal.userId, input.status, input.limit));
-          }),
-        ),
-
-      /**
-       * P-ads-merchant-06: the caller's ad edits today against the owner's daily cap, and when the count starts again.
-       * Blank cap refuses `p2p.config_unset`.
-       */
-      editQuota: merchantApiProcedure('p2p:read')
-        .output(
-          z.object({
-            limit: z.number().int().positive(),
-            used: z.number().int().nonnegative(),
-            remaining: z.number().int().nonnegative(),
-            resetsAt: z.string().datetime(),
-          }),
-        )
-        .query(async ({ ctx }) =>
-          guard(async () => {
-            const quota = await p2p.offerEditQuota(ctx.principal.userId);
-            return { ...quota, resetsAt: quota.resetsAt.toISOString() };
-          }),
-        ),
-
-      /**
-       * P-ads-merchant-06: post a closed ad again, as a new ad that names it, through every check `create` makes. One
-       * relist per closed ad; asking again returns the same new ad.
-       */
-      relist: merchantApiProcedure('p2p:write')
-        .input(z.object({ offerId: z.string().guid() }))
-        .output(offerOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => {
-            if (options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
-            return presentOffer(
-              await p2p.relistOffer({
-                offerId: input.offerId,
-                makerId: ctx.principal.userId,
-                makerTier: ctx.principal.tier,
-              }),
-            );
-          }),
-        ),
-
-      /**
-       * P-ads-merchant-08: pause, resume or remove (close) several of the caller's ads at once: named ads, or `all` that
-       * the action applies to. Each ad answers for itself (`ok`, its status, or the code that refused it, such as
-       * `p2p.offer_closed`). The key is answered once: a repeat returns the same results and changes nothing.
-       */
-      bulk: merchantApiProcedure('p2p:write')
-        .input(
-          z
-            .object({
-              action: z.enum(BULK_ACTIONS),
-              offerIds: z.array(z.string().guid()).min(1).max(MAX_BULK_OFFERS).optional(),
-              all: z.literal(true).optional(),
-              idempotencyKey: z.string().min(8).max(200),
-            })
-            .refine((v) => (v.all === true) !== (v.offerIds !== undefined), { message: 'Name ads, or all, not both' }),
-        )
-        .output(
-          z.object({
-            action: z.enum(BULK_ACTIONS),
-            replayed: z.boolean(),
-            more: z.boolean(),
-            results: z.array(
-              z.object({
-                offerId: z.string(),
-                ok: z.boolean(),
-                status: z.enum(['active', 'paused', 'closed']).nullable(),
-                code: z.string().nullable(),
-              }),
-            ),
-          }),
-        )
-        .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            p2p.bulkOffers({
-              makerId: ctx.principal.userId,
-              action: input.action,
-              ...(input.offerIds ? { offerIds: input.offerIds } : {}),
-              ...(input.all ? { all: true } : {}),
-              idempotencyKey: input.idempotencyKey,
-            }),
-          ),
-        ),
-
-      /** P-ads-merchant-07: public (on the board) or private (by share link only). Open orders are unaffected. */
-      setVisibility: merchantApiProcedure('p2p:write')
-        .input(z.object({ offerId: z.string().guid(), visibility: z.enum(['public', 'private']) }))
-        .output(offerOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () => presentOffer(await p2p.setOfferVisibility(input.offerId, ctx.principal.userId, input.visibility))),
-        ),
-
-      /**
-       * P-ads-merchant-07: links to the caller's own ad. `create` returns the token once (only its hash is kept), living
-       * `seconds` or the owner's longest (`P2P_SHARE_LINK_MAX_SECONDS`, blank refuses); `list` never returns tokens;
-       * `revoke` ends a link at once.
-       */
-      shareLinks: router({
-        create: merchantApiProcedure('p2p:write')
-          .input(
-            z.object({
-              linkId: z.string().guid(),
-              offerId: z.string().guid(),
-              seconds: z.number().int().min(1).max(31_536_000).optional(),
-            }),
-          )
-          .output(shareLinkOutput.extend({ token: shareTokenInput }))
-          .mutation(async ({ ctx, input }) =>
-            guard(async () =>
-              toShareLinkOut(
-                await p2p.createShareLink({
-                  linkId: input.linkId,
-                  offerId: input.offerId,
-                  makerId: ctx.principal.userId,
-                  ...(input.seconds === undefined ? {} : { seconds: input.seconds }),
-                }),
-              ),
-            ),
-          ),
-        list: merchantApiProcedure('p2p:read')
-          .input(z.object({ offerId: z.string().guid() }))
-          .output(z.array(shareLinkOutput))
-          .query(async ({ ctx, input }) =>
-            guard(async () => (await p2p.listShareLinks(input.offerId, ctx.principal.userId)).map(toShareLinkOut)),
-          ),
-        revoke: merchantApiProcedure('p2p:write')
-          .input(z.object({ linkId: z.string().guid() }))
-          .output(shareLinkOutput)
-          .mutation(async ({ ctx, input }) =>
-            guard(async () => toShareLinkOut(await p2p.revokeShareLink(input.linkId, ctx.principal.userId))),
-          ),
-      }),
-
-      close: merchantApiProcedure('p2p:write')
-        .input(z.object({ offerId: z.string().guid() }))
-        .output(offerOutput)
-        .mutation(async ({ ctx, input }) => guard(async () => presentOffer(await p2p.closeOffer(input.offerId, ctx.principal.userId)))),
-
-      pause: merchantApiProcedure('p2p:write')
-        .input(z.object({ offerId: z.string().guid() }))
-        .output(offerOutput)
-        .mutation(async ({ ctx, input }) => guard(async () => presentOffer(await p2p.pauseOffer(input.offerId, ctx.principal.userId)))),
-
-      resume: merchantApiProcedure('p2p:write')
-        .input(z.object({ offerId: z.string().guid() }))
-        .output(offerOutput)
-        .mutation(async ({ ctx, input }) => guard(async () => presentOffer(await p2p.resumeOffer(input.offerId, ctx.principal.userId)))),
-
-      /**
-       * Edit a live offer. Open trades keep the price, size, method, fee and
-       * terms text copied onto the trade at take (`terms_snapshot`).
-       */
-      update: merchantApiProcedure('p2p:write')
-        .input(
-          z
-            .object({
-              offerId: z.string().guid(),
-              idempotencyKey: z.string().min(8).max(128),
-              price: amountString.optional(),
-              minAmount: amountString.optional(),
-              maxAmount: amountString.optional(),
-              totalAmount: amountString.optional(),
-              methods: z
-                .array(z.union([z.string().min(1).max(64), z.object({ id: z.string().min(1).max(64) })]))
-                .min(1)
-                .optional(),
-              terms: z.string().max(4000).optional(),
-            })
-            .refine(
-              (value) =>
-                value.price !== undefined ||
-                value.minAmount !== undefined ||
-                value.maxAmount !== undefined ||
-                value.totalAmount !== undefined ||
-                value.methods !== undefined ||
-                value.terms !== undefined,
-              { message: 'p2p.offer_update_empty' },
-            ),
-        )
-        .output(offerOutput)
-        .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            presentOffer(
-              await p2p.updateOffer({
-                offerId: input.offerId,
-                makerId: ctx.principal.userId,
-                idempotencyKey: input.idempotencyKey,
-                ...(input.price !== undefined ? { price: parseAmount(input.price) } : {}),
-                ...(input.minAmount !== undefined ? { minAmt: parseAmount(input.minAmount) } : {}),
-                ...(input.maxAmount !== undefined ? { maxAmt: parseAmount(input.maxAmount) } : {}),
-                ...(input.totalAmount !== undefined ? { totalAmt: parseAmount(input.totalAmount) } : {}),
-                ...(input.methods !== undefined ? { methods: input.methods } : {}),
-                ...(input.terms !== undefined ? { terms: input.terms } : {}),
-              }),
-            ),
-          ),
-        ),
-    }),
-
     /**
      * BLOCK / RFQ (PTX-M12). Firm bilateral quotes — not a take from the offer
      * board and not a matching-engine fill. The maker names size, price,
@@ -2922,6 +2520,125 @@ export function createP2pRouter(
           profile: { status: 'found' as const, code: 'p2p.public_profile_found' as const },
           trades30d,
         };
+      },
+      'p2p.offers.create': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        if (options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
+        return presentOffer(
+          await p2p.createOffer({
+            makerId: userOf(ctx),
+            side: input.side,
+            asset: input.asset,
+            fiatCurrency: input.fiatCurrency,
+            priceType: input.priceType,
+            price: parseAmount(input.price),
+            minAmt: parseAmount(input.minAmount),
+            maxAmt: parseAmount(input.maxAmount),
+            ...(input.totalAmount === undefined ? {} : { totalAmt: parseAmount(input.totalAmount) }),
+            methods: input.methods,
+            ...(input.terms === undefined ? {} : { terms: input.terms }),
+            ...(input.offerId === undefined ? {} : { offerId: input.offerId }),
+            ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
+            makerTier: signed(ctx).principal.tier,
+            ...(input.acceptsNonInstant === undefined ? {} : { acceptsNonInstant: input.acceptsNonInstant }),
+            ...(input.advertiserTermsVersion === undefined ? {} : { advertiserTermsVersion: input.advertiserTermsVersion }),
+            ...(input.releaseWindowSeconds === undefined ? {} : { releaseWindowSeconds: input.releaseWindowSeconds }),
+          }),
+        );
+      },
+      'p2p.offers.sellBalance': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        // A wallet balance is the person's to read: an API key's P2P scope covers ads and orders, not balances.
+        if (ctx.principal?.kid) throw new TRPCError({ code: 'FORBIDDEN', message: 'Your free balance is read signed in only.' });
+        return { asset: input.asset, available: formatAmount(await p2p.sellBalance(requireUser(ctx), input.asset)) };
+      },
+      'p2p.offers.list': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return (await presentBoard(userOf(ctx), input, false)).offers;
+      },
+      'p2p.offers.page': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return presentBoard(userOf(ctx), input, true);
+      },
+      'p2p.offers.get': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return presentOffer(await p2p.getOffer(input.offerId, userOf(ctx), input.shareToken));
+      },
+      'p2p.offers.mine': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return presentOffers(await p2p.listOwnOffers(userOf(ctx), input.status, input.limit));
+      },
+      'p2p.offers.editQuota': async ({ ctx }) => {
+        await merchantApi(ctx);
+        const quota = await p2p.offerEditQuota(userOf(ctx));
+        return { ...quota, resetsAt: quota.resetsAt.toISOString() };
+      },
+      'p2p.offers.relist': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        if (options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
+        return presentOffer(await p2p.relistOffer({ offerId: input.offerId, makerId: userOf(ctx), makerTier: signed(ctx).principal.tier }));
+      },
+      'p2p.offers.bulk': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return p2p.bulkOffers({
+          makerId: userOf(ctx),
+          action: input.action,
+          ...(input.offerIds ? { offerIds: input.offerIds } : {}),
+          ...(input.all ? { all: true } : {}),
+          idempotencyKey: input.idempotencyKey,
+        });
+      },
+      'p2p.offers.setVisibility': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return presentOffer(await p2p.setOfferVisibility(input.offerId, userOf(ctx), input.visibility));
+      },
+      'p2p.offers.shareLinks.create': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return toShareLinkOut(
+          await p2p.createShareLink({
+            linkId: input.linkId,
+            offerId: input.offerId,
+            makerId: userOf(ctx),
+            ...(input.seconds === undefined ? {} : { seconds: input.seconds }),
+          }),
+        );
+      },
+      'p2p.offers.shareLinks.list': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return (await p2p.listShareLinks(input.offerId, userOf(ctx))).map(toShareLinkOut);
+      },
+      'p2p.offers.shareLinks.revoke': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return toShareLinkOut(await p2p.revokeShareLink(input.linkId, userOf(ctx)));
+      },
+      'p2p.offers.close': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return presentOffer(await p2p.closeOffer(input.offerId, userOf(ctx)));
+      },
+      'p2p.offers.pause': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return presentOffer(await p2p.pauseOffer(input.offerId, userOf(ctx)));
+      },
+      'p2p.offers.resume': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return presentOffer(await p2p.resumeOffer(input.offerId, userOf(ctx)));
+      },
+      /** Open trades keep the price, size, method, fee and terms text copied onto the trade at take (`terms_snapshot`). */
+      'p2p.offers.update': async ({ ctx, input }) => {
+        await merchantApi(ctx);
+        return presentOffer(
+          await p2p.updateOffer({
+            offerId: input.offerId,
+            makerId: userOf(ctx),
+            idempotencyKey: input.idempotencyKey,
+            ...(input.price !== undefined ? { price: parseAmount(input.price) } : {}),
+            ...(input.minAmount !== undefined ? { minAmt: parseAmount(input.minAmount) } : {}),
+            ...(input.maxAmount !== undefined ? { maxAmt: parseAmount(input.maxAmount) } : {}),
+            ...(input.totalAmount !== undefined ? { totalAmt: parseAmount(input.totalAmount) } : {}),
+            ...(input.methods !== undefined ? { methods: input.methods } : {}),
+            ...(input.terms !== undefined ? { terms: input.terms } : {}),
+          }),
+        );
       },
       'p2p.trades.stepUpWindow': async ({ ctx }) => {
         await merchantApi(ctx);

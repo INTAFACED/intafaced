@@ -21,7 +21,7 @@ pub const ACTION_APPROVAL_CONSUME_FAILED: &str = "action_approval.consume_failed
 /// `REFUSAL_DETAIL_MAX`.
 const REFUSAL_DETAIL_MAX: usize = 300;
 
-/// `ActionApprovalConsumeInput` without a replay key: the six fields, in schema order.
+/// `ActionApprovalConsumeInput`: the six fields, in schema order, and the replay key when the consume has one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsumeInput<'a> {
     pub approval_id: &'a str,
@@ -30,6 +30,15 @@ pub struct ConsumeInput<'a> {
     pub target_service: &'a str,
     pub target_id: &'a str,
     pub expected_version: &'a str,
+    /// `requestId` and `consumerPrincipalId`: the same key after a lost reply answers the first consume again.
+    pub replay: Option<Replay<'a>>,
+}
+
+/// A replayable consume's key and the operator who consumes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Replay<'a> {
+    pub request_id: &'a str,
+    pub consumer_principal_id: &'a str,
 }
 
 /// The fields of the consumed `ActionApproval` a service reads after the echo check.
@@ -74,7 +83,7 @@ fn bounded(s: &str, max: usize) -> bool {
 
 /// `actionApprovalConsumeInputSchema.parse(input)` and `JSON.stringify` of what it returns.
 fn consume_payload(input: &ConsumeInput<'_>) -> Result<String, ConsumeError> {
-    let fields = [
+    let mut fields = vec![
         ("approvalId", input.approval_id, 128),
         ("operationId", input.operation_id, 128),
         ("payloadHash", input.payload_hash, 128),
@@ -82,7 +91,11 @@ fn consume_payload(input: &ConsumeInput<'_>) -> Result<String, ConsumeError> {
         ("targetId", input.target_id, 256),
         ("expectedVersion", input.expected_version, 128),
     ];
-    for (name, value, max) in fields {
+    if let Some(r) = input.replay {
+        fields.push(("requestId", r.request_id, 128));
+        fields.push(("consumerPrincipalId", r.consumer_principal_id, 128));
+    }
+    for &(name, value, max) in &fields {
         if !bounded(value, max) {
             return Err(ConsumeError::Thrown(format!(
                 "the approval consume input's {name} is out of bounds"
@@ -369,6 +382,7 @@ mod tests {
             target_service: "svc-academy",
             target_id: "academy.season.create",
             expected_version: "1",
+            replay: None,
         }
     }
 
@@ -554,6 +568,27 @@ mod tests {
             refusal_detail(r#"[{"error":{"json":{"message":"m"}}}]"#),
             "m"
         );
+    }
+
+    #[test]
+    fn a_replayable_consume_sends_its_key_and_consumer_after_the_six_fields() {
+        let mut asked = input();
+        assert_eq!(
+            consume_payload(&asked).unwrap(),
+            r#"{"approvalId":"ap-1","operationId":"op-1","payloadHash":"sha256:abc","targetService":"svc-academy","targetId":"academy.season.create","expectedVersion":"1"}"#
+        );
+        asked.replay = Some(Replay {
+            request_id: "op-1",
+            consumer_principal_id: "founder-a",
+        });
+        assert!(consume_payload(&asked).unwrap().ends_with(
+            r#""expectedVersion":"1","requestId":"op-1","consumerPrincipalId":"founder-a"}"#
+        ));
+        asked.replay = Some(Replay {
+            request_id: "op-1",
+            consumer_principal_id: "",
+        });
+        assert!(consume_payload(&asked).is_err());
     }
 
     #[test]
