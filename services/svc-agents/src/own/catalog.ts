@@ -222,7 +222,7 @@ export const DECLARED_TOOL_SHAPES: Readonly<Record<string, Readonly<OwnAgentTool
 
 /** A tool's declared input and output; null when it declares none, which the page says in words and never guesses. */
 export function declaredToolShape(name: string): Readonly<OwnAgentToolShape> | null {
-  return Object.hasOwn(DECLARED_TOOL_SHAPES, name) ? DECLARED_TOOL_SHAPES[name]! : null;
+  return Object.hasOwn(DECLARED_TOOL_SHAPES, name) ? (DECLARED_TOOL_SHAPES[name] ?? null) : null;
 }
 
 export const OWN_TEMPLATES = {
