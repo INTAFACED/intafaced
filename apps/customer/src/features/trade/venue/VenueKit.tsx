@@ -1,16 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Badge, Checkbox } from '@intafaced/ui';
 import { Button, DataTable } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { displayAmount } from '../../../shared/money';
 import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
-import { useSession } from '../../session/session';
-import { StepUpConfirm } from '../../money/StepUpConfirm';
-import { WalletProvider, useWallet } from '../../protocol/wallet/WalletProvider';
-import { usePolled } from '../../protocol/wallet/use-polled';
+import { useSession } from '../../session';
+import { WalletProvider, usePolled, useWallet } from '../../protocol';
 import {
-  canonicalDecimal,
-  draftId,
   keys,
   venueApi,
   walletTypedData,
@@ -26,7 +22,6 @@ import {
   type VenueOrder,
   type VenueOutcome,
   type VenueUp,
-  type VenueWithdrawal,
 } from '../venue-api';
 import type { VenueMode } from '../use-venue-mode';
 import { venueCopy } from './venue-copy';
@@ -114,7 +109,7 @@ export function VenueFrame({ mode, children }: { mode: Extract<VenueMode, { mode
 export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title: ReactNode; feeLine?: ReactNode }) {
   const { t } = venueCopy.useCopy();
   return (
-    <header className="dk-panel" data-testid="venue-header" aria-label={t('Venue')}>
+    <header className="dk-panel dk-venue-head" data-testid="venue-header" aria-label={t('Venue')}>
       <h1 className="dk-tab-title">
         {title} <TestMark test={status.test} />
       </h1>
@@ -298,7 +293,8 @@ function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
   if (intent.kind === 'withdraw') return intent.withdrawalKey;
   if (intent.kind === 'cancel_order') return actionKey ?? keys.cancel(intent.clientOrderKey);
   if (intent.kind === 'market_margin_transfer') return intent.moveKey;
-  if (intent.kind === 'update_isolated_margin') return intent.changeKey;
+  if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode') return intent.changeKey;
+  if (intent.kind === 'spot_perps_transfer' || intent.kind === 'vault_transfer') return intent.moveKey;
   return actionKey ?? '';
 }
 
@@ -765,141 +761,5 @@ export function OrdersTable({
       )}
       <AsOfLine asOf={orders?.asOf ?? null} />
     </div>
-  );
-}
-
-/**
- * Withdraw from the venue account to the connected wallet: a fresh step-up first (identity's `trade.step_up.venue.withdraw`,
- * bound to the key, account, asset, amount and destination), then the door prepares it and the wallet signs. A refused
- * step-up stops it before the wallet is asked. The venue's withdrawal is then read by its nonce: pending, then done, with
- * its fee or "not known".
- */
-export function WithdrawPanel({ owner, balances, test }: { owner: string; balances: AsOf<VenueBalance[]> | null; test: boolean }) {
-  const { t } = venueCopy.useCopy();
-  const venue = useVenueApi();
-  const { run } = useVenueActions(owner);
-  const assets = balances?.value.map((b) => b.asset) ?? [];
-  const [asset, setAsset] = useState<string>('');
-  const [amount, setAmount] = useState('');
-  const [draft, setDraft] = useState<string | null>(null);
-  const [result, setResult] = useState<ActionResult | null>(null);
-  const [busy, setBusy] = useState(false);
-  const chosen = asset || assets[0] || '';
-  let canonical: string | null = null;
-  try {
-    canonical = amount.trim() ? canonicalDecimal(amount) : null;
-  } catch {
-    canonical = null;
-  }
-  const withdrawalKey = draft ? keys.withdraw(owner, draft) : null;
-  const nonce = result?.kind === 'outcome' && result.outcome.accepted ? result.nonce : result?.kind === 'unknown' ? result.nonce : null;
-  const tracked = usePolled(
-    (signal) => (nonce ? venue.withdrawal(owner, nonce, signal) : Promise.resolve(null)),
-    `w:${owner}:${nonce}`,
-    VENUE_POLL_MS,
-  );
-
-  async function send(stepUpApprovalId: string | null) {
-    if (!withdrawalKey || !canonical || busy) return;
-    setBusy(true);
-    const answer = await run(
-      { kind: 'withdraw', asset: chosen, amount: canonical, destination: owner, withdrawalKey },
-      { stepUpApprovalId },
-    );
-    setBusy(false);
-    setResult(answer);
-  }
-
-  return (
-    <section className="dk-panel form-stack" aria-label={t('Withdraw')} data-testid="venue-withdraw">
-      <h2 className="dk-tab-title">
-        {t('Withdraw')} <TestMark test={test} />
-      </h2>
-      <label className="field">
-        <span>{t('Withdraw asset')}</span>
-        <select
-          value={chosen}
-          onChange={(e) => {
-            setAsset(e.target.value);
-            setDraft(null);
-            setResult(null);
-          }}
-        >
-          {assets.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        <span>{t('Withdraw amount')}</span>
-        <input
-          inputMode="decimal"
-          value={amount}
-          onChange={(e) => {
-            setAmount(e.target.value);
-            setDraft(null);
-            setResult(null);
-          }}
-        />
-      </label>
-      <p>
-        {t('Destination')}: <span className="numeric">{owner}</span>
-      </p>
-      {draft === null ? (
-        <Button disabled={!canonical || !chosen} onClick={() => setDraft(draftId())}>
-          {t('Review withdrawal')}
-        </Button>
-      ) : result === null && withdrawalKey && canonical ? (
-        <StepUpConfirm
-          request={() => ({
-            scope: 'trade.step_up.venue.withdraw',
-            purpose: 'venue.withdraw',
-            target: withdrawalKey,
-            amount: canonical!,
-            fields: { withdrawalKey, owner, subAccount: '', asset: chosen, amount: canonical!, destination: owner },
-          })}
-          words={{
-            why: t('Withdraw step up why'),
-            code: t('Authenticator code'),
-            codeHint: t('Authenticator hint'),
-            codeShort: t('Enter six'),
-            noFactor: t('No factor'),
-            sendWithout: t('Send without'),
-          }}
-          disabled={busy}
-          onApproved={(id) => void send(id)}
-        />
-      ) : null}
-      {busy ? <p className="muted">{t('Waiting wallet')}</p> : null}
-      <OutcomeLine result={result} owner={owner} />
-      {tracked.data?.value ? <WithdrawalLine withdrawal={tracked.data.value} asOf={tracked.data.asOf} /> : null}
-    </section>
-  );
-}
-
-function WithdrawalLine({ withdrawal, asOf }: { withdrawal: VenueWithdrawal; asOf: string }) {
-  const { t } = venueCopy.useCopy();
-  return (
-    <dl className="protocol-facts" data-testid="venue-withdrawal" data-status={withdrawal.status}>
-      <div>
-        <dt>{t('Withdrawal status')}</dt>
-        <dd>{word(t, 'withdrawal', withdrawal.status)}</dd>
-      </div>
-      <div>
-        <dt>{t('Amount')}</dt>
-        <dd className="numeric">
-          {displayAmount(withdrawal.amount)} {withdrawal.asset}
-        </dd>
-      </div>
-      <div>
-        <dt>{t('Withdrawal fee')}</dt>
-        <dd className="numeric" data-cell="fee">
-          <Known value={withdrawal.fee} />
-        </dd>
-      </div>
-      <AsOfLine asOf={asOf} />
-    </dl>
   );
 }

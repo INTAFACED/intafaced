@@ -12,9 +12,8 @@
 # run 40024672126, whether or not anything broke; a red that never turns green says nothing.)
 #
 # Flaky steps are set aside by the machine, never by an agent, and never a money step (owner decision 2026-11-07,
-# project-state OWNER 225 and 227). A run on main retries a failed test once (JOURNEY_RETRIES), and so does a shard of a
-# pull request's full run that holds none of the journeys it touches (tooling/ci/journey-retries.mjs), where a pass on
-# the retry only keeps the run green: the set-aside, the flaky issue and every proof stay main's. On main, a test that
+# project-state OWNER 225 and 227). A run on main retries a failed test once (JOURNEY_RETRIES); a pull request's run,
+# never the full suite, never retries. On main, a test that
 # fails and then passes on the same commit ends "flaky", and the verdict sets its step aside for 7 days, a list each main run keeps in
 # its own artifact (set-aside.json) for the next: it still runs and is shown, it isn't counted as proven, and its failure
 # doesn't turn main red. A step that is flaky and not set aside, a money step included, is a pass that is never proven
@@ -39,7 +38,7 @@ on:
   # the schedule always run the full suite, and Main trust and the shard planner read main's runs only.
   # Every ready pull request from this repository, on each push (U4 C3, piece 1; project-state
   # research/factory-2026-11-08 PLAN.md): the touch job runs what the pull request touches by tooling/ci/journey-touch.mjs
-  # (full, its journey files, or nothing), so a builder never dispatches a run by hand to seal. The merge seal still
+  # (its journey files, its bounded set, or nothing; never the full suite: pullPick), so a builder never dispatches a run by hand to seal. The merge seal still
   # decides what counts (journey-seal.mjs, the default branch's copy); this run only saves the dispatch. A fork's pull
   # request runs nothing here, in a group of its own, so it never cancels a run of this repository's branches. A draft
   # runs from its first push, as a ready pull request does (#8707): before, it ran nothing until `ready_for_review`, so
@@ -55,7 +54,7 @@ on:
   workflow_dispatch:
     inputs:
       journeys:
-        description: 'Journey files to run, separated by spaces or commas (e.g. J-wallet-05.pw.mjs). Ignored on main.'
+        description: 'Journey files to run, separated by spaces or commas (e.g. J-wallet-05.pw.mjs). Ignored on main. With the branch name, at most about 350 characters (GitHub starts no run whose concurrency group passes 400): split a longer list over several runs, as the seal prints them.'
         required: false
         default: ''
         type: string
@@ -109,6 +108,9 @@ on:
 # selection on the same branch is in another group and finishes. A `:` splits the branch from the selection, since a
 # git ref never holds one, so branch `x` with `J-a` and branch `x-J` with `a` never share a group. On 7 Nov at 11:01 UTC, 8 waiting branch runs were for
 # a head already superseded by a newer run on the same branch. tooling/ci/workflow-concurrency.test.mjs holds both rules.
+# GitHub starts no run whose group passes 400 characters (it ends "failure" with no jobs, as 63 files did on 20 Nov 2026,
+# run 44766798876), and an expression can neither measure nor hash the input, so the seal and journey-touch.mjs split a
+# long list into runs that each fit (journey-touch.mjs dispatchBatches, whose dispatchGroup the test holds to this one).
 concurrency:
   group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && format('real-app-journeys-runs-nothing-{0}', github.run_id) || (github.event_name == 'pull_request' && github.event.action == 'ready_for_review') && format('real-app-journeys-ready-{0}', github.run_id) || format('real-app-journeys-{0}:{1}', github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref, inputs.journeys) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -128,10 +130,12 @@ jobs:
   # What this run runs, and its shard plan, in seconds, so the shards and the build start on it at once. A manual run: its journeys input
   # (JOURNEYS_TARGET; journey file names separated by spaces or commas only), or the full suite. A pull request: what its
   # changed files touch, by the default branch's tooling/ci/journey-touch.mjs and its seal's revert rule (the copy the
-  # merge seal judges with, so the two agree): `full` the full suite, `files` its journey files, `none` nothing (the rest
-  # of the run is skipped and its report is empty, so the seal reads it as saying nothing). A pull request whose files
-  # can't be read whole (an error, or GitHub's 3,000-file cap) runs the full suite, never fewer. A fork's pull request
-  # runs nothing. A run deferred for main (below) runs nothing now and is re-run later.
+  # merge seal judges with, so the two agree): `files` its journey files (pullPick: at most PR_MAX_FILES, else its
+  # bounded set), `none` nothing (the rest of the run is skipped and its report is empty, so the seal reads it as saying
+  # nothing). A pull request never runs the full suite (OWNER 249 (3)); main's full run after the merge judges the rest.
+  # A pull request whose files can't be read whole (an error, or GitHub's 3,000-file cap) or judged runs the CANARY
+  # (journey-touch.mjs --fallback), and the seal, which judges its own pick, holds it if that is short. A fork's pull
+  # request runs nothing. A run deferred for main (below) runs nothing now and is re-run later.
   # On main its touch steps decide nothing (main always runs the full suite) and only the plan runs, so every run queues
   # for runners twice, this job and then the shards, not three times (a separate touch hop waited 7.3, 15.1 and 19.6
   # minutes on main runs 2559, 2655 and 2708 in the guide's CI audit of 9 Nov 2026; a separate planner hop waited a
@@ -155,7 +159,6 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       count: ${{ steps.plan.outputs.count }}
       fast_plan: ${{ steps.fast.outputs.plan }}
-      retries: ${{ steps.retries.outputs.retries }}
       leave_out: ${{ steps.leave.outputs.list }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -220,9 +223,17 @@ jobs:
             { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # A pull request never runs the full suite: what can't be read or judged runs the CANARY (journey-touch.mjs
+          # --fallback; the branch's copy only until main has it), and the seal judges the head by its own pick.
           full() {
-            echo "::warning::$1, so the full suite runs"
-            { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT"
+            echo "::warning::$1, so the CANARY runs; main's full run after the merge judges the rest"
+            canary=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --fallback 2>/dev/null) ||
+              canary=$(node tooling/ci/journey-touch.mjs --fallback 2>/dev/null) || canary=''
+            if ! [[ "$canary" =~ ^[A-Za-z0-9._\ -]+$ ]]; then
+              echo "::error::the CANARY couldn't be read, and a pull request's run is never the full suite"
+              exit 1
+            fi
+            { echo "mode=run"; echo "target=$canary"; } >> "$GITHUB_OUTPUT"
             exit 0
           }
           list="$RUNNER_TEMP/changed.txt"
@@ -242,9 +253,8 @@ jobs:
           fi
           # The revert main-bisect opens (journey-seal.mjs autoRevertScope: the App's revert/auto- branch, one commit that
           # reverts that commit, no other file) runs only the journeys that failed on main and the reverted change's own,
-          # as the seal judges it; main's full run after the merge guards main. One that touches shared setup prints no
-          # files (its `full`), so it goes on below to journey-touch's full run, the one the seal asks for. An unreadable
-          # scope, or any other pull request, goes on to the ordinary scope below.
+          # as the seal judges it, shared setup or not; main's full run after the merge guards main. An unreadable scope,
+          # or any other pull request, goes on to the ordinary scope below.
           auto=$(REPO="$GITHUB_REPOSITORY" node "$seal" --auto-revert-scope "$PR") || auto='{}'
           narrow=$(jq -r '(.files // []) | join(" ")' <<<"$auto") || narrow=''
           if [ -n "$narrow" ] && [[ "$narrow" =~ ^[A-Za-z0-9._\ -]+$ ]]; then
@@ -254,7 +264,7 @@ jobs:
           fi
           jq -r 'select(.why != null and .why != "") | .why' <<<"$auto" 2>/dev/null || true
           # --reach: product code runs only the journeys main's touched-journeys map recorded reaching it (the base's map,
-          # beside its journey-touch.mjs), else the full suite.
+          # beside its journey-touch.mjs), else its bounded set (pullPick).
           touch=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --json --reach --files-from "$list") || full "journey-touch couldn't judge this pull request"
           mode=$(jq -r .mode <<<"$touch")
           echo "journey-touch: $mode ($listed changed files)"
@@ -264,14 +274,13 @@ jobs:
           # journey files at the head run too, so the seal's named steps are proven without a manual run.
           named=$(SEAL="$seal" node -e 'import(process.env.SEAL).then((m) => { const left = new Set(m.exemptions(process.env.BODY).steps); const js = new Set(m.titleSteps(process.env.TITLE).filter((k) => !left.has(k)).map((k) => k.split("#")[0])); const dir = "apps/customer/tests/real-app"; const out = require("fs").readdirSync(dir).filter((f) => { const x = m.JOURNEY_TEST.exec(dir + "/" + f); return x && js.has(x[1]); }); console.log(out.sort().join(" ")); })') || full "the steps the title names couldn't be read"
           [ -n "$named" ] && echo "the title's steps are in: $named"
-          # Kept with the pick (#8707): a later run on this head reuses a full run only when the title then named no
-          # journey this one did not, since a full run's retries spare only the journeys it touches (the Retries step).
+          # Kept with the pick (#8707), for a later run on this head.
           { echo "named=$named"; echo "named_read=1"; } >> "$GITHUB_OUTPUT"
           case "$mode" in
             none) if [ -n "$named" ]; then { echo "mode=run"; echo "target=$named"; } >> "$GITHUB_OUTPUT"; else { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"; fi ;;
             files) { echo "mode=run"; echo "target=$(jq -r --arg n "$named" '(.files + ($n | split(" ") | map(select(. != "")))) | unique | join(" ")' <<<"$touch")"; } >> "$GITHUB_OUTPUT" ;;
-            # The full run: which journeys it touches decides which shards may retry (the Retries step).
-            *) { echo "mode=run"; echo "target="; echo "scope=full"; } >> "$GITHUB_OUTPUT" ;;
+            # Only a base copy older than pullPick prints `full`: never the full suite on a pull request.
+            *) full "journey-touch printed $mode" ;;
           esac
 
       # One journeys run per head (project-state#2065 row d32 part (b)): a pull request's targeted run leaves out the
@@ -295,12 +304,17 @@ jobs:
           NAMED: ${{ steps.pick.outputs.named }}
           NAMED_READ: ${{ steps.pick.outputs.named_read }}
         run: |
+          # A pull request's run that would run journeys with no target would be the full suite, which it never is.
+          if [ "$EVENT" = pull_request ] && [ "$MODE" = run ] && [ -z "$TARGET" ]; then
+            echo "::error::a pull request's journeys run is never the full suite (tooling/ci/journey-touch.mjs pullPick)"
+            exit 1
+          fi
           if [ "$EVENT" = pull_request ] && [ "$MODE" = run ] && out=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --reuse 2>/dev/null) && jq -e '.mode == "run" or .mode == "none"' <<<"$out" >/dev/null 2>&1; then
             why=$(jq -r '.why' <<<"$out")
             [ -n "$why" ] && echo "::notice::$why"
             mode=$(jq -r '.mode' <<<"$out")
             target=$(jq -r '.target' <<<"$out")
-            if [[ "$target" =~ ^[A-Za-z0-9._\ -]*$ ]]; then
+            if [[ "$target" =~ ^[A-Za-z0-9._\ -]*$ ]] && { [ "$mode" = none ] || [ -n "$target" ]; }; then
               { echo "mode=$mode"; echo "target=$target"; } >> "$GITHUB_OUTPUT"
               exit 0
             fi
@@ -332,7 +346,7 @@ jobs:
           DISPATCH_FULL: ${{ github.event_name == 'workflow_dispatch' && env.JOURNEYS_TARGET == '' }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }} # a re-run the release let go doesn't wait for main again
-          TARGETED: ${{ steps.touch.outputs.target != '' }} # a targeted run (at most 10 shards) never waits for main
+          TARGETED: ${{ steps.touch.outputs.target != '' }} # a targeted run (at most 30 shards) never waits for main
         run: |
           script=.base/tooling/ci/main-first.mjs
           [ -f "$script" ] || script=tooling/ci/main-first.mjs
@@ -346,9 +360,10 @@ jobs:
       # The plan (tooling/scripts/journey-shards.mjs): the journey files split across the shards by their times in the
       # last finished runs on main, so the shards end together (Playwright's own --shard split by count left one shard 33
       # minutes behind the shortest in run 338). A full run, on main or a pull request's, aims at 10 minutes of journeys
-      # a shard, up to 64 shards, so a break is named as its shorter shard ends and a pull request's journey meets the
-      # same neighbours as on main (MAIN_MAX_SHARDS says why); a targeted run aims near the longest journey file's time
-      # less the spread of a shard's setup, 10 to 25 minutes, in at most 10 shards. The plan is checked to run every
+      # a shard, up to 90 shards, so a break is named as its shorter shard ends and a pull request's journey meets the
+      # same neighbours as on main (MAX_SHARDS says why); a targeted run aims near the longest journey file's time
+      # less the spread of a shard's setup, 10 to 25 minutes, in as many shards as that asks: a pull request's at most 30, a
+      # run by hand's at most 10 while each shard stays clear of the limit (journey-shards.mjs). The plan is checked to run every
       # journey file exactly once before it is used. If planning fails for any reason the run falls back to 8 shards and
       # Playwright's split, so a broken planner never stops a run; journeys past a shard's limit then count as not run and
       # the time-limit issue names the shards. A targeted run (JOURNEYS_TARGET) never falls back: a name that is not a
@@ -397,30 +412,14 @@ jobs:
           only=()
           [ -n "$JOURNEYS_TARGET" ] && only=(--only "$JOURNEYS_TARGET")
           [ "$GITHUB_REF" = refs/heads/main ] && only+=(--main)
+          # A pull request's run: at most PR_MAX_SHARDS, never the full suite.
+          [ "$GITHUB_EVENT_NAME" = pull_request ] && only+=(--pull)
           shards=$(node tooling/scripts/journey-shards.mjs --shards auto "${reports[@]}" "${only[@]}")
           {
             echo "shards=$shards"
             echo "matrix=$(jq -c '[range(1; length + 1)]' <<<"$shards")"
             echo "count=$(jq length <<<"$shards")"
           } >> "$GITHUB_OUTPUT"
-      # Which shards of a pull request's full run retry a failed test once, as main's do (tooling/ci/journey-retries.mjs):
-      # those holding none of the journeys the pull request touches; a change the shards can run touches them all. Only
-      # a full run whose changed paths were read whole (the pick's `scope`); main's copy of the rule when main has it.
-      # Without it, or on any failure, no shard retries. (Failure it prevents: 14 Nov 2026, the full runs of #8375,
-      # #8385 and #8391 went red on J-cex-spot-03 #9, J-charts-desk-09 #5 and J-agents-01 #6, steps their change could
-      # not reach, which passed on main's runs and on another attempt; each re-run took 35 to 50 minutes.)
-      - name: Retries off main
-        id: retries
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.pick.outputs.scope == 'full' && steps.touch.outputs.target == '' && steps.plan.outputs.shards != '' }}
-        continue-on-error: true
-        env:
-          SHARDS: ${{ steps.plan.outputs.shards }}
-          NAMED: ${{ steps.pick.outputs.named }}
-        run: |
-          rule=.base/tooling/ci/journey-retries.mjs
-          [ -f "$rule" ] || rule=tooling/ci/journey-retries.mjs
-          out=$(node "$rule" --changed "$RUNNER_TEMP/changed.txt" --named "$NAMED" --shards "$SHARDS")
-          echo "retries=$out" >> "$GITHUB_OUTPUT"
       # The fail-fast plan (tooling/scripts/journey-fail-fast.mjs): the baseline's unbuilt steps, less each of their tests
       # that passed in a run read above. Best effort: without it nothing fails fast.
       - name: Fail-fast plan
@@ -502,12 +501,13 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # Lets deferred runs go (main-first.mjs --release): on main, once the planner has queued main's shards, so the
+  # Lets deferred runs go (main-first.mjs --release): on main, once main's shards are queued (after the build), so the
   # deferred runs' jobs queue behind them; after a hand-dispatched full run off main, so the ones the cap deferred run.
   # It re-runs only the newest run of each branch, only one its touch job marked deferred, and at most 40 a time.
   release:
     name: Let deferred runs go
-    needs: [touch]
+    # Main's shards queue when its build ends (they need it), so deferred runs go only after that.
+    needs: [touch, build]
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5 # seconds
@@ -587,7 +587,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: node .base/tooling/ci/main-first.mjs --release
 
-  # The stack's builds, once per run, beside the shards' own setup; every shard then starts on them
+  # The stack's builds, once per run, before the shards start; every shard then starts on them
   # instead of building again (measured on run 1138: 1m37s of each of 21 shards' setup was these same builds). The outputs travel with the stack's
   # build stamp, which `start` checks against its own checkout (same commit, no edits), so a shard that receives anything
   # else, or nothing, builds it itself as before (local-test-stack.mjs buildStillFresh).
@@ -596,9 +596,13 @@ jobs:
     needs: [touch]
     if: ${{ !cancelled() && needs.touch.result == 'success' && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20 # healthy run: about 3 minutes
+    timeout-minutes: 30 # healthy run: about 3 minutes, and about 5 more when it seeds the stack
     permissions:
       contents: read
+    outputs:
+      # 'true' when this job kept a seeded stack in the Actions cache (real-app-journeys-seed-<sha>), empty when it kept
+      # none: each shard then seeds its own.
+      seeded: ${{ steps.seed-save.outcome == 'success' && 'true' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -653,13 +657,112 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+      # Seed once (project-state#3330): the TEST gates, the market maker's two TEST accounts and the TEST chart history
+      # are written here, on one stack, and every shard starts from a copy of it instead of writing them again. Each
+      # shard spent about 1 minute on the gates and 2.3 more on the history (run 44622933722: 225 of its 1,318 shard
+      # runner-minutes), the same work 90 times. The founder console's build goes with it (about 37 s a shard).
+      # Best effort: every step below goes on when it fails, so the build above still serves the shards, and a shard
+      # that gets no seeded stack (no key, a cache miss, a copy it cannot take) seeds its own exactly as before.
+      # The copy holds the stack's TEST passwords and keys and the console's build keys, so it goes in the Actions cache,
+      # which only this repository's workflows read, never in an artifact, which anyone can download here; the
+      # `Drop the seeded stack` job deletes it when the shards are done. A run with fewer than 4 shards seeds in its
+      # shards, where seeding once would add to its time and save nothing.
+      - name: Seed once for the shards?
+        id: seed-want
+        env:
+          COUNT: ${{ needs.touch.outputs.count }}
+        run: |
+          if [ "${COUNT:-8}" -ge 4 ]; then echo "want=true" >> "$GITHUB_OUTPUT"; else echo "$COUNT shards: each seeds its own stack"; fi
+      - name: Get a nats-server binary
+        if: steps.seed-want.outputs.want == 'true'
+        continue-on-error: true
+        uses: ./.github/actions/nats-server
+        with:
+          path: ${{ runner.temp }}/nats-server
+      # The same TEST chain launcher as the shards' (see there).
+      - name: Get an anvil launcher
+        if: steps.seed-want.outputs.want == 'true'
+        continue-on-error: true
+        run: |
+          docker pull ghcr.io/foundry-rs/foundry:v1.5.1
+          cat > "$RUNNER_TEMP/anvil" <<'EOF'
+          #!/bin/sh
+          exec docker run --rm --init --network host ghcr.io/foundry-rs/foundry:v1.5.1 "anvil $*"
+          EOF
+          chmod +x "$RUNNER_TEMP/anvil"
+      # The same steps as a shard's `Start the local test stack` and `Open the TEST markets` on a shard that writes the
+      # history (`--markets journeys`), and the market maker stopped at the end, so the copy holds no resting order.
+      - name: Seed the stack (TEST funds only)
+        id: seed
+        if: steps.seed-want.outputs.want == 'true'
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
+          INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
+        run: |
+          export LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" LOCAL_STACK_NATS_BIN="$RUNNER_TEMP/nats-server" LOCAL_STACK_ANVIL_BIN="$RUNNER_TEMP/anvil"
+          if [ -z "$INTAFACED_SANCTIONS_REGIONS" ] || [ -z "$INTAFACED_SANCTIONS_LIST_SOURCE" ]; then
+            echo "::warning::no screening placeholder, so no seeded stack: each shard says why"
+            exit 1
+          fi
+          node tooling/scripts/local-test-stack.mjs start
+          node tooling/scripts/local-test-stack.mjs restart matching
+          node tooling/scripts/local-test-gates.mjs apply
+          if [ "$(node tooling/scripts/local-test-stack.mjs custody)" = off ]; then
+            node tooling/scripts/local-test-market.mjs
+            node tooling/scripts/local-test-gates.mjs verify
+          else
+            node tooling/scripts/local-test-market.mjs
+            for _ in $(seq 1 30); do
+              grep -Eq 'taker (created|existing) \(test_taker\)' "$LOCAL_STACK_STATE/logs/market.log" 2>/dev/null && break
+              sleep 2
+            done
+            node tooling/scripts/local-test-market.mjs stop
+            node tooling/scripts/local-test-gates.mjs verify
+            node tooling/scripts/local-test-market.mjs history --markets journeys
+          fi
+          node tooling/scripts/local-test-market.mjs stop || true
+          node tooling/scripts/local-test-stack.mjs stop
+      # The stopped stack's state folder (its database, NATS store, TEST secrets, founders and stamp) and the console's
+      # build. Not the logs, the process records (another runner's PIDs) or the JDK archives (the shards' own cache).
+      - name: Pack the seeded stack
+        id: seed-pack
+        if: steps.seed.outcome == 'success'
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/stack-seed"
+          tar -C "$RUNNER_TEMP/stack-state" -cf "$RUNNER_TEMP/stack-seed/state.tar" \
+            --exclude=./logs --exclude=./tmp --exclude=./java-tools --exclude=./run/processes.json --exclude=./csp-violations.jsonl .
+          tar -cf "$RUNNER_TEMP/stack-seed/admin.tar" --exclude=apps/admin/.next/cache apps/admin/.next
+          du -sh "$RUNNER_TEMP/stack-seed"
+      # Keyed on the run's commit, in the run's own ref's cache scope. A copy already there under the key (a run again
+      # on the same commit before `Drop the seeded stack` ran) fails this step, and the shards seed their own.
+      - name: Keep the seeded stack for the shards
+        id: seed-save
+        if: steps.seed-pack.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/stack-seed
+          key: real-app-journeys-seed-${{ github.sha }}
+      - name: Stack logs when seeding failed
+        if: steps.seed.outcome == 'failure'
+        run: |
+          for f in "$RUNNER_TEMP"/stack-state/logs/*.log; do
+            [ -f "$f" ] || continue
+            echo "::group::$f"; tail -100 "$f" || true; echo "::endgroup::"
+          done
+          LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" node tooling/scripts/local-test-stack.mjs stop || true
+
   journeys:
     name: Journeys (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
-    # Not on the build job: a shard's own setup runs beside it, and only the step that takes its build waits for it.
-    needs: [touch]
+    # After the build job, so no shard holds a runner while the build runs or waits for a runner of its own. A failed
+    # build still lets the shards run (`!cancelled()`), each building the stack itself.
+    needs: [touch, build]
     permissions:
       contents: read
-      actions: read # to read the build job's state and download its build
+      actions: read # to download the build job's build
     # The shards run even when planning failed (the Plan step goes on, and they fall back to Playwright's split); a targeted
     # run without its plan fails the touch job, so its shards don't run.
     if: ${{ !cancelled() && needs.touch.result == 'success' && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -766,40 +869,13 @@ jobs:
         timeout-minutes: 15
         uses: ./.github/actions/browser
 
-      # The run's one build (the build job), with its stamp in this shard's stack state, taken as late as possible so the
-      # setup above runs beside the build. It waits for that job at most 10 minutes, asking every 60 s; an answer that
-      # fails is asked again, and a run with no such job (in any attempt) stops at once. Best effort: without the build
-      # (the job failed or is late), or when the stamp does not vouch for this checkout, `start` builds as before.
-      # Why 60 s and actions/download-artifact (row d25 of project-state #2065): every shard asks the workflow token's API,
-      # which the seals, the CI review, the gate guards and Main trust share at 15,000 calls an hour. Asking every 20 s,
-      # then `gh run download`, cost about 4,900 calls in the hour to 03:20 UTC on 13 Nov (597 shards, 110 s mean wait),
-      # a third of that budget, and the hour ran out at 03:19. download-artifact reads this run's own artifact through
-      # the runner's artifact service, which spends no API call.
-      - name: Wait for the run's build
-        id: build
-        continue-on-error: true
-        timeout-minutes: 12
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          state=""
-          for _ in $(seq 1 11); do
-            if jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100"); then
-              # The newest attempt's build job (a re-run of failed jobs carries the passed one over).
-              state=$(jq -r '[.jobs[] | select(.name == "Build the stack once")] | sort_by(.run_attempt) | last | if . == null then "none" else "\(.status) \(.conclusion)" end' <<<"$jobs")
-              case "$state" in completed\ * | none) break ;; esac
-            fi
-            sleep 60
-          done
-          echo "build job: ${state:-not read}"
-          if [ "$state" != "completed success" ]; then
-            echo "::warning::no build from this run (${state:-not read}); this shard builds the stack itself"
-            exit 0
-          fi
-          echo "ready=true" >> "$GITHUB_OUTPUT"
+      # The run's one build (the build job), with its stamp in this shard's stack state. The shard starts only once that
+      # job has ended (`needs` above), so it never polls for the build while holding a runner. Best effort: without the
+      # build (the job failed), or when the stamp does not vouch for this checkout, `start` builds as before.
+      # download-artifact reads this run's own artifact through the runner's artifact service, which spends no API call.
       - name: Download the run's build
         id: build-download
-        if: steps.build.outputs.ready == 'true'
+        if: needs.build.result == 'success'
         continue-on-error: true
         timeout-minutes: 5
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -807,6 +883,7 @@ jobs:
           name: real-app-journeys-build
           path: ${{ runner.temp }}/stack-build
       - name: Take the run's build
+        id: build-take
         if: steps.build-download.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 5
@@ -825,6 +902,38 @@ jobs:
             ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
             ${{ runner.temp }}/stack-state/java-tools/maven.tgz
           key: java-tools-${{ runner.os }}-${{ hashFiles('services/svc-fix/scripts/ensure-toolchain.mjs') }}
+
+      # The stack the build job seeded (its `Seed once` steps): the TEST gates, the market maker's accounts and the chart
+      # history already written, and the console already built. Only on top of the run's build, whose stamp it extends.
+      # Best effort, like the build: a miss or a copy that does not unpack leaves the state folder as it was, and the
+      # shard seeds its own stack in `Open the TEST markets` below.
+      - name: Download the seeded stack
+        id: seed-download
+        if: steps.build-take.outcome == 'success' && needs.build.outputs.seeded == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/stack-seed
+          key: real-app-journeys-seed-${{ github.sha }}
+      - name: Take the seeded stack
+        id: seed-take
+        if: steps.seed-download.outputs.cache-hit == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          rm -rf "$RUNNER_TEMP/seed-state"
+          mkdir -p "$RUNNER_TEMP/seed-state"
+          tar -C "$RUNNER_TEMP/seed-state" -xf "$RUNNER_TEMP/stack-seed/state.tar"
+          tar -tf "$RUNNER_TEMP/stack-seed/admin.tar" > /dev/null
+          [ -d "$RUNNER_TEMP/seed-state/data/postgres" ] && [ -f "$RUNNER_TEMP/seed-state/build-stamp.json" ]
+          # Only now, with both copies read whole, into place: the seeded state folder, then the console's build.
+          mkdir -p "$LOCAL_STACK_STATE"
+          cp -a "$RUNNER_TEMP/seed-state/." "$LOCAL_STACK_STATE/"
+          chmod 700 "$LOCAL_STACK_STATE"
+          tar -xf "$RUNNER_TEMP/stack-seed/admin.tar"
+          rm -rf "$RUNNER_TEMP/seed-state" "$RUNNER_TEMP/stack-seed"
+          echo "seeded stack from the build job: $(du -sh "$LOCAL_STACK_STATE" | cut -f1)"
 
       - name: Start the local test stack (TEST funds only)
         run: |
@@ -845,21 +954,23 @@ jobs:
       # The history goes only on the markets journeys read the past of (`--markets journeys`, HISTORY_SYMBOLS in
       # local-test-market.mjs, which local-test-market-history.test.mjs keeps whole): four of six markets, 149 s against 193 s
       # measured on one shard on 13 Nov, a saving every shard makes (project-state #2065 row d37).
-      # A targeted run's shard whose journey files provably read no market's past writes none (tooling/scripts/
+      # A shard whose journey files provably read no market's past writes none (tooling/scripts/
       # journey-market-past.mjs: no chart, candle, tape or backtest word in the file or the helpers it imports): the
-      # history was 208 s of this step's 297 on run 43668181917. Any doubt writes it. Main's runs and a pull request's
-      # full run have no target, so they always write it. A journey that reads the past without it sees an empty chart
-      # and fails; it never passes on one.
+      # history was 208 s of this step's 297 on run 43668181917. Every planned shard asks, a full run's (main's, a pull
+      # request's) as a targeted run's: 43 of a full plan's 90 shards read none (project-state#3329: full runs held all
+      # 500 hosted runners). Any doubt writes it, and a run without a plan always does. A journey that reads the past
+      # without it sees an empty chart and fails; it never passes on one.
+      # A shard on the build job's seeded stack skips it: the gates, the accounts and the history are already there,
+      # and `Start the TEST market maker` below starts the maker alone.
       - name: Open the TEST markets, write TEST chart history, start the TEST market maker
+        if: steps.seed-take.outcome != 'success'
         env:
           SHARDS: ${{ needs.touch.outputs.shards }}
           SHARD: ${{ matrix.shard }}
         run: |
           history=journeys
-          if [ -n "$JOURNEYS_TARGET" ] && [ -n "$SHARDS" ]; then
-            files=$(jq -r --argjson n "$SHARD" '.[$n - 1] // ""' <<<"$SHARDS") || files=""
-            # shellcheck disable=SC2086 # the plan's file names, split on spaces on purpose
-            history=$(node tooling/scripts/journey-market-past.mjs $files) || history=journeys
+          if [ -n "$SHARDS" ]; then
+            history=$(node tooling/scripts/journey-market-past.mjs --shard "$SHARD") || history=journeys
           fi
           node tooling/scripts/local-test-stack.mjs restart matching
           node tooling/scripts/local-test-gates.mjs apply
@@ -888,6 +999,17 @@ jobs:
       - name: Load the TEST content
         run: LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state "$LOCAL_STACK_STATE"
 
+      # On the seeded stack the market maker was stopped before the copy, so it starts here, as the last line of
+      # `Open the TEST markets` does on a stack the shard seeds itself.
+      - name: Start the TEST market maker (seeded stack)
+        if: steps.seed-take.outcome == 'success'
+        run: |
+          if [ "$(node tooling/scripts/local-test-stack.mjs custody)" = off ]; then
+            echo "custody off: no TEST market maker on our own order book"
+            exit 0
+          fi
+          node tooling/scripts/local-test-market.mjs
+
       - name: Wait for the first BTC/USDT trade
         run: |
           if [ "$(node tooling/scripts/local-test-stack.mjs custody)" = off ]; then
@@ -915,10 +1037,9 @@ jobs:
           JOURNEY_FAIL_FAST_PLAN: ${{ needs.touch.outputs.fast_plan }}
           # The unbuilt tests a push run on main leaves out (the touch job's Leave-out plan), as Playwright's test list.
           JOURNEY_LEAVE_OUT: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.touch.outputs.leave_out || '' }}
-          # One retry of a failed test on main (the set-aside above), and in a pull request's full run on a shard that
-          # holds none of the journeys it touches (the Retries step); a targeted run, a shard with a journey the pull
-          # request touches, and a run by hand off main never retry.
-          JOURNEY_RETRIES: ${{ (github.ref == 'refs/heads/main' || fromJSON(needs.touch.outputs.retries || '[]')[matrix.shard] == '1') && '1' || '0' }}
+          # One retry of a failed test on main (the set-aside above); a pull request's run and a run by hand off main
+          # never retry.
+          JOURNEY_RETRIES: ${{ github.ref == 'refs/heads/main' && '1' || '0' }}
           SHARDS: ${{ needs.touch.outputs.shards }}
           SHARD: ${{ matrix.shard }}
           TOTAL: ${{ strategy.job-total }}
@@ -984,17 +1105,20 @@ jobs:
 
       # A journey that failed leaves the shard green (the run's verdict judges it), so the logs print then too: otherwise a
       # flaky step's service-side cause goes with the runner (#8044: svc-ledger did not answer, and nothing kept why).
+      # A step that failed and passed on its retry counts as `flaky`, not `unexpected`, so both print (#9235: two
+      # J-cex-spot-16 sign-ins waited over 5 s on identity, and no log was kept). 200 lines covered about a minute of
+      # identity, too little to reach a failure minutes before the shard ended (#8299), so each log keeps 2000.
       - name: Stack logs on failure
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
         run: |
-          if [ "$JOB_STATUS" = success ] && ! jq -e '(.stats.unexpected // 0) > 0' "$JOURNEY_REPORT" >/dev/null 2>&1; then
+          if [ "$JOB_STATUS" = success ] && ! jq -e '((.stats.unexpected // 0) + (.stats.flaky // 0)) > 0' "$JOURNEY_REPORT" >/dev/null 2>&1; then
             exit 0
           fi
           for f in "$LOCAL_STACK_STATE"/logs/*.log; do
             [ -f "$f" ] || continue
-            echo "::group::$f"; tail -200 "$f" || true; echo "::endgroup::"
+            echo "::group::$f"; tail -2000 "$f" || true; echo "::endgroup::"
           done
 
       - name: Stop the stack
@@ -1147,6 +1271,26 @@ jobs:
           path: ${{ runner.temp }}/journeys/pass-history.json
           if-no-files-found: ignore
 
+  # The build job's seeded stack (its `Seed once` steps) holds TEST passwords and keys and is needed only by this
+  # attempt's shards: deleted once they are done, so it neither waits out the cache's 7 days nor pushes the pnpm and
+  # browser caches out. A shard re-run after this finds no copy and seeds its own stack. A failed delete leaves it to
+  # the cache's own expiry, and fails nothing.
+  drop:
+    name: Drop the seeded stack
+    needs: [build, journeys]
+    if: ${{ always() && needs.build.outputs.seeded == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5 # healthy run: seconds
+    permissions:
+      actions: write # delete this run's own cache entry
+    steps:
+      - name: Delete the cache entry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          name="real-app-journeys-seed-$GITHUB_SHA"
+          gh cache delete "$name" --repo "$GITHUB_REPOSITORY" || echo "::warning::could not delete cache $name; it expires on its own"
+
   # A journeys run on a branch ends here, dispatched or on a pull request in this repository (never main's or a schedule's).
   # It starts merge-seal.yml's seal, or re-runs its verdict, once every input on the head has finished: CI, the CI
   # review, and the journeys run the change needs (journey-seal.mjs --recheck, START_JOB). It needs every other job
@@ -1156,7 +1300,7 @@ jobs:
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
   seal-start:
     name: Start the seal
-    needs: [touch, release, early-break, release-after-dispatch, build, journeys, scoreboard]
+    needs: [touch, release, early-break, release-after-dispatch, build, journeys, scoreboard, drop]
     if: ${{ !cancelled() && github.ref != 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes

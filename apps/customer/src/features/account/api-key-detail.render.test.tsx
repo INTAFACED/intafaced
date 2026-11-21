@@ -33,6 +33,14 @@ const api = {
     world.asked.push({ kind: 'mutate', procedure, input });
     return Promise.resolve(world.mutate.shift());
   },
+  // A developer key door's record: answered as the query or mutation it is, by its path.
+  call: (record: { name: string; path: string; kind: 'query' | 'mutation' }, input: unknown) => {
+    if (record.path.startsWith('developerKeys.'))
+      return record.kind === 'query' ? api.query('identity', record.path, input) : api.mutate('identity', record.path, input);
+    // The API version panel's read (J-developer-16 #5): no account default yet.
+    world.asked.push({ kind: 'call', procedure: record.name, input: undefined });
+    return Promise.resolve({ ok: true, data: { version: null, setAt: null } });
+  },
   // The usage panel's read of the edge (J-developer-06 #3): no calls counted yet for this key.
   plain: (_module: string, path: string) => {
     const keyId = /keys\/([^/]+)\/usage/.exec(path)?.[1] ?? '';

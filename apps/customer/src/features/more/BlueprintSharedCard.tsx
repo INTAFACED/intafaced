@@ -1,25 +1,25 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { Button, Dialog, Field, Panel } from '../../shared/ui';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { navigate } from '../../app/location';
+import { BLUEPRINT_CARD_OF } from '@intafaced/contracts/blueprint-procedures';
 import { safeCardSvg } from './Blueprint';
 import { blueprintSharedCardCopy } from './blueprint-shared-card-copy';
+import { currentRoute, subscribeRoute } from '../../shared/route-watch';
 import {
-  currentSharedCardRoute,
   sharedCardDimensions,
   sharedCardFailure,
   sharedCardHref,
-  sharedCardResponse,
+  sharedCardMatches,
   sharedCardRoute,
   sharedCardSelection,
-  subscribeSharedCardRoute,
   type SharedCard,
   type SharedCardSelection,
 } from './blueprint-shared-card-contract';
 import './blueprint-shared-card.css';
 
-type Lease = { api: ApiClient; actor: string | null; session: object | null; route: ReturnType<typeof currentSharedCardRoute> };
+type Lease = { api: ApiClient; actor: string | null; session: object | null; route: ReturnType<typeof currentRoute> };
 function useViewerLease(invalidate: () => void) {
   const { api, userId, session } = useSession();
   const [, refresh] = useState(0);
@@ -27,7 +27,7 @@ function useViewerLease(invalidate: () => void) {
     mounted = useRef(false),
     revoke = useRef(invalidate);
   revoke.current = invalidate;
-  const route = currentSharedCardRoute();
+  const route = currentRoute();
   if (
     !current.current ||
     current.current.api !== api ||
@@ -40,7 +40,7 @@ function useViewerLease(invalidate: () => void) {
   const lease = current.current;
   useLayoutEffect(() => {
     mounted.current = true;
-    const unsubscribe = subscribeSharedCardRoute(() => {
+    const unsubscribe = subscribeRoute(() => {
       current.current = null;
       revoke.current();
       refresh((n) => n + 1);
@@ -54,7 +54,7 @@ function useViewerLease(invalidate: () => void) {
   }, []);
   // canWrite is the synchronous client/session identity lease, not a service permission.
   const admits = () =>
-    mounted.current && current.current === lease && !!lease.actor && lease.api.canWrite() && currentSharedCardRoute() === lease.route;
+    mounted.current && current.current === lease && !!lease.actor && lease.api.canWrite() && currentRoute() === lease.route;
   return { lease, admits };
 }
 type Intent = { selection: Readonly<SharedCardSelection>; lease: Lease; controller: AbortController };
@@ -107,8 +107,9 @@ export function BlueprintSharedCard({ path }: { path: string }) {
     setView({ status: 'loading', intent });
     let result: ApiResult<SharedCard>;
     try {
-      result = await lease.api.query('blueprint', 'cardOf', intent.selection, sharedCardResponse(intent.selection), {
+      result = await lease.api.call(BLUEPRINT_CARD_OF, intent.selection, {
         signal: intent.controller.signal,
+        accept: sharedCardMatches(intent.selection),
       });
     } catch {
       result = { ok: false, reason: 'unreachable', message: '' };

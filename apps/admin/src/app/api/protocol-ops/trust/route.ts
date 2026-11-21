@@ -1,22 +1,27 @@
+import { ADDRESS_LABEL_KINDS, HUMAN_TOKEN_TIERS } from '@intafaced/contracts/protocol-address-risk';
+import type { ProcedureInput } from '@intafaced/contracts/procedure';
 import {
-  ADDRESS_LABEL_KINDS,
-  HUMAN_TOKEN_TIERS,
-  protocolComplianceReportsOutputSchema,
-  protocolComplianceReviewSchema,
-  protocolNameTagRequestSchema,
-  protocolNameTagsOutputSchema,
-  protocolOnboardingChecklistSchema,
-  protocolOnboardingOutputSchema,
-  protocolTokenTierSchema,
-  protocolTokenTiersOutputSchema,
-} from '@intafaced/contracts/protocol-address-risk';
-import { protocolAuditProductsSchema } from '@intafaced/contracts/protocol-blockers';
-import { tokensListOutputSchema } from '@intafaced/contracts/protocol-tokens';
+  PROTOCOL_COMPLIANCE_LABELS_APPROVE,
+  PROTOCOL_COMPLIANCE_LABELS_ASK,
+  PROTOCOL_COMPLIANCE_NAME_TAGS_APPROVE,
+  PROTOCOL_COMPLIANCE_NAME_TAGS_LIST,
+  PROTOCOL_COMPLIANCE_NAME_TAGS_REQUEST,
+  PROTOCOL_COMPLIANCE_ONBOARDING_APPROVE,
+  PROTOCOL_COMPLIANCE_ONBOARDING_LIST,
+  PROTOCOL_COMPLIANCE_ONBOARDING_OPEN,
+  PROTOCOL_COMPLIANCE_REPORTS_LIST,
+  PROTOCOL_COMPLIANCE_TIERS_APPROVE,
+  PROTOCOL_COMPLIANCE_TIERS_ASK,
+  PROTOCOL_COMPLIANCE_TIERS_LIST,
+  PROTOCOL_COMPLIANCE_TIERS_REMOVE,
+} from '@intafaced/contracts/protocol-wallet-procedures';
+import { PROTOCOL_AUDIT_PRODUCTS } from '@intafaced/contracts/protocol-procedures';
+import { PROTOCOL_TOKENS_LIST } from '@intafaced/contracts/protocol-chain-procedures';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { founderCall, parseWith, type FounderCallResult } from '@/lib/desk/founder-call';
+import { founderRecordCall, type FounderCallResult } from '@/lib/desk/founder-call';
 import { trustRefusalWords } from '@/lib/protocol-trust/model';
 
 /**
@@ -58,12 +63,12 @@ export async function GET(request: Request) {
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
   const [reports, tokens, audit, tiers, onboarding, nameTags] = await Promise.all([
-    founderCall(session, 'protocol', 'compliance.reports.list', 'GET', undefined, parseWith(protocolComplianceReportsOutputSchema)),
-    founderCall(session, 'protocol', 'tokens.list', 'GET', { window: '24h' }, parseWith(tokensListOutputSchema)),
-    founderCall(session, 'protocol', 'auditProducts', 'GET', undefined, parseWith(protocolAuditProductsSchema)),
-    founderCall(session, 'protocol', 'compliance.tiers.list', 'GET', undefined, parseWith(protocolTokenTiersOutputSchema)),
-    founderCall(session, 'protocol', 'compliance.onboarding.list', 'GET', undefined, parseWith(protocolOnboardingOutputSchema)),
-    founderCall(session, 'protocol', 'compliance.nameTags.list', 'GET', undefined, parseWith(protocolNameTagsOutputSchema)),
+    founderRecordCall(session, PROTOCOL_COMPLIANCE_REPORTS_LIST, undefined),
+    founderRecordCall(session, PROTOCOL_TOKENS_LIST, { window: '24h' }),
+    founderRecordCall(session, PROTOCOL_AUDIT_PRODUCTS, undefined),
+    founderRecordCall(session, PROTOCOL_COMPLIANCE_TIERS_LIST, undefined),
+    founderRecordCall(session, PROTOCOL_COMPLIANCE_ONBOARDING_LIST, undefined),
+    founderRecordCall(session, PROTOCOL_COMPLIANCE_NAME_TAGS_LIST, undefined),
   ]);
   return answer(
     {
@@ -87,6 +92,16 @@ function refusalWords(code: string | null, message: string): string {
 }
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+type WriteRecord =
+  | typeof PROTOCOL_COMPLIANCE_LABELS_ASK
+  | typeof PROTOCOL_COMPLIANCE_LABELS_APPROVE
+  | typeof PROTOCOL_COMPLIANCE_TIERS_ASK
+  | typeof PROTOCOL_COMPLIANCE_TIERS_APPROVE
+  | typeof PROTOCOL_COMPLIANCE_TIERS_REMOVE
+  | typeof PROTOCOL_COMPLIANCE_ONBOARDING_OPEN
+  | typeof PROTOCOL_COMPLIANCE_ONBOARDING_APPROVE
+  | typeof PROTOCOL_COMPLIANCE_NAME_TAGS_REQUEST
+  | typeof PROTOCOL_COMPLIANCE_NAME_TAGS_APPROVE;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(request: Request) {
@@ -109,44 +124,41 @@ export async function POST(request: Request) {
   };
   const addr = (v: unknown): string | null | undefined =>
     v === null || v === undefined || v === '' ? null : typeof v === 'string' && ADDRESS.test(v.trim()) ? v.trim() : undefined;
-  let procedure: string;
-  let input: Record<string, string | null>;
-  let schema: Parameters<typeof parseWith<unknown>>[0] = protocolComplianceReviewSchema;
+  /** One write by its record, sent only when the record's own input check accepts it; null when nothing was sent. */
+  const write = <R extends WriteRecord>(record: R, input: ProcedureInput<R>): Promise<FounderCallResult<unknown>> | null =>
+    record.input.safeParse(input).success ? founderRecordCall(session, record, input) : null;
+  let sent: Promise<FounderCallResult<unknown>> | null;
   if (raw.op === 'ask') {
     const reason = text(raw.reason, 500);
     if (typeof raw.reportId !== 'string' || !UUID.test(raw.reportId)) return invalid();
     if (!(ADDRESS_LABEL_KINDS as readonly unknown[]).includes(raw.kind) || reason === null) return invalid();
-    procedure = 'compliance.labels.ask';
-    input = { reportId: raw.reportId, kind: raw.kind as string, reason };
+    const input = { reportId: raw.reportId, kind: raw.kind as (typeof ADDRESS_LABEL_KINDS)[number], reason };
+    sent = write(PROTOCOL_COMPLIANCE_LABELS_ASK, input);
   } else if (raw.op === 'approve') {
     if (typeof raw.reviewId !== 'string' || !UUID.test(raw.reviewId)) return invalid();
-    procedure = 'compliance.labels.approve';
-    input = { reviewId: raw.reviewId };
+    const input = { reviewId: raw.reviewId };
+    sent = write(PROTOCOL_COMPLIANCE_LABELS_APPROVE, input);
   } else if (raw.op === 'tier-ask') {
     const reason = text(raw.reason, 500);
     const token = addr(raw.token);
     if (!token || !(HUMAN_TOKEN_TIERS as readonly unknown[]).includes(raw.tier) || reason === null) return invalid();
-    procedure = 'compliance.tiers.ask';
-    input = { token, tier: raw.tier as string, reason };
-    schema = protocolTokenTierSchema;
+    const input = { token, tier: raw.tier as (typeof HUMAN_TOKEN_TIERS)[number], reason };
+    sent = write(PROTOCOL_COMPLIANCE_TIERS_ASK, input);
   } else if (raw.op === 'tier-approve') {
     if (typeof raw.requestId !== 'string' || !UUID.test(raw.requestId)) return invalid();
-    procedure = 'compliance.tiers.approve';
-    input = { requestId: raw.requestId };
-    schema = protocolTokenTierSchema;
+    const input = { requestId: raw.requestId };
+    sent = write(PROTOCOL_COMPLIANCE_TIERS_APPROVE, input);
   } else if (raw.op === 'tier-remove') {
     const reason = text(raw.reason, 500);
     const token = addr(raw.token);
     if (!token || reason === null) return invalid();
-    procedure = 'compliance.tiers.remove';
-    input = { token, reason };
-    schema = protocolTokenTierSchema;
+    const input = { token, reason };
+    sent = write(PROTOCOL_COMPLIANCE_TIERS_REMOVE, input);
   } else if (raw.op === 'onboarding-open') {
     const pool = text(raw.pool, 120);
     const [tokenContract, checkerAddress, wrapperAddress] = [addr(raw.tokenContract), addr(raw.checkerAddress), addr(raw.wrapperAddress)];
     if (pool === null || tokenContract === undefined || checkerAddress === undefined || wrapperAddress === undefined) return invalid();
-    procedure = 'compliance.onboarding.open';
-    input = {
+    const input = {
       pool,
       legalEntity: text(raw.legalEntity, 200),
       tokenContract,
@@ -154,29 +166,27 @@ export async function POST(request: Request) {
       wrapperAddress,
       routingRegistration: text(raw.routingRegistration, 200),
     };
-    schema = protocolOnboardingChecklistSchema;
+    sent = write(PROTOCOL_COMPLIANCE_ONBOARDING_OPEN, input);
   } else if (raw.op === 'onboarding-approve') {
     const reason = text(raw.reason, 500);
     if (typeof raw.checklistId !== 'string' || !UUID.test(raw.checklistId) || reason === null) return invalid();
-    procedure = 'compliance.onboarding.approve';
-    input = { checklistId: raw.checklistId, reason };
-    schema = protocolOnboardingChecklistSchema;
+    const input = { checklistId: raw.checklistId, reason };
+    sent = write(PROTOCOL_COMPLIANCE_ONBOARDING_APPROVE, input);
   } else if (raw.op === 'nametag-request') {
     const tag = text(raw.tag, 60);
     const reason = text(raw.reason, 500);
     const address = addr(raw.address);
     if (!address || tag === null || reason === null) return invalid();
-    procedure = 'compliance.nameTags.request';
-    input = { address, tag, reason };
-    schema = protocolNameTagRequestSchema;
+    const input = { address, tag, reason };
+    sent = write(PROTOCOL_COMPLIANCE_NAME_TAGS_REQUEST, input);
   } else if (raw.op === 'nametag-approve') {
     if (typeof raw.requestId !== 'string' || !UUID.test(raw.requestId)) return invalid();
-    procedure = 'compliance.nameTags.approve';
-    input = { requestId: raw.requestId };
-    schema = protocolNameTagRequestSchema;
+    const input = { requestId: raw.requestId };
+    sent = write(PROTOCOL_COMPLIANCE_NAME_TAGS_APPROVE, input);
   } else return invalid();
 
-  const result = await founderCall(session, 'protocol', procedure, 'POST', input, parseWith(schema));
+  if (sent === null) return invalid();
+  const result = await sent;
   switch (result.kind) {
     case 'ok':
       return answer({ ok: true, result: result.data }, 200);

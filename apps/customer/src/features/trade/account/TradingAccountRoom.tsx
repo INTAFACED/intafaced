@@ -5,24 +5,31 @@ import { BANK_SPACES_LIST } from '@intafaced/contracts/bank-spaces-list';
 import { Button, DataTable, EmptyState, Field, Loading, Page } from '../../../shared/ui';
 import { displayAmount } from '../../../shared/money';
 import type { ApiResult } from '../../../shared/api';
-import { useSession } from '../../session/session';
-import { StepUpConfirm } from '../../money/StepUpConfirm';
-import type { StepUpBegin } from '../../account/security-step-up';
-import { useWallet } from '../../protocol/wallet/WalletProvider';
-import { usePolled } from '../../protocol/wallet/use-polled';
-import { APP_CHAIN_ID } from '../../protocol/wallet/eip1193';
-import { transferCalldata } from '../../protocol/wallet/transfer';
+import { useSession } from '../../session';
+import { StepUpConfirm } from '../../money';
+import type { StepUpBegin } from '../../account';
 import {
+  APP_CHAIN_ID,
   canonicalAmount,
   createVenueAccountApi,
   toTokenUnits,
+  transferCalldata,
+  usePolled,
+  useWallet,
   type VenueDepositRoute,
-} from '../../protocol/venue-wallet/venue-account-api';
+} from '../../protocol';
 import { sleep as pause } from '@intafaced/contracts/sleep';
+import {
+  ownMoveMessageSchema,
+  ownMoveViewSchema,
+  tradingCardHeldSchema,
+  tradingCardRowSchema,
+} from '@intafaced/contracts/bank-trading-account-reads';
 import { useVenueMode } from '../use-venue-mode';
 import type { VenueUp } from '../venue-api';
 import { TestMark, VENUE_POLL_MS, VenueFrame, WalletBar, useOwner, useVenueApi } from '../venue/VenueKit';
 import { tradingAccountCopy } from './trading-account-copy';
+import { AccountModePanel } from './AccountMode';
 
 /**
  * The trading account (`/trade/account`, J-derivatives-25): two named groups, each with its own source and time. Trading
@@ -47,28 +54,10 @@ const FOLLOW_EVERY_MS = 1_500;
 type T = ReturnType<typeof tradingAccountCopy.useCopy>['t'];
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 
-const ownMoveSchema = z.object({
-  id: z.string(),
-  direction: z.literal('in'),
-  assetId: z.string(),
-  amount: z.string(),
-  wallet: z.string(),
-  status: z.enum(['opening', 'sent']),
-  partner: z.string(),
-  partnerRef: z.string().nullable(),
-  partnerFee: z.string().nullable(),
-  deliveryTx: z.string().nullable(),
-  depositTx: z.string().nullable(),
-  createdAt: z.string(),
-  sentAt: z.string().nullable(),
-  depositAt: z.string().nullable(),
-});
+const ownMoveSchema = ownMoveViewSchema;
 type OwnMove = z.infer<typeof ownMoveSchema>;
-const cardRowsSchema = z.array(z.object({ id: z.string(), assetId: z.string(), status: z.string(), panTail: z.string() }).passthrough());
-const cardHeldSchema = z.object({
-  heldBy: z.enum(['ledger', 'partner', 'none']),
-  figures: z.object({ assetId: z.string(), available: z.string().nullable() }).passthrough().nullable(),
-});
+const cardRowsSchema = z.array(tradingCardRowSchema);
+const cardHeldSchema = tradingCardHeldSchema;
 
 export function TradingAccountRoom() {
   const { t } = tradingAccountCopy.useCopy();
@@ -229,6 +218,7 @@ function VenueAccount({
           ))}
         </DataTable>
       )}
+      <AccountModePanel owner={owner} venue={venue} balances={rows} onChanged={balances.reload} />
       <CrossMargin owner={owner} venue={venue} revision={revision} onMoveIn={onMoveIn} />
       <Liquidations owner={owner} venue={venue} revision={revision} />
     </div>
@@ -506,7 +496,7 @@ function MoveIn({ owner, venue, partner, onMoved }: { owner: string; venue: Venu
       'bank',
       'ownMoves.message',
       { moveId, assetId: ASSET, amount: sent, wallet: owner },
-      z.object({ message: z.string() }),
+      ownMoveMessageSchema,
     );
     if (!message.ok) {
       setStage({ at: 'idle' });

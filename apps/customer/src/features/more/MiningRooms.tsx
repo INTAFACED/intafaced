@@ -1,7 +1,6 @@
-import { z } from 'zod';
 import { useState } from 'react';
-import { useDebouncedValue } from '../pay/portal/payments/use-debounced';
-import { useApi } from '../session/session';
+import { useDebouncedValue } from '../../shared/use-debounced';
+import { useApi } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { displayAmount } from '../../shared/money';
 import { useResource } from '../../shared/resource';
@@ -15,12 +14,7 @@ import { miningWorkersCopy } from './mining-workers-copy';
 import './mining-workers.css';
 import {
   bpsToPercent,
-  minerShares,
-  minerWorkers,
-  payoutPage,
   PAYOUT_PAGE,
-  pendingWindows,
-  poolTerms,
   sumByAsset,
   sumWeights,
   WINDOW_MINUTES,
@@ -28,9 +22,6 @@ import {
   MODE_CHANGE_IN_WINDOW,
   WORKER_MODES,
   WORKER_PAGE,
-  powSpec,
-  workerDifficulty,
-  workerMode,
   type PowSpec,
   type WorkerMode,
   type MinerShares,
@@ -40,6 +31,17 @@ import {
   type PoolTerms,
   type WindowMinutes,
 } from './mining-reads';
+import {
+  MINING_PAYOUTS_MINE,
+  MINING_POW,
+  MINING_SHARES_MINE,
+  MINING_TERMS,
+  MINING_WINDOWS_PENDING,
+  MINING_WORKERS_MINE,
+  MINING_WORKERS_SET_DIFFICULTY,
+  MINING_WORKERS_SET_MODE,
+  MINING_WORKERS_SOLO_CREDIT,
+} from '@intafaced/contracts/mining-procedures';
 import type { ApiResult } from '../../shared/api';
 import type { Resource } from '../../shared/resource';
 
@@ -134,18 +136,15 @@ function Workers() {
   const name = useDebouncedValue(filter);
   const input = { windowMinutes: minutes, limit: WORKER_PAGE, ...(name ? { name } : {}), ...(cursor ? { cursor } : {}) };
   const read = useResource(
-    (signal) => api.query('mining', 'workers.mine', input, minerWorkers, { signal }),
+    (signal) => api.call(MINING_WORKERS_MINE, input, { signal }),
     `mining-workers:${minutes}:${name}:${cursor ?? ''}`,
   );
   const setDifficulty = (workerId: string, minDifficulty: string | null) =>
-    api.mutate('mining', 'workers.setDifficulty', { workerId, minDifficulty }, workerDifficulty);
-  const setMode = (name: string, mode: WorkerMode) => api.mutate('mining', 'workers.setMode', { name, mode }, workerMode);
-  const pow = useResource((signal) => api.query('mining', 'pow', undefined, powSpec, { signal }), 'mining-pow');
+    api.call(MINING_WORKERS_SET_DIFFICULTY, { workerId, minDifficulty });
+  const setMode = (name: string, mode: WorkerMode) => api.call(MINING_WORKERS_SET_MODE, { name, mode });
+  const pow = useResource((signal) => api.call(MINING_POW, undefined, { signal }), 'mining-pow');
   // Solo credit is the service's own answer; today it is always a typed refusal.
-  const soloCredit = useResource(
-    (signal) => api.query('mining', 'workers.soloCredit', undefined, z.never(), { signal }),
-    'mining-solo-credit',
-  );
+  const soloCredit = useResource((signal) => api.call(MINING_WORKERS_SOLO_CREDIT, undefined, { signal }), 'mining-solo-credit');
   return (
     <WorkersView
       read={read}
@@ -473,7 +472,7 @@ function DifficultyForm({
 
 function Shares() {
   const api = useApi();
-  const read = useResource((signal) => api.query('mining', 'shares.mine', {}, minerShares, { signal }), 'mining-shares');
+  const read = useResource((signal) => api.call(MINING_SHARES_MINE, {}, { signal }), 'mining-shares');
   return <SharesView read={read} />;
 }
 
@@ -534,19 +533,16 @@ export function SharesView({ read }: { read: Read<MinerShares> }) {
 
 function Rewards() {
   const api = useApi();
-  const terms = useResource((signal) => api.query('mining', 'terms', undefined, poolTerms, { signal }), 'mining-terms');
-  const pending = useResource((signal) => api.query('mining', 'windows.pending', undefined, pendingWindows, { signal }), 'mining-pending');
-  const firstPage = useResource(
-    (signal) => api.query('mining', 'payouts.mine', { limit: PAYOUT_PAGE }, payoutPage, { signal }),
-    'mining-payouts',
-  );
+  const terms = useResource((signal) => api.call(MINING_TERMS, undefined, { signal }), 'mining-terms');
+  const pending = useResource((signal) => api.call(MINING_WINDOWS_PENDING, undefined, { signal }), 'mining-pending');
+  const firstPage = useResource((signal) => api.call(MINING_PAYOUTS_MINE, { limit: PAYOUT_PAGE }, { signal }), 'mining-payouts');
   const [more, setMore] = useState<{ rows: PayoutPage['payouts']; next: string | null; busy: boolean; failed: boolean } | null>(null);
   const first = firstPage.resource.status === 'ready' ? firstPage.resource.data : null;
   const next = more ? more.next : (first?.nextCursor ?? null);
   async function showMore() {
     if (!next || more?.busy) return;
     setMore({ rows: more?.rows ?? [], next, busy: true, failed: false });
-    const result = await api.query('mining', 'payouts.mine', { limit: PAYOUT_PAGE, cursor: next }, payoutPage);
+    const result = await api.call(MINING_PAYOUTS_MINE, { limit: PAYOUT_PAGE, cursor: next });
     setMore((current) => ({
       rows: [...(current?.rows ?? []), ...(result.ok ? result.data.payouts : [])],
       next: result.ok ? result.data.nextCursor : next,

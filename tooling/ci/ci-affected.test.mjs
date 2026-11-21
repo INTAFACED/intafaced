@@ -4,8 +4,10 @@ import {
   affectedFilters,
   buildFilters,
   classify,
+  rustCrates,
   diffBase,
   mergeEdges,
+  readEdges,
   runsEverything,
   sealNeeded,
   shardMatrix,
@@ -16,6 +18,7 @@ import { detectedEdges } from './cross-package-reads.mjs';
 const assert = (cond, msg) => nodeAssert.ok(cond, msg);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const none = { full: false, affected: false };
+const pick = ({ full, affected }) => ({ full, affected });
 
 test('classify: each path lands in full, affected or neither', () => {
   const cases = [
@@ -24,7 +27,7 @@ test('classify: each path lands in full, affected or neither', () => {
     { files: ['packages/ledger-client/src/index.ts'], expected: { full: true, affected: false } },
     { files: ['packages/config/src/index.ts'], expected: { full: true, affected: false } },
     { files: ['packages/auth/src/index.ts'], expected: { full: true, affected: false } },
-    { files: ['packages/contracts/src/x.ts'], expected: { full: true, affected: false } },
+    { files: ['packages/contracts/src/x.ts'], expected: { full: false, affected: true } },
     { files: ['packages/events/src/catalog.ts'], expected: { full: true, affected: false } },
     { files: ['tooling/ci/gates.mjs'], expected: { full: true, affected: false } },
     { files: ['tooling/infra/postgres-init/01-service-schemas.sql'], expected: { full: true, affected: false } },
@@ -49,11 +52,87 @@ test('classify: each path lands in full, affected or neither', () => {
     { files: ['docs/x.md', 'services/svc-trade/src/a.ts'], expected: { full: false, affected: true } },
   ];
   for (const c of cases) {
-    const got = classify(c.files);
+    const { full, affected } = classify(c.files);
+    const got = { full, affected };
     assert(same(got, c.expected), `classify(${JSON.stringify(c.files)}) => ${JSON.stringify(got)} expected ${JSON.stringify(c.expected)}`);
   }
   const forced = classify(['services/svc-protocol/x.ts'], { forceFull: true });
   assert(forced.full === true && forced.affected === false, 'forceFull must short-circuit to full');
+});
+
+test('classify: a lint rule or a baseline file runs only the product tests that read it, never all sixteen shards', () => {
+  const lintRead = { 'packages/config': ['tooling/lint/'] };
+  const cases = [
+    // The past mistake (project-state#3379): a bug fix that also deletes lines from the conflict-keys baseline took the whole suite.
+    { files: ['tooling/ci/conflict-keys-baseline.json'], edges: {}, expected: none },
+    { files: ['tooling/ci/dead-code-baseline.json'], edges: lintRead, expected: none },
+    {
+      files: ['tooling/ci/conflict-keys-baseline.json', 'services/svc-bank/src/a.ts'],
+      edges: {},
+      expected: { full: false, affected: true },
+    },
+    { files: ['tooling/lint/oxlint-plugin-garden/copy-rules.js'], edges: lintRead, expected: { full: false, affected: true } },
+    { files: ['tooling/lint/oxlint-plugin-garden/copy-rules.js'], edges: {}, expected: none },
+    { files: ['tooling/ci/conflict-keys.mjs'], edges: {}, expected: { full: true, affected: false } },
+    { files: ['tooling/ci/conflict-keys-baseline.json', 'tooling/ci/gates.mjs'], edges: {}, expected: { full: true, affected: false } },
+    { files: ['tooling/ci/nested/x-baseline.json'], edges: {}, expected: { full: true, affected: false } },
+    { files: ['tooling/linter/x.mjs'], edges: {}, expected: { full: true, affected: false } },
+    { files: ['tooling/brand-new/x.mjs'], edges: {}, expected: { full: true, affected: false } },
+  ];
+  for (const c of cases) {
+    const { full, affected } = classify(c.files, { edges: c.edges });
+    assert(
+      same({ full, affected }, c.expected),
+      `classify(${JSON.stringify(c.files)}) => ${JSON.stringify({ full, affected })} expected ${JSON.stringify(c.expected)}`,
+    );
+  }
+  // With the tree's own reads: no product test reads a baseline file, and packages/config's copy-rule test reads the lint.
+  assert(same(pick(classify(['tooling/ci/conflict-keys-baseline.json'])), none), 'the real tree: a baseline-only diff picks no unit shard');
+  const edges = readEdges();
+  assert(edges['packages/config']?.includes('tooling/lint/'), 'the read scan finds packages/config reading tooling/lint/');
+  assert(
+    affectedFilters(['tooling/lint/oxlint-plugin-garden/copy-rules.js'], edges).includes('./packages/config'),
+    'a lint rule change runs the test that reads it',
+  );
+  // contracts: its dependents (turbo's `...[base]`), not everything.
+  assert(same(affectedFilters(['packages/contracts/src/x.ts'], {}), ['...[origin/main]']), 'a contracts diff picks its dependents');
+});
+
+test('classify: a change that reaches Rust runs the Rust job, and Rust files alone run no TypeScript tests', () => {
+  const cases = [
+    { files: ['crates/svc-tax/src/lib.rs'], expected: { full: false, affected: false, rust: true } },
+    { files: ['crates/svc-tax/Cargo.toml'], expected: { full: false, affected: false, rust: true } },
+    { files: ['Cargo.toml'], expected: { full: false, affected: false, rust: true } },
+    { files: ['Cargo.lock'], expected: { full: false, affected: false, rust: true } },
+    { files: ['rust-toolchain.toml'], expected: { full: false, affected: false, rust: true } },
+    { files: ['clippy.toml'], expected: { full: false, affected: false, rust: true } },
+    { files: ['.cargo/config.toml'], expected: { full: false, affected: false, rust: true } },
+    { files: ['crates/svc-tax/src/lib.rs', 'services/svc-tax/src/a.ts'], expected: { full: false, affected: true, rust: true } },
+    { files: ['services/svc-x/src/main.rs'], expected: { full: false, affected: true, rust: true } },
+    { files: ['.github/workflows/ci.yml'], expected: { full: true, affected: false, rust: true } },
+    { files: ['package.json'], expected: { full: true, affected: false, rust: true } },
+    // A crate replaces the service of its name, and its tests read that service's recorded answers.
+    { files: ['services/svc-tax/package.json'], expected: { full: false, affected: true, rust: true } },
+    { files: ['services/svc-tax/src/a.ts'], expected: { full: false, affected: true, rust: true } },
+    { files: ['services/svc-tax/src/wire-replay.golden.json'], expected: { full: false, affected: true, rust: true } },
+    { files: ['services/svc-taxes/src/a.ts'], expected: { full: false, affected: true, rust: false } },
+    { files: ['services/svc-bank/src/a.ts'], expected: { full: false, affected: true, rust: false } },
+    // A crate's tests read its own service's records, and only those (project-state#3522).
+    { files: ['packages/contracts/procedures/svc-tax.schema.json'], expected: { full: false, affected: true, rust: true } },
+    { files: ['packages/contracts/procedures/svc-academy.schema.json'], expected: { full: false, affected: true, rust: true } },
+    { files: ['packages/contracts/procedures/svc-market.schema.json'], expected: { full: false, affected: true, rust: false } },
+    { files: ['packages/contracts/procedures/svc-taxes.schema.json'], expected: { full: false, affected: true, rust: false } },
+    { files: ['tooling/ci/gates.mjs'], expected: { full: true, affected: false, rust: false } },
+    { files: ['docs/x.md'], expected: { full: false, affected: false, rust: false } },
+    { files: ['vendor/x/y.ts'], expected: { full: true, affected: false, rust: false } },
+  ];
+  for (const c of cases) {
+    const got = classify(c.files);
+    assert(same(got, c.expected), `classify(${JSON.stringify(c.files)}) => ${JSON.stringify(got)} expected ${JSON.stringify(c.expected)}`);
+  }
+  assert(classify(['docs/x.md'], { forceFull: true }).rust === true, 'a run-everything run runs the Rust job');
+  assert(rustCrates().includes('svc-tax'), 'the crates are read from crates/');
+  assert(classify(['services/svc-bank/src/a.ts'], { crates: ['svc-bank'] }).rust === true, 'a new crate needs no list edit');
 });
 
 test('filters: dependents of what changed, plus the readers of the changed package', () => {
@@ -121,6 +200,12 @@ test('seal: the required jobs a classification needs', () => {
   );
   assert(sealNeeded({ full: true, affected: false }, { ...ok, 'tests-full': 'failure' }).length === 1, 'full run red');
   assert(sealNeeded({ full: true, affected: false }, { ...ok, build: 'failure', 'tests-full': 'success' }).length === 1, 'build red');
+  const rust = { full: false, affected: false, rust: true };
+  assert(sealNeeded(rust, { ...ok, rust: 'success' }).length === 0, 'Rust job green');
+  assert(sealNeeded(rust, { ...ok, rust: 'failure' }).length === 1, 'Rust job red');
+  assert(sealNeeded(rust, { ...ok, rust: 'skipped' }).length === 1, 'a skipped Rust job is a failure when the change reaches Rust');
+  assert(sealNeeded(rust, ok).length === 1, 'a missing Rust job is a failure when the change reaches Rust');
+  assert(sealNeeded(none, { ...ok, rust: 'skipped' }).length === 0, 'a change that reaches no Rust needs no Rust job');
 });
 
 test('shards: how many test jobs a run takes', () => {

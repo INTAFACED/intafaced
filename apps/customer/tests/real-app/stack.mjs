@@ -117,6 +117,15 @@ export function journeyState(id) {
   };
 }
 
+/** A step's read of its run (`journeyState`), refusing by name when an earlier step left one of `keys` unset. */
+export function stepState(run, J) {
+  return function state(...keys) {
+    const s = run.read();
+    for (const k of keys) if (!s[k]) throw new Error(`${J}: an earlier step left no ${k}, so this step has nothing to act on`);
+    return s;
+  };
+}
+
 /** How long a stack tool may run. */
 const TOOL_CAP_MS = 120_000;
 /** How much of a tool's shown output its error keeps, from the end, so a timed-out restart says where it stood. */
@@ -652,3 +661,12 @@ export function fromUnits(units) {
 }
 /** price x amount, in units. */
 export const times = (a, b) => (toUnits(a) * toUnits(b)) / SCALE;
+
+/** The svc-trade market id of a listed spot symbol, from the public markets list; throws by name when it is not listed. */
+export async function marketIdOf(symbol) {
+  const res = await fetch(`${EDGE}/api/v1/markets?limit=500`);
+  if (res.status !== 200) throw new Error(`the public markets list answered ${res.status}`);
+  const market = (await res.json()).find((m) => m.symbol === symbol);
+  if (!market) throw new Error(`${symbol} is not listed on the stack`);
+  return market.id;
+}

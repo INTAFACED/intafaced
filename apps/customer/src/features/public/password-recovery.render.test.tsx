@@ -8,13 +8,11 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 // Server rendering runs no effects, so the support service never answers. This stands in for "it answered, and holds no
-// address": the build address (VITE_SUPPORT_EMAIL, read at call time) is then the only source, as these tests expect.
-vi.mock('../more/support-contact', async (original) => {
-  const real = await original<typeof import('../more/support-contact')>();
-  return {
-    ...real,
-    useSupportContact: () => real.mergeSupportContact({ ok: true, email: null, phone: null, chatHours: null }, real.supportContactEmail()),
-  };
+// address": the build address (VITE_SUPPORT_EMAIL, read at call time) is then the only source, as these tests expect. The
+// hook's first answer already holds that address and nothing else, so only its status changes.
+vi.mock('../more', async (original) => {
+  const real = await original<typeof import('../more')>();
+  return { ...real, useSupportContact: () => ({ ...real.useSupportContact(), status: 'ready' as const }) };
 });
 
 // Same for the outreach desk: by default it answered and holds no join address or terms; a test may set what it holds.
@@ -28,7 +26,7 @@ vi.mock('./partner-settings', async (original) => {
   };
 });
 
-import { SessionProvider } from '../session/session';
+import { SessionProvider } from '../session';
 import { PasswordRecovery } from './PasswordRecovery';
 import { AppPage, NoticePage, PartnerPage } from './PublicPages';
 

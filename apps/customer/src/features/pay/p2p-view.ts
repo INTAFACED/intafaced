@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useReducer, useRef } from 'react';
 import { flushSync } from 'react-dom';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 
 /** A private P2P view retires in the observed event, before React may batch
  * departure and return. Retiring this view never removes an original journal. */

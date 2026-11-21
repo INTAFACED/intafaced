@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { refusalDetail } from './refusal.mjs';
+import { budgetSpentUntil, refusalDetail } from './refusal.mjs';
 import { isRefusal } from './journeys-revive.mjs';
 
 const SECONDARY = JSON.stringify({
@@ -48,4 +48,17 @@ test('a body that is not JSON is kept on one line, cut short; nothing to say is 
 test('the longer stop line is still a refusal, so the tick still stops and is never retried', () => {
   const line = `GitHub 403 on GET /repos/x/actions/workflows/real-app-journeys.yml/runs?branch=main&per_page=100: stopping, not retrying${refusalDetail(new Headers({ 'retry-after': '60' }), SECONDARY)}`;
   assert.equal(isRefusal(new Error(line)), true);
+});
+
+test('only a spent primary budget with its reset is a wait (#9093); a secondary limit, a permission or a 502 is not', () => {
+  const H = (o) => new Headers(o);
+  assert.equal(
+    budgetSpentUntil(403, H({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1795111582' })),
+    new Date(1795111582e3).toISOString(),
+  );
+  assert.equal(budgetSpentUntil(429, H({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1795111582' })) !== null, true);
+  assert.equal(budgetSpentUntil(403, H({ 'x-ratelimit-remaining': '0' })), null, 'no reset: nothing to wait for');
+  assert.equal(budgetSpentUntil(403, H({ 'x-ratelimit-remaining': '12', 'x-ratelimit-reset': '1795111582' })), null);
+  assert.equal(budgetSpentUntil(403, H({ 'retry-after': '60' })), null, 'a secondary limit');
+  assert.equal(budgetSpentUntil(502, H({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1795111582' })), null);
 });

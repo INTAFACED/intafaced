@@ -9,6 +9,7 @@ import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { AuthError } from '@intafaced/auth';
 import { TradeOpsError } from './common.js';
 import { SETTABLE_MARKET_MODES } from './market-mode.js';
+import { parseChartFeedAction } from './chart-feed-controls.js';
 import type { TradeOpsAdmin } from './service.js';
 
 const limit = z.number().int().min(1).max(200);
@@ -55,6 +56,21 @@ const chartOwnerValueSet = z.discriminatedUnion('key', [
     })
     .strict(),
 ]);
+
+/** One chart feed change (J-charts-desk-19): the action as a tagged union; a source name only on a switch. */
+const chartFeedChange = z
+  .object({
+    symbol: z.string().trim().min(1).max(64),
+    action: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('switch_source'), to: z.string().trim().min(1).max(32) }).strict(),
+      z.object({ kind: z.literal('disable') }).strict(),
+      z.object({ kind: z.literal('enable') }).strict(),
+      z.object({ kind: z.literal('delist_with_history') }).strict(),
+    ]),
+    expectedVersion: versionText,
+    reason,
+  })
+  .strict();
 
 const limits = z
   .object({
@@ -539,6 +555,23 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       set: operatorWrite
         .input(chartOwnerValueSet)
         .mutation(({ ctx, input }) => ready().chartOwnerValues.set(ctx.principal, input).catch(fail)),
+    }),
+    // J-charts-desk-19 #2 #3 #4: a market's chart feed source and state, each change by two operators; its journal and export.
+    chartFeedControls: router({
+      list: operator.query(({ ctx }) => ready().chartFeedControls.list(ctx.principal).catch(fail)),
+      prepare: operatorWrite.input(chartFeedChange).query(({ ctx, input }) =>
+        Promise.resolve()
+          .then(() => ready().chartFeedControls.prepare(ctx.principal, { ...input, action: parseChartFeedAction(input.action) }))
+          .catch(fail),
+      ),
+      run: operatorWrite.input(chartFeedChange.extend({ approvalId, operationId: clientRequestId }).strict()).mutation(({ ctx, input }) =>
+        Promise.resolve()
+          .then(() => ready().chartFeedControls.apply(ctx.principal, { ...input, action: parseChartFeedAction(input.action) }))
+          .catch(fail),
+      ),
+      export: operator
+        .input(z.object({ from: z.string().max(64).nullish(), to: z.string().max(64).nullish() }).strict())
+        .mutation(({ ctx, input }) => ready().chartFeedControls.export(ctx.principal, input).catch(fail)),
     }),
     venueMarkets: router({
       list: operator.query(({ ctx }) => venueDesk().list(ctx.principal).catch(fail)),

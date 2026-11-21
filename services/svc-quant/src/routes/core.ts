@@ -1,3 +1,4 @@
+import type { RefusalOf } from '@intafaced/contracts/procedure-mount';
 import {
   type ApprovalRepository,
   type StoredApproval,
@@ -15,14 +16,7 @@ import {
   readStoredBacktest,
 } from '../engine/run.js';
 import { type BacktestLake, missingLake } from '../backtest/lake.js';
-import {
-  type Context,
-  type QuantBacktestResult,
-  type QuantLifecycle,
-  type QuantLiveCheck,
-  TRPCError,
-  quantSignalRulesSchema,
-} from '@intafaced/contracts';
+import { type Context, type QuantBacktestResult, type QuantLifecycle, type QuantLiveCheck, TRPCError } from '@intafaced/contracts';
 import { DEFAULT_FLOOR_POLICY } from '../risk/rules.js';
 import { type DisclosureRepository } from '../disclosure/repository.js';
 import { type FeePort, type HistoryPort, missingFees, missingHistory } from '../engine/ports.js';
@@ -142,107 +136,23 @@ import { openNotifyRepository } from '../notify/open.js';
 import { openStrategyRepository } from '../studio/open.js';
 import { openTemplateRepository } from '../templates/open.js';
 import { paperView } from '../paper/view.js';
+/** svc-quant's wire shapes, published with its records (`@intafaced/contracts/quant-wire`), under their old names. */
+import {
+  quantSimulatedStampSchema as simulatedStamp,
+  quantEnvironmentInputSchema as environmentInput,
+  quantDecimalSchema as decimal,
+  quantSandboxRunOutputSchema as runOutput,
+  quantStudioBlockSchema as studioBlock,
+  quantStrategyHeadRecordSchema as strategyHead,
+  quantStrategyDetailRecordSchema as strategyDetail,
+  quantCostEvidenceSchema as costEvidence,
+  quantAccountField as accountField,
+  quantWriteKeyField as writeKeyField,
+} from '@intafaced/contracts/quant-wire';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { z } from 'zod';
 
-export const simulatedStamp = z.object({
-  environment: z.enum(['paper', 'backtest', 'shadow']),
-  kind: z.enum(['paper', 'simulated']),
-  claimLabel: z.enum(['Paper — not live performance', 'Historical simulation — not a forecast', 'Shadow — not live performance']),
-  live: z.literal(false),
-  simulated: z.literal(true),
-});
-
-export const environmentInput = z.object({
-  environment: z.string().optional().nullable(),
-  presentedAs: z.string().optional().nullable(),
-});
-
-export const decimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'amounts are decimal strings with at most 18 decimal places');
-
-export const language = z.enum(['javascript', 'typescript', 'python']);
-
-export const fillSchema = z.object({
-  side: z.enum(['buy', 'sell']),
-  symbol: z.string(),
-  qty: z.string(),
-  price: z.string(),
-  venue: z.literal('internal'),
-});
-
-export const rejectReason = z.enum([
-  'quantity invalid',
-  'price invalid',
-  'time in force invalid',
-  'unknown symbol',
-  'limit hit',
-  'insufficient cash',
-  'exceeds position',
-  'no short rule',
-  'unknown order',
-  'not open',
-]);
-
-/** One event of one paper order (AL-orders-01). */
-export const orderEventSchema = z.object({
-  seq: z.number().int(),
-  order: z.string(),
-  kind: z.enum(['new', 'accepted', 'filled', 'rejected', 'cancel_pending', 'cancelled']),
-  type: z.enum(['market', 'limit']),
-  side: z.enum(['buy', 'sell']),
-  symbol: z.string(),
-  qty: z.string(),
-  tif: z.enum(['gtc', 'ioc']),
-  market: z.string(),
-  limit: z.string().optional(),
-  price: z.string().optional(),
-  reason: rejectReason.optional(),
-  notional: z.string().optional(),
-  fee: z.string().optional(),
-  cash: z.string().optional(),
-  position: z.string().optional(),
-  reserved: z.string().optional(),
-});
-
-/** One leg of a reversal, each checked on its own (AL-orders-02). */
-export const reverseLegSchema = z.object({
-  leg: z.enum(['close', 'open']),
-  side: z.enum(['buy', 'sell']),
-  symbol: z.string(),
-  qty: z.string(),
-  checked: z.literal(true),
-  outcome: z.enum(['filled', 'refused']),
-  order: z.string(),
-  reason: rejectReason.nullable(),
-});
-
-export const runOutput = z
-  .object({
-    ok: z.literal(true),
-    language,
-    logs: z.array(z.string()),
-    cash: z.string(),
-    pnl: z.string(),
-    fills: z.array(fillSchema),
-    positions: z.array(z.object({ symbol: z.string(), qty: z.string() })),
-    events: z.array(orderEventSchema),
-    legs: z.array(reverseLegSchema),
-    ticks: z.object({ label: z.literal('TEST'), path: z.record(z.string(), z.array(z.string())) }),
-    venue: z.literal('internal'),
-    venueVault: z.enum(['unset', 'set']),
-    // A run stored before the limits were reported is read back without them.
-    limits: z
-      .object({
-        wallClockMs: z.number().int().nullable(),
-        memoryBytes: z.number().int().nullable(),
-        outputBytes: z.number().int().nullable(),
-        maxOps: z.number().int().nullable(),
-        maxSource: z.number().int().nullable(),
-      })
-      .nullable()
-      .default(null),
-  })
-  .merge(simulatedStamp);
+export { simulatedStamp, environmentInput, decimal, runOutput, studioBlock, strategyHead, strategyDetail, accountField, writeKeyField };
 
 /** The head an organise sets: a name, one level of folder (blank is the root) and a description, each checked by name. */
 export function organisationOf(input: { name?: unknown; folder?: unknown; description?: unknown }): StrategyOrganisation {
@@ -261,6 +171,10 @@ export function organisationOf(input: { name?: unknown; folder?: unknown; descri
   if (description.length > 500) throw new QuantError('quant.params_invalid', 'description — longer than 500 characters');
   return { name, folder, description };
 }
+
+/** svc-quant's one reader of its refusals for a record-mounted call: the `QuantError` `toTrpc` sent, by its code. */
+export const quantRefusal: RefusalOf = (err) =>
+  err instanceof TRPCError && err.cause instanceof QuantError ? { code: err.cause.code, error: err } : undefined;
 
 export function toTrpc(err: unknown): never {
   if (err instanceof QuantError) {
@@ -359,12 +273,6 @@ export function toTrpc(err: unknown): never {
   throw err;
 }
 
-export const studioBlock = z.object({
-  side: z.enum(['buy', 'sell']),
-  symbol: z.string().min(1).max(32),
-  qty: decimal,
-});
-
 export const studioRisk = z
   .object({
     maxDrawdown: z.string().optional(),
@@ -372,55 +280,6 @@ export const studioRisk = z
     kill: z.string().optional(),
   })
   .optional();
-
-export const strategyVersionRecord = z
-  .object({
-    version: z.number().int().positive(),
-    createdAt: z.string(),
-    name: z.string(),
-    language: z.literal('javascript'),
-    source: z.string(),
-    cash: z.string(),
-    blocks: z.array(studioBlock),
-    modules: quantSignalRulesSchema.nullable(),
-    risk: z.object({
-      maxDrawdown: z.string(),
-      maxNotional: z.string(),
-      kill: z.string(),
-    }),
-    // A default, because a version stored before release notes existed was replayed without one.
-    releaseNote: z.string().default(''),
-  })
-  .merge(simulatedStamp);
-
-export const strategyHead = strategyVersionRecord.extend({
-  id: z.string(),
-  accountId: z.string().guid(),
-  clientStrategyId: z.string(),
-  deletedAt: z.string().nullable(),
-  // Defaults, because a write receipt stored before the head fields existed is replayed as it was stored.
-  folder: z.string().default(''),
-  description: z.string().default(''),
-  organised: z.number().int().nonnegative().default(0),
-  restores: z.number().int().nonnegative().default(0),
-});
-
-export const strategyDetail = strategyHead.extend({
-  versions: z.array(strategyVersionRecord),
-});
-
-/**
- * One strategy as `studio.get` answers it, with what the account's live approval policy allows (J-algo-dev-16 #4): the
- * live runner (svc-trade) starts a version only when the policy is off or that version holds a current approval.
- */
-export const strategyDetailForLive = strategyDetail.extend({
-  liveApproval: z.object({ required: z.boolean(), approvedVersions: z.array(z.number().int().positive()) }),
-});
-
-export const costEvidence = z.object({
-  kind: z.string(),
-  source: z.string(),
-});
 
 export const costBreakdown = z
   .object({
@@ -462,25 +321,6 @@ export function sandboxBody(ran: {
     claimLabel: ran.claimLabel,
   };
 }
-
-export const backtestOutput = z
-  .object({
-    ok: z.literal(true),
-    runId: z.string(),
-    strategyId: z.string(),
-    walkForward: z.object({
-      inSampleFrom: z.string(),
-      inSampleTo: z.string(),
-      outOfSampleFrom: z.string(),
-      outOfSampleTo: z.string(),
-    }),
-    inSample: z.object({ fillCount: z.number().int(), notional: decimal }),
-    outOfSample: z.object({ fillCount: z.number().int(), notional: decimal }),
-    claimLabel: z.literal('Historical simulation — not a forecast'),
-    outOfSampleLabel: z.string(),
-    strategyVersion: z.number().int().positive(),
-  })
-  .merge(simulatedStamp);
 
 export interface QuantRouterDeps extends SandboxDeps {
   readonly lake?: BacktestLake;
@@ -575,8 +415,6 @@ export const strategyMetadata = z.object({
   simulated: z.literal(true),
 });
 
-export const accountField = { accountId: z.string().guid().optional() };
-export const writeKeyField = { idempotencyKey: z.string().optional().nullable() };
 export const clientIdField = { clientStrategyId: z.string().optional().nullable() };
 
 /** A stored alert as the screen reads it. */

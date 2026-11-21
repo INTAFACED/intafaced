@@ -126,6 +126,16 @@
       "value": "86400",
       "note": "TEST window for the operator module counts of quotes requested and settled. Blank refuses trade.ops_metrics_window_not_set."
     },
+    "TRADE_CHART_FEED_FALLBACK_SOURCES": {
+      "service": "trade",
+      "value": "test-backup",
+      "note": "LOCAL TEST ONLY, not an owner decision: one TEST fallback chart feed source name, so an operator can switch a market's chart feed to it with a second operator (J-charts-desk-19 #3). No adapter connects it, so a chart on it refuses its candle read. Blank refuses every switch trade.chart_feed.fallback_sources_unset."
+    },
+    "TRADE_CHART_CONTROL_EXPORT_ROW_LIMIT": {
+      "service": "trade",
+      "value": "1000",
+      "note": "LOCAL TEST ONLY, not an owner decision: the most chart control changes one audit export holds (J-charts-desk-19 #4). Blank refuses trade.chart_feed.export_row_limit_unset; more rows refuse trade.chart_feed.export_over_limit."
+    },
     "TRADE_OTC_DESK_LAW": {
       "service": "trade",
       "value": "{\"published\": true, \"spreadBps\": 20, \"minStake\": \"100\", \"counterparty\": \"platform\", \"quoteTtlMs\": 60000, \"maxMidAgeSeconds\": 86400, \"settleWindowMs\": 60000, \"minNotional\": {\"USDT\": \"1000\"}, \"assets\": [\"BTC\"], \"minTier\": \"full\"}",
@@ -210,6 +220,11 @@
       "service": "trade",
       "value": "test-chain:rewards=0x00000000000000000000000000000000ce510001",
       "note": "LOCAL TEST ONLY, not an owner decision: INTAFACED's TEST rewards wallet on the stack's TEST chain (no key; svc-campaigns pays rewards from it by impersonating it on that anvil only, J-campaigns-03). Blank, the sweep waits trade.own_funds_wallet_unset."
+    },
+    "TRADE_BUILDER_MODE_ALERT_CONTACT": {
+      "service": "trade",
+      "value": "TEST founders on call (oncall@intafaced.test)",
+      "note": "LOCAL TEST ONLY, not an owner decision: the named contact an alert goes to when our builder address leaves the mode a TEST venue requires for builder fees (J-ops-console-28). Blank, the console shows the modes and refuses to alert trade.builder_mode_alert_contact_unset."
     },
     "TRADE_USER_VENUE_BUILDER_FEE_BPS": {
       "service": "trade",

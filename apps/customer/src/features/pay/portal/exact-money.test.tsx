@@ -40,6 +40,9 @@ const approval: Approval = {
   createdAt: '2026-10-15T09:00:00.000Z',
   decidedAt: null,
   expiresAt: '2099-10-16T09:00:00.000Z',
+  railId: 'crypto-native',
+  destinationKind: 'crypto',
+  destinationMasked: '0x7a3f…4421',
 };
 const portal = {} as PortalApi;
 const noop = () => undefined;

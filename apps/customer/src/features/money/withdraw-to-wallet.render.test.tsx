@@ -36,7 +36,18 @@ const query = vi.fn(async (module: string, procedure: string) =>
         ? { ok: true, data: { kind: 'external' } }
         : { ok: true, data: LIMITS },
 );
-vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: { mutate, query } }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({
+    userId: 'u1',
+    api: {
+      mutate,
+      query,
+      call: (record: { kind: string; module: string; path: string; output: unknown }, input: unknown, options?: unknown) =>
+        (record.kind === 'query' ? query : mutate)(record.module, record.path, input, record.output, options),
+    },
+  }),
+}));
 const mint = vi.fn();
 vi.mock('./withdraw-step-up', async (original) => ({
   ...(await original<typeof import('./withdraw-step-up')>()),

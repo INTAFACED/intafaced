@@ -5,16 +5,16 @@ import {
   quantStrategyCardSchema,
   type QuantStrategyCard,
 } from '@intafaced/contracts/quant-algo';
+import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
 import { useState } from 'react';
 import { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
+import { parsesAs, type ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Panel, Tabs } from '../../shared/ui';
-import { Read, Select } from '../more/common';
-import { preservePaperHref } from '../more/trade-context';
-import { useApi } from '../session/session';
+import { Read, Select, preservePaperHref } from '../more';
+import { useApi } from '../session';
 import { QuantRooms } from './QuantRooms';
 import { strategiesCopy } from './strategies-copy';
-import { MorePages, useStrategyPages } from './strategy-pages';
+import { MorePages, useStrategyPages, type StrategyPageRead } from './strategy-pages';
 import { QuotaAwareFailure } from './quota-refusal';
 import { PlanTiers } from './PlanTiers';
 import { UsagePanel } from './UsagePanel';
@@ -82,10 +82,16 @@ export function StrategiesRoom({ paper }: { paper: boolean }) {
   );
 }
 
+/** The saved list reads `studio.list` by its record; a row must still read as a card (a non-blank id) to be shown. */
+const savedPage: StrategyPageRead<QuantStrategyCard> = (api, input, signal) =>
+  api.call(QUANT_STUDIO_LIST, input, { signal, accept: parsesAs(quantStrategyCardPageSchema) });
+const binPage: StrategyPageRead<QuantStrategyCard> = (api, input, signal) =>
+  api.query('quant', 'studio.listDeleted', input, quantStrategyCardPageSchema, { signal });
+
 function SavedList({ paper, onChanged }: { paper: boolean; onChanged: (note: string) => void }) {
   const api = useApi();
   const { t } = strategiesCopy.useCopy();
-  const pages = useStrategyPages('studio.list', quantStrategyCardPageSchema, '');
+  const pages = useStrategyPages('studio.list', savedPage, '');
   const [folder, setFolder] = useState(ALL);
   const [editing, setEditing] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -267,7 +273,7 @@ function OrganiseForm(props: { strategy: QuantStrategyCard; onCancel: () => void
 function RecycleBin({ onChanged }: { onChanged: (note: string) => void }) {
   const api = useApi();
   const { t } = strategiesCopy.useCopy();
-  const pages = useStrategyPages('studio.listDeleted', quantStrategyCardPageSchema, '');
+  const pages = useStrategyPages('studio.listDeleted', binPage, '');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
   async function restore(strategy: QuantStrategyCard) {

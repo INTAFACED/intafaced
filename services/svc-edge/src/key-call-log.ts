@@ -9,6 +9,8 @@
  */
 import { createHash } from 'node:crypto';
 import type { ApiKeyCallRecordInput } from '@intafaced/contracts/api-keys';
+import { IDENTITY_DEVELOPER_KEYS_RECORD_CALL } from '@intafaced/contracts/identity-developer-keys-procedures';
+import { trpcRecordRequest } from '@intafaced/contracts/procedure-trpc';
 import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 import { looksLikeApiKey } from './principal-exchange.js';
 
@@ -52,9 +54,10 @@ export async function reportKeyCall(options: {
   readonly fetch?: typeof globalThis.fetch;
   readonly report: ApiKeyCallRecordInput;
 }): Promise<boolean> {
-  const target = `${options.identityUrl.replace(/\/+$/, '')}/trpc/developerKeys.recordCall`;
-  const body = JSON.stringify(options.report);
   try {
+    const sent = trpcRecordRequest(IDENTITY_DEVELOPER_KEYS_RECORD_CALL, options.identityUrl.replace(/\/+$/, ''), options.report);
+    const target = sent.url;
+    const body = sent.body ?? '';
     const response = await (options.fetch ?? globalThis.fetch)(target, {
       method: 'POST',
       body,

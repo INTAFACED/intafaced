@@ -50,10 +50,10 @@ describe('myListings limit unset refuse', () => {
 
   it('router does not invent 50 when myListings omits limit', () => {
     const src = readFileSync(join(ROOT, 'services/svc-market/src/router.ts'), 'utf8');
-    const start = src.indexOf('myListings: scopedProcedure');
+    const start = src.indexOf('myListings: mountRecord(');
     const end = src.indexOf('marketData:', start);
     const fn = src.slice(start, end === -1 ? undefined : end);
-    expect(fn).toContain('myListings(ctx.principal!.userId, { limit: input?.limit })');
+    expect(fn).toContain('myListings(ctx.principal.userId, { limit: input?.limit })');
     expect(fn).not.toMatch(/input\?\.limit \?\? 50/);
     expect(fn).not.toMatch(/\?\? 50/);
   });

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef } from 'react';
 import { ADDRESS_BOOK_LABEL_MAX, WALLET_GROUP_NAME_MAX } from '@intafaced/contracts/protocol-address-book';
 import type { ApiResult } from '../../../shared/api';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { isRegionBlocked } from '../region';
 import { createAddressBookApi, forgetWalletSession, walletSession, type AddressBookApi, type SessionResult } from './address-book-api';
 import type { walletCopy } from './copy';

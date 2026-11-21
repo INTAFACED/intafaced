@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { Button } from '../../shared/ui';
 import { codesHelpCopy as copy } from './codes-help-copy';
 import {

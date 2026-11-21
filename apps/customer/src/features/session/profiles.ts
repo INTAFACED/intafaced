@@ -8,7 +8,7 @@
  */
 import { UI_ACTIVE_PROFILE_PATTERN } from '@intafaced/contracts/ui-view-preferences';
 import type { z } from 'zod';
-import type { bankReads } from '../money/contracts';
+import type { businessListSchema } from './business-schema';
 
 export const PERSONAL_PROFILE = 'personal';
 export const businessProfileId = (accountId: string): string => `business:${accountId}`;
@@ -20,7 +20,7 @@ export interface BusinessProfile {
   name: string;
 }
 
-type BusinessRows = z.infer<(typeof bankReads)['business.list']>;
+type BusinessRows = z.infer<typeof businessListSchema>;
 
 /** The businesses that can be picked: open accounts whose id fits the stored form, once each, in the order the bank gave. */
 export function businessProfiles(rows: BusinessRows): BusinessProfile[] {

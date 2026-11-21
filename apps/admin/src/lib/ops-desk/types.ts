@@ -1,6 +1,6 @@
-import type { DeskModule } from '@/lib/desk/founder-call';
+import type { ProcedureRecord, TrpcTransport } from '@intafaced/contracts/procedure';
+import type { DeskModule, Part } from '@/lib/desk';
 import type { CommonDeskId } from './common-sections';
-import type { Part } from '@/lib/desk/part';
 import type { ModuleId as AdminModuleId } from '@/lib/modules';
 
 /**
@@ -61,6 +61,9 @@ export interface Column {
   readonly words?: Readonly<Record<string, string>>;
 }
 
+/** A desk read's call by its written record: a query an app reaches under a desk module. */
+export type DeskReadRecord = ProcedureRecord & TrpcTransport & { readonly kind: 'query'; readonly module: DeskModule };
+
 export interface ReadSpec {
   readonly id: string;
   readonly title: string;
@@ -70,6 +73,12 @@ export interface ReadSpec {
   /** The service, as an operator reads it ("chain status"). When set, a failed read says "Could not load <plainName>" with its time. */
   readonly plainName?: string;
   readonly procedure: string;
+  /**
+   * The name of the call's record, when it has one (`readOf` in the catalog sets it with `module` and `procedure`, all from the
+   * record). The spec reaches the browser, so it holds the name, not the schema; the server looks the record up and parses the
+   * answer by it, with every caller's checks, before the columns read it. An answer off the record is unreadable.
+   */
+  readonly recordName?: string;
   readonly input?: Readonly<Record<string, unknown>>;
   /**
    * The service needs a time window (`from` and `to`) and has no default. The desk asks for the last N×24 hours ending at the

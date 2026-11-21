@@ -56,6 +56,7 @@ import {
   type SweepResult,
 } from './bust.js';
 import { ChartOwnerValuesAdmin } from './chart-owner-values.js';
+import { ChartFeedControlsAdmin, type ChartFeedOwnerValues } from './chart-feed-controls.js';
 import { MarketModeAdmin } from './market-mode.js';
 import { VenueMarketsAdmin } from './venue-markets.js';
 import type { VenueListingStore } from '../venue/venue-listing-store.js';
@@ -154,6 +155,11 @@ export interface TradeOpsDeps {
    * is off, and the read refuses `trade.user_venue_off`) and our record of the orders customers placed through it.
    */
   readonly venueOrders?: { readonly venue: (() => Promise<UserVenue>) | null; readonly store: PreparedActionStore };
+  /**
+   * The chart feed control's owner values (J-charts-desk-19): the fallback source list and the audit export row limit.
+   * Absent or null fields: not set, so a switch to a fallback and every export refuse by name.
+   */
+  readonly chartFeed?: ChartFeedOwnerValues;
   readonly now?: () => Date;
 }
 
@@ -203,6 +209,8 @@ export class TradeOpsAdmin {
   readonly agreements: AgreementsAdmin;
   /** Charts module owner values and the per-market data class (C-ops-04, LD-14). */
   readonly chartOwnerValues: ChartOwnerValuesAdmin;
+  /** Each market's chart feed source and state, changed by two operators, with its journal (J-charts-desk-19). */
+  readonly chartFeedControls: ChartFeedControlsAdmin;
   /** A market's trading mode, set by two operators (SP-developer-status-01, J-cex-spot-14 #3 #4). */
   readonly marketMode: MarketModeAdmin;
   /** The outside venue's markets we list, route and limit, set by two operators (J-cex-spot-16). Absent: unwired. */
@@ -237,6 +245,12 @@ export class TradeOpsAdmin {
     });
     this.agreements = new AgreementsAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.chartOwnerValues = new ChartOwnerValuesAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
+    this.chartFeedControls = new ChartFeedControlsAdmin({
+      sql: deps.sql,
+      approvals: deps.approvals,
+      owner: deps.chartFeed ?? { fallbackSources: null, exportRowLimit: null },
+      now: () => nowOf(deps),
+    });
     this.marketMode = new MarketModeAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.venueMarkets = deps.venueDesk
       ? new VenueMarketsAdmin({

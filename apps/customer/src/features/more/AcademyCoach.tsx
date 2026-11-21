@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { formatNumberToParts } from '@intafaced/i18n';
 import { Figure, type FigurePart } from '@intafaced/ui/lit';
 import { RefusalBox, type Refusal } from '@intafaced/ui/lit/templates';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button } from '../../shared/ui';

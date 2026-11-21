@@ -1,5 +1,5 @@
 import { encodeFunctionData, type Address, type Hex } from 'viem';
-import { factoryAbi, poolAbi } from './abi.js';
+import { poolAbi } from './abi.js';
 import { erc20ApprovalAbi } from '../chain/abi.js';
 import { getAmountOut, priceImpactBps } from './math.js';
 import { pickBestRoute } from '../router/sovereign-quote.js';
@@ -12,19 +12,6 @@ export interface UnsignedAmmCall {
   summary: string;
 }
 
-export function buildCreatePool(factory: Address, tokenA: Address, tokenB: Address, feeBps: number): UnsignedAmmCall {
-  return {
-    to: factory,
-    data: encodeFunctionData({
-      abi: factoryAbi,
-      functionName: 'createPool',
-      args: [tokenA, tokenB, feeBps],
-    }),
-    value: '0',
-    summary: `create AMM pool ${tokenA}/${tokenB} fee=${feeBps}bps`,
-  };
-}
-
 export function buildSwapExactIn(pool: Address, tokenIn: Address, amountIn: bigint, minAmountOut: bigint, to: Address): UnsignedAmmCall {
   return {
     to: pool,
@@ -35,19 +22,6 @@ export function buildSwapExactIn(pool: Address, tokenIn: Address, amountIn: bigi
     }),
     value: '0',
     summary: `swapExactIn pool=${pool} tokenIn=${tokenIn} amountIn=${amountIn.toString()} minOut=${minAmountOut.toString()}`,
-  };
-}
-
-export function buildMintLiquidity(pool: Address, to: Address, amount0Desired: bigint, amount1Desired: bigint): UnsignedAmmCall {
-  return {
-    to: pool,
-    data: encodeFunctionData({
-      abi: poolAbi,
-      functionName: 'mint',
-      args: [to, amount0Desired, amount1Desired],
-    }),
-    value: '0',
-    summary: `mint LP pool=${pool} a0=${amount0Desired.toString()} a1=${amount1Desired.toString()}`,
   };
 }
 

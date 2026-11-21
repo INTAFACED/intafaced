@@ -1,11 +1,12 @@
 import { useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { z, type ZodType } from 'zod';
+import type { z, ZodType } from 'zod';
 import { Button } from '@intafaced/ui';
 import { FlowTemplate, type RoomState } from '@intafaced/ui/lit/templates';
 import {
   BUSINESS_BOOK_FORMATS,
   businessAccountingConnectionSchema,
-  businessBookLineSchema,
+  businessBookLinesSchema,
+  businessBookRuleMatchesSchema,
   businessBookStatementSchema,
   businessBooksOverviewSchema,
   businessCodingRuleSchema,
@@ -16,7 +17,7 @@ import {
 import { defineCopy } from '../../../shared/i18n';
 import type { ApiResult } from '../../../shared/api';
 import { useResource, type Resource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { StepUpConfirm } from '../StepUpConfirm';
 import { useHeldId } from '../business-team/held-id';
 
@@ -191,13 +192,7 @@ function Books({ overview: o, reloadTop, t }: { overview: z.infer<typeof busines
   const [notice, setNotice] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const p = monthPeriod(month);
-  const lines = useBank(
-    'businessBooks.lines',
-    { accountId, ...p },
-    z.object({ items: z.array(businessBookLineSchema) }),
-    `${accountId}:${month}`,
-    rev,
-  );
+  const lines = useBank('businessBooks.lines', { accountId, ...p }, businessBookLinesSchema, `${accountId}:${month}`, rev);
   const items = ready(lines.resource)?.items ?? [];
   const admin = o.permissions.includes('manage_team');
   const bookkeeper = o.permissions.includes('export');
@@ -488,7 +483,7 @@ function RuleForm({
                 'bank',
                 'businessBooks.testRule',
                 { accountId, ...period, payeeContains: text.trim() },
-                z.object({ matches: z.array(businessBookLineSchema) }),
+                businessBookRuleMatchesSchema,
               ),
             (r) => {
               setTested(r.matches);
@@ -546,7 +541,7 @@ function BulkForm({
               'bank',
               'businessBooks.codeLines',
               { accountId, ...period, lineIds: selected, category: category.trim() || null, glCode: gl.trim() || null },
-              z.object({ items: z.array(businessBookLineSchema) }),
+              businessBookLinesSchema,
             ),
           (r) => {
             onDone();

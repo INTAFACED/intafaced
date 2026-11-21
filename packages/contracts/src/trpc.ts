@@ -596,6 +596,18 @@ function refuseJurisdiction(ctx: Context & { principal: Principal }, guards: Gua
   }
 }
 
+/**
+ * Any signed-in principal, holding no particular scope; then, when `module` is named, the same jurisdiction check as
+ * `scopedProcedure`. Like `protectedProcedure` it names nobody (`procedureCallers` reports `undefined`): use it only where
+ * a record says `signedIn`.
+ */
+export function signedInProcedure(guards: Pick<GuardOptions, 'module' | 'plane'> = {}) {
+  return protectedProcedure.use(({ ctx, next }) => {
+    refuseJurisdiction(ctx, guards);
+    return next({ ctx });
+  });
+}
+
 export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
   return protectedProcedure.meta({ caller: 'scope' }).use(async ({ ctx, next }) => {
     refuseActingService(ctx, guards);

@@ -2,7 +2,7 @@
  * Q-index leftover — Fastify door must not present the fixture ABI as a live CLOB.
  *
  * Comments on abi.ts already say DevVenue is a fixture. This file pins the
- * public door: GET /health, GET /ready, GET /trpc/book, GET /trpc/stream.
+ * public door: GET /health, GET /ready, GET /trpc/book, GET /trpc/positions.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -137,16 +137,16 @@ describe('Q-index HTTP — fixture ABI is not a live CLOB', () => {
     expect(book.body.error?.message).toBe(INDEXER_CLOB_FIXTURE_NOT_LIVE);
     expect(JSON.stringify(trpcData(book.body) ?? {})).not.toMatch(/"bids"/);
 
-    const stream = await trpcGet(app, 'stream', { depth: 50, marketsLimit: 2 });
-    expect(stream.statusCode).toBe(412);
-    expect(stream.body.error?.message).toBe(INDEXER_CLOB_FIXTURE_NOT_LIVE);
+    const positions = await trpcGet(app, 'positions', { account: '0x' + 'a'.repeat(40), limit: 2 });
+    expect(positions.statusCode).toBe(412);
+    expect(positions.body.error?.message).toBe(INDEXER_CLOB_FIXTURE_NOT_LIVE);
   });
 
-  it('GET /trpc/health never claims live:true', async () => {
+  it('GET /health never claims live:true', async () => {
     const app = await mount({ venue: DEV_VENUE_ADDRESS, claimLiveClob: true, seedBook: false });
-    const { statusCode, body } = await trpcGet(app, 'health');
-    expect(statusCode).toBe(200);
-    const data = trpcData(body) as { clob: { live: boolean; kind: string; reserves: boolean } };
+    const res = await app.inject({ method: 'GET', url: '/health' });
+    expect(res.statusCode).toBe(200);
+    const data = res.json() as { clob: { live: boolean; kind: string; reserves: boolean } };
     expect(data.clob).toEqual({ live: false, kind: 'fixture', reserves: false });
   });
 });

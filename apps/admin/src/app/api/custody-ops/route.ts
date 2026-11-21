@@ -2,7 +2,7 @@ import { moduleDisabledResponse } from '@/lib/modules';
 import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { explainRefusal } from '@/lib/refusal-copy';
 import { DECISIONS, decisionPhrase } from '@/lib/custody-ops/model';
 import { decideTask, loadCustodyOps, loadTask } from '@/lib/custody-ops/server';
 

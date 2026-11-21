@@ -193,7 +193,7 @@ const edge = createEdgeContext({ secret: 'a-protocol-allowance-test-edge-secret'
 const anonymous = () => edge({ headers: { 'x-intafaced-region': 'DE' }, id: 'req-allowances' });
 
 describe('protocol.amm.allowances', () => {
-  const base = { registry: {}, relay: {}, relayEnabled: () => false, swapSlippageBps: () => null };
+  const base = { relay: {}, relayEnabled: () => false, swapSlippageBps: () => null };
 
   it('refuses an unset factory before any chain read', async () => {
     let asked = 0;

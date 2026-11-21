@@ -1,49 +1,30 @@
-// hand-declared-ok: svc-token's buybackRuns output is declared in its router; packages/contracts has no token schemas yet
-import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { TOKEN_BUYBACK_RUNS } from '@intafaced/contracts/token-procedures';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import { useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
-import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
+import { displayAmount, parseAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
 import { DataTable, EmptyState, Panel } from '../../shared/ui';
 import { Read } from './common';
 import { buybackRunsCopy } from './buyback-runs-copy';
 
-const iso = z.string().datetime({ offset: true });
-const bps = z.number().int().min(0).max(10_000);
-const run = z
-  .object({
-    id: z.string().min(1),
-    bought: decimalSchema,
-    burned: decimalSchema,
-    toRewards: decimalSchema,
-    executedAt: iso,
-    windowFrom: iso,
-    windowTo: iso,
-  })
-  .refine((r) => parseAmount(r.bought) === parseAmount(r.burned) + parseAmount(r.toRewards), 'buyback run does not add up');
+export type BuybackRunsRead = ProcedureOutput<typeof TOKEN_BUYBACK_RUNS>;
 
-/** The token service's `buybackRuns` read. A run that does not add up fails the read; it is never drawn. */
-export const buybackRunsSchema = z.object({
-  job: z.enum(['set', 'unset']),
-  runs: z.array(run),
-  rate: z.object({ buybackBps: bps, burnSplitBps: bps }).nullable(),
-  missing: z.string().nullable(),
-  reason: z.enum(['token.params_unset', 'token.params_missing', 'token.params_invalid']).nullable(),
-});
+/** This room's check on the read: a run that does not add up (bought = burned + to rewards) fails it, so it is never drawn. */
+export const buybackRunsAddUp = (read: BuybackRunsRead): boolean =>
+  read.runs.every((r) => parseAmount(r.bought) === parseAmount(r.burned) + parseAmount(r.toRewards));
 
 const LIMIT = 50;
 
 /** An ISO instant as minutes in UTC. */
 const utc = (at: string) => `${new Date(at).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 
-export type BuybackRunsRead = z.infer<typeof buybackRunsSchema>;
-
 /** Stored buyback runs, the job's state and the rate, read from the token service. */
 export function BuybackRuns() {
   const api = useApi();
   const { userId } = useSession();
   const read = useResource(
-    (signal) => api.query('token', 'buybackRuns', { limit: LIMIT }, buybackRunsSchema, { signal }),
+    (signal) => api.call(TOKEN_BUYBACK_RUNS, { limit: LIMIT }, { signal, accept: buybackRunsAddUp }),
     `token-buyback-runs:${userId}`,
   );
   return <BuybackRunsView read={read} />;

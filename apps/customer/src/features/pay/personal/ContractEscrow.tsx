@@ -3,10 +3,8 @@ import { decodeEventLog, parseAbi } from 'viem';
 import { Button } from '@intafaced/ui';
 import type { ProtocolEscrowBuildInput, ProtocolEscrowDeal } from '@intafaced/contracts/protocol-escrow';
 import { useResource } from '../../../shared/resource';
-import { useApi } from '../../session/session';
-import { createProtocolApi } from '../../protocol/api';
-import { shortAddress } from '../../protocol/wallet/eip1193';
-import { useWallet, waitMined, WalletProvider, type SequenceResult } from '../../protocol/wallet/WalletProvider';
+import { useApi } from '../../session';
+import { createProtocolApi, shortAddress, useWallet, waitMined, WalletProvider, type SequenceResult } from '../../protocol';
 import { PayDetails, PayTime } from '../components';
 import type { PersonalPayApi } from '../pay-api';
 import type { ContractEscrowOffer, Offer, Trade } from '../schemas';
@@ -348,7 +346,16 @@ function ContractEscrowInner({
         </p>
       ) : null}
       {(seller || buyer) && !['released', 'cancelled'].includes(trade.status) ? (
-        !connected ? (
+        wallet.status === 'connected' && wallet.guard && !wallet.guard.ok ? (
+          <div className="stack" data-testid="order-contract-network">
+            <p role="alert">
+              {t('wrongNetwork', { network })} {t('mainnetOff')}
+            </p>
+            <Button type="button" variant="secondary" onClick={() => void wallet.switchNetwork()}>
+              {t('escrowSwitchNetwork')}
+            </Button>
+          </div>
+        ) : !connected ? (
           <div className="stack">
             {wallet.wallets.map((entry) => (
               <Button

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../../../shared/api';
-import { useSession } from '../../../session/session';
+import { useSession } from '../../../session';
 import { portalTools } from '../api-tools';
 import { portalRefusal, refusalText } from '../refusal';
 import { analyticsApi } from './analytics/client';

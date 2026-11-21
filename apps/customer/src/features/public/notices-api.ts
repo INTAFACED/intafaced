@@ -2,7 +2,7 @@
 /** The public notice feed (module `notify`, tRPC through the edge). Both procedures are public, so they work signed out. */
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
-import { entrySchema, type ChangelogEntry } from '../developers/developers-api';
+import { entrySchema, type ChangelogEntry } from '../../shared/notify-reads';
 
 export type Notice = ChangelogEntry;
 

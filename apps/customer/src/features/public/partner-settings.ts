@@ -1,10 +1,7 @@
 import { useEffect, useState } from 'react';
-import { outreachPublicSettingsSchema } from '@intafaced/contracts/outreach-public';
-import { contractProcedure, readContract } from '../../shared/contract-call';
-import { useApi } from '../session/session';
+import { OPS_OUTREACH_PUBLIC_SETTINGS } from '@intafaced/contracts/ops-public-procedures';
+import { useApi } from '../session';
 import { partnerEnquiryHref } from './public-pages';
-
-const publicSettings = contractProcedure('ops', 'outreach.publicSettings', { output: outreachPublicSettingsSchema });
 
 export type PartnerSettings = {
   /** `loading` until the outreach desk has answered; `unread` when it could not be asked (only the build address remains). */
@@ -38,7 +35,8 @@ export function usePartnerSettings(): PartnerSettings {
   const [state, setState] = useState<PartnerSettings>({ status: 'loading', formHref: null, terms: null });
   useEffect(() => {
     const controller = new AbortController();
-    void readContract(api, publicSettings, undefined, { signal: controller.signal })
+    void api
+      .call(OPS_OUTREACH_PUBLIC_SETTINGS, undefined, { signal: controller.signal })
       .then((answer) => {
         if (!controller.signal.aborted) setState(mergePartnerSettings(answer.ok ? { ok: true, ...answer.data } : { ok: false }, build));
       })

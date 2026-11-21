@@ -7,8 +7,7 @@ import {
   bankCardProgrammeFiguresSchema,
   type BankCardProgrammeFigures,
 } from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
-import { partFrom, type Part } from '@/lib/desk/part';
+import { founderCall, parseWith, type FounderCallContext, partFrom, type Part } from '@/lib/desk';
 import { refusalWords, type Authorization, type Cardholder, type CardholderDetail, type Desk } from './model';
 
 const labels = {

@@ -5,7 +5,7 @@ import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { ServiceOffNotice } from '../../../shared/service-off';
 import { Button, DataTable, Dialog, EmptyState, Field, Loading, Panel } from '../../../shared/ui';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { networkLabel } from '../blockers';
 import { WatchShell } from '../watch/AddressPage';
 import { APP_CHAIN_ID, ADDRESS } from '../wallet/eip1193';

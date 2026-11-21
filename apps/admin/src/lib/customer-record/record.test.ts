@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { readData } from '@/lib/ops-desk/model';
-import { codeWords } from '@/lib/desk/words';
+import { SUPPORT_DESK_ACCOUNT_STATE } from '@intafaced/contracts/support-desk-procedures';
+import { readData } from '@/lib/ops-desk';
+import { codeWords } from '@/lib/code-words';
 import { moduleForPage } from '@/lib/modules';
 import { CUSTOMER_TABS, INDICATOR_STRIP, RISK_CARD, customerId, customerTab, tabPlan } from './record';
 
@@ -57,8 +58,9 @@ describe('what each tab reads', () => {
   });
   it('names procedures the owning services serve today', () => {
     expect(service('svc-bank/src/router/ops.router.ts')).toContain('customerBalances:');
-    // The tickets blocker: svc-support's account read goes by ticket, strictly.
-    expect(service('svc-support/src/router.ts')).toContain('.input(z.object({ ticketId: z.string().guid() }).strict())');
+    // The tickets blocker: svc-support's account read goes by ticket, strictly (its record, mounted by svc-support).
+    expect(service('svc-support/src/router.ts')).toContain('accountState: mountRecord(\n      SUPPORT_DESK_ACCOUNT_STATE,');
+    expect(SUPPORT_DESK_ACCOUNT_STATE.input.safeParse({ ticketId: USER, userId: USER }).success).toBe(false);
     expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: protectedProcedure/);
     // Documents: identity's meta-only list for one subject, compliance scope, limit required, no bytes.
     expect(service('svc-identity/src/router.ts')).toMatch(

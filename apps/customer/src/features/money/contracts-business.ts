@@ -1,9 +1,9 @@
 /** The business bank: members, roles, approvals and recipient lookup. */
 import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
-import { businessListSchema, businessSchema } from './business-schema';
+import { businessListSchema, businessSchema } from '../session';
 
-export { businessSchema } from './business-schema';
+export { businessSchema } from '../session';
 export const memberRoleSchema = z.enum(['admin', 'maker', 'checker']);
 export const approvalSchema = z.object({
   id: z.string(),

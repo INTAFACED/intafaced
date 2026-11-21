@@ -1,6 +1,7 @@
 import type { Cell, CellValue, Column, ReadData, ReadOutcome, ReadSpec, Row } from './types';
+import { cellOfRow } from '@/lib/cell-of-row';
 import { formatWhen } from '@/lib/as-of';
-import { codeWords } from '@/lib/desk/words';
+import { codeWords } from '@/lib/code-words';
 import { isRecord } from '@intafaced/contracts/guards';
 
 /**
@@ -206,10 +207,6 @@ export function withNames(spec: ReadSpec, data: Extract<ReadData, { shape: 'list
 
 export function tableCells(row: Row): readonly Cell[] {
   return row.cells.filter((c) => !c.detail);
-}
-
-export function cellOfRow(row: Row, key: string): CellValue | undefined {
-  return row.cells.find((c) => c.key === key)?.value;
 }
 
 /**

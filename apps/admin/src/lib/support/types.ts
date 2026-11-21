@@ -11,7 +11,8 @@ import type {
   SupportTicketEvent,
   SupportTicketPropertyChange,
 } from '@intafaced/contracts';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
+import type { SupportChartsLookup } from '@intafaced/contracts/support-charts-lookup';
 import type { BulkPolicyView } from './bulk';
 import type { SupportRatingSummary } from './ratings';
 import type { QueueQuery } from './queue-query';
@@ -119,6 +120,12 @@ export interface SupportCustomerView {
   readonly account: Part<SupportAccountGrounding>;
   /** The order ids the desk has linked to this request; empty means it names none. */
   readonly orders: Part<readonly string[]>;
+}
+
+/** A charts lookup on one ticket (J-charts-desk-19 #1): the customer's alerts with history and layouts, and its audit row. */
+export interface SupportChartsLookupView {
+  readonly asOf: string;
+  readonly lookup: Part<SupportChartsLookup>;
 }
 
 export interface SupportPropertiesView {

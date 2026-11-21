@@ -1,5 +1,5 @@
 import type { QuantEscapeCorpus, QuantQuotaProfile } from '@intafaced/contracts';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * Plan quotas and sandbox limits on the quant desk (J-algo-dev-12, AL-limits-01 and AL-limits-02). Pure, so the route,

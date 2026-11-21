@@ -1,10 +1,8 @@
 import { useId, useMemo, useState } from 'react';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, Failure, Field, Panel } from '../../shared/ui';
-import { useVenueMode } from '../trade/use-venue-mode';
-import { venueApi } from '../trade/venue-api';
-import { VenueFrame, WalletBar, useOwner } from '../trade/venue/VenueKit';
+import { useVenueMode, venueApi, VenueFrame, WalletBar, useOwner } from '../trade';
 import { Read, Select } from './common';
 import { agentAccessCopy } from './agent-access-copy';
 import type { Failed } from './AgentGuardrails';

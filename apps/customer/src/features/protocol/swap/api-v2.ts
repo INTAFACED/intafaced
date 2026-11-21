@@ -1,9 +1,11 @@
 import {
-  protocolApprovalRouteOutputSchema,
-  protocolBuildPermitOutputSchema,
-  protocolBuildSwapV2OutputSchema,
-  protocolPathOutputSchema,
-  protocolSwapV2SettingsSchema,
+  PROTOCOL_AMM_APPROVAL_ROUTE,
+  PROTOCOL_AMM_BUILD_PERMIT,
+  PROTOCOL_AMM_BUILD_SWAP_V2,
+  PROTOCOL_AMM_PATHS,
+  PROTOCOL_AMM_V2_SETTINGS,
+} from '@intafaced/contracts/protocol-amm-procedures';
+import {
   type ProtocolBuildPermitInput,
   type ProtocolBuildSwapV2Input,
   type ProtocolPathsInput,
@@ -16,17 +18,15 @@ import type { ApiClient } from '../../../shared/api';
  */
 export function createSwapV2Api(api: ApiClient) {
   return {
-    settings: (signal?: AbortSignal) => api.query('protocol', 'amm.v2Settings', undefined, protocolSwapV2SettingsSchema, { signal }),
+    settings: (signal?: AbortSignal) => api.call(PROTOCOL_AMM_V2_SETTINGS, undefined, { signal }),
     approvalRoute: (input: { owner: string; token: string }, signal?: AbortSignal) =>
-      api.query('protocol', 'amm.approvalRoute', input, protocolApprovalRouteOutputSchema, { signal }),
-    buildPermit: (input: ProtocolBuildPermitInput, signal?: AbortSignal) =>
-      api.query('protocol', 'amm.buildPermit', input, protocolBuildPermitOutputSchema, { signal }),
-    paths: (input: ProtocolPathsInput, signal?: AbortSignal) =>
-      api.query('protocol', 'amm.paths', input, protocolPathOutputSchema, { signal }),
+      api.call(PROTOCOL_AMM_APPROVAL_ROUTE, input, { signal }),
+    buildPermit: (input: ProtocolBuildPermitInput, signal?: AbortSignal) => api.call(PROTOCOL_AMM_BUILD_PERMIT, input, { signal }),
+    paths: (input: ProtocolPathsInput, signal?: AbortSignal) => api.call(PROTOCOL_AMM_PATHS, input, { signal }),
     buildSwap: (
       input: Partial<ProtocolBuildSwapV2Input> & Omit<ProtocolBuildSwapV2Input, 'unwrapOut' | 'simulate'>,
       signal?: AbortSignal,
-    ) => api.query('protocol', 'amm.buildSwapV2', input, protocolBuildSwapV2OutputSchema, { signal }),
+    ) => api.call(PROTOCOL_AMM_BUILD_SWAP_V2, input, { signal }),
   };
 }
 export type SwapV2Api = ReturnType<typeof createSwapV2Api>;

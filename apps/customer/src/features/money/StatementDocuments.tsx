@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import { Button } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { refusalCopy } from '../../data';
 import { decodeBase64, saveFile, shortFingerprint } from '../../screens/money/statement-model';
 import { statementFileSchema, statementJobsSchema, type StatementJob } from './contracts';

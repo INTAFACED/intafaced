@@ -38,6 +38,7 @@ const migrations = readdirSync(drizzle)
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
 const SPREAD_BPS = 20;
+const RACE_ROUNDS = 40;
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -176,6 +177,41 @@ describe('limit convert (PG-hard)', () => {
     await expect(place(trade, '30', '99', id)).rejects.toMatchObject({ code: 'trade.convert_limit_conflict' });
     expect(await free(ALICE, 'USDT')).toBe(amt('80'));
   });
+
+  // Postgres checks only the key ON CONFLICT names before it inserts; two inserts of one row at once can both pass that
+  // check and the loser then meets the other key. The window is narrow, so many rounds of eight calls let all eight
+  // insert together: an insert whose target names only one of the two keys fails this nearly every run.
+  it('the same request id from eight calls at once: every call answers with the one limit, held once', async () => {
+    const ready = readyTestAdmission();
+    const callers = 8;
+    let gate = { arrived: 0, release: () => undefined as void, open: Promise.resolve() };
+    admission = {
+      ...ready,
+      async admit(...args) {
+        const round = gate;
+        if (++round.arrived === callers) round.release();
+        await round.open;
+        return ready.admit(...args);
+      },
+    };
+    const trade = service();
+    for (let round = 0; round < RACE_ROUNDS; round++) {
+      let release: () => void = () => undefined;
+      const open = new Promise<void>((resolve) => (release = resolve));
+      gate = { arrived: 0, release, open };
+      const id = randomUUID();
+      const answers = await Promise.allSettled(Array.from({ length: callers }, () => place(trade, '2', '99', id)));
+      const refused = answers.filter((a) => a.status === 'rejected').map((a) => String((a as PromiseRejectedResult).reason));
+      expect(refused, `round ${round}`).toEqual([]);
+      const ids = new Set(answers.map((a) => (a as PromiseFulfilledResult<{ id: string }>).value.id));
+      expect(ids.size, `round ${round}`).toBe(1);
+      const [limitId] = [...ids];
+      const rows = await db.sql`SELECT 1 FROM trade.convert_limits WHERE client_limit_id = ${id}`;
+      expect(rows, `round ${round}`).toHaveLength(1);
+      expect(await held(ALICE, 'USDT', limitId!), `round ${round}`).toBe(amt('2'));
+    }
+    expect(await free(ALICE, 'USDT')).toBe(amt('100') - BigInt(RACE_ROUNDS) * amt('2'));
+  }, 60_000);
 
   it('more than the balance, refused on its one attempt: the limit ends at once and holds nothing', async () => {
     const trade = service();

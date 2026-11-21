@@ -1,0 +1,3829 @@
+{
+  "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
+  "procedures": {
+    "token.accessOf": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "accessOf",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {
+        "token.params_unset": "PRECONDITION_FAILED",
+        "token.params_invalid": "BAD_REQUEST",
+        "token.fee_discount_invalid": "BAD_REQUEST",
+        "token.stake_ledger_mismatch": "PRECONDITION_FAILED"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "staked": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string"
+          },
+          "feeDiscountBps": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["staked", "tier", "feeDiscountBps"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        },
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 7
+        }
+      ]
+    },
+    "token.burnedSupply": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "burnedSupply",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "burned": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          }
+        },
+        "required": ["burned"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "token.buybackRuns": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "buybackRuns",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {
+        "token.treasury_figure_unreadable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "job": {
+            "type": "string",
+            "enum": ["set", "unset"]
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "bought": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "burned": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "toRewards": {
+                  "type": "string",
+                  "pattern": "^\\d+(\\.\\d{1,18})?$"
+                },
+                "executedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "windowFrom": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "windowTo": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              },
+              "required": ["id", "bought", "burned", "toRewards", "executedAt", "windowFrom", "windowTo"],
+              "additionalProperties": false
+            }
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "buybackBps": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  },
+                  "burnSplitBps": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 10000
+                  }
+                },
+                "required": ["buybackBps", "burnSplitBps"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "missing": {
+            "type": ["string", "null"]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["token.params_unset", "token.params_missing", "token.params_invalid"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["job", "runs", "rate", "missing", "reason"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        }
+      ]
+    },
+    "token.castVote": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "castVote",
+      "access": {
+        "caller": "scope",
+        "scope": "token:stake",
+        "module": "token"
+      },
+      "refusals": {
+        "token.proposal_not_found": "NOT_FOUND",
+        "token.proposal_not_open": "BAD_REQUEST",
+        "token.proposal_window": "BAD_REQUEST",
+        "token.already_voted": "FORBIDDEN",
+        "token.no_voting_weight": "BAD_REQUEST",
+        "token.ballot_invalid": "BAD_REQUEST",
+        "token.governance_snapshot_missing": "PRECONDITION_FAILED",
+        "token.vote_rule_unset": "PRECONDITION_FAILED",
+        "token.vote_rule_not_met": "BAD_REQUEST",
+        "token.signed_vote_unavailable": "PRECONDITION_FAILED",
+        "token.vote_signature_required": "BAD_REQUEST",
+        "token.vote_signature_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "proposalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "choice": {
+            "type": "string",
+            "enum": ["for", "against", "abstain"]
+          },
+          "ballot": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "abstain"
+                  }
+                },
+                "required": ["kind"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "pick"
+                  },
+                  "choices": {
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 19
+                    }
+                  }
+                },
+                "required": ["kind", "choices"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "split"
+                  },
+                  "parts": {
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "choice": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 19
+                        },
+                        "bps": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 10000
+                        }
+                      },
+                      "required": ["choice", "bps"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["kind", "parts"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{130}$"
+          }
+        },
+        "required": ["proposalId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "proposalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "weight": {
+            "type": "string"
+          },
+          "choice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["for", "against", "abstain"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ballot": {
+            "anyOf": [
+              {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "abstain"
+                      }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "pick"
+                      },
+                      "choices": {
+                        "minItems": 1,
+                        "maxItems": 20,
+                        "type": "array",
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 19
+                        }
+                      }
+                    },
+                    "required": ["kind", "choices"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "const": "split"
+                      },
+                      "parts": {
+                        "minItems": 1,
+                        "maxItems": 20,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "choice": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 19
+                            },
+                            "bps": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 10000
+                            }
+                          },
+                          "required": ["choice", "bps"],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": ["kind", "parts"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "castAt": {
+            "type": "string"
+          },
+          "signedBy": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "proposalId", "userId", "weight", "choice", "ballot", "castAt", "signedBy"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "proposalId": "gov:proposal:s:a:1",
+            "choice": "for",
+            "signature": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "proposalId": "gov:proposal:s:a:1",
+            "ballot": {
+              "kind": "pick",
+              "choices": [0]
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "proposalId": "gov:proposal:s:a:1",
+            "choice": "maybe"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "proposalId": "gov:proposal:s:a:1",
+            "signature": "0x12"
+          }
+        }
+      ]
+    },
+    "token.closeProposal": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "closeProposal",
+      "access": {
+        "caller": "scope",
+        "scope": "token:stake",
+        "module": "token"
+      },
+      "refusals": {
+        "token.proposal_not_found": "NOT_FOUND",
+        "token.proposal_not_open": "BAD_REQUEST",
+        "token.proposal_window": "BAD_REQUEST",
+        "token.governance_quorum_unset": "PRECONDITION_FAILED",
+        "token.governance_snapshot_missing": "PRECONDITION_FAILED",
+        "token.vote_history_unreadable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "proposalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "required": ["proposalId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["listing", "fee_param", "curriculum", "grant"]
+          },
+          "body": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "open", "passed", "rejected", "executed", "cancelled", "closed_ranked"]
+          },
+          "opensAt": {
+            "type": "string"
+          },
+          "closesAt": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "bodyMd": {
+            "type": ["string", "null"]
+          },
+          "discussionLink": {
+            "type": ["string", "null"]
+          },
+          "businessKey": {
+            "type": ["string", "null"]
+          },
+          "authorId": {
+            "type": ["string", "null"]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "votingType": {
+            "type": "string",
+            "enum": ["basic", "single_choice", "approval", "weighted", "quadratic", "ranked_choice"]
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "string"
+                  },
+                  "hash": {
+                    "type": "string"
+                  }
+                },
+                "required": ["count", "total", "hash"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ranking": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cancel": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": ["reason", "at"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "votes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "for": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "against": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "abstain": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["votes", "for", "against", "abstain"],
+            "additionalProperties": false
+          },
+          "tally": {
+            "type": "object",
+            "properties": {
+              "forWeight": {
+                "type": "string"
+              },
+              "againstWeight": {
+                "type": "string"
+              },
+              "abstainWeight": {
+                "type": "string"
+              },
+              "totalWeight": {
+                "type": "string"
+              },
+              "voterCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["forWeight", "againstWeight", "abstainWeight", "totalWeight", "voterCount"],
+            "additionalProperties": false
+          },
+          "choiceTally": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "totals": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "abstainWeight": {
+                    "type": "string"
+                  },
+                  "participatingWeight": {
+                    "type": "string"
+                  },
+                  "voterCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "ranking": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "rounds": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["totals", "abstainWeight", "participatingWeight", "voterCount", "ranking", "rounds"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "execute": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "token.governance_execute_unwired"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "body",
+          "status",
+          "opensAt",
+          "closesAt",
+          "createdAt",
+          "title",
+          "bodyMd",
+          "discussionLink",
+          "businessKey",
+          "authorId",
+          "revision",
+          "votingType",
+          "choices",
+          "snapshot",
+          "ranking",
+          "cancel",
+          "counts",
+          "tally",
+          "choiceTally",
+          "execute"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "proposalId": "gov:proposal:s:a:1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "token.createProposal": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "createProposal",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {
+        "token.proposer_rule_unset": "PRECONDITION_FAILED",
+        "token.proposal_limit_unset": "PRECONDITION_FAILED",
+        "token.proposal_limit_reached": "PRECONDITION_FAILED",
+        "token.proposal_not_allowed": "FORBIDDEN",
+        "token.proposal_window_unset": "PRECONDITION_FAILED",
+        "token.proposal_window": "BAD_REQUEST",
+        "token.proposal_title_invalid": "BAD_REQUEST",
+        "token.proposal_handle_invalid": "BAD_REQUEST",
+        "token.voting_type_unsupported": "BAD_REQUEST",
+        "token.ballot_invalid": "BAD_REQUEST",
+        "token.stake_ledger_mismatch": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["listing", "fee_param", "curriculum", "grant"]
+          },
+          "body": {
+            "default": {},
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "opensAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "closesAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "bodyMd": {
+            "type": "string"
+          },
+          "discussionLink": {
+            "type": "string"
+          },
+          "votingType": {
+            "type": "string",
+            "enum": ["basic", "single_choice", "approval", "weighted", "quadratic", "ranked_choice"]
+          },
+          "choices": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 1000
+            }
+          }
+        },
+        "required": ["kind"],
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["listing", "fee_param", "curriculum", "grant"]
+          },
+          "body": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "open", "passed", "rejected", "executed", "cancelled", "closed_ranked"]
+          },
+          "opensAt": {
+            "type": "string"
+          },
+          "closesAt": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "bodyMd": {
+            "type": ["string", "null"]
+          },
+          "discussionLink": {
+            "type": ["string", "null"]
+          },
+          "businessKey": {
+            "type": ["string", "null"]
+          },
+          "authorId": {
+            "type": ["string", "null"]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "votingType": {
+            "type": "string",
+            "enum": ["basic", "single_choice", "approval", "weighted", "quadratic", "ranked_choice"]
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "string"
+                  },
+                  "hash": {
+                    "type": "string"
+                  }
+                },
+                "required": ["count", "total", "hash"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ranking": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cancel": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": ["reason", "at"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "votes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "for": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "against": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "abstain": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["votes", "for", "against", "abstain"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "body",
+          "status",
+          "opensAt",
+          "closesAt",
+          "createdAt",
+          "title",
+          "bodyMd",
+          "discussionLink",
+          "businessKey",
+          "authorId",
+          "revision",
+          "votingType",
+          "choices",
+          "snapshot",
+          "ranking",
+          "cancel",
+          "counts"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "kind": "listing"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "kind": "grant",
+            "title": "t",
+            "votingType": "approval",
+            "choices": ["a", "b"]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "kind": "listing",
+            "opensAt": "soon"
+          }
+        }
+      ]
+    },
+    "token.delegate": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "delegate",
+      "access": {
+        "caller": "scope",
+        "scope": "token:stake",
+        "module": "token"
+      },
+      "refusals": {
+        "token.delegation_delegatee_unset": "BAD_REQUEST",
+        "token.delegation_delegatee_invalid": "BAD_REQUEST",
+        "token.delegation_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "delegateeUserId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "not": {}
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "delegateeUserId": "11111111-1111-4111-8111-111111111111"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "delegateeUserId": 7
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "delegateeUserId": null,
+            "extra": 1
+          }
+        }
+      ]
+    },
+    "token.delegation": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "delegation",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "delegateeUserId": {
+            "type": "null"
+          },
+          "blocker": {
+            "type": "string",
+            "const": "no_chain_service"
+          }
+        },
+        "required": ["delegateeUserId", "blocker"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "token.editProposal": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "editProposal",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {
+        "token.proposal_not_found": "NOT_FOUND",
+        "token.proposal_not_editable": "PRECONDITION_FAILED",
+        "token.proposal_title_invalid": "BAD_REQUEST",
+        "token.proposal_window": "BAD_REQUEST",
+        "token.permission_denied": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "proposalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "title": {
+            "type": "string"
+          },
+          "bodyMd": {
+            "type": "string"
+          },
+          "discussionLink": {
+            "type": "string"
+          },
+          "body": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "opensAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "closesAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "required": ["proposalId"],
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["listing", "fee_param", "curriculum", "grant"]
+          },
+          "body": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "open", "passed", "rejected", "executed", "cancelled", "closed_ranked"]
+          },
+          "opensAt": {
+            "type": "string"
+          },
+          "closesAt": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "bodyMd": {
+            "type": ["string", "null"]
+          },
+          "discussionLink": {
+            "type": ["string", "null"]
+          },
+          "businessKey": {
+            "type": ["string", "null"]
+          },
+          "authorId": {
+            "type": ["string", "null"]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "votingType": {
+            "type": "string",
+            "enum": ["basic", "single_choice", "approval", "weighted", "quadratic", "ranked_choice"]
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "string"
+                  },
+                  "hash": {
+                    "type": "string"
+                  }
+                },
+                "required": ["count", "total", "hash"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ranking": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cancel": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": ["reason", "at"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "votes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "for": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "against": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "abstain": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["votes", "for", "against", "abstain"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "body",
+          "status",
+          "opensAt",
+          "closesAt",
+          "createdAt",
+          "title",
+          "bodyMd",
+          "discussionLink",
+          "businessKey",
+          "authorId",
+          "revision",
+          "votingType",
+          "choices",
+          "snapshot",
+          "ranking",
+          "cancel",
+          "counts"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "proposalId": "gov:proposal:s:a:1",
+            "title": "t"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "proposalId": ""
+          }
+        }
+      ]
+    },
+    "token.emissionSchedule": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "emissionSchedule",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {
+        "token.emission_schedule_count_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "default": {},
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "params": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "initialEpochReward": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  "halvingIntervalEpochs": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "maxSupply": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  }
+                },
+                "required": ["initialEpochReward", "halvingIntervalEpochs", "maxSupply"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "epochs": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "epoch": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "reward": {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    }
+                  },
+                  "required": ["epoch", "reward"],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "missing": {
+            "type": ["string", "null"]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["token.params_unset", "token.params_missing", "token.params_invalid"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["params", "epochs", "missing", "reason"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "setOrRefused": "the owner parameters are there exactly when no reason is given"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "count": 12
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "count": 0
+          }
+        }
+      ]
+    },
+    "token.feeDiscount.get": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "feeDiscount.get",
+      "access": {
+        "caller": "anyScope",
+        "scopes": ["token:read", "admin:read"]
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schedule": {
+            "$ref": "#/$defs/__schema0"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": ["schedule", "version"],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "token.followSpace": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "followSpace",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "following": {
+            "type": "boolean"
+          }
+        },
+        "required": ["following"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string"
+          },
+          "following": {
+            "type": "boolean"
+          }
+        },
+        "required": ["spaceId", "following"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "following": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "token.getProposal": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "getProposal",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read"
+      },
+      "refusals": {
+        "token.proposal_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "proposalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "required": ["proposalId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["listing", "fee_param", "curriculum", "grant"]
+          },
+          "body": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "open", "passed", "rejected", "executed", "cancelled", "closed_ranked"]
+          },
+          "opensAt": {
+            "type": "string"
+          },
+          "closesAt": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "bodyMd": {
+            "type": ["string", "null"]
+          },
+          "discussionLink": {
+            "type": ["string", "null"]
+          },
+          "businessKey": {
+            "type": ["string", "null"]
+          },
+          "authorId": {
+            "type": ["string", "null"]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "votingType": {
+            "type": "string",
+            "enum": ["basic", "single_choice", "approval", "weighted", "quadratic", "ranked_choice"]
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "string"
+                  },
+                  "hash": {
+                    "type": "string"
+                  }
+                },
+                "required": ["count", "total", "hash"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ranking": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cancel": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": ["reason", "at"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "votes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "for": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "against": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "abstain": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["votes", "for", "against", "abstain"],
+            "additionalProperties": false
+          },
+          "tally": {
+            "type": "object",
+            "properties": {
+              "forWeight": {
+                "type": "string"
+              },
+              "againstWeight": {
+                "type": "string"
+              },
+              "abstainWeight": {
+                "type": "string"
+              },
+              "totalWeight": {
+                "type": "string"
+              },
+              "voterCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["forWeight", "againstWeight", "abstainWeight", "totalWeight", "voterCount"],
+            "additionalProperties": false
+          },
+          "choiceTally": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "totals": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "abstainWeight": {
+                    "type": "string"
+                  },
+                  "participatingWeight": {
+                    "type": "string"
+                  },
+                  "voterCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "ranking": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "rounds": {
+                    "anyOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["totals", "abstainWeight", "participatingWeight", "voterCount", "ranking", "rounds"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "body",
+          "status",
+          "opensAt",
+          "closesAt",
+          "createdAt",
+          "title",
+          "bodyMd",
+          "discussionLink",
+          "businessKey",
+          "authorId",
+          "revision",
+          "votingType",
+          "choices",
+          "snapshot",
+          "ranking",
+          "cancel",
+          "counts",
+          "tally",
+          "choiceTally"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "proposalId": "gov:proposal:s:a:1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "token.governance.cancel": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "governance.cancel",
+      "access": {
+        "caller": "scope",
+        "scope": "token:stake",
+        "module": "token"
+      },
+      "refusals": {
+        "token.proposal_not_found": "NOT_FOUND",
+        "token.proposal_not_cancellable": "BAD_REQUEST",
+        "token.cancel_reason_invalid": "BAD_REQUEST",
+        "token.permission_denied": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "proposalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": ["proposalId", "reason"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["listing", "fee_param", "curriculum", "grant"]
+          },
+          "body": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": ["draft", "open", "passed", "rejected", "executed", "cancelled", "closed_ranked"]
+          },
+          "opensAt": {
+            "type": "string"
+          },
+          "closesAt": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "bodyMd": {
+            "type": ["string", "null"]
+          },
+          "discussionLink": {
+            "type": ["string", "null"]
+          },
+          "businessKey": {
+            "type": ["string", "null"]
+          },
+          "authorId": {
+            "type": ["string", "null"]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "votingType": {
+            "type": "string",
+            "enum": ["basic", "single_choice", "approval", "weighted", "quadratic", "ranked_choice"]
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "string"
+                  },
+                  "hash": {
+                    "type": "string"
+                  }
+                },
+                "required": ["count", "total", "hash"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ranking": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cancel": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": ["reason", "at"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "votes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "for": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "against": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "abstain": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": ["votes", "for", "against", "abstain"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "body",
+          "status",
+          "opensAt",
+          "closesAt",
+          "createdAt",
+          "title",
+          "bodyMd",
+          "discussionLink",
+          "businessKey",
+          "authorId",
+          "revision",
+          "votingType",
+          "choices",
+          "snapshot",
+          "ranking",
+          "cancel",
+          "counts"
+        ],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "proposalId": "gov:proposal:s:a:1",
+            "reason": "duplicate"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "proposalId": "gov:proposal:s:a:1"
+          }
+        }
+      ]
+    },
+    "token.governance.roles": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "governance.roles",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "userId": {
+              "type": "string"
+            },
+            "role": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["controller", "admin", "moderator", "author"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "revision": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["userId", "role", "revision"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 200
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "token.governance.setRole": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "governance.setRole",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write"
+      },
+      "refusals": {
+        "token.role_invalid": "BAD_REQUEST",
+        "token.role_stale": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["controller", "admin", "moderator", "author"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stepUpApprovalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["userId", "role", "expectedRevision"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["controller", "admin", "moderator", "author"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "confirmOperatorId": {
+            "type": "string"
+          }
+        },
+        "required": ["userId", "role", "revision", "confirmOperatorId"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "userId": "u-2",
+            "role": "moderator",
+            "expectedRevision": 0,
+            "approvalId": "a",
+            "stepUpApprovalId": "s"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "userId": "u-2",
+            "role": "king",
+            "expectedRevision": 0
+          }
+        }
+      ]
+    },
+    "token.governance.setSettings": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "governance.setSettings",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write"
+      },
+      "refusals": {
+        "token.settings_invalid": "BAD_REQUEST",
+        "token.settings_stale": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "votingDelayMs": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{1,15}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "votingPeriodMs": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{1,15}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["votingDelayMs", "votingPeriodMs", "expectedRevision"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "votingDelayMs": {
+            "type": ["string", "null"]
+          },
+          "votingPeriodMs": {
+            "type": ["string", "null"]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "confirmOperatorId": {
+            "type": "string"
+          }
+        },
+        "required": ["votingDelayMs", "votingPeriodMs", "revision", "confirmOperatorId"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "settingsAreWholeMs": "each setting is a whole number of milliseconds with no leading zero, or null"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "votingDelayMs": "0",
+            "votingPeriodMs": "3600000",
+            "expectedRevision": 0,
+            "approvalId": "a",
+            "operationId": "o"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "votingDelayMs": "1.5",
+            "votingPeriodMs": null,
+            "expectedRevision": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "votingDelayMs": null,
+            "votingPeriodMs": null
+          }
+        }
+      ]
+    },
+    "token.governance.settings": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "governance.settings",
+      "access": {
+        "caller": "anyScope",
+        "scopes": ["token:read", "admin:read"]
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "votingDelayMs": {
+            "type": ["string", "null"]
+          },
+          "votingPeriodMs": {
+            "type": ["string", "null"]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["votingDelayMs", "votingPeriodMs", "revision"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "settingsAreWholeMs": "each setting is a whole number of milliseconds with no leading zero, or null"
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "token.governance.settingsHistory": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "governance.settingsHistory",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "ordinal": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "votingDelayMs": {
+              "type": ["string", "null"]
+            },
+            "votingPeriodMs": {
+              "type": ["string", "null"]
+            },
+            "actorId": {
+              "type": "string"
+            },
+            "approverId": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": ["ordinal", "votingDelayMs", "votingPeriodMs", "actorId", "approverId", "at"],
+          "additionalProperties": false
+        }
+      },
+      "accept": {
+        "settingsAreWholeMs": "each stored setting is a whole number of milliseconds with no leading zero, or null"
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "token.governanceHome": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "governanceHome",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {
+        "token.stake_ledger_mismatch": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "spaceId": {
+            "type": "string"
+          },
+          "following": {
+            "type": "boolean"
+          },
+          "proposal": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "token.proposer_rule_unset",
+                      "token.proposal_limit_unset",
+                      "token.proposal_not_allowed",
+                      "token.proposal_limit_reached"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "minStake": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["code", "minStake"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["spaceId", "following", "proposal"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "token.listProposals": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "listProposals",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read"
+      },
+      "refusals": {
+        "token.proposal_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "default": {},
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["draft", "open", "passed", "rejected", "executed", "cancelled", "closed_ranked"]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["listing", "fee_param", "curriculum", "grant"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "q": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "kind": {
+              "type": "string",
+              "enum": ["listing", "fee_param", "curriculum", "grant"]
+            },
+            "body": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "status": {
+              "type": "string",
+              "enum": ["draft", "open", "passed", "rejected", "executed", "cancelled", "closed_ranked"]
+            },
+            "opensAt": {
+              "type": "string"
+            },
+            "closesAt": {
+              "type": "string"
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "title": {
+              "type": ["string", "null"]
+            },
+            "bodyMd": {
+              "type": ["string", "null"]
+            },
+            "discussionLink": {
+              "type": ["string", "null"]
+            },
+            "businessKey": {
+              "type": ["string", "null"]
+            },
+            "authorId": {
+              "type": ["string", "null"]
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "votingType": {
+              "type": "string",
+              "enum": ["basic", "single_choice", "approval", "weighted", "quadratic", "ranked_choice"]
+            },
+            "choices": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "snapshot": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "total": {
+                      "type": "string"
+                    },
+                    "hash": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["count", "total", "hash"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "ranking": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cancel": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "reason": {
+                      "type": "string"
+                    },
+                    "at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["reason", "at"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "counts": {
+              "type": "object",
+              "properties": {
+                "votes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "for": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "against": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "abstain": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": ["votes", "for", "against", "abstain"],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "body",
+            "status",
+            "opensAt",
+            "closesAt",
+            "createdAt",
+            "title",
+            "bodyMd",
+            "discussionLink",
+            "businessKey",
+            "authorId",
+            "revision",
+            "votingType",
+            "choices",
+            "snapshot",
+            "ranking",
+            "cancel",
+            "counts"
+          ],
+          "additionalProperties": false
+        },
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 50,
+            "status": "open",
+            "kind": "grant",
+            "q": "x"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "status": "gone"
+          }
+        }
+      ]
+    },
+    "token.listStakes": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "listStakes",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {
+        "token.stakes_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "default": {
+          "status": "active"
+        },
+        "type": "object",
+        "properties": {
+          "status": {
+            "default": "active",
+            "type": "string",
+            "enum": ["active", "closed", "pending", "all"]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "userId": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "amount": {
+              "type": "string",
+              "pattern": "^\\d+(\\.\\d{1,18})?$"
+            },
+            "tier": {
+              "type": "string",
+              "enum": ["flex", "m3", "m12"]
+            },
+            "startedAt": {
+              "type": "string"
+            },
+            "unlocksAt": {
+              "type": ["string", "null"]
+            },
+            "status": {
+              "type": "string",
+              "enum": ["pending", "active", "unstaking", "closed"]
+            }
+          },
+          "required": ["id", "userId", "amount", "tier", "startedAt", "unlocksAt", "status"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "status": "all",
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "status": "gone"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        }
+      ]
+    },
+    "token.revenueShareHistory": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "revenueShareHistory",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {
+        "token.history_list_limit_unset": "PRECONDITION_FAILED",
+        "token.history_cursor_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "default": {},
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "cursor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "windowId": {
+                  "type": "string"
+                },
+                "amount": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d+(\\.\\d{1,18})?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "assetId": {
+                  "type": ["string", "null"]
+                },
+                "ledgerTxId": {
+                  "type": ["string", "null"]
+                },
+                "reason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "ledger_tx_unread"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["windowId", "amount", "assetId", "ledgerTxId", "reason"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 50,
+            "cursor": "c-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 201
+          }
+        }
+      ]
+    },
+    "token.treasury": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "treasury",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {
+        "token.treasury_figure_unreadable": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "minted": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "burned": {
+            "type": "string",
+            "pattern": "^\\d+(\\.\\d{1,18})?$"
+          },
+          "bought": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "toRewards": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "distributed": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+(\\.\\d{1,18})?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastBuyback": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "bought": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  "burned": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  "toRewards": {
+                    "type": "string",
+                    "pattern": "^\\d+(\\.\\d{1,18})?$"
+                  },
+                  "executedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": ["bought", "burned", "toRewards", "executedAt"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["minted", "burned", "bought", "toRewards", "distributed", "lastBuyback"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "token.voteMessage": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "voteMessage",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "proposalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "choice": {
+            "type": "string",
+            "enum": ["for", "against", "abstain"]
+          },
+          "ballot": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "abstain"
+                  }
+                },
+                "required": ["kind"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "pick"
+                  },
+                  "choices": {
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 19
+                    }
+                  }
+                },
+                "required": ["kind", "choices"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "const": "split"
+                  },
+                  "parts": {
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "choice": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 19
+                        },
+                        "bps": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 10000
+                        }
+                      },
+                      "required": ["choice", "bps"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["kind", "parts"],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": ["proposalId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["message"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "proposalId": "gov:proposal:s:a:1",
+            "choice": "against"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "choice": "for"
+          }
+        }
+      ]
+    },
+    "token.votingPower.history": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "votingPower.history",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {
+        "token.history_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "default": {},
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "proposalId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "title": {
+              "type": ["string", "null"]
+            },
+            "takenAt": {
+              "type": "string"
+            },
+            "power": {
+              "type": "string"
+            }
+          },
+          "required": ["proposalId", "title", "takenAt", "power"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 20
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        }
+      ]
+    },
+    "token.votingPower.ofProposal": {
+      "service": "svc-token",
+      "module": "token",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "votingPower.ofProposal",
+      "access": {
+        "caller": "scope",
+        "scope": "token:read",
+        "module": "token"
+      },
+      "refusals": {
+        "token.proposal_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "proposalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          }
+        },
+        "required": ["proposalId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "proposalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "power": {
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["no_stake_at_creation", "not_measured"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "takenAt": {
+            "type": ["string", "null"]
+          },
+          "rule": {
+            "type": "object",
+            "properties": {
+              "minPower": {
+                "type": ["string", "null"]
+              },
+              "code": {
+                "type": ["string", "null"]
+              }
+            },
+            "required": ["minPower", "code"],
+            "additionalProperties": false
+          },
+          "signing": {
+            "type": "object",
+            "properties": {
+              "required": {
+                "type": "boolean",
+                "const": true
+              },
+              "available": {
+                "type": "boolean"
+              },
+              "code": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": "token.signed_vote_unavailable"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["required", "available", "code"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["proposalId", "power", "reason", "takenAt", "rule", "signing"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "proposalId": "gov:proposal:s:a:1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    }
+  }
+}

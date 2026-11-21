@@ -1,17 +1,17 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import {
   academyCourseOutlineSchema,
-  academyItemCompletionSchema,
   academyUndoCompletionSchema,
   type AcademyCourseOutline,
   type AcademyCourseOutlineItem,
 } from '@intafaced/contracts/academy-catalogue';
+import { ACADEMY_MARK_CURRICULUM_COMPLETE } from '@intafaced/contracts/academy-learner-procedures';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { Button, Loading, Panel } from '../../shared/ui';
 import { navigate } from '../../app/location';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref, formatDay } from './academy-lms';
 import { AcademyRefusal, GuardedButton, itemTypeLabel, pathLabel } from './AcademyLmsParts';
@@ -95,7 +95,7 @@ function useItemCompletion(current: string, reload: () => void) {
   };
   const complete = () =>
     send(async () => {
-      const sent = await api.mutate('academy', 'markCurriculumComplete', { itemSlug: current }, academyItemCompletionSchema);
+      const sent = await api.call(ACADEMY_MARK_CURRICULUM_COMPLETE, { itemSlug: current });
       const fresh = await api.query('academy', 'courseOutline', { itemSlug: current }, academyCourseOutlineSchema);
       const recorded = fresh.ok && fresh.data.items.some((row) => row.slug === current && row.state === 'completed');
       if (!recorded) {

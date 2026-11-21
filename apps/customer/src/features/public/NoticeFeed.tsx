@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { StateBlock } from '@intafaced/ui';
-import { useSession } from '../session/session';
-import { useRead } from '../developers/use-read';
+import { useSession } from '../session';
+import { useRead } from '../developers';
 import { noticeFeedCopy } from './notice-feed-copy';
 import { feedNotices, isNoticeId, maintenancePhase, readNotice, readNotices, type Notice } from './notices-api';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 const day = (value: string | null) => (value ? value.slice(0, 10) : null);
 /** The second a fee change takes effect, in UTC as stored: "2026-11-01 00:00:00 UTC" (a minute alone would read early). */

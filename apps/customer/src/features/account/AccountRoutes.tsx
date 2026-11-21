@@ -16,6 +16,7 @@ import { Compromised } from './Compromised';
 import { StaffAccess } from './StaffAccess';
 import { ApiKeyCreate } from './ApiKeyCreate';
 import { ApiKeyDetail, keyIdFromPath } from './ApiKeyDetail';
+import { TradingPermissions } from '../trade';
 import './account.css';
 
 export function AccountRoutes({ path }: { path: string }) {
@@ -37,6 +38,7 @@ function AccountRooms({ path }: { path: string }) {
   if (clean === '/uc/safe/api-keys/new') return <ApiKeyCreate />;
   const keyId = keyIdFromPath(path);
   if (keyId) return <ApiKeyDetail key={keyId} keyId={keyId} />;
+  if (clean === '/uc/trading-permissions') return <TradingPermissions />;
   if (clean === '/verification') return <Verification />;
   if (clean === '/notifications') return <Notifications />;
   if (clean === '/identbusiness') return <BusinessVerification />;

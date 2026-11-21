@@ -1,17 +1,17 @@
 import {
   QUANT_EQUITY_STOP_POLICIES,
   QUANT_RISK_CAPS,
-  quantRiskScreenSchema,
   type QuantRiskCap,
   type QuantRiskScreen,
   type QuantStrategyDetail,
 } from '@intafaced/contracts/quant-algo';
+import { QUANT_RISK_GET, QUANT_RISK_SET, QUANT_RISK_TRADING } from '@intafaced/contracts/quant-strategy-settings-procedures';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { Read, Select } from '../more';
+import { useApi } from '../session';
 import { riskCopy } from './risk-copy';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -30,7 +30,7 @@ export function StrategyRisk({ strategy }: { strategy: QuantStrategyDetail }) {
   const { t } = riskCopy.useCopy();
   const [revision, setRevision] = useState(0);
   const screen = useResource(
-    (signal) => api.query('quant', 'risk.get', { strategyId: strategy.id }, quantRiskScreenSchema, { signal }),
+    (signal) => api.call(QUANT_RISK_GET, { strategyId: strategy.id }, { signal }),
     `quant-risk:${strategy.id}:${revision}`,
   );
   return (
@@ -67,12 +67,7 @@ function RiskForm({ saved, reload }: { saved: QuantRiskScreen; reload: () => voi
     if (busy) return;
     setBusy(true);
     clear();
-    const res = await api.mutate(
-      'quant',
-      'risk.set',
-      { strategyId: saved.strategyId, caps: draft, floorPolicy: policy },
-      quantRiskScreenSchema,
-    );
+    const res = await api.call(QUANT_RISK_SET, { strategyId: saved.strategyId, caps: draft, floorPolicy: policy });
     setBusy(false);
     if (res.ok) {
       setCurrent(res.data);
@@ -89,7 +84,7 @@ function RiskForm({ saved, reload }: { saved: QuantRiskScreen; reload: () => voi
     if (busy) return;
     setBusy(true);
     clear();
-    const res = await api.mutate('quant', 'risk.trading', { strategyId: saved.strategyId, on }, quantRiskScreenSchema);
+    const res = await api.call(QUANT_RISK_TRADING, { strategyId: saved.strategyId, on });
     setBusy(false);
     if (res.ok) {
       setCurrent(res.data);

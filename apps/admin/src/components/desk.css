@@ -93,6 +93,10 @@
   overflow-x: auto;
   max-width: 100%;
 }
+/* Long keys, ids and hashes break inside their cell, so every column of a wide table fits the page. */
+.dk-table-wrap--codes code {
+  overflow-wrap: anywhere;
+}
 .dk-grid-2 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

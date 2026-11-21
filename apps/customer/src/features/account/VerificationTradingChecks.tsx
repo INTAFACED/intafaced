@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { kycTradingChecksResultSchema, kycTradingChecksSchema } from '@intafaced/contracts/identity-kyc-trading-checks';
-import { countryOptions } from '../public/sign-up';
-import { useSession } from '../session/session';
+import { countryOptions } from '../public';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { verificationTradingCopy as copy } from './verification-trading-copy';

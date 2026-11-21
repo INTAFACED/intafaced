@@ -1,11 +1,19 @@
 import { type QuantStrategyDetail } from '@intafaced/contracts/quant-algo';
-import { quantEditLockSchema, quantTeamSchema, type QuantEditLock, type QuantTeam } from '@intafaced/contracts/quant-team';
+import { type QuantEditLock, type QuantTeam } from '@intafaced/contracts/quant-team';
+import {
+  QUANT_TEAM_GET,
+  QUANT_TEAM_GRANT,
+  QUANT_TEAM_LOCK,
+  QUANT_TEAM_REMOVE,
+  QUANT_TEAM_SET,
+  QUANT_TEAM_UNLOCK,
+} from '@intafaced/contracts/quant-team-procedures';
 import { useEffect, useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Loading } from '../../shared/ui';
-import { Read, Select } from '../more/common';
-import { useApi } from '../session/session';
+import { Read, Select } from '../more';
+import { useApi } from '../session';
 import { QuotaAwareFailure } from './quota-refusal';
 import { teamCopy } from './team-copy';
 
@@ -35,12 +43,12 @@ export function EditLock({ strategyId, lock, onChange }: { strategyId: string; l
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<{ code: string; text: string } | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
-  async function act(path: 'team.lock' | 'team.unlock') {
+  async function act(record: typeof QUANT_TEAM_LOCK | typeof QUANT_TEAM_UNLOCK) {
     if (busy) return;
     setBusy(true);
     setRefused(null);
     setFailure(null);
-    const res = await api.mutate('quant', path, { strategyId }, quantEditLockSchema);
+    const res = await api.call(record, { strategyId });
     setBusy(false);
     if (res.ok) return onChange();
     const code = refusalCode(res);
@@ -65,11 +73,11 @@ export function EditLock({ strategyId, lock, onChange }: { strategyId: string; l
             : t('lockHeld', { holder: lock.holderId ?? '', until: utcText(lock.expiresAt ?? '') })}
       </p>
       {lock.mine ? (
-        <Button variant="secondary" onClick={() => void act('team.unlock')} disabled={busy}>
+        <Button variant="secondary" onClick={() => void act(QUANT_TEAM_UNLOCK)} disabled={busy}>
           {t('lockRelease')}
         </Button>
       ) : (
-        <Button onClick={() => void act('team.lock')} disabled={busy}>
+        <Button onClick={() => void act(QUANT_TEAM_LOCK)} disabled={busy}>
           {t('lockTake')}
         </Button>
       )}
@@ -78,7 +86,7 @@ export function EditLock({ strategyId, lock, onChange }: { strategyId: string; l
           {refused.text}
         </p>
       )}
-      {failure && <Failure result={failure} retry={() => void act('team.lock')} />}
+      {failure && <Failure result={failure} retry={() => void act(QUANT_TEAM_LOCK)} />}
     </section>
   );
 }
@@ -89,7 +97,7 @@ export function StrategyTeam({ strategy }: { strategy: QuantStrategyDetail }) {
   const { t } = teamCopy.useCopy();
   const [revision, setRevision] = useState(0);
   const team = useResource(
-    (signal) => api.query('quant', 'team.get', { strategyId: strategy.id }, quantTeamSchema, { signal }),
+    (signal) => api.call(QUANT_TEAM_GET, { strategyId: strategy.id }, { signal }),
     `quant-team:${strategy.id}:${revision}`,
   );
   const reload = () => setRevision((n) => n + 1);
@@ -122,7 +130,7 @@ function Collaborators({ team, onChange }: { team: QuantTeam; onChange: () => vo
   async function remove(memberId: string) {
     setNote(null);
     setFailure(null);
-    const res = await api.mutate('quant', 'team.remove', { strategyId: team.strategyId, memberId }, quantTeamSchema);
+    const res = await api.call(QUANT_TEAM_REMOVE, { strategyId: team.strategyId, memberId });
     if (!res.ok) return setFailure(res);
     setNote(t('removed'));
     onChange();
@@ -181,7 +189,7 @@ function ShareForm({ strategyId, onChange }: { strategyId: string; onChange: () 
     setNote(null);
     setRefused(null);
     setFailure(null);
-    const res = await api.mutate('quant', 'team.set', { strategyId, memberId: memberId.trim(), role, liveControl }, quantTeamSchema);
+    const res = await api.call(QUANT_TEAM_SET, { strategyId, memberId: memberId.trim(), role, liveControl });
     setBusy(false);
     if (res.ok) {
       setNote(t('shared', { member: memberId.trim().toLowerCase(), permission: role === 'edit' ? t('canEdit') : t('canView') }));
@@ -260,12 +268,7 @@ function SupportAccess({ team, onChange }: { team: QuantTeam; onChange: () => vo
     setFailure(null);
     if (!minutes.trim() || !Number.isFinite(value)) return setRefused(t('grantInvalid'));
     setBusy(true);
-    const res = await api.mutate(
-      'quant',
-      'team.grant',
-      { strategyId: team.strategyId, seconds: Math.round(value * 60), seq: team.grants.length },
-      quantTeamSchema,
-    );
+    const res = await api.call(QUANT_TEAM_GRANT, { strategyId: team.strategyId, seconds: Math.round(value * 60), seq: team.grants.length });
     setBusy(false);
     if (res.ok) {
       setNote(t('granted', { until: utcText(res.data.grants[0]?.expiresAt ?? '') }));

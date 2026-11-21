@@ -9,7 +9,7 @@ import {
 } from '@intafaced/contracts/academy-catalogue';
 import { navigate } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Field, Loading, Panel, Tabs } from '../../shared/ui';
 import { Select } from './common';

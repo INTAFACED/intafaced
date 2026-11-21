@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
 import { appealSchema, APPEAL_TEXT_MAX, type Appeal } from '@intafaced/contracts/identity-appeals';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import type { ApiResult } from '../../shared/api';
 import { Button } from '../../shared/ui';
 import { appealSignedOutCopy } from './appeal-signed-out-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const APPEAL_REFUSALS = new Set([

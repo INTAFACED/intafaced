@@ -6,7 +6,7 @@ import { readGroupActionRequest, type GroupActionRequest } from './groups';
 import { readStaffAvailabilityRequest, type StaffAvailabilityRequest } from './staff';
 import { readRoutingActionRequest, type RoutingActionRequest } from './routing';
 import { clauseOf, parseFilterText, type FilterClause } from './queue-query';
-import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types';
+import type { QueueEntry, QueueRead, TicketStatus } from './types';
 import { isRecord } from '@intafaced/contracts/guards';
 
 /**
@@ -495,16 +495,4 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
     default:
       return null;
   }
-}
-
-/** `ratingOps`: the rating, or null when the customer has not rated. Anything else is null here, never "no rating". */
-export function readRatingResult(raw: unknown): { readonly value: SupportRating | null } | null {
-  if (raw === null) return { value: null };
-  if (!isRecord(raw)) return null;
-  const { ticketId, userId, score, note, createdAt } = raw;
-  if (!isTicketId(ticketId) || !isTicketId(userId)) return null;
-  if (typeof score !== 'number' || !Number.isInteger(score) || score < 1 || score > 5) return null;
-  if (!(note === null || typeof note === 'string')) return null;
-  if (typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))) return null;
-  return { value: { ticketId, userId, score, note, createdAt } };
 }

@@ -1,62 +1,28 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
+import {
+  accountChannelsHold,
+  accountDeliveriesHold,
+  accountInboxSchema,
+  accountMarkedOneHolds,
+  accountNotificationSchema,
+  accountNotifyOutOfAppSchema,
+  accountNotifyPrefsSchema,
+  accountTargetsHold,
+} from '@intafaced/contracts/notify-account-room';
+import { NOTIFY_CHANNELS, NOTIFY_DELIVERIES, NOTIFY_MARK_READ, NOTIFY_TARGETS } from '@intafaced/contracts/notify-procedures';
 import { customerRoomHref } from '../../app/navigation';
 import { useResource, type Resource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, EmptyState, Failure, Loading, Page } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { notificationsCopy as copy } from './notifications-copy';
 import { NotificationTargets } from './NotificationTargets';
 import './notifications.css';
 
-const date = z.string().datetime({ offset: true });
-const notification = z.object({
-  id: z.string().guid(),
-  userId: z.string().guid(),
-  titleKey: z.string(),
-  bodyKey: z.string(),
-  title: z.string(),
-  body: z.string(),
-  href: z.string().nullable(),
-  severity: z.enum(['info', 'action', 'critical']),
-  readAt: date.nullable(),
-  createdAt: date,
-});
-const channel = z.enum(['inapp', 'email', 'push', 'sms']);
-const outOfApp = z.enum(['email', 'push', 'sms']);
-const unique = <T extends { channel: string }>(rows: T[]) => new Set(rows.map((row) => row.channel)).size === rows.length;
-const preference = z.object({ channel: outOfApp, muted: z.boolean() });
-const preferences = z.array(preference).max(3).refine(unique, 'Duplicate notification preferences');
-const channels = z
-  .array(
-    z.object({
-      channel,
-      configured: z.boolean(),
-      available: z.boolean(),
-      reason: z.string().nullable(),
-      requires: z.array(z.string()),
-      socket: z.string().nullable(),
-    }),
-  )
-  .max(4)
-  .refine(unique, 'Duplicate notification channels');
-const targets = z
-  .array(z.object({ channel: outOfApp, address: z.string().min(1), locale: z.string(), verifiedAt: date.nullable() }))
-  .max(3)
-  .refine(unique, 'Duplicate notification targets');
-const deliveries = z
-  .array(
-    z.object({
-      channel,
-      status: z.enum(['pending', 'accepted', 'refused', 'failed', 'abandoned']),
-      attempts: z.number().int().nonnegative(),
-      attemptedAt: date.nullable(),
-      acceptedAt: date.nullable(),
-      refusalCode: z.string().nullable(),
-    }),
-  )
-  .max(4)
-  .refine(unique, 'Duplicate notification delivery channels');
+const notification = accountNotificationSchema;
+const outOfApp = accountNotifyOutOfAppSchema;
+const preferences = accountNotifyPrefsSchema;
 type Notification = z.infer<typeof notification>;
 type OutOfApp = z.infer<typeof outOfApp>;
 
@@ -101,15 +67,13 @@ function NotificationRoom({ userId }: { userId: string }) {
         'notify',
         'notify.list',
         { limit: 50, ...(cursor ? { cursor } : {}), unreadOnly: unread },
-        z
-          .object({ items: z.array(notification).max(50), nextCursor: z.string().guid().nullable() })
-          .refine(
-            (data) =>
-              data.items.every((row) => row.userId === userId) &&
-              new Set(data.items.map((row) => row.id)).size === data.items.length &&
-              (!cursor || data.nextCursor !== cursor),
-            'Inbox ownership, IDs or continuation are invalid',
-          ),
+        accountInboxSchema(50).refine(
+          (data) =>
+            data.items.every((row) => row.userId === userId) &&
+            new Set(data.items.map((row) => row.id)).size === data.items.length &&
+            (!cursor || data.nextCursor !== cursor),
+          'Inbox ownership, IDs or continuation are invalid',
+        ),
         { signal },
       ),
     `notifications:${userId}:${cursor}:${unread}:${readCycle}`,
@@ -129,7 +93,7 @@ function NotificationRoom({ userId }: { userId: string }) {
       return;
     running.current = true;
     setBusy(true);
-    const outcome = await api.mutate('notify', 'notify.markRead', { ids: [id] }, z.object({ marked: z.number().int().min(0).max(1) }));
+    const outcome = await api.call(NOTIFY_MARK_READ, { ids: [id] }, { accept: accountMarkedOneHolds });
     running.current = false;
     if (!mounted.current) return;
     setBusy(false);
@@ -272,7 +236,7 @@ function DeliveryDetails({ item }: { item: Notification }) {
   const { api } = useSession();
   const { t, Copy, requestedLocale } = copy.useCopy();
   const records = useResource(
-    (signal) => api.query('notify', 'notify.deliveries', { notificationId: item.id }, deliveries, { signal }),
+    (signal) => api.call(NOTIFY_DELIVERIES, { notificationId: item.id }, { signal, accept: accountDeliveriesHold }),
     `deliveries:${item.userId}:${item.id}`,
   );
   return (
@@ -354,11 +318,11 @@ function NotificationSettings({ userId }: { userId: string }) {
     };
   }, []);
   const status = useResource(
-    (signal) => api.query('notify', 'notify.channels', undefined, channels, { signal }),
+    (signal) => api.call(NOTIFY_CHANNELS, undefined, { signal, accept: accountChannelsHold }),
     `notification-channels:${userId}:${revision}`,
   );
   const target = useResource(
-    (signal) => api.query('notify', 'notify.targets', undefined, targets, { signal }),
+    (signal) => api.call(NOTIFY_TARGETS, undefined, { signal, accept: accountTargetsHold }),
     `notification-targets:${userId}:${revision}`,
   );
   const prefs = useResource(

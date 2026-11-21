@@ -2,10 +2,21 @@ import { useMemo } from 'react';
 import { useDataEnv, useSource } from '../../data/hooks';
 import type { Loadable } from '../../data/types';
 import { useResource } from '../../shared/resource';
-import { useVenueMode } from '../trade/use-venue-mode';
-import { TestMark, VenueFrame, WalletBar, useOwner, useVenueApi } from '../trade/venue/VenueKit';
-import { venueApi, type VenueFeeRates, type VenueFeeTier, type VenueFeeTiers, type VenuePublicFees } from '../trade/venue-api';
-import { bpsToPercent, rateShown } from '../trade/venue/fee-rates';
+import {
+  bpsToPercent,
+  rateShown,
+  TestMark,
+  useOwner,
+  useVenueApi,
+  useVenueMode,
+  venueApi,
+  VenueFrame,
+  WalletBar,
+  type VenueFeeRates,
+  type VenueFeeTier,
+  type VenueFeeTiers,
+  type VenuePublicFees,
+} from '../trade';
 import { venueFeesCopy } from './venue-fees-copy';
 
 type T = ReturnType<typeof venueFeesCopy.useCopy>['t'];

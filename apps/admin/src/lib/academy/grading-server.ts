@@ -7,9 +7,15 @@ import {
   academyGradingQueueSchema,
   academyOpenGradingInputSchema,
 } from '@intafaced/contracts/academy-courses';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
-import { partFrom, type PartLabels } from '@/lib/desk/part';
-import { explainRefusal } from '@/lib/desk/refusal-copy';
+import {
+  founderCall,
+  parseWith,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  explainRefusal,
+} from '@/lib/desk';
 import type { AcademyBulkGradeResult, AcademyGradingQueue, GradingDeskReply, GradingView } from './grading-model';
 
 /**

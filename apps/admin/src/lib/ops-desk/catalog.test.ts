@@ -1,3 +1,4 @@
+import { CONTRACT_PROCEDURES } from '@intafaced/contracts/procedure-registry';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,6 +52,14 @@ const source = (service: string) => {
           .map((name) => readFileSync(join(src, dir, name), 'utf8'))
       : [];
   return [...filesOf('router', '.router.ts'), ...filesOf('routes', '.ts'), readFileSync(join(src, 'router.ts'), 'utf8')].join('\n');
+};
+
+/** `crates/<service>/src/door/calls.rs` as path → kind (`Query` or `Mutation`), or null when the service is not Rust. */
+const rustCalls = (service: string): Map<string, string> | null => {
+  const file = fileURLToPath(new URL(`../../../../../crates/${service}/src/door/calls.rs`, import.meta.url));
+  if (!existsSync(file)) return null;
+  const text = readFileSync(file, 'utf8');
+  return new Map([...text.matchAll(/path: "([^"]+)",\s*kind: Kind::(Query|Mutation),/g)].map((m) => [m[1]!, m[2]!]));
 };
 
 // The transfer record is read on request, so it sits in no section; it is held to the same rules as every other read.
@@ -432,10 +441,35 @@ function serviceSources(service: string): string[] {
   return out;
 }
 
+describe('a read whose call has a record takes its module and path from the record', () => {
+  it.each(all.filter((a) => a.read.recordName !== undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+    const record = CONTRACT_PROCEDURES.find((r) => r.name === read.recordName);
+    expect(record, `${read.recordName} is a record`).toBeDefined();
+    expect(record!.transport === 'trpc' && record!.kind).toBe('query');
+    expect([read.module, read.procedure]).toEqual([record!.module, record!.transport === 'trpc' ? record!.path : null]);
+  });
+});
+
+// A read of a call with a record names it (`readOf`): only then does the server parse the answer by the record and its checks.
+describe('a read of a call that has a record names it', () => {
+  it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+    const record = CONTRACT_PROCEDURES.find((r) => r.transport === 'trpc' && r.module === read.module && r.path === read.procedure);
+    expect(record?.name, `${read.module}.${read.procedure} has a record: write \`...readOf(<its record>)\` in catalog.ts`).toBeUndefined();
+  });
+});
+
+// A read with a record is mounted from that record (`mountRecords`), so its query is checked there, not in router text.
 describe('every read names a QUERY that exists in the owning router (drift guard)', () => {
-  it.each(all.map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
+  it.each(all.filter((a) => a.read.recordName === undefined).map((a) => [a.read.id, a.read] as const))('%s', (_id, read) => {
     const service = ROUTER[read.module];
     expect(service, `${read.module} has a router mapping`).not.toBeNull();
+    // A Rust service (svc-academy) lists every call its door serves, with its kind, in one table (`src/door/calls.rs`).
+    const calls = rustCalls(service!);
+    if (calls) {
+      expect(calls.get(read.procedure), `${service} has ${read.procedure}`).toBeDefined();
+      expect(calls.get(read.procedure), `${read.procedure} is a query`).toBe('Query');
+      return;
+    }
     // svc-bank mounts the bill and global send routers from personal-pay/router.ts (`bills.ops.*`, `global.ops.*`).
     const nested = read.procedure.split('.').length === 3;
     const text = nested ? personalPayRouter() : source(service!);
@@ -459,14 +493,13 @@ describe('every read names a QUERY that exists in the owning router (drift guard
     // A top-level procedure built by its area's factory (svc-quant `health: healthRoutes(core)`) is read from that factory.
     const area = parts.length === 1 ? new RegExp(`\\b${name}: (\\w+Routes)\\(`).exec(text)?.[1] : undefined;
     if (area) from = text.indexOf(`export function ${area}(`);
-    // `operator` is svc-mining-pool's local alias for its admin:read procedure builder.
     const proc = area
       ? new RegExp(`export function ${area}\\(`).exec(text.slice(from))
-      : new RegExp(`\\b${name}: (\\w*Procedure|operator)\\b`).exec(text.slice(from));
+      : new RegExp(`\\b${name}: (\\w*Procedure)\\b`).exec(text.slice(from));
     expect(proc, `${service} has ${read.procedure}`).not.toBeNull();
     // From the procedure up to the next procedure definition, the call kind must be a query.
     const rest = text.slice(from + proc!.index + 1);
-    const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure|operator|customer)\b/);
+    const next = rest.search(/\n\s+[a-zA-Z]+: (\w*Procedure)\b/);
     let body = next === -1 ? rest : rest.slice(0, next);
     if (area) body = rest.slice(0, rest.search(/\nexport function /) >>> 0);
     // A procedure built in its own file (`poolTotals: poolTotalsProcedure(...)`) is judged by that factory's body.

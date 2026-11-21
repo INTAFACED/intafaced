@@ -19,13 +19,20 @@ export function isPgUniqueViolation(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505';
 }
 
+/** The one-live-follow-per-leader index: unique `(follower_id, leader_id)` among ACTIVE or PAUSED follows. */
+export const COPY_FOLLOW_LIVE_INDEX = 'copy_follows_follower_leader_live_idx';
+
 /**
  * Unique `(follower_id, leader_id)` among live (ACTIVE or PAUSED) follows is the durable already-following gate.
  * Concurrent follows can both pass the list check; the index must not leak a
- * raw 23505 onto the wire (same honesty as fill-sequence-conflict).
+ * raw 23505 onto the wire (same honesty as fill-sequence-conflict). saveFollow's `ON CONFLICT (follow_id)` does not
+ * absorb this index, so the same venue press sent twice at once meets it too: startVenueFollow answers the row that won.
+ * A 23505 on another named key is not "already following" and passes through; one with no constraint name
+ * (a store fake) still maps.
  */
 export function rethrowCopyFollowUnique(err: unknown): never {
-  if (isPgUniqueViolation(err)) {
+  const constraint = typeof err === 'object' && err !== null && 'constraint_name' in err ? err.constraint_name : undefined;
+  if (isPgUniqueViolation(err) && (constraint === undefined || constraint === COPY_FOLLOW_LIVE_INDEX)) {
     throw new CopyError('Already following this leader', 'trade.copy_already_following');
   }
   throw err;

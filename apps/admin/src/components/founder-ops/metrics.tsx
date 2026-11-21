@@ -1,7 +1,5 @@
 import type { DashboardData } from '@/lib/merchants/loaders';
-import { chartPoints, dashboardAssets } from '@/components/merchants/dashboard';
-import { BarChart } from '@/components/merchants/bar-chart';
-import { AsOf, Amounts, Card, FailureState, KpiTile, StateBlock } from '@/components/merchants/ui';
+import { chartPoints, dashboardAssets, BarChart, AsOf, Amounts, Card, FailureState, KpiTile, StateBlock } from '@/components/merchants';
 import { sumByAsset } from '@/lib/merchants/money';
 import { stalestFreshness } from '@/lib/merchants/time';
 export function MetricsCharts({ data, path }: { data: DashboardData; path: string }) {

@@ -1,110 +1,75 @@
-// World: book, market, restart
-// Market: live
-import path from 'node:path';
+// World: book, restart
+import { randomBytes } from 'node:crypto';
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { EDGE, ORIGIN, ROOT, api, bestPrices, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
+import { api, bestPrices, fromUnits, journeyState, restartService, toUnits } from './stack.mjs';
+import { ledgerRead } from './ledger-door.mjs';
 import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
-import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { testWalletKey } from './test-wallet.mjs';
+import {
+  continueInWallet,
+  otherTraderKey,
+  otherTraderRun,
+  openVenuePage,
+  sameDecimal,
+  testDeposit,
+  venueBalance,
+  venueForThisFile,
+  venueRecord,
+} from './venue.mjs';
+import { ownSpotMarket } from './own-market.mjs';
+import { signedOnVenue, venueNow } from './venue-door.mjs';
+import { venueStatus } from './venue-reads.mjs';
 
 const ONE = toUnits('1');
 
 // J-copy-bots-otc-14, in the running app (docs/roadmap/journeys.json): start a spot grid bot and watch it earn. One test
-// per step, titled "J-copy-bots-otc-14 #<n>". The trader is a TEST account on the local stack, verified and funded with
-// TEST USDT; the bot's levels go to the real TEST book. The reserve must equal the investment and each level hold only its
-// own order, which the steps read from the ledger.
-// The grid is svc-trade's own (services/svc-trade/src/grid): its reserve row and level orders are read back from it, and
-// what the ledger holds is read from the ledger. A blank owner level comes from restarting trade with
-// LOCAL_STACK_TRADE_BOTS_LEVEL=blank, and a price out of range from the TEST market's `move`, each undone in a finally.
-// Steps that are written but not built yet fail at their first missing part, quickly, by name (UNBUILT); none is left.
-// #7 confirms each withdrawal with an authenticator the step adds from Security, and the owner's daily cap comes blank
-// from restarting trade with LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP=blank, undone in a finally. #7 runs with the TEST market
-// maker stopped (stopMarketMaker below), so the grid's own trading cannot move the balances it proves unmoved.
+// per step, titled "J-copy-bots-otc-14 #<n>". The grid trades on the person's own account at the stack's TEST venue
+// simulator (BTC-USDC), with svc-trade's user-venue door on for this file: INTAFACED holds and moves nothing. The trader
+// is a TEST account on the local stack, verified, with a TEST wallet holding TEST USDC on its venue account. Every level
+// is one venue order under the grid agent permission the wallet signs once; what it holds, its fills and its fees are read
+// from the venue itself, and our ledger is read to show it posts only our builder fee, once per fill.
+// The grid trades a TEST spot market of this file's own (ownSpotMarket), whose only other trader is this file's TEST maker:
+// it rests three levels a side, 10 apart, round a mid, and moves the price by resting them again round a new one, so a
+// grid order the new levels cross fills.
+// A blank owner level comes from restarting trade with LOCAL_STACK_TRADE_BOTS_LEVEL=blank, and a blank bounds distance
+// with LOCAL_STACK_TRADE_GRID_BAND=blank, each undone in a finally. #1's TWAP runs on our own TEST book (BTC/USDT).
 const J = 'J-copy-bots-otc-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
+const MID = '60000';
 
 test.describe.configure({ mode: 'default' });
 
-// The file's grid bot is stopped once its steps are done, and its open level orders cancelled. The TEST maker quotes
-// post-only, so a resting buy the walk drifts under is never taken by the maker (the taker's crossing sell can take it;
-// see stopMarketMaker); left running, the bot would empty the BTC/USDT ask side for every journey after this one on the stack.
+// The file's grid bot is stopped once its steps are done, and its venue orders cancelled by the bot.
 test.afterAll(async () => {
-  const { who, botId, secret, step } = run.read() ?? {};
+  test.setTimeout(120_000);
+  const { who, botId } = run.read() ?? {};
   if (!who || !botId) return;
-  // Once #7 has added an authenticator, a sign-in takes a code from it.
-  const totpCode = secret ? (await nextCode((await totpLib()).totp, secret, step)).code : undefined;
-  const me = await api(who, { totpCode });
+  const me = await api(who);
   const stopped = await me.post(`${GRID}.stop`, { botId });
   expect(stopped.status, JSON.stringify(stopped.body).slice(0, 300)).toBe(200);
-  // Polled on this sign-in: a fresh one would take another code.
-  const until = Date.now() + 60_000;
-  for (;;) {
-    const { status, body } = await me.get(read(`${GRID}.get`, { botId }));
-    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-    const bot = body.result.data;
-    if (bot.status === 'stopped' && bot.orders.every((o) => o.status !== 'open')) return;
-    if (Date.now() >= until) throw new Error(`grid ${botId} still has open orders after its stop`);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
+  await expect
+    .poll(
+      async () => {
+        const { status, body } = await me.get(read(`${GRID}.get`, { botId }));
+        expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+        const bot = body.result.data;
+        return bot.status === 'stopped' && bot.orders.every((o) => o.status !== 'open');
+      },
+      { timeout: 60_000, intervals: [500], message: `grid ${botId} still has open orders after its stop` },
+    )
+    .toBe(true);
 });
+// Declared after the stop above, so the door is still on when the file's bot is stopped (hooks run in declared order).
+venueForThisFile(test);
 
-/** The TEST market maker's status line; `status` exits non-zero when it is down, which is an answer here, not an error. */
-function makerStatus() {
-  try {
-    return tool('local-test-market.mjs', 'status');
-  } catch (err) {
-    return String(err.stdout ?? '');
-  }
-}
-const makerUp = () => /^test market: (ok|STALE)/.test(makerStatus());
-/** "not started" is the only state a trade restart's `ensure` leaves alone: a maker that is DOWN but remembered, it starts. */
-const makerForgotten = () => /^test market: not started/.test(makerStatus());
-
-/** Set while #7 has stopped a TEST market maker that was running or remembered, so the hook below starts it again even after a timeout. */
-let marketStopped = false;
-
-/**
- * The TEST market maker and its taker are the only other traders on the stack. The maker's post-only quotes never take a
- * resting buy, but once the walk drifts under the grid's top buy, that buy is the best bid and the taker's crossing sell
- * fills it (#7075: in #7 the USDT total ended 9.78 or 19.60 lower, the cost of one or two of the grid's level buys). #7
- * proves its withdrawals move no money, so it stops them for its window: the grid keeps its orders and nothing trades
- * against them. #7 restarts trade twice, and each restart runs the maker's `ensure`, which starts any maker the stack
- * still remembers, a DOWN one included. So the maker must end forgotten ("not started"), not only stopped.
- */
-async function stopMarketMaker() {
-  if (makerForgotten()) return;
-  marketStopped = true;
-  tool('local-test-market.mjs', 'stop');
-  // `stop` returns after 20 s even when the maker is still cancelling, and then keeps its record; nothing is read until
-  // it has gone.
-  const until = Date.now() + 60_000;
-  while (makerUp()) {
-    if (Date.now() >= until) throw new Error('the TEST market maker is still running 60 s after its stop');
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-  }
-  // A stop that timed out kept the record; with the maker gone, this stop forgets it. (For a maker that was already DOWN,
-  // the first stop forgot it, and this one changes nothing.)
-  tool('local-test-market.mjs', 'stop');
-  expect(makerStatus(), 'the TEST market maker is forgotten, so no trade restart in #7 starts it again').toMatch(
-    /^test market: not started/,
-  );
-}
-
-test.afterEach(() => {
-  if (!marketStopped) return;
-  // Its own time: a start funds the maker and may take up to the tool's 120 s, after a test that may have used all of its.
-  test.info().setTimeout(test.info().timeout + 180_000);
-  tool('local-test-market.mjs');
-  marketStopped = false;
-});
-
-const wizard = (page) => page.getByRole('form', { name: 'Spot grid' });
-const usdt = async () => (await (await api(run.read().who)).balances()).USDT;
+const wizard = (page) => page.getByRole('form', { name: 'Spot grid', exact: true });
 
 async function openBots(page) {
   await signIn(page, run.read().who);
   await page.goto('/bots');
-  await expect(page.getByRole('heading', { name: 'Bots', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bots', level: 1, exact: true })).toBeVisible();
 }
 
 async function openGrid(page) {
@@ -113,9 +78,22 @@ async function openGrid(page) {
   await expect(wizard(page)).toBeVisible(UNBUILT);
 }
 
-test(`${J} starts: a verified TEST account with 1000 USDT`, async ({ page }) => {
+test(`${J} starts: signed in, verified to the owner's level, a TEST wallet with TEST USDC on its own venue account`, async ({ page }) => {
   test.setTimeout(180_000);
-  run.reset({ who: await fundedTrader(page, 'gb', '1000') });
+  // TEST USDT on our ledger is for #1's TWAP on our own TEST book; the grid trades on the venue.
+  const who = await fundedTrader(page, 'gb', '1000');
+  const walletKey = testWalletKey();
+  const key = privateKeyToAccount(walletKey);
+  const owner = key.address.toLowerCase();
+  const venue = await venueNow();
+  await testDeposit(owner, 'USDC', '5000', `${venue.chainId}:0x${randomBytes(32).toString('hex')}:0`);
+  expect(toUnits((await venueBalance(owner, 'USDC')).free)).toBeGreaterThanOrEqual(toUnits('5000'));
+  // Our builder fee rides on every grid sell: the wallet approves it once on its own account, signed on the venue itself
+  // (setup, not a step: the step words start from an account that trades on the venue).
+  const { builder } = await venueStatus(who);
+  expect(builder, 'the stack publishes our TEST builder fee').toBeTruthy();
+  await signedOnVenue(venue, key, { kind: 'approve_builder_fee', builder: builder.address, maxFeeBps: builder.feeBps });
+  run.reset({ who, walletKey, owner, since: new Date().toISOString() });
 });
 
 test(`${J} #1 opens Bots: the hub with one status and one link per bot type, each refusal in words; My bots from the server even in a new browser`, async ({
@@ -198,7 +176,7 @@ const myAlgoIds = async () => {
 async function hub(page, botId) {
   const who = run.read().who;
   await openBots(page);
-  const types = page.getByRole('list', { name: 'Bot types' }).getByRole('listitem');
+  const types = page.getByRole('list', { name: 'Bot types', exact: true }).getByRole('listitem');
   await expect(types.first()).toBeVisible(UNBUILT);
   // The statuses settle once the service's bot policy answers: until then the live types read "Checking".
   await expect(types.getByTestId('bot-type-status').filter({ hasText: /^Checking$/ })).toHaveCount(0);
@@ -215,14 +193,14 @@ async function hub(page, botId) {
 
   // Following a refused type's link shows the same reason in its room, offers no form, and creates nothing.
   const before = await myAlgoIds();
-  await page.getByRole('list', { name: 'Bot types' }).getByRole('link', { name: 'Recurring buy (DCA)', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Recurring buy (DCA)', level: 1 })).toBeVisible();
+  await page.getByRole('list', { name: 'Bot types', exact: true }).getByRole('link', { name: 'Recurring buy (DCA)', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Recurring buy (DCA)', level: 1, exact: true })).toBeVisible();
   await expect(page.getByText('Not available', { exact: true })).toBeVisible();
   await expect(page.getByText(NOT_READY['Recurring buy (DCA)'], { exact: true })).toBeVisible();
   await expect(page.locator('form')).toHaveCount(0);
   expect(await myAlgoIds()).toEqual(before);
-  await page.getByRole('button', { name: 'Back to Bots' }).click();
-  await expect(page.getByRole('heading', { name: 'Bots', level: 1 })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to Bots', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Bots', level: 1, exact: true })).toBeVisible();
 
   // My bots is the service's list: the same ids, each with its state's word, and nothing else. This browser is new, so
   // the bot made through the service above can only come from that read.
@@ -307,39 +285,12 @@ async function everyBotCreate(who, tag) {
   return answers;
 }
 
-/** Restart trade with one owner value blank (`blank`) or as the TEST profile sets it (`set`), by its stack switch. */
-function restartTrade(switchName, state) {
-  const before = process.env[switchName];
-  if (state === 'blank') process.env[switchName] = 'blank';
-  else delete process.env[switchName];
-  try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
-  } finally {
-    if (before === undefined) delete process.env[switchName];
-    else process.env[switchName] = before;
-  }
-  return dropClosedSockets();
-}
-
 /**
- * A restart takes longer than Edge's idle timeout, so the kept-alive sockets this process holds to Edge are closed on
- * Edge's side; the next request on one fails before any answer ("other side closed"). Cheap reads drop them from the
- * pool until three in a row answer, so the step's own writes go out on live sockets and are never sent twice.
+ * Restart trade with one owner value blank (`blank`) or as the TEST profile sets it (`set`), by its stack switch. The
+ * user-venue door stays on through this file's own restarts (venueForThisFile turns it off after the file).
  */
-async function dropClosedSockets() {
-  let live = 0;
-  for (let i = 0; i < 20 && live < 3; i++) {
-    try {
-      await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent('BTC/USDT')}?limit=1`, { headers: { origin: ORIGIN } }).then((r) =>
-        r.arrayBuffer(),
-      );
-      live += 1;
-    } catch (error) {
-      if (error?.cause?.code !== 'UND_ERR_SOCKET') throw error;
-      live = 0;
-    }
-  }
-}
+const restartTrade = (switchName, state) =>
+  restartService('trade', { LOCAL_STACK_USER_VENUE: 'on', [switchName]: state === 'blank' ? 'blank' : null });
 
 /** The owner's bots verification level, blank or as the TEST profile sets it. */
 const botsLevel = (state) => restartTrade('LOCAL_STACK_TRADE_BOTS_LEVEL', state);
@@ -349,7 +300,7 @@ const gridBand = (state) => restartTrade('LOCAL_STACK_TRADE_GRID_BAND', state);
 async function openGridRoom(page, who) {
   await signIn(page, who);
   await page.goto('/trade/bots/grid');
-  await expect(page.getByRole('heading', { name: 'Spot grid', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Spot grid', level: 1, exact: true })).toBeVisible();
 }
 
 test(`${J} #2 opens the grid wizard below the owner's verification level: refused as verification insufficient, with no parent row; a blank owner level refuses every bot`, async ({
@@ -365,7 +316,7 @@ test(`${J} #2 opens the grid wizard below the owner's verification level: refuse
   expect(codeOf(setup.body)).toBe('trade.bots_verification_insufficient');
   await openGridRoom(page, unverified);
   await expect(page.getByText('Verification insufficient', { exact: true })).toBeVisible();
-  await expect(page.getByRole('form', { name: 'Spot grid' })).toHaveCount(0);
+  await expect(page.getByRole('form', { name: 'Spot grid', exact: true })).toHaveCount(0);
   // Every create door refuses with the same code, and the record read after holds no parent row of any kind.
   const below = await everyBotCreate(unverified, 'below');
   for (const [door, answer] of Object.entries(below)) {
@@ -392,7 +343,7 @@ test(`${J} #2 opens the grid wizard below the owner's verification level: refuse
     }
     await openGridRoom(page, who);
     await expect(page.getByText('Bots are closed: no verification level is set', { exact: true })).toBeVisible();
-    await expect(page.getByRole('form', { name: 'Spot grid' })).toHaveCount(0);
+    await expect(page.getByRole('form', { name: 'Spot grid', exact: true })).toHaveCount(0);
     expect((await gridList(who)).map((b) => b.botId).sort()).toEqual(gridsBefore);
     expect(await algoIds(who)).toEqual(algosBefore);
   } finally {
@@ -405,8 +356,8 @@ test(`${J} #3 opens presets: with no backtest source the list reads "Not set" an
   expect(presets.status, JSON.stringify(presets.body).slice(0, 300)).toBe(200);
   expect(presets.body.result.data).toEqual({ source: null, presets: [] });
   await openGrid(page);
-  await wizard(page).getByRole('tab', { name: 'Presets' }).click();
-  const panel = page.getByRole('tabpanel', { name: 'Presets' });
+  await wizard(page).getByRole('tab', { name: 'Presets', exact: true }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Presets', exact: true });
   await expect(panel.getByText('Backtested presets', { exact: true })).toBeVisible();
   await expect(panel).toContainText(/Backtested presets\s*Not set/);
   await expect(panel.getByRole('listitem')).toHaveCount(0);
@@ -418,589 +369,473 @@ test(`${J} #3 opens presets: with no backtest source the list reads "Not set" an
 /** The browser's own create call: its request body and the service's answer, with the refusal's typed code. */
 async function pressCreate(page) {
   const answer = page.waitForResponse((res) => res.url().includes('bots.grid.create') && res.request().method() === 'POST');
-  await wizard(page).getByRole('button', { name: 'Create bot' }).click();
+  await wizard(page).getByRole('button', { name: 'Create bot', exact: true }).click();
   const res = await answer;
   const body = await res.json();
   return { status: res.status(), body, request: res.request().postDataJSON(), url: res.url() };
 }
 
-test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first two refused naming the field; twenty levels planned; a second create with the same key returns the same bot`, async ({
+/** The run's person: their account, wallet key, venue owner address and ledger balances read at the start. */
+function person() {
+  const s = run.read();
+  if (!s?.who || !s.walletKey) throw new Error(`${J} starts made no account and wallet, so this step has no one to act as`);
+  return s;
+}
+
+/** The file's own TEST spot market, made once (#4) and kept in the run state. */
+async function gridMarket() {
+  const s = run.read();
+  if (s.market) return s.market;
+  const market = await ownSpotMarket(J, 'JGB', 'A');
+  run.write({ ...run.read(), market });
+  return market;
+}
+const marketOf = () => {
+  const m = run.read().market;
+  if (!m) throw new Error(`${J} #4 made no market of its own, so this step has none to trade`);
+  return m;
+};
+
+/** The person's open orders on the grid's market, as the venue itself records them. */
+const venueOpen = async (owner) => (await venueRecord(owner, '/open-orders')).value.filter((o) => o.symbol === marketOf().symbol);
+/** The person's fills on the grid's market since the run began, as the venue itself records them. */
+const venueFills = async (owner, since) =>
+  (await venueRecord(owner, '/fills', { since })).value.filter((f) => f.symbol === marketOf().symbol);
+
+/**
+ * The file's TEST maker rests three levels a side, 10 apart, round `mid` on the grid's market, after cancelling the ones it
+ * rested before: bids first, then asks, so a grid sell under the new bids, or a grid buy over the new asks, fills. TEST
+ * funds only, deposited once under a fixed reference.
+ */
+async function bookAt(mid) {
+  const market = marketOf();
+  const name = `${J}-maker-${market.base}`;
+  const maker = otherTraderKey(name).address.toLowerCase();
+  const s = run.read();
+  if (!s.makerFunded) {
+    await testDeposit(maker, 'USDC', '10000000', `seed:${name}:USDC`);
+    await testDeposit(maker, market.base, '1000', `seed:${name}:${market.base}`);
+    run.write({ ...run.read(), makerFunded: true });
+  }
+  // A key already filled or cancelled is refused by the venue; only what still rests matters, and that is cancelled.
+  // The grid's mark is the venue's mid, and the bot's own resting buys are bids in that book. Moving down, the maker's
+  // asks go first: cancelling its bids first would leave the bot's highest buy against the maker's old asks, a mid
+  // between the two prices that the price never meant to pass, where a running grid buys (#5, 61500 back to 60000,
+  // saw mid 60730 and buys at levels 10 to 12). Moving up, its bids go first, for the same reason the other way round.
+  const down = s.makerMid !== undefined && toUnits(mid) < toUnits(s.makerMid);
+  const first = down ? ':sell' : ':buy';
+  const stale = [...(s.makerKeys ?? [])].sort((a, b) => Number(!a.includes(first)) - Number(!b.includes(first)));
+  for (const key of stale) await otherTraderRun(name, { kind: 'cancel_order', symbol: market.symbol, clientOrderKey: key });
+  const tag = Date.now().toString(36);
+  const keys = [];
+  for (const side of ['buy', 'sell'])
+    for (let level = 1; level <= 3; level += 1) {
+      const step = toUnits('10') * BigInt(level);
+      const at = side === 'buy' ? toUnits(mid) - step : toUnits(mid) + step;
+      const clientOrderKey = `order:${name}:${tag}:${side}${level}`;
+      const rested = await otherTraderRun(name, {
+        kind: 'place_order',
+        symbol: market.symbol,
+        side,
+        type: 'limit',
+        amount: '1',
+        price: fromUnits(at),
+        timeInForce: 'GTC',
+        reduceOnly: false,
+        clientOrderKey,
+        builderFee: null,
+      });
+      expect(rested.definite && rested.accepted, JSON.stringify(rested).slice(0, 300)).toBe(true);
+      keys.push(clientOrderKey);
+    }
+  run.write({ ...run.read(), makerKeys: keys, makerMid: mid });
+  const open = (await venueRecord(maker, '/open-orders')).value.filter((o) => o.symbol === market.symbol);
+  expect(open.length, `the maker rests round ${mid}`).toBeGreaterThan(0);
+}
+
+/** Opens the grid room in venue mode as the person, with their TEST wallet connected. Returns the wallet. */
+async function openGridVenue(page, s, query = '') {
+  const wallet = await openVenuePage(page, s.who, `/trade/bots/grid${query}`, s.walletKey);
+  await expect(page.getByRole('heading', { name: 'Spot grid', level: 1, exact: true })).toBeVisible();
+  return wallet;
+}
+
+/** Wait until the bot read satisfies `ok`, read again every half second; the tick runs every second on the stack. */
+async function untilBot(who, botId, ok, what, waitMs = 60_000) {
+  let bot;
+  await expect
+    .poll(
+      async () => {
+        bot = await gridBot(who, botId);
+        return ok(bot);
+      },
+      {
+        timeout: waitMs,
+        intervals: [500],
+        message: `grid ${botId} did not ${what}`,
+      },
+    )
+    .toBe(true);
+  return bot;
+}
+
+/** The bot's open orders by business key, with side and price. */
+const openOf = (bot) =>
+  bot.orders
+    .filter((o) => o.status === 'open')
+    .map((o) => `${o.clientOrderId} ${o.side} ${o.price}`)
+    .sort();
+/** The venue's open orders by its client order id, side, price and amount. */
+const venueOpenOf = (orders) => orders.map((o) => `${o.venueClientOrderId} ${o.side} ${o.price} ${o.amount}`).sort();
+const sum = (xs) => xs.reduce((t, x) => t + x, 0n);
+/** price x amount, rounded down, as the venue and the service both count a quote. */
+const quote = (price, amount) => (toUnits(price) * toUnits(amount)) / ONE;
+
+test(`${J} #4 enters bounds left blank, then one grid, then twenty: the first two refused naming the field; twenty levels placed on the venue under the agent permission (a rejected signature places nothing); a second create with the same key returns the same bot`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
-  const who = run.read().who;
-  const before = await usdt();
-  const gridsBefore = await gridList(who);
+  test.setTimeout(300_000);
+  const s = person();
+  // Our ledger as the grid starts: #1's TWAP trades our own TEST book, so the grid's figure is read here, before it acts.
+  run.write({ ...run.read(), ledger: await (await api(s.who)).balances() });
+  s.ledger = run.read().ledger;
+  const gridsBefore = await gridList(s.who);
+  const market = await gridMarket();
+  await bookAt(MID);
+  const usdcBefore = await venueBalance(s.owner, 'USDC');
+  expect(await venueOpen(s.owner)).toEqual([]);
+  // The range round the mid, 100 a level, the mid halfway between levels 9 and 10: 59050 to 60950 in twenty levels.
+  // 4000 USDC over twenty levels is about 0.003 BTC a level, three lots of 0.001: the venue takes a buy's fee in BTC, so
+  // what a buy receives still holds whole lots to sell one level up.
+  const range = { lowerPrice: '59050', upperPrice: '60950', gridCount: 20, investment: '4000' };
 
   // CB-bots-02's owner bounds relative to market, blank: the setup read names it unset, the wizard reads "Not set", and a
-  // create with every field valid is refused by its code, with nothing written. Trade restarts as set in the finally.
+  // create with every field valid is refused by its code, with nothing placed. Trade restarts as set in the finally.
   await gridBand('blank');
   try {
-    const blankSetup = await (await api(who)).get(read(`${GRID}.setup`));
+    const blankSetup = await (await api(s.who)).get(read(`${GRID}.setup`));
     expect(blankSetup.status, JSON.stringify(blankSetup.body).slice(0, 300)).toBe(200);
     expect(blankSetup.body.result.data.boundsMaxDistanceBps).toBeNull();
-    const { bid, ask } = await bestPrices();
-    const blank = await (
-      await api(who)
-    ).post(`${GRID}.create`, {
-      clientRequestId: `${J}-band-blank-${Date.now().toString(36)}`,
-      symbol: 'BTC/USDT',
-      lowerPrice: String((toUnits(bid) * 95n) / 100n / ONE),
-      upperPrice: String((toUnits(ask) * 105n) / 100n / ONE),
-      gridCount: 20,
-      investment: '200',
-    });
-    expect(blank.status, JSON.stringify(blank.body).slice(0, 300)).toBe(400);
-    expect(codeOf(blank.body)).toBe('trade.bots_grid_bounds_band_not_set');
-    await openGrid(page);
+    // The door learns a new venue market within a few seconds (user-venue-door.ts MARKET_MISS_REREAD_MS), so the create is
+    // asked again until the market is known; the answer that counts is the band's refusal.
+    await expect(async () => {
+      const blank = await (
+        await api(s.who)
+      ).post(`${GRID}.create`, {
+        clientRequestId: `${J}-band-blank-${Date.now().toString(36)}`,
+        symbol: market.symbol,
+        owner: s.owner,
+        ...range,
+      });
+      expect(blank.status, JSON.stringify(blank.body).slice(0, 300)).toBe(400);
+      expect(codeOf(blank.body)).toBe('trade.bots_grid_bounds_band_not_set');
+    }).toPass({ timeout: 30_000, intervals: [2_000] });
+    // Read only: the wizard's words, so the room opens without the wallet (installed once, below).
+    await openGridRoom(page, s.who);
     await expect(wizard(page)).toContainText(/Bounds allowed\s*Not set/);
-    expect(await gridList(who)).toEqual(gridsBefore);
-    expect(await usdt()).toEqual(before);
+    expect(await gridList(s.who)).toEqual(gridsBefore);
+    expect(await venueOpen(s.owner)).toEqual([]);
   } finally {
     await gridBand('set');
   }
 
-  // Set: the TEST distance read back from the service is the one the wizard names.
-  const setup = await (await api(who)).get(read(`${GRID}.setup`));
+  // Set: the TEST distance read back from the service is the one the wizard names; the venue's own spot market and mid.
+  const setup = await (await api(s.who)).get(read(`${GRID}.setup`));
   expect(setup.status, JSON.stringify(setup.body).slice(0, 300)).toBe(200);
   expect(setup.body.result.data.boundsMaxDistanceBps).toBe(1000);
-  await openGrid(page);
+  const wallet = await openGridVenue(page, s);
   await expect(wizard(page)).toContainText(/Bounds allowed\s*Within 10% of the market price/);
+  await wizard(page).getByRole('combobox', { name: 'Market', exact: true }).click();
+  await page.getByRole('option', { name: market.symbol, exact: true }).click();
+  await expect(wizard(page).getByRole('combobox', { name: 'Market', exact: true })).toContainText(market.symbol);
+  await expect(page.getByTestId('grid-last-price')).toHaveText(/^60,?000(\.0+)? USDC$/);
   const field = (name) => wizard(page).getByRole('textbox', { name });
-  await field('Investment').fill('200');
+  await field('Investment').fill(range.investment);
   await field('Grids').fill('20');
 
-  // Bounds left blank: refused naming Lower price, and nothing written.
+  // Bounds left blank: refused naming Lower price, and nothing placed.
   const blank = await pressCreate(page);
   expect(blank.status, JSON.stringify(blank.body).slice(0, 300)).toBe(400);
   expect(codeOf(blank.body)).toBe('trade.bots_grid_bounds_not_set');
-  // The wire carries the typed code and the service's own words, which name the field.
   expect(blank.body.error.message).toBe('Lower price is required');
   await expect(wizard(page).getByText('Enter both bounds', { exact: true })).toBeVisible();
-  expect(await gridList(who)).toEqual(gridsBefore);
+  expect(await gridList(s.who)).toEqual(gridsBefore);
 
-  // The range sits round the book's mid with the mid halfway between levels 10 and 11, half a percent from each,
-  // so neither the walk nor a crossing reaches a level while the holds are read.
-  const { bid, ask } = await bestPrices();
-  const mid = (toUnits(bid) + toUnits(ask)) / 2n;
-  const step = mid / 200n;
-  const lower = ((mid - (step * 19n) / 2n) / ONE) * ONE;
-  const upper = lower + step * 19n;
-  await field('Lower price').fill(fromUnits(lower));
-  await field('Upper price').fill(fromUnits((upper / ONE) * ONE));
-
-  // One grid: refused naming Grids, with the range it must be in, and nothing written.
+  // One grid: refused naming Grids, with the range it must be in, and nothing placed.
+  await field('Lower price').fill(range.lowerPrice);
+  await field('Upper price').fill(range.upperPrice);
   await field('Grids').fill('1');
   const one = await pressCreate(page);
   expect(one.status, JSON.stringify(one.body).slice(0, 300)).toBe(400);
   expect(codeOf(one.body)).toBe('trade.bots_grid_count_out_of_range');
   expect(one.body.error.message).toBe('Grids must be from 2 to 100');
   await expect(wizard(page).getByText('Grids is out of range', { exact: true })).toBeVisible();
-  expect(await gridList(who)).toEqual(gridsBefore);
-  expect(await usdt()).toEqual(before);
+  expect(await gridList(s.who)).toEqual(gridsBefore);
+  expect(await venueOpen(s.owner)).toEqual([]);
+  expect(wallet.requests).toHaveLength(0);
 
-  // A lower bound beyond the owner's distance (15% under the mid, against 10%): refused naming Lower price, nothing written.
+  // Twenty: twenty levels planned in the wizard.
   await field('Grids').fill('20');
-  await field('Lower price').fill(fromUnits(((mid * 85n) / 100n / ONE) * ONE));
-  const far = await pressCreate(page);
-  expect(far.status, JSON.stringify(far.body).slice(0, 300)).toBe(400);
-  expect(codeOf(far.body)).toBe('trade.bots_grid_bounds_out_of_band');
-  expect(far.body.error.message).toBe('Lower price must be within 10% of the market price');
-  await expect(wizard(page).getByText('A bound is too far from the market price', { exact: true })).toBeVisible();
-  expect(await gridList(who)).toEqual(gridsBefore);
-  expect(await usdt()).toEqual(before);
-  await field('Lower price').fill(fromUnits(lower));
-
-  // Twenty: twenty levels planned in the wizard, then by the service at the same prices.
   const planned = wizard(page).getByTestId('grid-plan').getByRole('listitem');
   await expect(planned).toHaveCount(20);
   const previewPrices = (await planned.allInnerTexts()).map((text) => toUnits(text.replace(/[^\d.]/g, '')));
+
+  // The wallet is asked to sign the grid agent permission first, as none exists; rejected, the bot places nothing.
+  wallet.rejectNext();
+  const rejected = await pressCreate(page);
+  expect(rejected.status, JSON.stringify(rejected.body).slice(0, 300)).toBe(200);
+  const botId = rejected.body.result.data.botId;
+  expect(rejected.body.result.data).toMatchObject({ status: 'signing', venue: { owner: s.owner, agentName: 'grid-bots', test: true } });
+  // The plain-words sheet comes first; the wallet is asked only once the person continues, and they reject there.
+  await continueInWallet(page);
+  await expect(page.getByText('You rejected the signature', { exact: true })).toBeVisible();
+  expect(wallet.requests).toHaveLength(1);
+  // What the wallet was asked to sign names the bot's own agent key: the permission, not an order.
+  const agent = rejected.body.result.data.venue.agentAddress.toLowerCase();
+  expect(wallet.requests[0].params[1].toLowerCase()).toContain(agent.slice(2));
+  expect((await gridBot(s.who, botId)).status).toBe('signing');
+  expect(await venueOpen(s.owner)).toEqual([]);
+  expect((await venueBalance(s.owner, 'USDC')).locked).toBe(usdcBefore.locked);
+
+  // Pressed again with the same request key: the same bot asks again, the wallet signs, and the levels are placed.
   const made = await pressCreate(page);
   expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
-  const botId = made.body.result.data.botId;
-  await expect(page).toHaveURL(new RegExp(`bot=${encodeURIComponent(botId)}`));
-  await expect(page.getByTestId('grid-status')).toHaveText('Bot running');
-  const bot = await gridBot(who, botId);
-  expect(bot.status).toBe('running');
+  expect(made.request.clientRequestId).toBe(rejected.request.clientRequestId);
+  expect(made.body.result.data.botId).toBe(botId);
+  await continueInWallet(page);
+  await expect(page).toHaveURL(new RegExp(`bot=${encodeURIComponent(botId)}`), { timeout: 30_000 });
+  await expect(page.getByTestId('grid-status')).toHaveText('Bot running', { timeout: 30_000 });
+  expect(wallet.requests).toHaveLength(2);
+  run.write({ ...run.read(), botId, request: made.request, url: made.url });
+
+  const bot = await untilBot(
+    s.who,
+    botId,
+    (b) => b.status === 'running' && b.orders.filter((o) => o.status === 'open').length === 10,
+    'place its ten buys',
+  );
   expect(bot.gridCount).toBe(20);
   expect(bot.levels.map((l) => l.index)).toEqual([...Array(20).keys()]);
   expect(bot.levels.map((l) => toUnits(l.price))).toEqual(previewPrices);
-  run.write({ ...run.read(), botId, request: made.request, url: made.url });
+  expect(bot.reserve).toBeNull();
+  await expect(page.getByText(`Your ${bot.venue.name} account ${s.owner}`, { exact: true })).toBeVisible();
 
-  // Lead ruling (CB-bots-02, J-copy-bots-otc-14 #4): the reserve row svc-trade reports is the investment, 200 USDT;
-  // the ledger's `used` rises by exactly the holds of the level orders the service reports; nothing else is held.
-  expect(bot.reserve).toMatchObject({ key: `bots.grid.reserve:${botId}`, asset: 'USDT', releasedAt: null });
-  expect(toUnits(bot.reserve.amount)).toBe(toUnits('200'));
+  // One buy at each level under the mid, and no sell: the bot holds no base yet. Each is one venue order with its own
+  // client order id, at the level's price and amount, on the person's own account.
   const open = bot.orders.filter((o) => o.status === 'open');
-  // One buy at each level under the mid, and no sell: the bot holds no base yet.
   expect(open.map((o) => o.side)).toEqual(Array(10).fill('buy'));
-  expect(open.map((o) => o.levelIndex).sort((a, b) => a - b)).toEqual([...Array(10).keys()]);
-  const holds = open.reduce((sum, o) => sum + toUnits(o.holdAmount), 0n);
-  for (const o of open) expect(toUnits(o.holdAmount)).toBe(toUnits(bot.levels[o.levelIndex].hold));
-  const after = await usdt();
-  expect(toUnits(after.used) - toUnits(before.used)).toBe(holds);
-  expect(toUnits(after.total)).toBe(toUnits(before.total));
+  expect(open.map((o) => o.levelIndex).sort((x, y) => x - y)).toEqual([...Array(10).keys()]);
+  expect(new Set(open.map((o) => o.clientOrderId)).size).toBe(10);
+  for (const o of open) expect(o.clientOrderId).toBe(`grid:${botId}:${o.levelIndex}:b0`);
+  const onVenue = await venueOpen(s.owner);
+  expect(onVenue).toHaveLength(10);
+  expect(new Set(onVenue.map((o) => o.venueClientOrderId)).size).toBe(10);
+  expect(onVenue.map((o) => `${o.side} ${fromUnits(toUnits(o.price))} ${fromUnits(toUnits(o.amount))}`).sort()).toEqual(
+    open.map((o) => `buy ${fromUnits(toUnits(o.price))} ${fromUnits(toUnits(o.qty))}`).sort(),
+  );
 
-  // The same key again, through the same door: the same bot, no second row, nothing more held.
-  const again = await (await api(who)).post(new URL(made.url).pathname, made.request);
+  // Each level holds only what the venue holds for it: the venue's locked USDC rose by exactly the open buys' quote, which
+  // is the bot's own figure for each, and the investment caps them all. Our ledger posted nothing.
+  const holds = sum(open.map((o) => toUnits(o.holdAmount)));
+  for (const o of open) expect(toUnits(o.holdAmount)).toBe(quote(o.price, o.qty));
+  const usdcAfter = await venueBalance(s.owner, 'USDC');
+  expect(toUnits(usdcAfter.locked) - toUnits(usdcBefore.locked)).toBe(holds);
+  expect(holds <= toUnits(range.investment)).toBe(true);
+  expect(await (await api(s.who)).balances()).toEqual(s.ledger);
+
+  // The same key again, through the same door: the same bot, no second row, nothing more placed on the venue.
+  const again = await (await api(s.who)).post(new URL(made.url).pathname, made.request);
   expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
   expect(again.body.result.data.botId).toBe(botId);
-  const grids = await gridList(who);
+  const grids = await gridList(s.who);
   expect(grids.filter((b) => b.botId === botId)).toHaveLength(1);
   expect(grids.length).toBe(gridsBefore.length + 1);
-  expect(toUnits((await usdt()).used)).toBe(toUnits(after.used));
+  expect(venueOpenOf(await venueOpen(s.owner))).toEqual(venueOpenOf(onVenue));
 });
-
-/** Wait until the grid reads `status`, through its own door; the tick runs every second on the stack. */
-async function untilStatus(who, botId, status, waitMs = 30_000) {
-  const until = Date.now() + waitMs;
-  for (;;) {
-    const bot = await gridBot(who, botId);
-    if (bot.status === status) return bot;
-    if (Date.now() >= until) throw new Error(`grid ${botId} still reads ${bot.status} (${bot.statusReason}), not ${status}`);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-}
-
-/** The trade service's fills of one of `who`'s orders. */
-async function fillsOf(who, orderId) {
-  const { status, body } = await readAs(who, '/api/trade/trpc/fills.forOrder', { orderId, limit: 50 });
-  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-  return body.result.data;
-}
-
-/** Wait until the bot read satisfies `ok`. */
-async function untilBot(who, botId, ok, waitMs = 90_000) {
-  const until = Date.now() + waitMs;
-  for (;;) {
-    const bot = await gridBot(who, botId);
-    if (ok(bot)) return bot;
-    if (Date.now() >= until)
-      throw new Error(
-        `grid ${botId} did not reach the expected state: ${JSON.stringify(bot.orders.map((o) => [o.side, o.status, o.price]))}`,
-      );
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-}
-
-/** The bot's open buys, sorted high to low. */
-const openBuys = (bot) =>
-  bot.orders
-    .filter((o) => o.side === 'buy' && o.status === 'open')
-    .map((o) => toUnits(o.price))
-    .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
-
-/**
- * The bot once its tick has caught up with the book: every level under the best bid but the top one holds an open order,
- * and its orders (each one's status and pair profit) and closed pairs are the same on two reads a few ticks apart. After
- * a range pause ends, the tick places the buys it held back, and the walk's way back can fill them; a buy placed or
- * filled after the step reads the bot would change a fall aimed at exactly two, and a pair recorded late its totals.
- */
-async function settledBuys(who, botId, waitMs = 60_000) {
-  const until = Date.now() + waitMs;
-  let last = null;
-  for (;;) {
-    const bot = await gridBot(who, botId);
-    const bid = toUnits((await bestPrices()).bid);
-    const covered = bot.levels.filter((l) => l.index < bot.gridCount - 1 && toUnits(l.price) < bid).every((l) => l.openOrder !== null);
-    const now = JSON.stringify([bot.closedPairs, bot.orders.map((o) => [o.orderId, o.status, o.pairProfit]).sort()]);
-    if (covered && now === last) return bot;
-    if (Date.now() >= until) throw new Error(`grid ${botId} did not settle: ${JSON.stringify(openBuys(bot).map(String))}`);
-    last = covered ? now : null;
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
-  }
-}
-
-/** The `move` percent (two decimals, whole basis points) that takes the mid `from` to about `to`. */
-function shiftPercent(from, to) {
-  const bps = ((to - from) * 10_000n) / from;
-  const sign = bps < 0n ? '-' : '+';
-  const abs = bps < 0n ? -bps : bps;
-  return `${sign}${abs / 100n}.${String(abs % 100n).padStart(2, '0')}%`;
-}
-
-/** A `move` percent ("-1.25%") back as signed whole basis points. */
-function percentBps(percent) {
-  const [, sign, whole, cents] = /^([+-])(\d+)\.(\d\d)%$/.exec(percent);
-  const bps = BigInt(whole) * 100n + BigInt(cents);
-  return sign === '-' ? -bps : bps;
-}
-
-/**
- * Wait until the BTC/USDT book's mid is past `limit` (`above` or `below`). A `move` is a jump: the maker takes its old
- * ladder down before the new one goes up, and a cycle the stack's guard stops part-way (a trade restart, as #4's finally
- * makes just before #5) can leave one side down until a later cycle. So a one-sided book is the price not there yet, waited
- * out within this wait, not refused at `bestPrices`' own 15 s (#8436: #5's +7% left no ask for 15 s, and #6 and #7 then
- * failed on the bot the file's teardown had stopped).
- */
-async function untilMid(side, limit, waitMs = 60_000) {
-  const until = Date.now() + waitMs;
-  for (;;) {
-    const { bid, ask } = await bestPrices('BTC/USDT', 50, Math.max(until - Date.now(), 0));
-    const mid = (toUnits(bid) + toUnits(ask)) / 2n;
-    if (side === 'above' ? mid > limit : mid < limit) return mid;
-    if (Date.now() >= until) throw new Error(`the BTC/USDT mid ${fromUnits(mid)} is not ${side} ${fromUnits(limit)}`);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-}
 
 test(`${J} #5 lets the price leave the upper bound: no new buy is placed and the range pause shows`, async ({ page }) => {
   test.setTimeout(180_000);
-  const { who, botId } = run.read();
-  const start = await gridBot(who, botId);
-  expect(start.status).toBe('running');
-  const upper = toUnits(start.upperPrice);
+  const s = person();
+  const botId = run.read().botId;
+  if (!botId) throw new Error(`${J} #4 made no bot, so this step has none to watch`);
+  const before = await untilBot(s.who, botId, (b) => b.status === 'running', 'run');
+  const venueBefore = venueOpenOf(await venueOpen(s.owner));
+  // Above the upper bound (60950): every level is under the mark, and ten of them are free, so a running grid would buy.
+  await bookAt('61500');
   try {
-    // 7% up: the mid starts about 4.75% under the upper bound (#4), so this takes it past it.
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', '+7%');
-    await untilMid('above', upper);
-    const paused = await untilStatus(who, botId, 'paused_range');
+    const paused = await untilBot(s.who, botId, (b) => b.status === 'paused_range', 'pause for the range');
     expect(paused.statusReason).toBe('mark_outside_range');
-    const buys = paused.orders.filter((o) => o.side === 'buy').map((o) => o.clientOrderId);
-    // Several more ticks with the price still above: no new buy order row, and the ledger holds no more.
-    const held = toUnits((await usdt()).used);
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-    await untilMid('above', upper);
-    const still = await gridBot(who, botId);
-    expect(still.status).toBe('paused_range');
-    expect(still.orders.filter((o) => o.side === 'buy').map((o) => o.clientOrderId)).toEqual(buys);
-    expect(toUnits((await usdt()).used)).toBeLessThanOrEqual(held);
-    // The range pause in the room and in My bots.
-    await signIn(page, who);
-    await page.goto(`/trade/bots/grid?bot=${encodeURIComponent(botId)}`);
+    // The tick that paused it placed nothing, and the ticks while the page opens (a sign-in and a load, several seconds)
+    // place nothing either: the same orders on the bot and on the venue, before and after.
+    expect(openOf(paused)).toEqual(openOf(before));
+    expect(venueOpenOf(await venueOpen(s.owner))).toEqual(venueBefore);
+    await openGridVenue(page, s, `?bot=${encodeURIComponent(botId)}`);
     await expect(page.getByTestId('grid-status')).toHaveText('Paused: the price is outside the range');
-    await page.goto('/bots');
-    const row = page
-      .getByRole('grid', { name: 'My grid bots' })
-      .getByRole('row')
-      .filter({ has: page.locator(`a[href*="bot=${botId}"]`) });
-    await expect(row).toContainText('Paused: the price is outside the range');
+    const later = await gridBot(s.who, botId);
+    expect(later.status).toBe('paused_range');
+    expect(openOf(later)).toEqual(openOf(before));
+    expect(venueOpenOf(await venueOpen(s.owner))).toEqual(venueBefore);
   } finally {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
-    await untilMid('below', upper);
+    await bookAt(MID);
   }
+  const back = await untilBot(s.who, botId, (b) => b.status === 'running', 'run again inside the range');
+  expect(openOf(back)).toEqual(openOf(before));
+  await expect(page.getByTestId('grid-status')).toHaveText('Bot running', { timeout: 30_000 });
 });
 
-test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their sum net of fees; an APR with zero days reads "Not set"`, async ({
+/** A metric's figure as the Metrics tab shows it, by its label. */
+async function shown(panel, label) {
+  const text = await panel.innerText();
+  const m = new RegExp(`${label.replace(/[()]/g, '\\$&')}\\s*([-−]?[\\d.,]+)`).exec(text);
+  expect(m, `${label} in ${text}`).not.toBeNull();
+  return m[1];
+}
+
+test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their sum net of the venue's fees and our builder fee, from the venue's fills; an APR with zero days reads "Not set"`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
-  const { who, botId } = run.read();
-  await untilStatus(who, botId, 'running', 60_000);
-  const start = await settledBuys(who, botId);
-  // Buys that filled before this step are not its two, and a pair they closed is not one of its pairs. When #5's range
-  // pause ends with the walk still above the mid it returns to, the tick places the held-back buys under that bid, and
-  // the walk's way back fills them (run 1119: seven). Each leaves a sell one level up, above this step's two.
-  const closed = (b) => b.orders.filter((o) => o.side === 'sell' && o.status === 'filled' && o.pairProfit !== null);
-  const closedBefore = new Set(closed(start).map((o) => o.orderId));
-  const filledBefore = new Set(start.orders.filter((o) => o.side === 'buy' && o.status === 'filled').map((o) => o.orderId));
-  const newlyFilled = (b) => b.orders.filter((o) => o.side === 'buy' && o.status === 'filled' && !filledBefore.has(o.orderId));
-  // A pair is a buy and the sell it opened one level up: the same level index and cycle.
-  const isSellOf = (sell, buy) => sell.side === 'sell' && sell.levelIndex === buy.levelIndex && sell.cycle === buy.cycle;
-  const ours = [];
-  // Two level pairs close through the TEST book: the price falls through exactly two resting buys, the bot places a
-  // sell one level above each, and the price comes back up through both sells.
-  const buys = openBuys(start);
-  expect(buys.length).toBeGreaterThanOrEqual(3);
-  const { bid, ask } = await bestPrices();
-  const mid = (toUnits(bid) + toUnits(ask)) / 2n;
-  // A resting buy fills once the book's asks reach it, which is 6 bps over the TEST mid, so the mid that fills exactly
-  // buys[0] and buys[1] lies between 6 bps under buys[2] and 6 bps under buys[1]. Aim at the middle of that span; the
-  // walk keeps wandering (up to 12 bps a requote), so the price goes back up as soon as the two buys fill.
-  const target = (((buys[1] + buys[2]) / 2n) * (10_000n - 6n)) / 10_000n;
-  const down = shiftPercent(mid, target);
-  try {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', down);
-    await untilMid('below', buys[1]);
-    const bought = await untilBot(who, botId, (b) => newlyFilled(b).length >= 2);
-    ours.push(...newlyFilled(bought));
-    expect(ours.map((o) => toUnits(o.price)).sort()).toEqual([buys[1], buys[0]].sort());
-    // Each sell sits one level above its buy: at buys[0] and at `top`, one level above it. A resting sell fills once the
-    // book's bids reach it, which is 6 bps under the TEST mid, so the mid that fills exactly these two lies between 6 bps
-    // over `top` and 6 bps over the next level up, where a sell left by a buy that filled before this step can rest. Aim
-    // at the middle of that span, as the fall does. A move shifts the TEST walk, which keeps wandering: its base now is
-    // today's mid with the first shift taken back out.
-    const top = toUnits(bought.levels.find((l) => l.index === bought.levels.find((x) => toUnits(x.price) === buys[0]).index + 1).price);
-    const rise = (((top + (top + (top - buys[0]))) / 2n) * (10_000n + 6n)) / 10_000n;
-    const now = await bestPrices();
-    const walk = (((toUnits(now.bid) + toUnits(now.ask)) / 2n) * 10_000n) / (10_000n + percentBps(down));
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(walk, rise));
-    await untilMid('above', top);
-    await untilBot(who, botId, (b) => ours.every((buy) => closed(b).some((o) => isSellOf(o, buy))));
-  } finally {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
-  }
-  // Read the bot once its tick has recorded everything the moves did.
-  const bot = await settledBuys(who, botId);
-  const opener = (sell) => bot.orders.find((o) => o.side === 'buy' && isSellOf(sell, o));
-  // This step closes exactly two pairs: the sells of its own two buys.
-  const pairs = closed(bot).filter((o) => !closedBefore.has(o.orderId));
-  expect(pairs, 'pairs closed since the step began').toHaveLength(2);
-  expect(pairs.map((sell) => opener(sell)?.orderId).sort(), "two closed level pairs, opened by this step's buys").toEqual(
-    ours.map((o) => o.orderId).sort(),
+  test.setTimeout(300_000);
+  const s = person();
+  const botId = run.read().botId;
+  if (!botId) throw new Error(`${J} #4 made no bot, so this step has none to measure`);
+  await untilBot(s.who, botId, (b) => b.status === 'running', 'run');
+  // Down through two buys (levels 9 and 8, at 59950 and 59850), each sold one level up, then up through both sells.
+  await bookAt('59900');
+  await untilBot(
+    s.who,
+    botId,
+    (b) => b.orders.some((o) => o.side === 'sell' && o.status === 'open' && o.levelIndex === 9),
+    'sell its level 9 buy',
   );
-  expect(bot.closedPairs, 'two closed level pairs').toBe(start.closedPairs + 2);
-  // Net of fees, from the trade service's own fills of each pair's buy and sell: the sell's proceeds less its fee, less
-  // what the base it sold cost (the buy's cost with its fee, over what the buy delivered net of its base fee).
-  const ONE = 10n ** 18n;
-  const ceilDiv = (a, b) => (a + b - 1n) / b;
-  for (const sell of pairs) {
-    const buy = opener(sell);
-    expect(buy?.status, `the buy that opened level ${sell.levelIndex}`).toBe('filled');
-    expect(toUnits(sell.price), `the sell one level above level ${sell.levelIndex}'s buy`).toBe(
-      toUnits(bot.levels.find((l) => l.index === sell.levelIndex + 1).price),
-    );
-    const buyFills = await fillsOf(who, buy.orderId);
-    const sellFills = await fillsOf(who, sell.orderId);
-    expect(buyFills.length).toBeGreaterThan(0);
-    expect(sellFills.length).toBeGreaterThan(0);
-    const total = (fills, pick) => fills.reduce((a, f) => a + pick(f), 0n);
-    const fee = (fills, asset) => total(fills, (f) => (f.fee.currency === asset ? toUnits(f.fee.cost) : 0n));
-    const bought = total(buyFills, (f) => toUnits(f.amount)) - fee(buyFills, 'BTC');
-    const sold = total(sellFills, (f) => toUnits(f.amount)) + fee(sellFills, 'BTC');
-    expect(sold).toBe(toUnits(sell.qty));
-    const cost = ceilDiv(ceilDiv((total(buyFills, (f) => toUnits(f.cost)) + fee(buyFills, 'USDT')) * sold, ONE) * ONE, bought);
-    const net = total(sellFills, (f) => toUnits(f.cost)) - fee(sellFills, 'USDT') - cost;
-    expect(toUnits(sell.pairProfit), `level ${sell.levelIndex} pair profit net of fees`).toBe(net);
-    expect(net > 0n, `level ${sell.levelIndex}: one level up is a profit`).toBe(true);
+  await bookAt('59800');
+  await untilBot(
+    s.who,
+    botId,
+    (b) => b.orders.some((o) => o.side === 'sell' && o.status === 'open' && o.levelIndex === 8),
+    'sell its level 8 buy',
+  );
+  await bookAt('60100');
+  const bot = await untilBot(s.who, botId, (b) => b.closedPairs === 2, 'close two pairs', 90_000);
+
+  // Each pair by hand from the venue's own fills: the sell's quote less its fees in USDC (the venue's and our builder
+  // fee), less the share of the buy's cost the sold base carries (the buy's fee is taken in BTC, so less was received).
+  const fills = await venueFills(s.owner, s.since);
+  const feeIn = (fs, asset) => sum(fs.filter((f) => f.feeAsset === asset).map((f) => toUnits(f.venueFee) + toUnits(f.builderFee)));
+  const sells = bot.orders.filter((o) => o.side === 'sell' && o.status === 'filled');
+  expect(sells).toHaveLength(2);
+  let profit = 0n;
+  for (const sell of sells) {
+    const bf = fills.filter((f) => f.side === 'buy' && sameDecimal(f.price, bot.levels[sell.levelIndex].price));
+    const sf = fills.filter((f) => f.side === 'sell' && sameDecimal(f.price, sell.price));
+    expect(bf.length, `buy fills at level ${sell.levelIndex}`).toBeGreaterThan(0);
+    expect(sf.length, `sell fills at ${sell.price}`).toBeGreaterThan(0);
+    for (const f of sf) expect(toUnits(f.builderFee), `our builder fee on sell fill ${f.fillId}`).toBeGreaterThan(0n);
+    const received = sum(bf.map((f) => toUnits(f.amount))) - feeIn(bf, marketOf().base);
+    const cost = sum(bf.map((f) => quote(f.price, f.amount))) + feeIn(bf, 'USDC');
+    const sold = sum(sf.map((f) => toUnits(f.amount))) + feeIn(sf, marketOf().base);
+    const share = (((cost * sold + ONE - 1n) / ONE) * ONE + received - 1n) / received;
+    const pair = sum(sf.map((f) => quote(f.price, f.amount))) - feeIn(sf, 'USDC') - share;
+    expect(
+      sameDecimal(sell.pairProfit, fromUnits(pair)),
+      `pair at level ${sell.levelIndex}: ${sell.pairProfit} vs ${fromUnits(pair)}`,
+    ).toBe(true);
+    profit += pair;
   }
-  const sum = pairs.reduce((total, o) => total + toUnits(o.pairProfit), 0n);
-  // Grid profit grew by exactly the two pairs' sum; it is that sum when no pair closed before this step.
-  expect(toUnits(bot.gridProfit)).toBe(toUnits(start.gridProfit) + sum);
-  await signIn(page, who);
-  await page.goto(`/trade/bots/grid?bot=${encodeURIComponent(botId)}`);
-  await page.getByRole('tab', { name: 'Metrics' }).click();
-  const metrics = page.getByRole('tabpanel', { name: 'Metrics' });
-  await expect(metrics).toContainText(`Grid profit${fromUnits(toUnits(start.gridProfit) + sum)} USDT`);
-  // APR by the lead's ruling (CB-bots-05): none before a whole day has run. Read back from the service, with the bot's
-  // own start time, then the words the Metrics tab shows for it.
-  const metered = await gridBot(who, botId);
-  expect(Date.now() - Date.parse(metered.createdAt)).toBeLessThan(86_400_000);
-  expect(metered.gridApr).toEqual({ state: 'under_a_day', percent: null });
-  await expect(metrics).toContainText(/Yearly return \(APR\)\s*Not set: the bot has run less than a day/);
-});
+  expect(sameDecimal(bot.gridProfit, fromUnits(profit))).toBe(true);
+  expect(bot.gridApr).toEqual({ state: 'under_a_day', percent: null });
+  // The fees the bot shows are the venue's, by asset, from the same fills.
+  for (const asset of new Set(fills.map((f) => f.feeAsset))) {
+    const of = fills.filter((f) => f.feeAsset === asset);
+    const row = bot.fees.find((f) => f.asset === asset);
+    expect(row, `fees in ${asset}`).toBeTruthy();
+    expect(sameDecimal(row.venueFee, fromUnits(sum(of.map((f) => toUnits(f.venueFee)))))).toBe(true);
+    expect(sameDecimal(row.builderFee, fromUnits(sum(of.map((f) => toUnits(f.builderFee)))))).toBe(true);
+  }
 
-const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
-/** The owner's daily withdrawal cap, blank or as the TEST profile sets it ({"USDT":"0.50"}). */
-const withdrawCap = (state) => restartTrade('LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP', state);
-const CAP = toUnits('0.50');
+  // The Metrics tab shows the same figures.
+  await openGridVenue(page, s, `?bot=${encodeURIComponent(botId)}`);
+  await page.getByRole('tab', { name: 'Metrics', exact: true }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Metrics', exact: true });
+  expect(sameDecimal(await shown(panel, 'Grid profit'), bot.gridProfit)).toBe(true);
+  expect(await shown(panel, 'Closed pairs')).toBe('2');
+  await expect(panel).toContainText(/Yearly return \(APR\)\s*Not set: the bot has run less than a day/);
+  const usdc = bot.fees.find((f) => f.asset === 'USDC');
+  expect(sameDecimal(await shown(panel, 'Venue fees (USDC)'), usdc.venueFee)).toBe(true);
+  expect(sameDecimal(await shown(panel, 'Our builder fee (USDC)'), usdc.builderFee)).toBe(true);
 
-test(`${J} #7 withdraws over the cap, then within it without a step-up: both refused; within both, it succeeds with a receipt`, async ({
-  page,
-}) => {
-  // Stopping and starting the TEST market maker each take up to the tool's 120 s.
-  test.setTimeout(660_000);
-  const { who, botId } = run.read();
-  await stopMarketMaker();
-  // An API session of this person's own, signed in again after each trade restart (a restart closes Edge's socket).
-  let me = await api(who);
-  const bot = async () => {
-    const { status, body } = await me.get(read(`${GRID}.get`, { botId }));
-    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-    return body.result.data;
-  };
-  const held = (b) => ({ reserve: b.reserve, withdrawable: b.withdrawableProfit, gridProfit: b.gridProfit });
-  const ledger = async () => (await me.balances()).USDT;
-  /** The account's newest ledger lines, every asset; one page holds every line this step could add. */
-  const lines = async () => {
-    const { status, body } = await me.get('/api/v1/ledger?limit=200');
-    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-    return body.entries;
-  };
-  // What traded before the maker stopped settles first: the grid places a sell for a filled buy, and a fill's row is
-  // written before its ledger post. The bot's orders and the ledger lines, read every 3 s until three reads in a row agree.
-  {
-    const still = async () => {
-      const [b, l] = await Promise.all([bot(), lines()]);
-      return JSON.stringify([b.orders.map((o) => [o.clientOrderId, o.status]), l.map((x) => x.id)]);
-    };
-    const until = Date.now() + 90_000;
-    let last = await still();
-    for (let agree = 1; agree < 3;) {
-      await new Promise((resolve) => setTimeout(resolve, 3_000));
-      const now = await still();
-      agree = now === last ? agree + 1 : 1;
-      if (agree < 3 && Date.now() >= until) throw new Error('the grid or the ledger still moves 90 s after the TEST market maker stopped');
-      last = now;
+  // Our ledger posts only our builder fee: one transaction for each fill that carries it, under the fill's own key, our
+  // fee exactly as the venue charged it; a fill without it posts nothing; the person's own balances never move.
+  const venueId = bot.venue.id;
+  for (const f of fills) {
+    const businessKey = `builder-fee:${venueId}:${s.owner}:${f.fillId}`;
+    const trace = () => ledgerRead(`/operator/trace?businessKey=${encodeURIComponent(businessKey)}`);
+    if (toUnits(f.builderFee) === 0n) {
+      expect(await trace()).toEqual({ found: false, businessKey });
+      continue;
+    }
+    await expect.poll(async () => (await trace()).found, { timeout: 30_000, message: `${businessKey} posted` }).toBe(true);
+    const tx = await trace();
+    expect(tx).toMatchObject({ businessKey, module: 'trade', reason: 'trade.builder_fee.earned' });
+    expect(tx.postings).toHaveLength(2);
+    for (const p of tx.postings) {
+      expect(p.assetId).toBe(f.feeAsset);
+      expect(sameDecimal(p.amount, f.builderFee)).toBe(true);
     }
   }
-  const before = await bot();
-  const ledgerBefore = await ledger();
-  const linesBefore = new Set((await lines()).map((l) => l.id));
-  expect(before.reserve?.releasedAt, 'the bot still holds its reserve').toBeNull();
-  // The pairs closed by #6 raised the reserve by their profit; that profit, at most the free ledger USDT, is withdrawable.
-  const profit = toUnits(before.reserve.amount) - toUnits(before.investment);
-  const free = toUnits(ledgerBefore.free);
-  expect(toUnits(before.withdrawableProfit)).toBe(profit < free ? profit : free);
-  expect(toUnits(before.withdrawableProfit), 'profit to withdraw after #6').toBeGreaterThan(0n);
+  expect(await (await api(s.who)).balances()).toEqual(s.ledger);
+});
 
-  // Identity's step-up is asked before any row is read: no step-up for a bot that does not exist is refused by
-  // identity's code, not as an unknown bot.
-  const unknown = await me.post(`${GRID}.withdrawProfit`, {
-    botId: `${botId}-none`,
-    requestId: `${J}-none-${Date.now().toString(36)}`,
-    asset: 'USDT',
-    amount: '0.01',
+test(`${J} #7 asks the bot to withdraw: refused, a bot's agent permission can't withdraw; the page says the person withdraws from the venue with their own wallet, and nothing moves`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const s = person();
+  const botId = run.read().botId;
+  if (!botId) throw new Error(`${J} #4 made no bot, so this step has none to ask`);
+  const balances = async () => ({
+    usdc: await venueBalance(s.owner, 'USDC'),
+    btc: await venueBalance(s.owner, 'BTC'),
+    open: venueOpenOf(await venueOpen(s.owner)),
+    ledger: await (await api(s.who)).balances(),
   });
-  expect(codeOf(unknown.body), JSON.stringify(unknown.body).slice(0, 300)).toBe('identity.step_up_required');
-  // The cap is per quote asset: an asset the owner set no cap for is refused as unset.
-  const btc = await me.post(`${GRID}.withdrawProfit`, {
+  await untilBot(s.who, botId, (b) => b.status === 'running', 'run');
+  const before = await balances();
+
+  // Through the door: refused by its code, in the service's words, whatever the amount.
+  const asked = await (
+    await api(s.who)
+  ).post(`${GRID}.withdrawProfit`, {
     botId,
-    requestId: `${J}-btc-${Date.now().toString(36)}`,
-    asset: 'BTC',
-    amount: '0.01',
+    requestId: `${J}-withdraw-${Date.now().toString(36)}`,
+    asset: 'USDC',
+    amount: '1',
+    stepUpApprovalId: null,
   });
-  expect(codeOf(btc.body), JSON.stringify(btc.body).slice(0, 300)).toBe('trade.bots_withdraw_cap_unset');
+  expect(asked.status, JSON.stringify(asked.body).slice(0, 300)).toBe(403);
+  expect(codeOf(asked.body)).toBe('trade.bots_grid_withdraw_not_permitted');
+  expect(asked.body.error.message).toBe(
+    "A bot's agent permission can't withdraw. Withdraw from the venue with your own wallet; nothing was moved.",
+  );
 
-  await signIn(page, who);
-  const room = () => page.goto(`/trade/bots/grid?bot=${encodeURIComponent(botId)}`);
-  const metrics = page.getByRole('tabpanel', { name: 'Metrics' });
-  const openMetrics = async () => {
-    await room();
-    await page.getByRole('tab', { name: 'Metrics' }).click();
-    await expect(metrics).toContainText(`Withdrawable profit${fromUnits(toUnits((await bot()).withdrawableProfit))} USDT`);
-  };
-  const dialog = page.getByRole('dialog', { name: 'Withdraw profit' });
-  /** Opens the withdrawal and names the amount; `confirm` sends it and returns the service's answer and what was sent. */
-  async function ask(amount, confirm) {
-    await metrics.getByRole('button', { name: 'Withdraw profit' }).click();
-    await dialog.getByRole('textbox', { name: 'Amount, USDT' }).fill(amount);
-    await dialog.getByRole('button', { name: 'Continue' }).click();
-    const answer = page.waitForResponse((r) => r.url().includes('bots.grid.withdrawProfit') && r.request().method() === 'POST');
-    await confirm(dialog.getByRole('region', { name: 'Confirm it’s you' }));
-    const res = await answer;
-    return { status: res.status(), body: await res.json(), sent: res.request().postDataJSON() };
-  }
-  const close = async () => {
-    await page.keyboard.press('Escape');
-    await expect(dialog).toBeHidden();
-  };
-  /** The refusal the room shows: its words and the service's code as the reference. */
-  const refusedAs = async (title, code) => {
-    const alert = dialog.getByRole('alert');
-    await expect(alert).toContainText(title);
-    await expect(alert).toContainText(`Reference ${code}`);
-  };
-  // No passkey or authenticator yet: the room can only send without a step-up.
-  const withoutStepUp = (confirm) => confirm.getByRole('button', { name: 'Send without confirming' }).click();
+  // On the page: the Withdraw press is refused in words, the page names the person's own wallet, and nothing is signed.
+  const wallet = await openGridVenue(page, s, `?bot=${encodeURIComponent(botId)}`);
+  await page.getByRole('tab', { name: 'Metrics', exact: true }).click();
+  const section = page.getByRole('region', { name: 'Withdraw', exact: true });
+  await expect(
+    section.getByText('You withdraw from the venue with your own wallet. The bot’s agent permission can’t withdraw.', { exact: true }),
+  ).toBeVisible();
+  const answer = page.waitForResponse((res) => res.url().includes('bots.grid.withdrawProfit') && res.request().method() === 'POST');
+  await section.getByRole('button', { name: 'Withdraw through the bot', exact: true }).click();
+  const res = await answer;
+  expect(res.status()).toBe(403);
+  await expect(section.getByText('A bot can’t withdraw', { exact: true })).toBeVisible();
+  await expect(
+    section.getByText('Its agent permission can’t withdraw. You withdraw from the venue with your own wallet. Nothing was moved.', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(wallet.requests).toHaveLength(0);
 
-  // The owner's cap left blank: refused by its code in the room, and nothing changed.
-  try {
-    await withdrawCap('blank');
-    me = await api(who);
-    await openMetrics();
-    const blank = await ask('0.01', withoutStepUp);
-    expect(codeOf(blank.body), JSON.stringify(blank.body).slice(0, 300)).toBe('trade.bots_withdraw_cap_unset');
-    expect(blank.status).toBe(400);
-    await refusedAs('Withdrawals are closed: no daily limit is set', 'trade.bots_withdraw_cap_unset');
-    expect(held(await bot())).toEqual(held(before));
-    await close();
-  } finally {
-    await withdrawCap('set');
-    me = await api(who);
-  }
-
-  // Within the cap and the profit, but with no step-up: refused by identity's code in the room, and nothing changed.
-  await openMetrics();
-  const bare = await ask('0.01', withoutStepUp);
-  expect(bare.sent.stepUpApprovalId).toBeNull();
-  expect(bare.status, JSON.stringify(bare.body).slice(0, 300)).toBe(403);
-  expect(codeOf(bare.body)).toBe('identity.step_up_required');
-  await refusedAs('Confirm it’s you first', 'identity.step_up_required');
-  expect(held(await bot())).toEqual(held(before));
-  await close();
-
-  // An authenticator from Security, to confirm each withdrawal for its exact amount.
-  const { totp } = await totpLib();
-  let { secret, step } = await addAuthenticator(page, totp);
-  // A new factor ends the account's other sign-ins, this script's included; from now on a sign-in takes a code.
-  {
-    const next = await nextCode(totp, secret, step);
-    step = next.step;
-    run.write({ ...run.read(), secret, step });
-    me = await api(who, { totpCode: next.code });
-  }
-  const withCode = async (confirm) => {
-    const next = await nextCode(totp, secret, step);
-    step = next.step;
-    run.write({ ...run.read(), step });
-    await confirm.getByRole('textbox', { name: 'Authenticator code' }).fill(next.code);
-    await confirm.getByRole('button', { name: 'Confirm', exact: true }).click();
-  };
-
-  // Over the cap, with a step-up: refused by the cap's code in words, and nothing changed.
-  await openMetrics();
-  const over = await ask('1.00', withCode);
-  expect(over.sent.stepUpApprovalId?.length).toBeGreaterThan(0);
-  expect(codeOf(over.body), JSON.stringify(over.body).slice(0, 300)).toBe('trade.bots_withdraw_cap_exceeded');
-  await refusedAs('Over your daily withdrawal limit', 'trade.bots_withdraw_cap_exceeded');
-  expect(held(await bot())).toEqual(held(before));
-  await close();
-
-  // Within both, twice: each a third of what is withdrawable or the cap, whichever is less, to the field's 8 decimals.
-  // The second's cap use counts the first, so the refused 1.00 added nothing to the day's use.
-  const limit = toUnits(before.withdrawableProfit) < CAP ? toUnits(before.withdrawableProfit) : CAP;
-  const amount = (limit / 3n / 10n ** 10n) * 10n ** 10n;
-  expect(amount, 'an amount above zero within both').toBeGreaterThan(0n);
-  let reserve = toUnits(before.reserve.amount);
-  let used = 0n;
-  for (const n of [1, 2]) {
-    const was = await bot();
-    await openMetrics();
-    const ok = await ask(fromUnits(amount), withCode);
-    expect(ok.status, JSON.stringify(ok.body).slice(0, 300)).toBe(200);
-    const receipt = ok.body.result.data;
-    const after = await bot();
-    used += amount;
-    // Every receipt field, against what the room sent and the bot re-read before and after.
-    expect(receipt.withdrawalId).toBe(`bots.grid.withdraw:${botId}:${ok.sent.requestId}`);
-    expect(receipt.botId).toBe(botId);
-    expect(receipt.asset).toBe('USDT');
-    expect(toUnits(receipt.amount)).toBe(amount);
-    expect(toUnits(receipt.profitBefore)).toBe(reserve - toUnits(before.investment));
-    expect(toUnits(receipt.profitAfter)).toBe(reserve - amount - toUnits(before.investment));
-    expect(toUnits(receipt.reserveBefore)).toBe(toUnits(was.reserve.amount));
-    expect(toUnits(receipt.reserveBefore)).toBe(reserve);
-    expect(toUnits(receipt.reserveAfter)).toBe(reserve - amount);
-    expect(toUnits(receipt.reserveAfter)).toBe(toUnits(after.reserve.amount));
-    expect(toUnits(receipt.dailyCap)).toBe(CAP);
-    expect(toUnits(receipt.capUsed), `withdrawal ${n}: today's use`).toBe(used);
-    expect(toUnits(receipt.capRemaining)).toBe(CAP - used);
-    expect(receipt.stepUpEventId).toBe(ok.sent.stepUpApprovalId);
-    expect(receipt.appliedAt).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
-    expect(Math.abs(Date.now() - Date.parse(receipt.appliedAt))).toBeLessThan(120_000);
-    reserve -= amount;
-    // The investment stays; grid profit (what the pairs earned) is not rewritten by a withdrawal.
-    expect(after.investment).toBe(before.investment);
-    expect(after.gridProfit).toBe(before.gridProfit);
-    // The receipt in the room shows each of those values, labelled TEST.
-    const shown = dialog.getByRole('region', { name: 'Withdrawal receipt' });
-    // The stack labels every page TEST (its banner); the room's own badge says the bot trades the live account, not paper.
-    await expect(page.locator('#local-test-stack-banner')).toHaveText('LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money');
-    await expect(shown).toContainText('Live account: real orders');
-    // The room says the reserve was lowered and that no money moved (the lead's ruling: the reserve is a guard only).
-    await expect(shown).toContainText(`Your bot’s reserve was lowered by ${fromUnits(amount)} USDT. No money moved.`);
-    const usd = (v) => `${fromUnits(toUnits(v))} USDT`;
-    for (const [label, value] of [
-      ['Withdrawal ID', receipt.withdrawalId],
-      ['Bot ID', receipt.botId],
-      ['Asset', receipt.asset],
-      ['Amount', usd(receipt.amount)],
-      ['Profit before', usd(receipt.profitBefore)],
-      ['Profit after', usd(receipt.profitAfter)],
-      ['Set aside before', usd(receipt.reserveBefore)],
-      ['Set aside after', usd(receipt.reserveAfter)],
-      ['Daily cap', usd(receipt.dailyCap)],
-      ['Used today', usd(receipt.capUsed)],
-      ['Left today', usd(receipt.capRemaining)],
-      ['Confirmation ID', receipt.stepUpEventId],
-      ['Time', receipt.appliedAt],
-    ])
-      await expect(shown, label).toContainText(`${label}${value}`);
-    await close();
-  }
-  // The withdrawals moved no money: no ledger line was posted for the account while they ran (svc-trade lowers its
-  // reserve row and writes the receipt, nothing else), and the ledger's USDT total is what it was before them.
-  expect((await lines()).filter((l) => !linesBefore.has(l.id))).toEqual([]);
-  expect((await ledger()).total).toBe(ledgerBefore.total);
+  // Nothing moved: the venue's balances and orders, and our ledger, read the same.
+  expect(await balances()).toEqual(before);
 });

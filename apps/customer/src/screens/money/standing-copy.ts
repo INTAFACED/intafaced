@@ -29,5 +29,9 @@ export const standingCopy = defineCopy('money.standing', {
   'Part empty': 'Holds nothing',
   'Unread note': 'Left out of the total because it couldn’t be read: {parts}.',
   'Unpriced note': 'Not counted, because no price is published for them: {assets}.',
+  'Held stale': 'Stale',
+  'Held unknown': 'Not known',
+  'Held transit': 'In transit',
+  'Total as of': 'The total is as of its oldest part:',
   'Connect first': 'Connect your wallet to see what your wallet and your venue account hold.',
 });

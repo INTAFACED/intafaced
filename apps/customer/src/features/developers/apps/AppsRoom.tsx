@@ -4,7 +4,7 @@ import { Button } from '@intafaced/ui';
 import { EmptyState, Failure, Loading, Page } from '../../../shared/ui';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { appsCopy, refusalCopyKey } from './apps-copy';
 import { firstBadRedirect, parseRedirectInput, parseScopeInput } from './oauth-model';
 import { readApps, readLifetimes, registerApp, rollSecret } from './oauth-api';

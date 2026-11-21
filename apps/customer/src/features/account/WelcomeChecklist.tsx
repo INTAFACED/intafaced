@@ -5,7 +5,7 @@ import {
   type TaskEvent,
   type WelcomeChecklist as Checklist,
 } from '@intafaced/contracts/campaigns-catalogue';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';

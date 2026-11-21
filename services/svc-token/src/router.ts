@@ -1,14 +1,16 @@
 import { z } from 'zod';
+import { router, publicProcedure, scopedProcedure, StepUpCheckError, TRPCError, type StepUpCheck } from '@intafaced/contracts';
 import {
-  router,
-  publicProcedure,
-  protectedProcedure,
-  scopedProcedure,
-  anyScopeProcedure,
-  StepUpCheckError,
-  TRPCError,
-  type StepUpCheck,
-} from '@intafaced/contracts';
+  tokenAmountSchema as amountString,
+  tokenBallotSchema as ballotWire,
+  tokenProposalIdSchema as proposalIdWire,
+  tokenProposalKindSchema as proposalKind,
+  tokenProposalStatusSchema as proposalStatus,
+  tokenStakeTierSchema as stakeTier,
+  tokenStakeViewSchema as stakeOutput,
+  tokenVoteChoiceSchema as voteChoice,
+  tokenVotingTypeSchema as votingType,
+} from '@intafaced/contracts/token-governance';
 import { InsufficientFundsError, LedgerError, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { hasScope } from '@intafaced/auth';
 import {
@@ -18,7 +20,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { DualControlError, requireDualControl } from './dual-control.js';
-import { GOVERNANCE_ROLES, type GovernanceSettings } from './governance-settings.js';
+import type { GovernanceSettings } from './governance-settings.js';
 import {
   GOVERNANCE_ROLE_ACTION,
   GOVERNANCE_ROLE_STEP_UP_SCOPE,
@@ -38,12 +40,46 @@ import {
 } from './token-service.js';
 import { publishedStakeTiers, stakingAssetPublication } from './terms.js';
 import { requireTokenJobService } from './job-hmac.js';
-import { DELEGATION_BLOCKER, refuseDelegation, unavailableDelegation } from './delegation.js';
+import { refuseDelegation, unavailableDelegation } from './delegation.js';
 import { userCopy } from './user-copy.js';
-import { BALLOT_BPS, MAX_CHOICES, VOTING_TYPES, type ChoiceTally } from './ballot-tally.js';
+import type { ChoiceTally } from './ballot-tally.js';
 import type { SnapshotSeal } from './governance-vote.js';
 import { voteMessage } from './vote-signature.js';
 import { feeDiscountSchedulePayload } from './economics/staking.js';
+import { mountTokenRecord } from './record-mount.js';
+import { jsonValueSchema } from '@intafaced/contracts/procedure-strict-schema';
+import {
+  TOKEN_ACCESS_OF,
+  TOKEN_BUYBACK_RUNS,
+  TOKEN_BURNED_SUPPLY,
+  TOKEN_CAST_VOTE,
+  TOKEN_CLOSE_PROPOSAL,
+  TOKEN_CREATE_PROPOSAL,
+  TOKEN_DELEGATE,
+  TOKEN_DELEGATION,
+  TOKEN_EDIT_PROPOSAL,
+  TOKEN_EMISSION_SCHEDULE,
+  TOKEN_FEE_DISCOUNT_GET,
+  TOKEN_FOLLOW_SPACE,
+  TOKEN_GET_PROPOSAL,
+  TOKEN_GOVERNANCE_CANCEL,
+  TOKEN_GOVERNANCE_HOME,
+  TOKEN_GOVERNANCE_ROLES_LIST,
+  TOKEN_GOVERNANCE_SET_ROLE,
+  TOKEN_GOVERNANCE_SET_SETTINGS,
+  TOKEN_GOVERNANCE_SETTINGS,
+  TOKEN_GOVERNANCE_SETTINGS_HISTORY,
+  TOKEN_LIST_PROPOSALS,
+  TOKEN_LIST_STAKES,
+  TOKEN_REVENUE_SHARE_HISTORY,
+  TOKEN_TREASURY,
+  TOKEN_VOTE_MESSAGE,
+  TOKEN_VOTING_POWER_HISTORY,
+  TOKEN_VOTING_POWER_OF_PROPOSAL,
+  tokenGovernanceRoleSchema,
+  tokenHistoryInputSchema,
+  tokenPayoutHistorySchema,
+} from '@intafaced/contracts/token-procedures';
 import { createLaunchRouter, type LaunchRouterOptions } from './launch/router.js';
 import type { LaunchService } from './launch/launch-service.js';
 
@@ -104,138 +140,11 @@ export {
  * Say so wherever these are described. An operator mutation is not a flywheel.
  */
 
-/** Money crosses the wire as a decimal string. Always. Never a number. */
-const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an unsigned decimal string (max 18dp)');
-
-const stakeTier = z.enum(['flex', 'm3', 'm12']);
-
-const stakeOutput = z.object({
-  id: z.string().guid(),
-  userId: z.string().guid(),
-  amount: amountString,
-  tier: stakeTier,
-  startedAt: z.string(),
-  unlocksAt: z.string().nullable(),
-  status: z.enum(['pending', 'active', 'unstaking', 'closed']),
-});
-
-/**
- * Page size is optional so an omit reaches the named refuse
- * (`token.history_list_limit_unset`) instead of a Zod "Required".
- * Blank is not 50. Cursor omit is the first page.
- */
-const historyInput = z
-  .object({
-    limit: z.number().int().min(1).max(200).optional(),
-    cursor: z.string().min(1).max(512).optional(),
-  })
-  .default({});
-
-const payoutHistoryOutput = z.object({
-  items: z.array(
-    z.object({
-      windowId: z.string(),
-      amount: amountString.nullable(),
-      assetId: z.string().nullable(),
-      ledgerTxId: z.string().nullable(),
-      reason: z.literal('ledger_tx_unread').nullable(),
-    }),
-  ),
-  nextCursor: z.string().nullable(),
-});
-
-const proposalKind = z.enum(['listing', 'fee_param', 'curriculum', 'grant']);
-const proposalStatus = z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled', 'closed_ranked']);
-const voteChoice = z.enum(['for', 'against', 'abstain']);
-const votingType = z.enum(VOTING_TYPES);
-const choiceIndex = z
-  .number()
-  .int()
-  .min(0)
-  .max(MAX_CHOICES - 1);
-/** A non-basic ballot (MC-token-03). The service checks it against the proposal's type and choices. */
-const ballotWire = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('abstain') }).strict(),
-  z.object({ kind: z.literal('pick'), choices: z.array(choiceIndex).min(1).max(MAX_CHOICES) }).strict(),
-  z
-    .object({
-      kind: z.literal('split'),
-      parts: z
-        .array(z.object({ choice: choiceIndex, bps: z.number().int().min(1).max(BALLOT_BPS) }).strict())
-        .min(1)
-        .max(MAX_CHOICES),
-    })
-    .strict(),
-]);
-const snapshotOutput = z.object({ count: z.number().int().nonnegative(), total: z.string(), hash: z.string() });
-const choiceTallyOutput = z.object({
-  totals: z.array(z.string()),
-  abstainWeight: z.string(),
-  participatingWeight: z.string(),
-  voterCount: z.number().int().nonnegative(),
-  ranking: z.array(z.number().int().nonnegative()),
-  rounds: z.array(z.array(z.string())).nullable(),
-});
-
-/** Stored id `gov:proposal:<space>:<author>:<n>`. Not a client uuid. */
-const proposalIdWire = z.string().min(1).max(512);
-
-const proposalCountsOutput = z.object({
-  votes: z.number().int().nonnegative(),
-  for: z.number().int().nonnegative(),
-  against: z.number().int().nonnegative(),
-  abstain: z.number().int().nonnegative(),
-});
-
-/** A whole number of milliseconds as a decimal string; the door checks its range. */
-const msWire = z.string().regex(/^\d{1,15}$/);
-const governanceRole = z.enum(GOVERNANCE_ROLES);
-const governanceSettingsOutput = z.object({
-  votingDelayMs: z.string().nullable(),
-  votingPeriodMs: z.string().nullable(),
-  revision: z.number().int().nonnegative(),
-});
+const governanceRole = tokenGovernanceRoleSchema;
 
 function settingsToWire(s: GovernanceSettings) {
   return { votingDelayMs: s.votingDelayMs?.toString() ?? null, votingPeriodMs: s.votingPeriodMs?.toString() ?? null, revision: s.revision };
 }
-
-const proposalOutput = z.object({
-  id: proposalIdWire,
-  kind: proposalKind,
-  body: z.record(z.string(), z.unknown()),
-  status: proposalStatus,
-  opensAt: z.string(),
-  closesAt: z.string(),
-  createdAt: z.string(),
-  title: z.string().nullable(),
-  bodyMd: z.string().nullable(),
-  discussionLink: z.string().nullable(),
-  businessKey: z.string().nullable(),
-  authorId: z.string().nullable(),
-  revision: z.number().int().nonnegative(),
-  votingType,
-  choices: z.array(z.string()).nullable(),
-  snapshot: snapshotOutput.nullable(),
-  ranking: z.array(z.number().int().nonnegative()).nullable(),
-  cancel: z.object({ reason: z.string(), at: z.string() }).nullable(),
-  counts: proposalCountsOutput,
-});
-
-const proposalAccessCode = z.enum([
-  'token.proposer_rule_unset',
-  'token.proposal_limit_unset',
-  'token.proposal_not_allowed',
-  'token.proposal_limit_reached',
-]);
-
-const tallyOutput = z.object({
-  forWeight: z.string(),
-  againstWeight: z.string(),
-  abstainWeight: z.string(),
-  totalWeight: z.string(),
-  voterCount: z.number().int().nonnegative(),
-});
 
 export interface TokenRouterOptions {
   /**
@@ -411,6 +320,8 @@ function stakeToWire(s: {
   };
 }
 
+const proposalBody = z.record(z.string(), jsonValueSchema);
+
 function proposalToWire(p: {
   id: string;
   kind: z.infer<typeof proposalKind>;
@@ -435,7 +346,8 @@ function proposalToWire(p: {
   return {
     id: p.id,
     kind: p.kind,
-    body: p.body,
+    // Read from a jsonb column: a JSON document whatever the author wrote, checked as one here.
+    body: proposalBody.parse(p.body),
     status: p.status,
     opensAt: p.opensAt.toISOString(),
     closesAt: p.closesAt.toISOString(),
@@ -516,27 +428,18 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
-    accessOf: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({}).optional())
-      .output(
-        z.object({
-          staked: z.string(),
-          tier: z.string(),
-          feeDiscountBps: z.number().int(),
-        }),
-      )
-      .query(async ({ ctx }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-          const access = await token.accessOf(userId);
-          return {
-            staked: formatAmount(access.staked),
-            tier: access.tier.name,
-            feeDiscountBps: access.feeDiscountBps,
-          };
-        }),
-      ),
+    accessOf: mountTokenRecord(TOKEN_ACCESS_OF, async ({ ctx }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        const access = await token.accessOf(userId);
+        return {
+          staked: formatAmount(access.staked),
+          tier: access.tier.name,
+          feeDiscountBps: access.feeDiscountBps,
+        };
+      }),
+    ),
 
     terms: scopedProcedure('token:read', { module: 'token' })
       .output(
@@ -656,30 +559,14 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
-    listStakes: scopedProcedure('token:read', { module: 'token' })
-      .input(
-        z
-          .object({
-            status: z.enum(['active', 'closed', 'pending', 'all']).default('active'),
-            /**
-             * Page size. Optional here so omit reaches the service named
-             * refuse (`token.stakes_list_limit_unset`) instead of a Zod
-             * "Required" that looks like a typo. Blank is not 50; pass 50
-             * explicitly when that is the page you want.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-          })
-          .default({ status: 'active' }),
-      )
-      .output(z.array(stakeOutput))
-      .query(async ({ ctx, input }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-          const stakes = await token.listStakes(userId, input.status, input.limit);
-          return stakes.map(stakeToWire);
-        }),
-      ),
+    listStakes: mountTokenRecord(TOKEN_LIST_STAKES, async ({ ctx, input }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        const stakes = await token.listStakes(userId, input.status, input.limit);
+        return stakes.map(stakeToWire);
+      }),
+    ),
 
     // ── Emissions ──────────────────────────────────────────────────────────
 
@@ -703,34 +590,11 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       .output(z.object({ epoch: z.number().int().nonnegative() }))
       .query(async () => guard(async () => ({ epoch: await token.nextEmissionEpoch() }))),
 
-    emissionSchedule: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({ count: z.number().int().min(1).max(200).optional() }).default({}))
-      .output(
-        z.object({
-          params: z
-            .object({
-              initialEpochReward: amountString,
-              halvingIntervalEpochs: z.number().int().positive(),
-              maxSupply: amountString,
-            })
-            .nullable(),
-          epochs: z
-            .array(
-              z.object({
-                epoch: z.number().int().nonnegative(),
-                reward: amountString,
-              }),
-            )
-            .nullable(),
-          missing: z.string().nullable(),
-          reason: z.enum(['token.params_unset', 'token.params_missing', 'token.params_invalid']).nullable(),
-        }),
-      )
-      .query(({ input }) => guard(async () => token.emissionSchedule(input.count))),
+    emissionSchedule: mountTokenRecord(TOKEN_EMISSION_SCHEDULE, ({ input }) => guard(async () => token.emissionSchedule(input.count))),
 
     yieldHistory: scopedProcedure('token:read', { module: 'token' })
-      .input(historyInput)
-      .output(payoutHistoryOutput)
+      .input(tokenHistoryInputSchema)
+      .output(tokenPayoutHistorySchema)
       .query(({ ctx, input }) =>
         guard(async () => {
           const userId = ctx.principal.userId;
@@ -739,19 +603,16 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
-    revenueShareHistory: scopedProcedure('token:read', { module: 'token' })
-      .input(historyInput)
-      .output(payoutHistoryOutput)
-      .query(({ ctx, input }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-          return token.revenueShareHistory(userId, input.limit, input.cursor);
-        }),
-      ),
+    revenueShareHistory: mountTokenRecord(TOKEN_REVENUE_SHARE_HISTORY, ({ ctx, input }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        return token.revenueShareHistory(userId, input.limit, input.cursor);
+      }),
+    ),
 
     myVotes: scopedProcedure('token:read', { module: 'token' })
-      .input(historyInput)
+      .input(tokenHistoryInputSchema)
       .output(
         z.object({
           items: z.array(
@@ -933,9 +794,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
      * ladder over exactly the version it replaces (`token.fee_discount.publish`), and the proposer writes it.
      */
     feeDiscount: router({
-      get: anyScopeProcedure(['token:read', 'admin:read'])
-        .output(z.object({ schedule: z.unknown(), version: z.string() }))
-        .query(() => guard(() => token.feeDiscountScheduleRow())),
+      get: mountTokenRecord(TOKEN_FEE_DISCOUNT_GET, () => guard(() => token.feeDiscountScheduleRow())),
       publish: scopedProcedure('admin:write')
         .input(
           z.object({
@@ -1073,17 +932,10 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
      * service and no on-chain delegate registry (`no_chain_service`).
      * Not a lookup of someone else.
      */
-    delegation: scopedProcedure('token:read', { module: 'token' })
-      .output(
-        z.object({
-          delegateeUserId: z.null(),
-          blocker: z.literal(DELEGATION_BLOCKER),
-        }),
-      )
-      .query(({ ctx }) => {
-        if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-        return unavailableDelegation();
-      }),
+    delegation: mountTokenRecord(TOKEN_DELEGATION, ({ ctx }) => {
+      if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+      return unavailableDelegation();
+    }),
 
     /**
      * Set a delegate. Blank target is `token.delegation_delegatee_unset`.
@@ -1091,84 +943,36 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
      * Any member id, including the caller, is `token.delegation_unavailable`
      * with blocker `no_chain_service`. No row, no vote-weight change.
      */
-    delegate: scopedProcedure('token:stake', { module: 'token' })
-      .input(z.object({ delegateeUserId: z.string().max(128).nullish() }).strict())
-      .mutation(({ ctx, input }) => {
-        if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-        return guard(async () => {
-          refuseDelegation(input.delegateeUserId);
-        });
-      }),
+    delegate: mountTokenRecord(TOKEN_DELEGATE, ({ ctx, input }) => {
+      if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+      return guard(async () => {
+        refuseDelegation(input.delegateeUserId);
+      });
+    }),
 
     /**
      * `burned` is `burnedSupply`. The other sums are rows this service stored.
      * Null on those sums, and a null `lastBuyback`, means no rows, not zero.
      * Does not price the token and does not post a new recipe.
      */
-    treasury: scopedProcedure('token:read', { module: 'token' })
-      .output(
-        z.object({
-          minted: amountString.nullable(),
-          burned: amountString,
-          bought: amountString.nullable(),
-          toRewards: amountString.nullable(),
-          distributed: amountString.nullable(),
-          lastBuyback: z
-            .object({
-              bought: amountString,
-              burned: amountString,
-              toRewards: amountString,
-              executedAt: z.string().datetime({ offset: true }),
-            })
-            .nullable(),
-        }),
-      )
-      .query(({ ctx }) => {
-        if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-        return guard(() => token.treasuryView());
-      }),
+    treasury: mountTokenRecord(TOKEN_TREASURY, ({ ctx }) => {
+      if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+      return guard(() => token.treasuryView());
+    }),
 
-    buybackRuns: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({ limit: z.number().int().min(1).max(200) }))
-      .output(
-        z.object({
-          job: z.enum(['set', 'unset']),
-          runs: z.array(
-            z.object({
-              id: z.string().min(1),
-              bought: amountString,
-              burned: amountString,
-              toRewards: amountString,
-              executedAt: z.string().datetime({ offset: true }),
-              windowFrom: z.string().datetime({ offset: true }),
-              windowTo: z.string().datetime({ offset: true }),
-            }),
-          ),
-          rate: z
-            .object({
-              buybackBps: z.number().int().min(0).max(10_000),
-              burnSplitBps: z.number().int().min(0).max(10_000),
-            })
-            .nullable(),
-          missing: z.string().nullable(),
-          reason: z.enum(['token.params_unset', 'token.params_missing', 'token.params_invalid']).nullable(),
-        }),
-      )
-      .query(({ ctx, input }) => {
-        if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-        return guard(async () => {
-          const read = await token.buybackRuns(input.limit);
-          return { job: buybackJobSet && read.rate ? ('set' as const) : ('unset' as const), ...read };
-        });
-      }),
+    buybackRuns: mountTokenRecord(TOKEN_BUYBACK_RUNS, ({ ctx, input }) => {
+      if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+      return guard(async () => {
+        const read = await token.buybackRuns(input.limit);
+        return { job: buybackJobSet && read.rate ? ('set' as const) : ('unset' as const), ...read };
+      });
+    }),
 
-    burnedSupply: scopedProcedure('token:read')
-      .output(z.object({ burned: amountString }))
-      .query(async () =>
-        guard(async () => ({
-          burned: formatAmount(await token.burnedSupply()),
-        })),
-      ),
+    burnedSupply: mountTokenRecord(TOKEN_BURNED_SUPPLY, async () =>
+      guard(async () => ({
+        burned: formatAmount(await token.burnedSupply()),
+      })),
+    ),
 
     // ── Governance — ballots + close tally (§4.3) ──────────────────────────
     //
@@ -1183,346 +987,213 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
      * (`token.governance.role.set`). A cancel is the role holder's own act with a reason, and keeps the votes.
      */
     governance: router({
-      settings: anyScopeProcedure(['token:read', 'admin:read'])
-        .output(governanceSettingsOutput)
-        .query(() => guard(async () => settingsToWire(await token.governanceSettings()))),
-      settingsHistory: scopedProcedure('admin:read')
-        .output(
-          z.array(
-            z.object({
-              ordinal: z.number().int().positive(),
-              votingDelayMs: z.string().nullable(),
-              votingPeriodMs: z.string().nullable(),
-              actorId: z.string(),
-              approverId: z.string(),
-              at: z.string(),
-            }),
-          ),
-        )
-        .query(() =>
-          guard(async () =>
-            (await token.governanceSettingsHistory()).map((m) => ({
-              ordinal: m.ordinal,
-              votingDelayMs: m.votingDelayMs?.toString() ?? null,
-              votingPeriodMs: m.votingPeriodMs?.toString() ?? null,
-              actorId: m.actorId,
-              approverId: m.approverId,
-              at: m.at.toISOString(),
-            })),
-          ),
+      settings: mountTokenRecord(TOKEN_GOVERNANCE_SETTINGS, () => guard(async () => settingsToWire(await token.governanceSettings()))),
+      settingsHistory: mountTokenRecord(TOKEN_GOVERNANCE_SETTINGS_HISTORY, () =>
+        guard(async () =>
+          (await token.governanceSettingsHistory()).map((m) => ({
+            ordinal: m.ordinal,
+            votingDelayMs: m.votingDelayMs?.toString() ?? null,
+            votingPeriodMs: m.votingPeriodMs?.toString() ?? null,
+            actorId: m.actorId,
+            approverId: m.approverId,
+            at: m.at.toISOString(),
+          })),
         ),
-      setSettings: scopedProcedure('admin:write')
-        .input(
-          z.object({
-            votingDelayMs: msWire.nullable(),
-            votingPeriodMs: msWire.nullable(),
-            expectedRevision: z.number().int().nonnegative(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-          }),
-        )
-        .output(governanceSettingsOutput.extend({ confirmOperatorId: z.string() }))
-        .mutation(({ ctx, input }) =>
-          guard(async () => {
-            const votingDelayMs = input.votingDelayMs === null ? null : BigInt(input.votingDelayMs);
-            const votingPeriodMs = input.votingPeriodMs === null ? null : BigInt(input.votingPeriodMs);
-            // Refuse what the door refuses (range, stale revision) before the founders' approval is spent on it.
-            await token.precheckGovernanceSettings({ votingDelayMs, votingPeriodMs, expectedRevision: input.expectedRevision });
-            const consumed = await consumeTokenApproval(
-              approvals,
-              input,
-              GOVERNANCE_SETTINGS_ACTION,
-              governanceSettingsPayload(input),
-              String(input.expectedRevision),
-            );
-            const confirmOperatorId = requireDualControl(ctx.principal.userId, consumed.approverId);
-            const stored = await token.setGovernanceSettings({
-              votingDelayMs,
-              votingPeriodMs,
-              expectedRevision: input.expectedRevision,
-              // requireDualControl refused a missing operator above.
-              actorId: ctx.principal.userId!,
-              approverId: confirmOperatorId,
-            });
-            return { ...settingsToWire(stored), confirmOperatorId };
-          }),
-        ),
-      roles: scopedProcedure('admin:read')
-        .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(z.array(z.object({ userId: z.string(), role: governanceRole.nullable(), revision: z.number().int().positive() })))
-        .query(({ input }) => guard(async () => await token.governanceRoles(input.limit))),
+      ),
+      setSettings: mountTokenRecord(TOKEN_GOVERNANCE_SET_SETTINGS, ({ ctx, input }) =>
+        guard(async () => {
+          const votingDelayMs = input.votingDelayMs === null ? null : BigInt(input.votingDelayMs);
+          const votingPeriodMs = input.votingPeriodMs === null ? null : BigInt(input.votingPeriodMs);
+          // Refuse what the door refuses (range, stale revision) before the founders' approval is spent on it.
+          await token.precheckGovernanceSettings({ votingDelayMs, votingPeriodMs, expectedRevision: input.expectedRevision });
+          const consumed = await consumeTokenApproval(
+            approvals,
+            input,
+            GOVERNANCE_SETTINGS_ACTION,
+            governanceSettingsPayload(input),
+            String(input.expectedRevision),
+          );
+          const confirmOperatorId = requireDualControl(ctx.principal.userId, consumed.approverId);
+          const stored = await token.setGovernanceSettings({
+            votingDelayMs,
+            votingPeriodMs,
+            expectedRevision: input.expectedRevision,
+            // requireDualControl refused a missing operator above.
+            actorId: ctx.principal.userId!,
+            approverId: confirmOperatorId,
+          });
+          return { ...settingsToWire(stored), confirmOperatorId };
+        }),
+      ),
+      roles: mountTokenRecord(TOKEN_GOVERNANCE_ROLES_LIST, ({ input }) => guard(async () => await token.governanceRoles(input.limit))),
       myRole: scopedProcedure('token:read', { module: 'token' })
         .output(z.object({ role: governanceRole.nullable() }))
         .query(({ ctx }) => guard(async () => ({ role: await token.governanceRoleOf(ctx.principal.userId) }))),
-      setRole: scopedProcedure('admin:write')
-        .input(
-          z.object({
-            userId: z.string().min(1).max(128),
-            role: governanceRole.nullable(),
-            expectedRevision: z.number().int().nonnegative(),
-            approvalId: z.string().max(128).nullish(),
-            operationId: z.string().max(128).nullish(),
-            /** The running founder's fresh step-up for exactly this account, role and revision (J-more-catalogue-10 #6). */
-            stepUpApprovalId: z.string().max(128).nullish(),
-          }),
-        )
-        .output(
-          z.object({
-            userId: z.string(),
-            role: governanceRole.nullable(),
-            revision: z.number().int().positive(),
-            confirmOperatorId: z.string(),
-          }),
-        )
-        .mutation(({ ctx, input }) =>
-          guard(async () => {
-            if (input.userId === ctx.principal.userId)
-              throw new TokenError('A role is never asked for by the account that receives it', 'token.role_invalid');
-            // Refuse a role move the door would refuse (same role, stale revision) before the approval is spent on it.
-            await token.precheckGovernanceRole({
-              userId: input.userId,
-              role: input.role,
-              expectedRevision: input.expectedRevision,
-              actorId: ctx.principal.userId ?? '',
-            });
-            // The founder who runs it proves a fresh second factor for exactly this move, before the founders' approval is spent.
-            // Unwired, it says so rather than asking for a code nothing could check (the shared check asks for the code first).
-            if (!stepUp) {
-              throw new StepUpCheckError(
-                'Your confirmation could not be checked right now, so nothing was changed: identity is not wired in this deployment',
-                'identity.step_up_unavailable',
-              );
-            }
-            // A replay (the same move retried after a lost reply) carries on: a move that was written already fails the
-            // revision precheck above, so reaching here means it was not written and the approval below is still owed.
-            await stepUp.require({
-              scope: GOVERNANCE_ROLE_STEP_UP_SCOPE,
-              userId: ctx.principal.userId ?? '',
-              sessionId: ctx.principal.sid ?? '',
-              approvalId: input.stepUpApprovalId,
-              fields: governanceRoleStepUpFields(input),
-              requestId: governanceRoleStepUpRequestId(input),
-            });
-            const consumed = await consumeTokenApproval(
-              approvals,
-              input,
-              GOVERNANCE_ROLE_ACTION,
-              governanceRolePayload(input),
-              String(input.expectedRevision),
+      setRole: mountTokenRecord(TOKEN_GOVERNANCE_SET_ROLE, ({ ctx, input }) =>
+        guard(async () => {
+          if (input.userId === ctx.principal.userId)
+            throw new TokenError('A role is never asked for by the account that receives it', 'token.role_invalid');
+          // Refuse a role move the door would refuse (same role, stale revision) before the approval is spent on it.
+          await token.precheckGovernanceRole({
+            userId: input.userId,
+            role: input.role,
+            expectedRevision: input.expectedRevision,
+            actorId: ctx.principal.userId ?? '',
+          });
+          // The founder who runs it proves a fresh second factor for exactly this move, before the founders' approval is spent.
+          // Unwired, it says so rather than asking for a code nothing could check (the shared check asks for the code first).
+          if (!stepUp) {
+            throw new StepUpCheckError(
+              'Your confirmation could not be checked right now, so nothing was changed: identity is not wired in this deployment',
+              'identity.step_up_unavailable',
             );
-            const confirmOperatorId = requireDualControl(ctx.principal.userId, consumed.approverId);
-            // Whoever asked for or approved the change is never the account that receives the role.
-            if (consumed.requesterId === input.userId || consumed.approverId === input.userId)
-              throw new TokenError('A role is never asked for or approved by the account that receives it', 'token.role_invalid');
-            const stored = await token.setGovernanceRole({
-              userId: input.userId,
-              role: input.role,
-              expectedRevision: input.expectedRevision,
-              // requireDualControl refused a missing operator above.
-              actorId: ctx.principal.userId!,
-              approverId: confirmOperatorId,
-            });
-            return { ...stored, confirmOperatorId };
-          }),
+          }
+          // A replay (the same move retried after a lost reply) carries on: a move that was written already fails the
+          // revision precheck above, so reaching here means it was not written and the approval below is still owed.
+          await stepUp.require({
+            scope: GOVERNANCE_ROLE_STEP_UP_SCOPE,
+            userId: ctx.principal.userId ?? '',
+            sessionId: ctx.principal.sid ?? '',
+            approvalId: input.stepUpApprovalId,
+            fields: governanceRoleStepUpFields(input),
+            requestId: governanceRoleStepUpRequestId(input),
+          });
+          const consumed = await consumeTokenApproval(
+            approvals,
+            input,
+            GOVERNANCE_ROLE_ACTION,
+            governanceRolePayload(input),
+            String(input.expectedRevision),
+          );
+          const confirmOperatorId = requireDualControl(ctx.principal.userId, consumed.approverId);
+          // Whoever asked for or approved the change is never the account that receives the role.
+          if (consumed.requesterId === input.userId || consumed.approverId === input.userId)
+            throw new TokenError('A role is never asked for or approved by the account that receives it', 'token.role_invalid');
+          const stored = await token.setGovernanceRole({
+            userId: input.userId,
+            role: input.role,
+            expectedRevision: input.expectedRevision,
+            // requireDualControl refused a missing operator above.
+            actorId: ctx.principal.userId!,
+            approverId: confirmOperatorId,
+          });
+          return { ...stored, confirmOperatorId };
+        }),
+      ),
+      cancel: mountTokenRecord(TOKEN_GOVERNANCE_CANCEL, ({ ctx, input }) =>
+        guard(async () =>
+          proposalToWire(await token.cancelProposal({ proposalId: input.proposalId, reason: input.reason, actorId: ctx.principal.userId })),
         ),
-      cancel: scopedProcedure('token:stake', { module: 'token' })
-        .input(z.object({ proposalId: proposalIdWire, reason: z.string().max(2000) }))
-        .output(proposalOutput)
-        .mutation(({ ctx, input }) =>
-          guard(async () =>
-            proposalToWire(
-              await token.cancelProposal({ proposalId: input.proposalId, reason: input.reason, actorId: ctx.principal.userId }),
-            ),
-          ),
-        ),
+      ),
     }),
 
-    createProposal: protectedProcedure
-      .input(
-        z.object({
-          kind: proposalKind,
-          body: z.record(z.string(), z.unknown()).default({}),
-          opensAt: z.string().datetime({ offset: true }).optional(),
-          closesAt: z.string().datetime({ offset: true }).optional(),
-          handle: z.string().optional(),
-          title: z.string().optional(),
-          bodyMd: z.string().optional(),
-          discussionLink: z.string().optional(),
-          /** `basic` when omitted. Any other type needs 2 to 20 choices. */
-          votingType: votingType.optional(),
-          choices: z.array(z.string().max(1000)).max(MAX_CHOICES).optional(),
-        }),
-      )
-      .output(proposalOutput)
-      .mutation(async ({ ctx, input }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+    createProposal: mountTokenRecord(TOKEN_CREATE_PROPOSAL, async ({ ctx, input }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
 
-          const asAdmin = hasScope(ctx.principal.scopes, 'admin:write') || hasScope(ctx.principal.scopes, 'admin:treasury');
-          if (!asAdmin && !hasScope(ctx.principal.scopes, 'token:stake')) {
-            throw new TRPCError({
-              code: 'FORBIDDEN',
-              message: 'createProposal requires token:stake or admin:write',
-            });
-          }
-
-          const proposal = await token.createProposal({
-            kind: input.kind,
-            body: input.body,
-            createdBy: userId,
-            asAdmin,
-            opensAt: input.opensAt ? new Date(input.opensAt) : undefined,
-            closesAt: input.closesAt ? new Date(input.closesAt) : undefined,
-            handle: input.handle,
-            title: input.title,
-            bodyMd: input.bodyMd,
-            discussionLink: input.discussionLink,
-            votingType: input.votingType,
-            choices: input.choices,
+        const asAdmin = hasScope(ctx.principal.scopes, 'admin:write') || hasScope(ctx.principal.scopes, 'admin:treasury');
+        if (!asAdmin && !hasScope(ctx.principal.scopes, 'token:stake')) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'createProposal requires token:stake or admin:write',
           });
-          return proposalToWire(proposal);
-        }),
-      ),
+        }
 
-    castVote: scopedProcedure('token:stake', { module: 'token' })
-      .input(
-        z.object({
-          proposalId: proposalIdWire,
-          /** For/against/abstain on a basic proposal; abstain on any type. */
-          choice: voteChoice.optional(),
-          ballot: ballotWire.optional(),
-          /**
-           * A linked wallet's EIP-191 signature over the vote's message (`voteMessage`). Missing refuses
-           * `token.vote_signature_required`; identity checks the signer.
-           */
-          signature: z
-            .string()
-            .regex(/^0x[0-9a-fA-F]{130}$/)
-            .optional(),
-        }),
-      )
-      .output(
-        z.object({
-          id: z.string().guid(),
-          proposalId: proposalIdWire,
-          userId: z.string().guid(),
-          weight: z.string(),
-          choice: voteChoice.nullable(),
-          ballot: ballotWire.nullable(),
-          castAt: z.string(),
-          signedBy: z.string(),
-        }),
-      )
-      .mutation(async ({ ctx, input }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        const proposal = await token.createProposal({
+          kind: input.kind,
+          body: input.body,
+          createdBy: userId,
+          asAdmin,
+          opensAt: input.opensAt ? new Date(input.opensAt) : undefined,
+          closesAt: input.closesAt ? new Date(input.closesAt) : undefined,
+          handle: input.handle,
+          title: input.title,
+          bodyMd: input.bodyMd,
+          discussionLink: input.discussionLink,
+          votingType: input.votingType,
+          choices: input.choices,
+        });
+        return proposalToWire(proposal);
+      }),
+    ),
 
-          const vote = await token.castVote({
-            proposalId: input.proposalId,
-            userId,
-            choice: input.choice,
-            ballot: input.ballot,
-            signature: input.signature,
-          });
-          return {
-            id: vote.id,
-            proposalId: vote.proposalId,
-            userId: vote.userId,
-            weight: formatAmount(vote.weight),
-            choice: vote.choice,
-            ballot: vote.ballot,
-            castAt: vote.castAt.toISOString(),
-            signedBy: vote.signedBy,
-          };
-        }),
-      ),
+    castVote: mountTokenRecord(TOKEN_CAST_VOTE, async ({ ctx, input }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+
+        const vote = await token.castVote({
+          proposalId: input.proposalId,
+          userId,
+          choice: input.choice,
+          ballot: input.ballot,
+          signature: input.signature,
+        });
+        return {
+          id: vote.id,
+          proposalId: vote.proposalId,
+          userId: vote.userId,
+          weight: formatAmount(vote.weight),
+          choice: vote.choice,
+          ballot: vote.ballot,
+          castAt: vote.castAt.toISOString(),
+          signedBy: vote.signedBy,
+        };
+      }),
+    ),
 
     /**
      * The exact text the signed account's wallet signs for this vote (`voteMessage`), so the browser signs the bytes the
      * service checks. Reads nothing and stores nothing; castVote validates the vote itself.
      */
-    voteMessage: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({ proposalId: proposalIdWire, choice: voteChoice.optional(), ballot: ballotWire.optional() }))
-      .output(z.object({ message: z.string() }))
-      .query(({ ctx, input }) => {
-        const userId = ctx.principal.userId;
-        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-        return { message: voteMessage({ proposalId: input.proposalId, userId, choice: input.choice, ballot: input.ballot }) };
+    voteMessage: mountTokenRecord(TOKEN_VOTE_MESSAGE, ({ ctx, input }) => {
+      const userId = ctx.principal.userId;
+      if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+      return { message: voteMessage({ proposalId: input.proposalId, userId, choice: input.choice, ballot: input.ballot }) };
+    }),
+
+    listProposals: mountTokenRecord(TOKEN_LIST_PROPOSALS, async ({ input }) =>
+      guard(async () => {
+        const rows = await token.listProposals(input);
+        return rows.map(proposalToWire);
       }),
+    ),
 
-    listProposals: scopedProcedure('token:read')
-      .input(
-        z
-          .object({
-            status: proposalStatus.optional(),
-            kind: proposalKind.optional(),
-            /**
-             * Page size. Optional here so omit reaches the service named
-             * refuse (`token.proposal_list_limit_unset`) instead of a Zod
-             * "Required" that looks like a typo. Blank is not 50; pass 50
-             * explicitly when that is the page you want.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-            q: z.string().optional(),
-          })
-          .default({}),
-      )
-      .output(z.array(proposalOutput))
-      .query(async ({ input }) =>
-        guard(async () => {
-          const rows = await token.listProposals(input);
-          return rows.map(proposalToWire);
-        }),
-      ),
+    getProposal: mountTokenRecord(TOKEN_GET_PROPOSAL, async ({ input }) =>
+      guard(async () => {
+        const detail = await token.getProposal(input.proposalId);
+        return {
+          ...proposalToWire(detail),
+          choiceTally: choiceTallyToWire(detail.choiceTally),
+          tally: {
+            forWeight: formatAmount(detail.tally.forWeight),
+            againstWeight: formatAmount(detail.tally.againstWeight),
+            abstainWeight: formatAmount(detail.tally.abstainWeight),
+            totalWeight: formatAmount(detail.tally.totalWeight),
+            voterCount: detail.tally.voterCount,
+          },
+        };
+      }),
+    ),
 
-    getProposal: scopedProcedure('token:read')
-      .input(z.object({ proposalId: proposalIdWire }))
-      .output(proposalOutput.extend({ tally: tallyOutput, choiceTally: choiceTallyOutput.nullable() }))
-      .query(async ({ input }) =>
-        guard(async () => {
-          const detail = await token.getProposal(input.proposalId);
-          return {
-            ...proposalToWire(detail),
-            choiceTally: choiceTallyToWire(detail.choiceTally),
-            tally: {
-              forWeight: formatAmount(detail.tally.forWeight),
-              againstWeight: formatAmount(detail.tally.againstWeight),
-              abstainWeight: formatAmount(detail.tally.abstainWeight),
-              totalWeight: formatAmount(detail.tally.totalWeight),
-              voterCount: detail.tally.voterCount,
-            },
-          };
-        }),
-      ),
-
-    closeProposal: scopedProcedure('token:stake', { module: 'token' })
-      .input(z.object({ proposalId: proposalIdWire }))
-      .output(
-        proposalOutput.extend({
-          tally: tallyOutput,
-          choiceTally: choiceTallyOutput.nullable(),
-          execute: z.literal('token.governance_execute_unwired').nullable(),
-        }),
-      )
-      .mutation(async ({ input }) =>
-        guard(async () => {
-          const closed = await token.closeProposal({ proposalId: input.proposalId });
-          return {
-            ...proposalToWire(closed),
-            choiceTally: choiceTallyToWire(closed.choiceTally),
-            tally: {
-              forWeight: formatAmount(closed.tally.forWeight),
-              againstWeight: formatAmount(closed.tally.againstWeight),
-              abstainWeight: formatAmount(closed.tally.abstainWeight),
-              totalWeight: formatAmount(closed.tally.totalWeight),
-              voterCount: closed.tally.voterCount,
-            },
-            execute: closed.execute,
-          };
-        }),
-      ),
+    closeProposal: mountTokenRecord(TOKEN_CLOSE_PROPOSAL, async ({ input }) =>
+      guard(async () => {
+        const closed = await token.closeProposal({ proposalId: input.proposalId });
+        return {
+          ...proposalToWire(closed),
+          choiceTally: choiceTallyToWire(closed.choiceTally),
+          tally: {
+            forWeight: formatAmount(closed.tally.forWeight),
+            againstWeight: formatAmount(closed.tally.againstWeight),
+            abstainWeight: formatAmount(closed.tally.abstainWeight),
+            totalWeight: formatAmount(closed.tally.totalWeight),
+            voterCount: closed.tally.voterCount,
+          },
+          execute: closed.execute,
+        };
+      }),
+    ),
 
     /**
      * The signed account's voting power (MC-token-03): the stored snapshot of
@@ -1530,121 +1201,70 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
      * reason. A list without a page size refuses `token.history_list_limit_unset`.
      */
     votingPower: router({
-      ofProposal: scopedProcedure('token:read', { module: 'token' })
-        .input(z.object({ proposalId: proposalIdWire }))
-        .output(
-          z.object({
-            proposalId: proposalIdWire,
-            power: z.string(),
-            reason: z.enum(['no_stake_at_creation', 'not_measured']).nullable(),
-            takenAt: z.string().nullable(),
-            /** Who may vote: the minimum power, or the typed code every vote is refused with. */
-            rule: z.object({ minPower: z.string().nullable(), code: z.string().nullable() }),
-            /**
-             * Every vote is signed. `available: false` with its code when no identity is configured; when true,
-             * whether the account has a linked wallet is identity's answer at cast time.
-             */
-            signing: z.object({
-              required: z.literal(true),
-              available: z.boolean(),
-              code: z.literal('token.signed_vote_unavailable').nullable(),
-            }),
-          }),
-        )
-        .query(async ({ ctx, input }) =>
-          guard(async () => {
-            const userId = ctx.principal.userId;
-            if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-            const power = await token.proposalPower(input.proposalId, userId);
-            return {
-              ...power,
-              power: formatAmount(power.power),
-              takenAt: power.takenAt?.toISOString() ?? null,
-              rule: { minPower: power.rule.minPower === null ? null : formatAmount(power.rule.minPower), code: power.rule.code },
-              signing: token.signedVotesConfigured()
-                ? { required: true as const, available: true, code: null }
-                : { required: true as const, available: false, code: 'token.signed_vote_unavailable' as const },
-            };
-          }),
-        ),
-      history: scopedProcedure('token:read', { module: 'token' })
-        .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).default({}))
-        .output(z.array(z.object({ proposalId: proposalIdWire, title: z.string().nullable(), takenAt: z.string(), power: z.string() })))
-        .query(async ({ ctx, input }) =>
-          guard(async () => {
-            const userId = ctx.principal.userId;
-            if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-            const rows = await token.votingPowerHistory(userId, input.limit);
-            return rows.map((row) => ({ ...row, takenAt: row.takenAt.toISOString(), power: formatAmount(row.power) }));
-          }),
-        ),
+      ofProposal: mountTokenRecord(TOKEN_VOTING_POWER_OF_PROPOSAL, async ({ ctx, input }) =>
+        guard(async () => {
+          const userId = ctx.principal.userId;
+          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+          const power = await token.proposalPower(input.proposalId, userId);
+          return {
+            ...power,
+            power: formatAmount(power.power),
+            takenAt: power.takenAt?.toISOString() ?? null,
+            rule: { minPower: power.rule.minPower === null ? null : formatAmount(power.rule.minPower), code: power.rule.code },
+            signing: token.signedVotesConfigured()
+              ? { required: true as const, available: true, code: null }
+              : { required: true as const, available: false, code: 'token.signed_vote_unavailable' as const },
+          };
+        }),
+      ),
+      history: mountTokenRecord(TOKEN_VOTING_POWER_HISTORY, async ({ ctx, input }) =>
+        guard(async () => {
+          const userId = ctx.principal.userId;
+          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+          const rows = await token.votingPowerHistory(userId, input.limit);
+          return rows.map((row) => ({ ...row, takenAt: row.takenAt.toISOString(), power: formatAmount(row.power) }));
+        }),
+      ),
     }),
 
-    editProposal: protectedProcedure
-      .input(
-        z.object({
-          proposalId: proposalIdWire,
-          title: z.string().optional(),
-          bodyMd: z.string().optional(),
-          discussionLink: z.string().optional(),
-          body: z.record(z.string(), z.unknown()).optional(),
-          opensAt: z.string().datetime({ offset: true }).optional(),
-          closesAt: z.string().datetime({ offset: true }).optional(),
-        }),
-      )
-      .output(proposalOutput)
-      .mutation(async ({ ctx, input }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-          const asAdmin = hasScope(ctx.principal.scopes, 'admin:write') || hasScope(ctx.principal.scopes, 'admin:treasury');
-          if (!asAdmin && !hasScope(ctx.principal.scopes, 'token:stake')) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'editProposal requires token:stake or admin:write' });
-          }
-          const proposal = await token.editProposal({
-            proposalId: input.proposalId,
-            authorId: userId,
-            title: input.title,
-            bodyMd: input.bodyMd,
-            discussionLink: input.discussionLink,
-            body: input.body,
-            opensAt: input.opensAt ? new Date(input.opensAt) : undefined,
-            closesAt: input.closesAt ? new Date(input.closesAt) : undefined,
-          });
-          return proposalToWire(proposal);
-        }),
-      ),
+    editProposal: mountTokenRecord(TOKEN_EDIT_PROPOSAL, async ({ ctx, input }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        const asAdmin = hasScope(ctx.principal.scopes, 'admin:write') || hasScope(ctx.principal.scopes, 'admin:treasury');
+        if (!asAdmin && !hasScope(ctx.principal.scopes, 'token:stake')) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'editProposal requires token:stake or admin:write' });
+        }
+        const proposal = await token.editProposal({
+          proposalId: input.proposalId,
+          authorId: userId,
+          title: input.title,
+          bodyMd: input.bodyMd,
+          discussionLink: input.discussionLink,
+          body: input.body,
+          opensAt: input.opensAt ? new Date(input.opensAt) : undefined,
+          closesAt: input.closesAt ? new Date(input.closesAt) : undefined,
+        });
+        return proposalToWire(proposal);
+      }),
+    ),
 
-    followSpace: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({ following: z.boolean() }))
-      .output(z.object({ spaceId: z.string(), following: z.boolean() }))
-      .mutation(async ({ ctx, input }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-          return token.followSpace(userId, input.following);
-        }),
-      ),
+    followSpace: mountTokenRecord(TOKEN_FOLLOW_SPACE, async ({ ctx, input }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        return token.followSpace(userId, input.following);
+      }),
+    ),
 
-    governanceHome: scopedProcedure('token:read', { module: 'token' })
-      .output(
-        z.object({
-          spaceId: z.string(),
-          following: z.boolean(),
-          proposal: z.object({
-            code: proposalAccessCode.nullable(),
-            minStake: amountString.nullable(),
-          }),
-        }),
-      )
-      .query(async ({ ctx }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-          const asAdmin = hasScope(ctx.principal.scopes, 'admin:write') || hasScope(ctx.principal.scopes, 'admin:treasury');
-          return token.governanceHome(userId, asAdmin);
-        }),
-      ),
+    governanceHome: mountTokenRecord(TOKEN_GOVERNANCE_HOME, async ({ ctx }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        const asAdmin = hasScope(ctx.principal.scopes, 'admin:write') || hasScope(ctx.principal.scopes, 'admin:treasury');
+        return token.governanceHome(userId, asAdmin);
+      }),
+    ),
     ...(options.launch ? { launch: createLaunchRouter(options.launch.service, { ...options.launch, approvals }) } : {}),
   });
 }

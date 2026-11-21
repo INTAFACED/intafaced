@@ -1,3 +1,4 @@
+import { ActionLimitWarning } from '../../../features/trade';
 import { useMemo, useRef, useState } from 'react';
 import { Button, DataTable, Tabs } from '../../../shared/ui';
 import { displayAmount, formatAmount, parseAmount } from '../../../shared/money';
@@ -111,6 +112,7 @@ function Desk({ status, requested }: { status: Extract<VenueMode, { mode: 'on' }
   return (
     <div data-testid="if-futures" className="if-desk" data-venue="on">
       <VenueHeader status={status} title={t('Futures on venue')} />
+      <ActionLimitWarning venueName={status.venue.displayName} />
       {down || markets.failure ? <ReadProblem failure={markets.failure} venueName={status.venue.displayName} /> : null}
       <section className="dk-panel" aria-label={t('Contracts')} data-testid="venue-contracts">
         <h2 className="dk-tab-title">{t('Contracts')}</h2>

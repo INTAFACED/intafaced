@@ -1,7 +1,9 @@
-import { forwardedPrincipalHeaders, router, scopedProcedure } from '@intafaced/contracts';
-import { poolBoardInputSchema, poolBoardSchema, poolSettleInputSchema, poolSettleSchema } from '@intafaced/contracts/campaigns-catalogue';
+import { forwardedPrincipalHeaders, router } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { poolSettleInputSchema, poolSettleSchema } from '@intafaced/contracts/campaigns-catalogue';
+import { CAMPAIGNS_POOL_BOARD } from '@intafaced/contracts/campaigns-procedures';
 import { CampaignsError } from '../codes.js';
-import { guard, mapError, opsProcedure } from './kit.js';
+import { mapError, opsProcedure, refusalOf } from './kit.js';
 import type { CampaignServices } from '../router.js';
 
 /** Daily reward pools (J-campaigns-13 #4 #5). */
@@ -13,21 +15,18 @@ export function poolRoutes({ pools }: CampaignServices) {
          * One reward pool's board (J-campaigns-13 #4 #5): its terms, each day with the caller's share once settled, and today
          * with the caller's venue balance read now. The account is the signed principal's.
          */
-        board: scopedProcedure('campaigns:read', guard)
-          .input(poolBoardInputSchema)
-          .output(poolBoardSchema)
-          .query(async ({ ctx, input }) => {
-            try {
-              if (!pools) throw new CampaignsError('campaigns.store_unwired', 'Reward pools are not wired');
-              return await pools.board({
-                campaignId: input.campaignId,
-                accountId: ctx.principal!.userId,
-                forwarded: forwardedPrincipalHeaders(ctx),
-              });
-            } catch (err) {
-              mapError(err);
-            }
-          }),
+        board: mountRecord(
+          CAMPAIGNS_POOL_BOARD,
+          async ({ ctx, input }) => {
+            if (!pools) throw new CampaignsError('campaigns.store_unwired', 'Reward pools are not wired');
+            return pools.board({
+              campaignId: input.campaignId,
+              accountId: ctx.principal.userId,
+              forwarded: forwardedPrincipalHeaders(ctx),
+            });
+          },
+          refusalOf,
+        ),
       }),
     },
     opsCampaigns: {

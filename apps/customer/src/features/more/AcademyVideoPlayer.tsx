@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useId, useRef, useState, type KeyboardEvent } from 'react';
 import {
   academyItemVideoSchema,
   academyVideoPlaybackSchema,
@@ -12,8 +12,10 @@ import {
 } from '@intafaced/contracts/academy-catalogue';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
+import { useEventListener, useInterval, useNow } from '../../shared/outside';
+import { useKeepInView, useObjectUrls, usePageLeave, useTextTrackModes } from '../../shared/media-element';
 import { Button, Loading } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyRefusalText } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { AcademyRefusal } from './AcademyLmsParts';
@@ -89,18 +91,12 @@ export function VideoPlayerView({
   const [resumed, setResumed] = useState<number | null>(null);
   const [status, setStatus] = useState<{ kind: 'saved' | 'failed' | 'completed'; text: string } | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
 
   const tracks = player.tracks;
   const transcript: AcademyVideoTrack | undefined = tracks.find((track) => track.language === captions) ?? tracks[0];
   const current = transcript ? activeCue(transcript.cues, time) : -1;
-  // Each track as a file the browser renders itself; made and revoked by the same effect.
-  const [urls, setUrls] = useState<string[]>([]);
-  useEffect(() => {
-    const made = tracks.map((track) => URL.createObjectURL(new Blob([cuesToVtt(track.cues)], { type: 'text/vtt' })));
-    setUrls(made);
-    return () => made.forEach((url) => URL.revokeObjectURL(url));
-  }, [tracks]);
+  // Each track as a file the browser renders itself, revoked when the tracks are replaced or the player goes.
+  const urls = useObjectUrls(tracks, (track) => new Blob([cuesToVtt(track.cues)], { type: 'text/vtt' }));
 
   // One save at a time, in order; a position already stored is not sent again. The words and the completion callback are
   // read when a save answers, so a new render never starts or drops a save.
@@ -139,42 +135,24 @@ export function VideoPlayerView({
   const position = () => Math.floor(at.current);
 
   // While playing, save every owner-set interval; with none set, only pause and leaving save.
-  useEffect(() => {
-    if (!playing || player.saveEverySeconds === null) return;
-    const timer = window.setInterval(() => store(position()), player.saveEverySeconds * 1000);
-    return () => window.clearInterval(timer);
-  }, [playing, player.saveEverySeconds, store]);
-  useEffect(() => {
-    const leave = () => {
-      if (document.visibilityState === 'hidden' && at.current > 0) store(Math.floor(at.current));
-    };
-    document.addEventListener('visibilitychange', leave);
-    return () => {
-      document.removeEventListener('visibilitychange', leave);
-      if (at.current > 0) store(Math.floor(at.current));
-    };
-  }, [store]);
+  useInterval(() => store(position()), playing && player.saveEverySeconds !== null ? player.saveEverySeconds * 1000 : null);
+  // Hiding the page and leaving the player both store the last place reported.
+  usePageLeave(() => {
+    if (at.current > 0) store(Math.floor(at.current));
+  });
 
   // The signed link expires on Academy's clock; past it, the player says so and offers a new one.
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 5000);
-    return () => window.clearInterval(timer);
-  }, []);
+  const now = useNow(5000);
   const expired = Date.parse(playback.expiresAt) <= now;
 
-  useEffect(() => {
-    const node = media.current;
-    if (!node) return;
-    for (const [i, track] of Array.from(node.textTracks).entries()) track.mode = tracks[i]?.language === captions ? 'showing' : 'disabled';
-  }, [captions, tracks, urls]);
-  useEffect(() => {
-    if (media.current) media.current.playbackRate = speed;
-  }, [speed]);
-  useEffect(() => {
-    const change = () => setFullScreen(document.fullscreenElement === frame.current);
-    document.addEventListener('fullscreenchange', change);
-    return () => document.removeEventListener('fullscreenchange', change);
-  }, []);
+  useTextTrackModes(
+    media,
+    tracks.map((track) => (track.language === captions ? 'showing' : 'disabled')),
+    urls,
+  );
+  useEventListener(typeof document === 'undefined' ? null : document, 'fullscreenchange', () =>
+    setFullScreen(document.fullscreenElement === frame.current),
+  );
 
   const toggle = () => {
     const node = media.current;
@@ -298,7 +276,15 @@ export function VideoPlayerView({
           </Button>
           <label className="field">
             <span>{t('videoSpeed')}</span>
-            <select value={String(speed)} onChange={(event) => setSpeed(Number(event.target.value))} data-video-speed>
+            <select
+              value={String(speed)}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                setSpeed(next);
+                if (media.current) media.current.playbackRate = next;
+              }}
+              data-video-speed
+            >
               {VIDEO_SPEEDS.map((value) => (
                 <option key={value} value={String(value)}>
                   {`${value}×`}
@@ -394,11 +380,7 @@ function TranscriptList({
   seek: (seconds: number) => void;
 }) {
   const box = useRef<HTMLOListElement>(null);
-  useEffect(() => {
-    const list = box.current,
-      row = list?.children[current] as HTMLElement | undefined;
-    if (list && row) list.scrollTop = row.offsetTop - list.offsetTop - list.clientHeight / 3;
-  }, [current]);
+  useKeepInView(box, current);
   return (
     <ol ref={box} className="academy-video-transcript" lang={language} style={{ maxHeight: '12rem', overflowY: 'auto' }}>
       {cues.map((cue, i) => (

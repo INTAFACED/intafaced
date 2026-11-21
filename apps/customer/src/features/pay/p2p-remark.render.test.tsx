@@ -41,14 +41,20 @@ const trade = (status: Trade['status'] = 'fiat_sent', escrowedAt: string | null 
   escrowedAt,
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   mismatch: null,
 });
 /** A pay client whose own-case read answers `own` (none by default). */
 const payWith = (
-  methods: Record<string, unknown>,
+  methods: Partial<PersonalPayApi>,
   mine: RemarkCase | null = null,
   againstMe: { caseId: string; openedAt: string } | null = null,
-) => ({ remarkCase: async () => ({ ok: true as const, data: { mine, againstMe } }), ...methods }) as unknown as PersonalPayApi;
+) => payOf({ remarkCase: async () => ({ ok: true as const, data: { mine, againstMe } }), ...methods });
+/** A pay client with only the calls the test reads: each one it writes is checked against the real client. */
+const payOf = (fake: Partial<PersonalPayApi>): PersonalPayApi => fake as PersonalPayApi;
 const reported = (caseId: string): RemarkCase => ({
   id: caseId,
   tradeId: trade().id,
@@ -65,7 +71,6 @@ const methodRow = (methodId: string, noteRules: { guidance: string; forbidden: s
   label: 'TEST bank transfer',
   fields: [],
   enabled: true,
-  settlement: null,
   noteRules,
   cashRules: null,
 });
@@ -180,7 +185,7 @@ describe('Payment-note rules on the order (P-ads-merchant-19)', () => {
         methodRow('test-bank-transfer', { guidance: 'TEST: the order number only.', forbidden: ['USDT', 'P2P'] }),
       ],
     }));
-    await render(<PaymentNoteRules trade={trade('escrowed')} pay={{ methods } as unknown as PersonalPayApi} userId={BUYER} />);
+    await render(<PaymentNoteRules trade={trade('escrowed')} pay={payOf({ methods })} userId={BUYER} />);
     const rules = host.querySelector('[data-testid="order-note-rules"]')!;
     expect(rules.textContent).toContain('TEST: the order number only.');
     expect(host.querySelector('[data-testid="order-note-forbidden"]')!.textContent).toContain('Never write: USDT, P2P');
@@ -195,7 +200,7 @@ describe('Payment-note rules on the order (P-ads-merchant-19)', () => {
       ],
     }));
     const upper = { ...trade('escrowed'), method: ' TEST-Bank-Transfer ' };
-    await render(<PaymentNoteRules trade={upper} pay={{ methods } as unknown as PersonalPayApi} userId={BUYER} />);
+    await render(<PaymentNoteRules trade={upper} pay={payOf({ methods })} userId={BUYER} />);
     const markets = [...host.querySelectorAll('[data-testid="order-note-rules-market"]')].map((m) => m.textContent);
     expect(markets).toEqual([expect.stringContaining('DE'), expect.stringContaining('FR')]);
     expect(markets[0]).toContain('TEST: DE note.');
@@ -204,17 +209,17 @@ describe('Payment-note rules on the order (P-ads-merchant-19)', () => {
 
   it('shows nothing to the seller, after payment, for a method without rules, or when the catalogue cannot be read', async () => {
     const methods = vi.fn(async () => ({ ok: true as const, data: [methodRow('test-bank-transfer', null)] }));
-    await render(<PaymentNoteRules trade={trade('escrowed')} pay={{ methods } as unknown as PersonalPayApi} userId={SELLER} />);
+    await render(<PaymentNoteRules trade={trade('escrowed')} pay={payOf({ methods })} userId={SELLER} />);
     expect(methods).not.toHaveBeenCalled();
     act(() => root?.unmount());
-    await render(<PaymentNoteRules trade={trade('fiat_sent')} pay={{ methods } as unknown as PersonalPayApi} userId={BUYER} />);
+    await render(<PaymentNoteRules trade={trade('fiat_sent')} pay={payOf({ methods })} userId={BUYER} />);
     expect(methods).not.toHaveBeenCalled();
     act(() => root?.unmount());
-    await render(<PaymentNoteRules trade={trade('escrowed')} pay={{ methods } as unknown as PersonalPayApi} userId={BUYER} />);
+    await render(<PaymentNoteRules trade={trade('escrowed')} pay={payOf({ methods })} userId={BUYER} />);
     expect(host.querySelector('[data-testid="order-note-rules"]')).toBeNull();
     act(() => root?.unmount());
     const failing = vi.fn(async () => ({ ok: false as const, reason: 'error' as const, message: 'down', status: 503 }));
-    await render(<PaymentNoteRules trade={trade('escrowed')} pay={{ methods: failing } as unknown as PersonalPayApi} userId={BUYER} />);
+    await render(<PaymentNoteRules trade={trade('escrowed')} pay={payOf({ methods: failing })} userId={BUYER} />);
     expect(host.querySelector('[data-testid="order-note-rules"]')).toBeNull();
   });
 });

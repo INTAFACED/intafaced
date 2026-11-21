@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { z } from 'zod';
 import { Button } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { fetchMe } from '../../data/identity';
 import { DepthPanel, Fact } from './DepthParts';
 import { PayPerson, roleOf, TeamPanel, type RoleState } from './BusinessPeople';

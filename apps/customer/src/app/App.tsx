@@ -21,15 +21,21 @@ import { rememberShellRoute } from '../features/protocol/shell-state';
 import { TeamDesk, teamConsoleHref } from './TeamDesk';
 import { SessionRetryPanel, SignInPanel } from './SignInPanel';
 import { matchMoreRoute } from '../features/more/more-room-routes';
+import { lookDirection } from './look';
 
 // Rooms outside the customer doors load on demand, so a first visit to Home does not download them.
 const loadPublic = () => import('../features/public/PublicRoutes').then((m) => ({ default: m.PublicRoutes }));
 const loadProtocol = () => import('../features/protocol/ProtocolRoutes').then((m) => ({ default: m.ProtocolRoutes }));
 const loadWeb3Shell = () => import('./Web3Shell').then((m) => ({ default: m.Web3Shell }));
 const PublicRoutes = lazy(loadPublic);
+// A backtest result shared by link (AL-report-03) loads only when one is opened.
+const SharedResultRoute = lazy(() => import('../features/quant/SharedResultRoute'));
 const ProtocolRoutes = lazy(loadProtocol);
 const Web3Shell = lazy(loadWeb3Shell);
 const DevFeatures = lazy(() => import('./DevFeatures').then((m) => ({ default: m.DevFeatures })));
+// The Volt kit (intafaced issue 9302): every building block in the chosen look, for the owner's one approval. It opens only
+// under the look's preview switch with Volt drawn (`/kit?look=lit&direction=volt`); otherwise `/kit` is "Page not found".
+const VoltKit = lazy(() => import('./kit/VoltKit'));
 
 class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   override state = { failed: false };
@@ -95,6 +101,7 @@ export function App() {
   const { session, restoring, restoreFailed, retryRestore } = useSession();
   const dev = isDevBuild();
   const devFeatures = dev && path === '/dev/features';
+  const voltKit = !room && path === '/kit' && lookDirection() === 'volt';
   const hidden = hiddenFeatureFor(path, search);
   // One redirect rule per render, in this order: an alias row, signed-in `/`. No path is redirected for being hidden, in any
   // build, so the Docker image opens exactly what `vite dev` opens.
@@ -115,15 +122,17 @@ export function App() {
     const coin = /^\/coin\/([A-Za-z0-9]+)\/?$/.exec(path)?.[1];
     const page = devFeatures
       ? 'Hidden features'
-      : pair
-        ? `${pair} · Spot`
-        : coin
-          ? t('{name} price', { name: coin.toUpperCase() })
-          : room
-            ? roomTitle(room, requestedLocale)
-            : t('Page not found');
+      : voltKit
+        ? 'Volt kit'
+        : pair
+          ? `${pair} · Spot`
+          : coin
+            ? t('{name} price', { name: coin.toUpperCase() })
+            : room
+              ? roomTitle(room, requestedLocale)
+              : t('Page not found');
     document.title = `${page} · INTAFACED`;
-  }, [path, room, requestedLocale, devFeatures]);
+  }, [path, room, requestedLocale, devFeatures, voltKit]);
   function followLink(event: MouseEvent<HTMLDivElement>) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const anchor = event.target instanceof Element ? event.target.closest('a') : null;
@@ -176,6 +185,12 @@ export function App() {
         <DevFeatures />
       </Suspense>
     );
+  else if (voltKit)
+    body = (
+      <Suspense fallback={fallback}>
+        <VoltKit />
+      </Suspense>
+    );
   // The service did not answer: the cookie is untouched, so offer Retry instead of pretending the person is signed out.
   else if (needsSession && !session && restoreFailed)
     body = (
@@ -218,7 +233,7 @@ export function App() {
       {ribbon}
       <SessionNotice />
       <Suspense fallback={fallback}>
-        <PublicRoutes path={path} />
+        <PublicRoutes path={path} SharedResult={SharedResultRoute} />
       </Suspense>
     </div>
   ) : room?.area === 'team' ? (

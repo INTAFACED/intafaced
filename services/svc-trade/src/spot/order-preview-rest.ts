@@ -8,6 +8,7 @@ import type { MarketLifecyclePort } from '../market-lifecycle.js';
 import {
   assertMarketOpen,
   assertOutsideOpeningWindow,
+  assertZoneOrder,
   assertNotional,
   assertPrice,
   assertQty,
@@ -493,6 +494,16 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     } else if (priceWire !== null) {
       refusals.push({ code: 'trade.invalid_price', field: 'price', message: 'a market order must not carry a price' });
+    }
+
+    // The higher-risk zone, as place judges it: limit orders only, under the owner cap, none while the cap is unset. A
+    // limit order is judged only once its price reads.
+    if (orderType !== 'limit' || limitPrice !== null) {
+      try {
+        assertZoneOrder(market, { type: typeWire, price: orderType === 'limit' ? limitPrice : null, qty });
+      } catch (error) {
+        pushError(refusals, error, error instanceof TradeError && error.code === 'trade.zone_cap_exceeded' ? 'price' : 'type');
+      }
     }
 
     // The operator's limits for this market (fat finger, price band, open-order cap), the same gate place runs, so a

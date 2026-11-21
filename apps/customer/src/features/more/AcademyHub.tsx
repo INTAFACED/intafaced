@@ -7,7 +7,7 @@ import {
   type AcademyPublicHubLesson,
 } from '@intafaced/contracts/academy-catalogue';
 import { safeReturnTo } from '../../app/navigation';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { EmptyState, Loading, Panel } from '../../shared/ui';
