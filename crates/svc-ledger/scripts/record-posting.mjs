@@ -3,9 +3,11 @@
 // - `src/posting/recorded.rs`: the recipe gate's catalog (`recipeCatalogRows`, `recipe-gate.ts`), who may post which
 //   recipe in which module (`LEDGER_POST_ALLOWLIST`, `caller-allowlist.ts`), the recipes only a proven key may post
 //   (`KEY_REQUIRED_RECIPES`), and the account prefixes whose balance is held as a negative (`accounts.ts`).
-// - `tests/fixtures/posting-parity.golden.json`: what the TypeScript answers for every recipe the gate was sampled from,
-//   and for variants of each: the gate's candidates, every caller's allowlist verdict, `assertValidPost`'s refusal,
-//   `postFingerprint`, `hashTx`, `movesCustomerBalance`, and the balance rule on each leg's account.
+// - `tests/fixtures/posting-parity/`: what the TypeScript answers for every recipe the gate was sampled from, and for
+//   variants of each: the gate's candidates, every caller's allowlist verdict, `assertValidPost`'s refusal,
+//   `postFingerprint`, `hashTx`, `movesCustomerBalance`, and the balance rule on each leg's account. `meta.json` holds the
+//   callers in verdict order and the replay-meta cases; `cases-NN.jsonl` one recorded post a line, in parts small enough
+//   for the CI review to read each whole.
 //
 // Run from the repository root:
 //   TZ=UTC node --import tsx crates/svc-ledger/scripts/record-posting.mjs          writes the files
@@ -15,7 +17,7 @@
 // deleted, and from then on what it wrote is the reference.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -32,10 +34,11 @@ if (process.env.TZ !== 'UTC') {
   process.exit(2);
 }
 
-const lc = await import(`${ROOT}packages/ledger-client/src/index.ts`);
-const { recipeCatalogRows, recipeGateSamples, recipeCandidates } = await import(`${SVC}recipe-gate.ts`);
-const { LEDGER_POST_ALLOWLIST } = await import(`${SVC}caller-allowlist.ts`);
-const { KEY_REQUIRED_RECIPES, judgeCallerPost } = await import(`${SVC}caller-binding.ts`);
+// Literal paths, so the dead-code scan (knip.jsonc) sees what this reads.
+const lc = await import('../../../packages/ledger-client/src/index.ts');
+const { recipeCatalogRows, recipeGateSamples, recipeCandidates } = await import('../../../services/svc-ledger/src/recipe-gate.ts');
+const { LEDGER_POST_ALLOWLIST } = await import('../../../services/svc-ledger/src/caller-allowlist.ts');
+const { KEY_REQUIRED_RECIPES, judgeCallerPost } = await import('../../../services/svc-ledger/src/caller-binding.ts');
 
 // ── The recorded tables ────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -76,7 +79,6 @@ const said = (j) => (j.ok ? `ok ${j.recipe ?? '-'}` : `${j.violation.code} ${j.v
 function verdicts(body) {
   const out = [];
   for (const service of SERVICES) {
-    const j = judgeCallerPost({ kind: 'bound', service }, body);
     out.push(said(judgeCallerPost({ kind: 'bound', service }, body)));
   }
   out.push(said(judgeCallerPost({ kind: 'legacy', claimed: null }, body)));
@@ -299,10 +301,26 @@ pub const KEY_REQUIRED: [&str; ${keyRequired.length}] = [${keyRequired.map(rs).j
 pub const HELD_NEGATIVE: [&str; ${heldNegative.length}] = [${heldNegative.map(rs).join(', ')}];
 `;
 
+const FIXTURES = `${CRATE}tests/fixtures/posting-parity/`;
+// One part stays well under the CI review's 400,000-byte part.
+const PART_BYTES = 300_000;
+const parts = [];
+for (const line of cases.map((c) => `${JSON.stringify(c)}\n`)) {
+  if (parts.length === 0 || parts.at(-1).length + line.length > PART_BYTES) parts.push('');
+  parts[parts.length - 1] += line;
+}
 const outputs = [
   [`${CRATE}src/posting/recorded.rs`, recordedRs],
-  [`${CRATE}tests/fixtures/posting-parity.golden.json`, `${JSON.stringify({ services: SERVICES, meta, cases })}\n`],
+  [`${FIXTURES}meta.json`, JSON.stringify({ services: SERVICES, meta })],
+  ...parts.map((text, i) => [`${FIXTURES}cases-${String(i).padStart(2, '0')}.jsonl`, text]),
 ];
+// A part the recording no longer makes is stale too.
+const written = new Set(outputs.map(([file]) => file));
+const leftover = existsSync(FIXTURES)
+  ? readdirSync(FIXTURES)
+      .map((f) => `${FIXTURES}${f}`)
+      .filter((f) => !written.has(f))
+  : [];
 
 const PRETTIER = fileURLToPath(new URL('../../../node_modules/.bin/prettier', import.meta.url));
 const formatted = (file, text) => {
@@ -313,6 +331,15 @@ const formatted = (file, text) => {
 };
 
 let stale = 0;
+if (CHECK) {
+  for (const file of leftover) {
+    console.error(`stale: ${file.slice(ROOT.length)} (no longer recorded)`);
+    stale++;
+  }
+} else {
+  mkdirSync(FIXTURES, { recursive: true });
+  for (const file of leftover) rmSync(file);
+}
 for (const [file, raw] of outputs) {
   const text = formatted(file, raw);
   if (CHECK) {
@@ -326,5 +353,7 @@ for (const [file, raw] of outputs) {
     }
   } else writeFileSync(file, text);
 }
-console.log(`${catalog.length} catalog rows, ${allowlist.length} callers, ${cases.length} posting cases, ${meta.length} meta cases`);
+console.log(
+  `${catalog.length} catalog rows, ${allowlist.length} callers, ${cases.length} posting cases in ${parts.length} parts, ${meta.length} meta cases`,
+);
 if (stale) process.exit(1);

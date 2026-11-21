@@ -36,7 +36,9 @@ export class PostgresLedger extends Engine {
       throw asClientError(err);
     } finally {
       if (detect) {
-        // The report is logged before the answer is sent; give the log pipe a moment to deliver it.
+        // The report is logged before the answer is sent, but the log pipe has no end-of-report event, and a retry
+        // must be shown to report nothing.
+        // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- proving nothing happens: no mismatch line follows a plain retry
         await new Promise((r) => setTimeout(r, 150));
         for (const m of book.mismatches.slice(seen)) {
           this.#options.onIdempotencyMismatch?.({

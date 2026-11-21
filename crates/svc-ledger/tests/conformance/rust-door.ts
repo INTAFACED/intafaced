@@ -97,17 +97,26 @@ async function serve(url: string, { keyed = false, detect = false }: Serving) {
       LEDGER_CUSTODY_LAYER: 'on',
       LEDGER_IDEMPOTENCY_CONFLICT_MODE: detect ? 'detect' : 'refuse',
       RECONCILE_CRON_MINUTES: '5',
-      // The detect door's mismatch reports are warnings, read off its log below.
-      LOG_LEVEL: detect ? 'warn' : 'error',
+      // Its log is read below: the ready line, and the detect door's mismatch reports.
+      LOG_LEVEL: 'info',
       ...(keyed ? { S2S_AUTH_MODE: 'dual', S2S_KEYRING: KEYRING } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  // A test file that dies before its teardown must not leave a binary serving.
+  const orphaned = () => child.kill('SIGKILL');
+  process.once('exit', orphaned);
+  child.once('exit', () => process.off('exit', orphaned));
   let stderr = '';
   child.stderr?.on('data', (d) => (stderr += String(d)));
-  // The log is one JSON object a line on stdout; the detect door's mismatch reports are read off it.
+  // The log is one JSON object a line on stdout: the server's ready line, and the detect door's mismatch reports.
   const mismatches: Array<Record<string, unknown>> = [];
   let partial = '';
+  let ready: () => void = () => undefined;
+  const up = new Promise<void>((resolve, reject) => {
+    ready = resolve;
+    child.once('exit', (code) => reject(new Error(`svc-ledger exited ${code}: ${stderr}`)));
+  });
   child.stdout?.on('data', (d) => {
     const lines = (partial + String(d)).split('\n');
     partial = lines.pop() ?? '';
@@ -115,18 +124,14 @@ async function serve(url: string, { keyed = false, detect = false }: Serving) {
       try {
         const o = JSON.parse(line) as Record<string, unknown>;
         if (o.event === 'ledger.idempotency_mismatch') mismatches.push(o);
+        if (o.msg === 'svc-ledger ready') ready();
       } catch {}
     }
   });
   const base = `http://127.0.0.1:${port}`;
-  for (let i = 0; ; i++) {
-    if (child.exitCode !== null) throw new Error(`svc-ledger exited ${child.exitCode}: ${stderr}`);
-    try {
-      if ((await fetch(`${base}/health`)).ok) break;
-    } catch {}
-    if (i > 100) throw new Error(`svc-ledger did not come up: ${stderr}`);
-    await new Promise((r) => setTimeout(r, 100));
-  }
+  // Logged once the server is listening.
+  await up;
+  if (!(await fetch(`${base}/health`)).ok) throw new Error(`svc-ledger is up but not healthy: ${stderr}`);
   const stop = async () => {
     if (child.exitCode === null) child.kill('SIGTERM');
     await new Promise((res) => (child.exitCode !== null ? res(null) : child.once('exit', res)));

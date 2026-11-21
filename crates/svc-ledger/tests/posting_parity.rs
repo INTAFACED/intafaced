@@ -1,4 +1,4 @@
-//! The `posting` slice's rules against what the TypeScript answered (`tests/fixtures/posting-parity.golden.json`,
+//! The `posting` slice's rules against what the TypeScript answered (`tests/fixtures/posting-parity/`,
 //! written by `scripts/record-posting.mjs`): for every recipe the gate was sampled from, and variants of each, the
 //! gate's candidates, every caller's allowlist verdict, `assertValidPost`'s refusal, `postFingerprint`, `hashTx`,
 //! `movesCustomerBalance` and the balance rule. The hash and the fingerprint are stored in the book and recomputed by
@@ -16,12 +16,33 @@ use svc_ledger::errors::Failure;
 use svc_ledger::posting::gate::{self, Caller};
 use svc_ledger::posting::rules::{self, HashLeg, Wide};
 
+const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/posting-parity");
+
+/// `meta.json` (the callers in verdict order, the replay-meta cases) with every `cases-NN.jsonl` line as `cases`.
 fn golden() -> Json {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/posting-parity.golden.json"
-    );
-    json::parse(&std::fs::read_to_string(path).unwrap()).unwrap()
+    let mut g =
+        json::parse(&std::fs::read_to_string(format!("{FIXTURES}/meta.json")).unwrap()).unwrap();
+    let mut parts: Vec<_> = std::fs::read_dir(FIXTURES)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|x| x == "jsonl"))
+        .collect();
+    parts.sort();
+    let cases = parts
+        .iter()
+        .flat_map(|p| {
+            std::fs::read_to_string(p)
+                .unwrap()
+                .lines()
+                .map(|l| json::parse(l).unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let Json::Object(fields) = &mut g else {
+        panic!("meta.json is not an object")
+    };
+    fields.push(("cases".to_owned(), Json::Array(cases)));
+    g
 }
 
 fn strs(v: &Json) -> Vec<String> {
