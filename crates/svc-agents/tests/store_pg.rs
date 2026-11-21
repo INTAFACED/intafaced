@@ -442,6 +442,7 @@ fn health_answers_as_index_ts_and_ready_says_the_gateway_is_not_ported() {
         env: BTreeMap::new(),
         now: system_now,
         store: db.store(),
+        metering: svc_agents::metering::Metering::unwired("USDC", 60),
     })
     .unwrap();
     let app = App {
