@@ -100,13 +100,23 @@
     {
       "t": "object",
       "shape": [
-        ["confirmOperatorId", 32],
-        ["approvalId", 35],
-        ["operationId", 36]
+        ["reason", 32],
+        ["confirmOperatorId", 35],
+        ["approvalId", 38],
+        ["operationId", 39]
       ]
     },
-    { "t": "optional", "in": 33 },
-    { "t": "nullable", "in": 34 },
+    { "t": "pipe", "in": 33, "out": 34 },
+    { "t": "string", "checks": [{ "k": "trim" }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 12 },
+        { "k": "max_length", "n": 500 }
+      ]
+    },
+    { "t": "optional", "in": 36 },
+    { "t": "nullable", "in": 37 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     {
       "t": "string",
@@ -125,13 +135,13 @@
     {
       "t": "object",
       "shape": [
-        ["confirmOperatorId", 38],
-        ["approvalId", 41],
-        ["operationId", 42]
+        ["confirmOperatorId", 41],
+        ["approvalId", 44],
+        ["operationId", 45]
       ]
     },
-    { "t": "optional", "in": 39 },
-    { "t": "nullable", "in": 40 },
+    { "t": "optional", "in": 42 },
+    { "t": "nullable", "in": 43 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     {
       "t": "string",
@@ -147,29 +157,54 @@
         { "k": "max_length", "n": 128 }
       ]
     },
-    { "t": "object", "shape": [["txId", 44]], "catchall": "strict" },
+    {
+      "t": "object",
+      "shape": [
+        ["confirmOperatorId", 47],
+        ["approvalId", 50],
+        ["operationId", 51]
+      ]
+    },
+    { "t": "optional", "in": 48 },
+    { "t": "nullable", "in": 49 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    { "t": "object", "shape": [["txId", 53]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "object", "shape": [["businessKey", 46]], "catchall": "strict" },
+    { "t": "object", "shape": [["businessKey", 55]], "catchall": "strict" },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 512 }] },
     {
       "t": "object",
       "shape": [
-        ["assetId", 48],
-        ["from", 50],
-        ["to", 52],
-        ["before", 54]
+        ["assetId", 57],
+        ["from", 59],
+        ["to", 61],
+        ["before", 63]
       ],
       "catchall": "strict",
       "checks": [{ "k": "refine", "id": "from_before_to", "path": ["to"], "msg": "from must be before to" }]
     },
-    { "t": "optional", "in": 49 },
+    { "t": "optional", "in": 58 },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 32 }] },
-    { "t": "optional", "in": 51 },
+    { "t": "optional", "in": 60 },
     {
       "t": "string",
       "checks": [
@@ -180,7 +215,7 @@
         }
       ]
     },
-    { "t": "optional", "in": 53 },
+    { "t": "optional", "in": 62 },
     {
       "t": "string",
       "checks": [
@@ -191,7 +226,7 @@
         }
       ]
     },
-    { "t": "optional", "in": 55 },
+    { "t": "optional", "in": 64 },
     {
       "t": "string",
       "checks": [
@@ -202,13 +237,13 @@
     {
       "t": "object",
       "shape": [
-        ["prefix", 57],
-        ["after", 58]
+        ["prefix", 66],
+        ["after", 67]
       ],
       "catchall": "strict"
     },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "regex", "src": "/^(user|subaccount|module|house|treasury):(.{1,128})$/" }] },
-    { "t": "optional", "in": 59 },
+    { "t": "optional", "in": 68 },
     {
       "t": "string",
       "checks": [
@@ -220,7 +255,7 @@
       ]
     },
     { "t": "object", "shape": [], "catchall": "strict" },
-    { "t": "object", "shape": [["accountId", 62]], "catchall": "strict" },
+    { "t": "object", "shape": [["accountId", 71]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
@@ -239,13 +274,14 @@
     "txByKey": 24,
     "txById": 26,
     "portfolio": 28,
-    "unfreeze": 31,
-    "reconcile": 37,
-    "txGet": 43,
-    "trace": 45,
-    "txList": 47,
-    "accountSearch": 56,
-    "stats": 60,
-    "metadataRead": 61
+    "freeze": 31,
+    "unfreeze": 40,
+    "reconcile": 46,
+    "txGet": 52,
+    "trace": 54,
+    "txList": 56,
+    "accountSearch": 65,
+    "stats": 69,
+    "metadataRead": 70
   }
 }

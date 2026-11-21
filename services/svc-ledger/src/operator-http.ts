@@ -56,7 +56,7 @@ import {
   accountMetadataReadInputSchema,
 } from './ledger/operator-account-metadata.js';
 import type { LedgerService } from './service.js';
-import { reconcileSchema, thawSchema } from './door-inputs.js';
+import { freezeSchema, reconcileSchema, thawSchema } from './door-inputs.js';
 import { openCustomerBalances, type ReconciliationReport } from './ledger/reconcile.js';
 
 /**
@@ -124,23 +124,6 @@ import { openCustomerBalances, type ReconciliationReport } from './ledger/reconc
  * to name who halted the platform. "Somebody with the key" is not an audit
  * trail.
  */
-
-const freezeSchema = z.object({
-  /**
-   * Required, and required to be useful. The database's own check constraint
-   * refuses an unattributed freeze; this refuses an unexplained one, because
-   * `reason` is what the next operator reads before deciding whether to thaw.
-   * Trim first so twelve spaces cannot satisfy `min(12)` with no readable text.
-   */
-  reason: z
-    .string()
-    .transform((s) => s.trim())
-    .pipe(z.string().min(12).max(500)),
-  /** Display-only. Never authority. */
-  confirmOperatorId: z.string().max(128).nullish(),
-  approvalId: z.string().min(1).max(128),
-  operationId: z.string().min(1).max(128),
-});
 
 export interface FreezeSnapshot {
   readonly frozen: boolean;

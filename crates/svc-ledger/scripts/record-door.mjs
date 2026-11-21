@@ -60,6 +60,7 @@ const INPUTS = {
   txByKey: doorInputs.txByKeyInput,
   txById: doorInputs.txByIdInput,
   portfolio: doorInputs.portfolioS2sInput,
+  freeze: doorInputs.freezeSchema,
   unfreeze: doorInputs.thawSchema,
   reconcile: doorInputs.reconcileSchema,
   txGet: operatorTxGetInputSchema,
@@ -134,6 +135,26 @@ function check(c, owner) {
   }
 }
 
+/** The one transform the doors use: `(s) => s.trim()` on a string, as tsx prints it. */
+const TRIM_TRANSFORMS = new Set(['(s) => s.trim()', 's=>s.trim()']);
+
+/**
+ * A pipe. `z.string().transform((s) => s.trim())` is recorded as the string with `trim` as its one check: the same
+ * parse, since the transform only ever sees a string that passed. Any other pipe is recorded as one: the first part,
+ * then the second on what passed it (`handlePipeResult`). Any other transform is refused, never guessed.
+ */
+function pipe(s, checks) {
+  const d = s._zod.def;
+  if (checks.length) throw new Error('a pipe with its own checks');
+  const out = d.out._zod.def;
+  if (out.type !== 'transform') return { t: 'pipe', in: node(d.in), out: node(d.out) };
+  const from = d.in._zod.def;
+  if (from.type !== 'string' || from.checks?.length || from.coerce || !TRIM_TRANSFORMS.has(out.transform.toString())) {
+    throw new Error(`a transform other than a string's trim: ${out.transform.toString()}`);
+  }
+  return { t: 'string', checks: [{ k: 'trim' }] };
+}
+
 function node(s) {
   if (ids.has(s)) return ids.get(s);
   const id = nodes.length;
@@ -177,6 +198,8 @@ function build(s) {
     case 'record':
       if (d.mode && d.mode !== 'strict') throw new Error(`record mode ${d.mode}`);
       return withChecks({ t: 'record', key: node(d.keyType), value: node(d.valueType) });
+    case 'pipe':
+      return pipe(s, checks);
     default:
       throw new Error(`schema type ${d.type}`);
   }
@@ -220,6 +243,7 @@ const VALID = {
   txByKey: { idempotencyKey: 'deposit:crypto-native:0xabc' },
   txById: { txId: ID },
   portfolio: { ownerType: 'user', ownerId: ID, chainAccount: `0x${'a'.repeat(40)}` },
+  freeze: { reason: '  operator halt drill  ', approvalId: 'a1', operationId: 'o1', confirmOperatorId: null },
   unfreeze: { approvalId: 'a1', operationId: 'o1', confirmOperatorId: null },
   reconcile: { approvalId: 'a1', operationId: 'o1' },
   txGet: { txId: ID },
@@ -250,6 +274,19 @@ const EXTRA = {
   portfolio: [
     { ...VALID.portfolio, chainAccount: '0x12' },
     { ownerType: 'user', ownerId: '' },
+  ],
+  freeze: [
+    { ...VALID.freeze, reason: '            ' },
+    { ...VALID.freeze, reason: ' eleven chars ' },
+    { ...VALID.freeze, reason: 'twelve chars' },
+    { ...VALID.freeze, reason: `  ${'r'.repeat(500)}  ` },
+    { ...VALID.freeze, reason: 'r'.repeat(501) },
+    { ...VALID.freeze, reason: 12 },
+    { ...VALID.freeze, reason: null },
+    { ...VALID.freeze, approvalId: '' },
+    { ...VALID.freeze, operationId: 'o'.repeat(129) },
+    { ...VALID.freeze, confirmOperatorId: 'c'.repeat(129) },
+    { approvalId: 'a1', operationId: 'o1' },
   ],
   txList: [
     { from: '2026-01-02T00:00:00Z', to: '2026-01-01T00:00:00Z' },
