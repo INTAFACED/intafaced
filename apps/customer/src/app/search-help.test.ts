@@ -56,6 +56,7 @@ describe('help results in the header search', () => {
     const { api, query } = answering([article('kb-a'), article('kb-b')]);
     const state = await searchHelp(api, '  dust ', 1, signal, false);
     expect(query).toHaveBeenCalledWith(SUPPORT_SEARCH_KB, { q: 'dust', limit: 1 }, { signal });
+    expect(SUPPORT_SEARCH_KB).toMatchObject({ module: 'support', path: 'searchKb' });
     expect(state).toMatchObject({ status: 'ready', rows: [{ id: 'kb-a' }] });
   });
 
