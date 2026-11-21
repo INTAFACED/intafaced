@@ -198,7 +198,9 @@ test(`${J} #3 presses Create my wallet again, or the request is replayed: the sa
   try {
     const secondDevice = await device(second);
     await openRoom(first, twice);
-    await openRoom(second, twice);
+    // The second tab shares the first's sign-in (a second sign-in would end the first tab's session).
+    await second.goto('/wallet/embedded');
+    await expect(panel(second)).toBeVisible({ timeout: 20_000 });
     await expect(second.getByRole('button', { name: 'Create my wallet', exact: true })).toBeEnabled();
     await first.getByRole('button', { name: 'Create my wallet', exact: true }).click();
     const made = panel(first).locator('[data-embedded-address]');
@@ -301,7 +303,9 @@ test(`${J} #5 exports the key, or adds a recovery method, with step-up: the prov
   // provider carried that assertion, from the wallet's bound passkey.
   expect(await signCount()).toBe(before + 1);
   expect(exports).toHaveLength(1);
-  expect(exports[0]).toMatchObject({ walletId, assertion: { credentialId: credential.credentialId } });
+  // The device reports its credential id in base64, the page sends it in base64url.
+  const bound = Buffer.from(credential.credentialId, 'base64').toString('base64url');
+  expect(exports[0]).toMatchObject({ walletId, assertion: { credentialId: bound } });
   // The key the provider handed the person is this wallet's own.
   expect(privateKeyToAccount(key).address).toBe(address);
   await expect(page.getByText(`Your key, from ${PROVIDER}`)).toBeVisible();
