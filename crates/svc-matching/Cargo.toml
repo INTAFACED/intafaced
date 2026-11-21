@@ -1,0 +1,18 @@
+[package]
+name = "svc-matching"
+version = "0.0.0"
+description = "svc-matching: the engine's orderbooks and matching. The Rust port's shell: its doors, who may call them, their input checks and refusals; the TypeScript service runs until the switch."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+service-kit = { path = "../service-kit" }
+sha2 = "0.10"
+url = "2"
+
+[dev-dependencies]
+hmac = "0.12"

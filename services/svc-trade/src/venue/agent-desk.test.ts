@@ -76,6 +76,7 @@ async function setup(opts: { keys?: AgentKeyReader; calls?: AgentKeyCallReader; 
             method: 'POST',
             path: '/api/v1/venue/agent-accounts/orders',
             status: 200,
+            errorCode: null,
             outsideIpList: false,
             at: T0.toISOString(),
           },

@@ -1,7 +1,7 @@
 import type { PayoutApproval } from '@intafaced/contracts';
 import { ageView } from './control-model';
-import { buildCsv } from './csv';
-import { formatAmount } from './money';
+import { buildCsv } from '@/lib/csv';
+import { formatAmount } from '@/lib/money';
 
 /**
  * The founder approvals queue: payouts that the merchant's own team approved and that now wait for two

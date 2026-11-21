@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import type { FounderMerchantSection, FounderMerchantSectionPage } from '@intafaced/contracts';
 import { Chip } from '@/components/chip';
 import { CopyButton, CsvButton, Card, FailureState, KpiTile, MoneyText, shortId, StateBlock, StatusChip } from '@/components/merchants';
-import { buildCsv } from '@/lib/merchants/csv';
+import { buildCsv } from '@/lib/csv';
 import { FEE_NO_CAPTURE_SNAPSHOT, FEE_NO_SETTLEMENT_SNAPSHOT, FEE_RECORDED_AT_CAPTURE } from '@/lib/merchants/fee-story';
 import type { PayCallResult } from '@/lib/merchants/pay-call';
 import { formatUtc } from '@/lib/merchants/time';

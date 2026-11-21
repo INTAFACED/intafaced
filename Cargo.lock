@@ -1115,6 +1115,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "svc-matching"
+version = "0.0.0"
+dependencies = [
+ "hmac 0.12.1",
+ "service-kit",
+ "sha2 0.10.9",
+ "url",
+]
+
+[[package]]
 name = "svc-tax"
 version = "0.0.0"
 dependencies = [

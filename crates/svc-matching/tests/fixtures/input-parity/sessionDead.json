@@ -1,0 +1,40 @@
+{
+  "verdicts": [
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received undefined\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received null\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received number\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received string\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[],\"message\":\"Invalid input: expected object, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "ok =",
+    "ok {\"sessionId\":\"sess-1\"}",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"sessionId\"],\"message\":\"Too small: expected string to have >=1 characters\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":128,\"inclusive\":true,\"path\":[\"sessionId\"],\"message\":\"Too big: expected string to have <=128 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received array\"},{\"origin\":\"array\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"sessionId\"],\"message\":\"Too small: expected array to have >=1 items\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"sessionId\"],\"message\":\"Invalid input: expected string, received object\"}]"
+  ],
+  "cases": [
+    [null, 0],
+    ["null", 1],
+    ["7", 2],
+    ["\"x\"", 3],
+    ["[]", 4],
+    ["{}", 5],
+    ["{\"sessionId\":\"sess-1\"}", 6],
+    ["{\"sessionId\":\"sess-1\",\"extra\":1}", 7],
+    ["{}", 5],
+    ["{\"sessionId\":null}", 8],
+    ["{\"sessionId\":7}", 9],
+    ["{\"sessionId\":true}", 10],
+    ["{\"sessionId\":\"\"}", 11],
+    [
+      "{\"sessionId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      12
+    ],
+    ["{\"sessionId\":[]}", 13],
+    ["{\"sessionId\":{}}", 14]
+  ]
+}

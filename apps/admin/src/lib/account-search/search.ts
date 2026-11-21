@@ -1,4 +1,4 @@
-import type { Column, ReadSpec } from '@/lib/ops-desk/types';
+import type { Column, ReadSpec } from '@/lib/ops-desk';
 
 /**
  * Operator customer search (OPS-rules-monitoring-11, ops-console-rules-monitoring-056), over identity's own

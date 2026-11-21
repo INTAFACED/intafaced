@@ -25,32 +25,43 @@ import {
   CATEGORY_IDS,
   WEBHOOK_CAUSES,
   alertEvaluationSchema,
-  alertListSchema,
-  alertQuotaSchema,
   alertTriggerSchema,
-  alertTriggersSchema,
   cancelAlertReplySchema,
   categoryRowSchema,
-  categoryRowsSchema,
   createAlertReplySchema,
   createAlertsReplySchema,
   createWatchRuleReplySchema,
-  deleteAlertReplySchema,
   notificationSchema,
-  notifyListSchema,
   notifyPrefsSchema,
   priceAlertSchema,
   setAlertActiveReplySchema,
-  setCategoryPrefReplySchema,
   stopWatchRuleReplySchema,
   updateAlertReplySchema,
   watchRuleSchema,
-  watchRulesSchema,
   webhookAttemptSchema,
-  webhookPolicySchema,
 } from '@intafaced/contracts/notify-room';
 import { z } from 'zod';
-import type { ApiClient, ApiResult } from '../../shared/api';
+import { parsesAs, type ApiClient, type ApiResult } from '../../shared/api';
+import {
+  NOTIFY_MUTE_PREFS,
+  NOTIFY_SET_MUTE,
+  NOTIFY_ALERTS,
+  NOTIFY_CREATE_ALERT,
+  NOTIFY_CANCEL_ALERT,
+  NOTIFY_CATEGORY_PREFS,
+  NOTIFY_SET_CATEGORY_PREF,
+  NOTIFY_UPDATE_ALERT,
+  NOTIFY_SET_ALERT_ACTIVE,
+  NOTIFY_DELETE_ALERT,
+  NOTIFY_ALERT_WEBHOOK_POLICY,
+  NOTIFY_ALERT_TRIGGERS,
+  NOTIFY_ALERT_QUOTA,
+  NOTIFY_CREATE_ALERTS,
+  NOTIFY_WATCHLIST_ALERTS,
+  NOTIFY_CREATE_WATCHLIST_ALERT,
+  NOTIFY_STOP_WATCHLIST_ALERT,
+  NOTIFY_LIST,
+} from '@intafaced/contracts/notify-notify-procedures';
 
 export {
   ALERT_CONDITIONS,
@@ -68,7 +79,7 @@ export {
 
 export type Notification = z.infer<typeof notificationSchema>;
 
-export type InboxPage = z.infer<typeof notifyListSchema>;
+export type InboxPage = ProcedureOutput<typeof NOTIFY_LIST>;
 
 export interface ListArgs {
   limit: number;
@@ -77,11 +88,9 @@ export interface ListArgs {
 }
 
 export function listNotifications(api: ApiClient, args: ListArgs, signal?: AbortSignal): Promise<ApiResult<InboxPage>> {
-  return api.query(
-    'notify',
-    'notify.list',
+  return api.call(
+    NOTIFY_LIST,
     { limit: args.limit, ...(args.cursor ? { cursor: args.cursor } : {}), ...(args.unreadOnly ? { unreadOnly: true } : {}) },
-    notifyListSchema,
     { signal },
   );
 }
@@ -108,7 +117,7 @@ export function markAllRead(api: ApiClient): Promise<ApiResult<{ marked: number 
 
 export type OutOfAppChannel = ProcedureInput<typeof NOTIFY_REMOVE_TARGET>['channel'];
 export type ChannelRow = ProcedureOutput<typeof NOTIFY_CHANNELS>[number];
-export type MutePref = z.infer<typeof notifyPrefsSchema>[number];
+export type MutePref = ProcedureOutput<typeof NOTIFY_MUTE_PREFS>[number];
 export type TargetRow = ProcedureOutput<typeof NOTIFY_TARGETS>[number];
 
 export type RegisterResult = ProcedureOutput<typeof NOTIFY_REGISTER_TARGET>;
@@ -134,21 +143,23 @@ export const deliveries = (api: ApiClient, notificationId: string, signal?: Abor
   api.call(NOTIFY_DELIVERIES, { notificationId }, { signal });
 
 export const channelStatus = (api: ApiClient, signal?: AbortSignal) => api.call(NOTIFY_CHANNELS, undefined, { signal });
-export const mutePrefs = (api: ApiClient, signal?: AbortSignal) =>
-  api.query('notify', 'notify.mutePrefs', undefined, notifyPrefsSchema, { signal });
+export const mutePrefs = (api: ApiClient, signal?: AbortSignal) => api.call(NOTIFY_MUTE_PREFS, undefined, { signal });
 export type PushKey = ProcedureOutput<typeof NOTIFY_PUSH_KEY>;
 /** The push gateway's public application key a browser needs to subscribe; null while push delivery is not configured. */
 export const pushKey = (api: ApiClient, signal?: AbortSignal) => api.call(NOTIFY_PUSH_KEY, undefined, { signal });
 export const targets = (api: ApiClient, signal?: AbortSignal) => api.call(NOTIFY_TARGETS, undefined, { signal });
 export function setMute(api: ApiClient, channel: OutOfAppChannel, muted: boolean): Promise<ApiResult<MutePref[]>> {
-  return api.mutate(
-    'notify',
-    'notify.setMute',
+  return api.call(
+    NOTIFY_SET_MUTE,
     { channel, muted },
-    notifyPrefsSchema.refine(
-      (rows) => rows.some((row) => row.channel === channel && row.muted === muted),
-      'Returned preference does not match',
-    ),
+    {
+      accept: parsesAs(
+        notifyPrefsSchema.refine(
+          (rows) => rows.some((row) => row.channel === channel && row.muted === muted),
+          'Returned preference does not match',
+        ),
+      ),
+    },
   );
 }
 
@@ -158,19 +169,17 @@ export type CategoryPrefRow = z.infer<typeof categoryRowSchema>;
 
 /** `notify.categoryPrefs`: one row per category and channel for the signed-in person. */
 export const categoryPrefs = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<CategoryPrefRow[]>> =>
-  api.query('notify', 'notify.categoryPrefs', undefined, categoryRowsSchema, { signal });
+  api.call(NOTIFY_CATEGORY_PREFS, undefined, { signal });
 
 /** `notify.setCategoryPref`: the service answers with every row, and `locked: true` when the cell cannot be changed. */
 export function setCategoryPref(
   api: ApiClient,
   cell: { category: CategoryId; channel: CategoryChannel; enabled: boolean },
 ): Promise<ApiResult<{ rows: CategoryPrefRow[]; locked: boolean }>> {
-  return api.mutate(
-    'notify',
-    'notify.setCategoryPref',
-    { ...cell, clientRequestId: `catpref:${cell.category}:${cell.channel}:${cell.enabled}:${crypto.randomUUID()}` },
-    setCategoryPrefReplySchema,
-  );
+  return api.call(NOTIFY_SET_CATEGORY_PREF, {
+    ...cell,
+    clientRequestId: `catpref:${cell.category}:${cell.channel}:${cell.enabled}:${crypto.randomUUID()}`,
+  });
 }
 
 /** An out-of-app channel the service can really send through today. */
@@ -204,11 +213,11 @@ export type AlertFrequency = 'once' | 'every_crossing';
 
 export type AlertEvaluation = z.infer<typeof alertEvaluationSchema>;
 
-export type AlertList = z.infer<typeof alertListSchema>;
+export type AlertList = ProcedureOutput<typeof NOTIFY_ALERTS>;
 
 /** The latest 100 watches, newest first. `limit` is always sent: the service refuses a list without one. */
 export const listAlerts = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<AlertList>> =>
-  api.query('notify', 'notify.alerts', { limit: 100 }, alertListSchema, { signal });
+  api.call(NOTIFY_ALERTS, { limit: 100 }, { signal });
 
 export interface AlertIntent {
   marketId: string;
@@ -312,9 +321,8 @@ export function createPriceAlert(
   intent: AlertIntent,
   userId: string,
 ): Promise<ApiResult<{ alert: PriceAlert; evaluation: AlertEvaluation }>> {
-  return api.mutate(
-    'notify',
-    'notify.createAlert',
+  return api.call(
+    NOTIFY_CREATE_ALERT,
     {
       kind: 'price',
       marketId: intent.marketId,
@@ -330,12 +338,16 @@ export function createPriceAlert(
       ...(intent.channels ? { channels: intent.channels } : {}),
       ...(intent.webhookUrl ? { webhookUrl: intent.webhookUrl } : {}),
     },
-    createAlertReplySchema.extend({
-      alert: createAlertReplySchema.shape.alert.refine(
-        (row) => row.userId === userId && row.status === 'active' && row.firedAt === null && isIntent(row, intent),
-        'Returned alert does not match',
+    {
+      accept: parsesAs(
+        createAlertReplySchema.extend({
+          alert: createAlertReplySchema.shape.alert.refine(
+            (row) => row.userId === userId && row.status === 'active' && row.firedAt === null && isIntent(row, intent),
+            'Returned alert does not match',
+          ),
+        }),
       ),
-    }),
+    },
   );
 }
 
@@ -345,15 +357,18 @@ export function cancelPriceAlert(
   id: string,
   userId: string,
 ): Promise<ApiResult<{ cancelled: boolean; alert: PriceAlert | null }>> {
-  return api.mutate(
-    'notify',
-    'notify.cancelAlert',
+  return api.call(
+    NOTIFY_CANCEL_ALERT,
     { id },
-    cancelAlertReplySchema
-      .extend({
-        alert: priceAlertSchema.refine((row) => row.id === id && row.userId === userId, 'Returned alert does not match').nullable(),
-      })
-      .refine((data) => data.cancelled === (data.alert?.status === 'cancelled'), 'Inconsistent cancel answer'),
+    {
+      accept: parsesAs(
+        cancelAlertReplySchema
+          .extend({
+            alert: priceAlertSchema.refine((row) => row.id === id && row.userId === userId, 'Returned alert does not match').nullable(),
+          })
+          .refine((data) => data.cancelled === (data.alert?.status === 'cancelled'), 'Inconsistent cancel answer'),
+      ),
+    },
   );
 }
 
@@ -374,23 +389,26 @@ export interface AlertEdit {
 
 /** Change an alert that is active or stopped. The answer must be this person's alert showing the values just sent, or it is not believed. */
 export function updatePriceAlert(api: ApiClient, id: string, edit: AlertEdit, userId: string): Promise<ApiResult<{ alert: PriceAlert }>> {
-  return api.mutate(
-    'notify',
-    'notify.updateAlert',
+  return api.call(
+    NOTIFY_UPDATE_ALERT,
     { id, ...edit },
-    updateAlertReplySchema.extend({
-      alert: updateAlertReplySchema.shape.alert.refine(
-        (row) =>
-          row.id === id &&
-          row.userId === userId &&
-          (edit.targetPrice === undefined || canonicalPrice(row.targetPrice) === canonicalPrice(edit.targetPrice)) &&
-          (edit.condition === undefined || row.condition === edit.condition) &&
-          (edit.name === undefined || (row.name ?? null) === edit.name) &&
-          (edit.message === undefined || (row.message ?? null) === edit.message) &&
-          (edit.source === undefined || (row.source ?? 'mark') === edit.source),
-        'Returned alert does not match',
+    {
+      accept: parsesAs(
+        updateAlertReplySchema.extend({
+          alert: updateAlertReplySchema.shape.alert.refine(
+            (row) =>
+              row.id === id &&
+              row.userId === userId &&
+              (edit.targetPrice === undefined || canonicalPrice(row.targetPrice) === canonicalPrice(edit.targetPrice)) &&
+              (edit.condition === undefined || row.condition === edit.condition) &&
+              (edit.name === undefined || (row.name ?? null) === edit.name) &&
+              (edit.message === undefined || (row.message ?? null) === edit.message) &&
+              (edit.source === undefined || (row.source ?? 'mark') === edit.source),
+            'Returned alert does not match',
+          ),
+        }),
       ),
-    }),
+    },
   );
 }
 
@@ -401,29 +419,35 @@ export function setPriceAlertActive(
   active: boolean,
   userId: string,
 ): Promise<ApiResult<{ changed: boolean; alert: PriceAlert }>> {
-  return api.mutate(
-    'notify',
-    'notify.setAlertActive',
+  return api.call(
+    NOTIFY_SET_ALERT_ACTIVE,
     { id, active },
-    setAlertActiveReplySchema.extend({
-      alert: setAlertActiveReplySchema.shape.alert.refine((row) => row.id === id && row.userId === userId, 'Returned alert does not match'),
-    }),
+    {
+      accept: parsesAs(
+        setAlertActiveReplySchema.extend({
+          alert: setAlertActiveReplySchema.shape.alert.refine(
+            (row) => row.id === id && row.userId === userId,
+            'Returned alert does not match',
+          ),
+        }),
+      ),
+    },
   );
 }
 
 /** Delete an alert whatever its state. `deleted: false` means it was already gone. */
 export const deletePriceAlert = (api: ApiClient, id: string): Promise<ApiResult<{ deleted: boolean }>> =>
-  api.mutate('notify', 'notify.deleteAlert', { id }, deleteAlertReplySchema);
+  api.call(NOTIFY_DELETE_ALERT, { id });
 
 export type WebhookCause = (typeof WEBHOOK_CAUSES)[number];
 export type WebhookAttempt = z.infer<typeof webhookAttemptSchema>;
 
 export type AlertTrigger = z.infer<typeof alertTriggerSchema>;
 
-export type WebhookPolicy = z.infer<typeof webhookPolicySchema>;
+export type WebhookPolicy = ProcedureOutput<typeof NOTIFY_ALERT_WEBHOOK_POLICY>;
 export const readWebhookPolicy = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<WebhookPolicy>> =>
-  api.query('notify', 'notify.alertWebhookPolicy', undefined, webhookPolicySchema, { signal });
-export type AlertTriggerPage = z.infer<typeof alertTriggersSchema>;
+  api.call(NOTIFY_ALERT_WEBHOOK_POLICY, undefined, { signal });
+export type AlertTriggerPage = ProcedureOutput<typeof NOTIFY_ALERT_TRIGGERS>;
 
 /** The person's triggers, newest first. `limit` is always sent. Refuses `notify.alert_trigger_log_retention_unset` while the platform has not set how long they are kept. */
 export const listAlertTriggers = (
@@ -431,11 +455,9 @@ export const listAlertTriggers = (
   args: { alertId?: string; limit: number },
   signal?: AbortSignal,
 ): Promise<ApiResult<AlertTriggerPage>> =>
-  api.query(
-    'notify',
-    'notify.alertTriggers',
+  api.call(
+    NOTIFY_ALERT_TRIGGERS,
     { limit: args.limit, ...(args.alertId ? { alertId: args.alertId } : {}) },
-    alertTriggersSchema,
     {
       signal,
     },
@@ -443,11 +465,11 @@ export const listAlertTriggers = (
 
 // ── How many alerts a person may hold (C-alerts-scan-03a) ───────────────────────────────────────────────────────
 
-export type AlertQuota = z.infer<typeof alertQuotaSchema>;
+export type AlertQuota = ProcedureOutput<typeof NOTIFY_ALERT_QUOTA>;
 
 /** The price alerts the person holds open and the cap the platform set. `max: null` means the cap is not set, and a create is refused. */
 export const readAlertQuota = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<AlertQuota>> =>
-  api.query('notify', 'notify.alertQuota', undefined, alertQuotaSchema, { signal });
+  api.call(NOTIFY_ALERT_QUOTA, undefined, { signal });
 
 // ── A watchlist alert (C-alerts-scan-03c) ───────────────────────────────────────────────────────────────────────
 
@@ -469,30 +491,33 @@ export function createPriceAlerts(
   userId: string,
 ): Promise<ApiResult<{ alerts: PriceAlert[]; evaluation: AlertEvaluation }>> {
   const wanted = [...new Set(intent.marketIds)].sort();
-  return api.mutate(
-    'notify',
-    'notify.createAlerts',
+  return api.call(
+    NOTIFY_CREATE_ALERTS,
     {
       marketIds: intent.marketIds,
       direction: intent.direction,
       condition: intent.condition,
       targetPrice: intent.targetPrice,
     },
-    createAlertsReplySchema.extend({
-      alerts: createAlertsReplySchema.shape.alerts.refine(
-        (rows) =>
-          rows.every(
-            (row) =>
-              row.userId === userId &&
-              row.kind === 'price' &&
-              row.status === 'active' &&
-              row.firedAt === null &&
-              canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
-              (row.condition ?? levelOfDirection(row.direction)) === intent.condition,
-          ) && JSON.stringify(rows.map((row) => row.marketId).sort()) === JSON.stringify(wanted),
-        'Returned alerts do not match',
+    {
+      accept: parsesAs(
+        createAlertsReplySchema.extend({
+          alerts: createAlertsReplySchema.shape.alerts.refine(
+            (rows) =>
+              rows.every(
+                (row) =>
+                  row.userId === userId &&
+                  row.kind === 'price' &&
+                  row.status === 'active' &&
+                  row.firedAt === null &&
+                  canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
+                  (row.condition ?? levelOfDirection(row.direction)) === intent.condition,
+              ) && JSON.stringify(rows.map((row) => row.marketId).sort()) === JSON.stringify(wanted),
+            'Returned alerts do not match',
+          ),
+        }),
       ),
-    }),
+    },
   );
 }
 
@@ -514,7 +539,7 @@ export type WatchRuleSyncCode = (typeof WATCH_RULE_SYNC_CODES)[number];
 export type WatchRule = z.infer<typeof watchRuleSchema>;
 
 export const listWatchRules = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<{ items: WatchRule[] }>> =>
-  api.query('notify', 'notify.watchlistAlerts', undefined, watchRulesSchema, { signal });
+  api.call(NOTIFY_WATCHLIST_ALERTS, undefined, { signal });
 
 export interface FollowIntent {
   listId: string;
@@ -529,37 +554,43 @@ export function createWatchRule(
   intent: FollowIntent,
   userId: string,
 ): Promise<ApiResult<{ rule: WatchRule; alerts: PriceAlert[] }>> {
-  return api.mutate(
-    'notify',
-    'notify.createWatchlistAlert',
+  return api.call(
+    NOTIFY_CREATE_WATCHLIST_ALERT,
     { listId: intent.listId, condition: intent.condition, targetPrice: intent.targetPrice },
-    createWatchRuleReplySchema.refine(
-      ({ rule, alerts }) =>
-        rule.listId === intent.listId &&
-        rule.condition === intent.condition &&
-        canonicalPrice(rule.targetPrice) === canonicalPrice(intent.targetPrice) &&
-        alerts.every(
-          (row) =>
-            row.userId === userId &&
-            row.kind === 'price' &&
-            row.status === 'active' &&
-            row.condition === intent.condition &&
-            canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice),
-        ) &&
-        JSON.stringify(alerts.map((row) => row.marketId).sort()) === JSON.stringify([...rule.markets].sort()),
-      'Returned alerts do not match',
-    ),
+    {
+      accept: parsesAs(
+        createWatchRuleReplySchema.refine(
+          ({ rule, alerts }) =>
+            rule.listId === intent.listId &&
+            rule.condition === intent.condition &&
+            canonicalPrice(rule.targetPrice) === canonicalPrice(intent.targetPrice) &&
+            alerts.every(
+              (row) =>
+                row.userId === userId &&
+                row.kind === 'price' &&
+                row.status === 'active' &&
+                row.condition === intent.condition &&
+                canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice),
+            ) &&
+            JSON.stringify(alerts.map((row) => row.marketId).sort()) === JSON.stringify([...rule.markets].sort()),
+          'Returned alerts do not match',
+        ),
+      ),
+    },
   );
 }
 
 /** Stop following a list. Its alerts stay. Stopping twice is harmless. */
 export const stopWatchRule = (api: ApiClient, id: string): Promise<ApiResult<{ rule: WatchRule | null }>> =>
-  api.mutate(
-    'notify',
-    'notify.stopWatchlistAlert',
+  api.call(
+    NOTIFY_STOP_WATCHLIST_ALERT,
     { id },
-    stopWatchRuleReplySchema.refine(
-      ({ rule }) => rule === null || (rule.id === id && rule.status === 'stopped'),
-      'Returned rule does not match',
-    ),
+    {
+      accept: parsesAs(
+        stopWatchRuleReplySchema.refine(
+          ({ rule }) => rule === null || (rule.id === id && rule.status === 'stopped'),
+          'Returned rule does not match',
+        ),
+      ),
+    },
   );
