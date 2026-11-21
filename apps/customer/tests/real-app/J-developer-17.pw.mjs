@@ -197,7 +197,8 @@ test(`${J} #3 reads the key's call log: status and request id rows, the out-of-I
     await expect(outside).toContainText(String(w.calls.outside.status));
     await expect(outside).toContainText(`dev17-fenced-${RUN}`);
     // The flag column: the call from outside the key's IP list says so; the open key's call does not.
-    const flagColumn = await calls.getByRole('columnheader').allInnerTexts();
+    // The header's text as written (its style shows it in capitals).
+    const flagColumn = await calls.getByRole('columnheader').allTextContents();
     const at = flagColumn.findIndex((text) => text.trim() === 'Outside IP list');
     expect(at, 'the log has an outside-IP column').toBeGreaterThanOrEqual(0);
     await expect(outside.getByRole('cell').nth(at)).toHaveText('yes');
