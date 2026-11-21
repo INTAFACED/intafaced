@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { decimalSchema as money, signedDecimalSchema } from '../../shared/money';
 
-export const analyticsSchema = z.object({
+const analyticsSchema = z.object({
   assetId: z.string(),
   from: z.string(),
   to: z.string(),
@@ -14,7 +14,7 @@ export const analyticsSchema = z.object({
 });
 
 /** BK-acct-08 (J-bank-16 #4): one budget with this month's spend, as the bank folds it. */
-export const budgetSchema = z.object({
+const budgetSchema = z.object({
   assetId: z.string(),
   category: z.string(),
   period: z.string(),
@@ -26,14 +26,14 @@ export const budgetSchema = z.object({
   alertShownAt: z.string().nullable(),
 });
 /** BK-acct-08 (J-bank-16 #5): months side by side by category; a month with no movement is "0". */
-export const monthCompareSchema = z.object({
+const monthCompareSchema = z.object({
   assetId: z.string(),
   months: z.array(z.string()),
   categories: z.array(z.object({ category: z.string(), byMonth: z.array(money), change: z.string() })),
   totalOutflow: z.array(money),
   totalInflow: z.array(money),
 });
-export const leftToSpendSchema = z.object({ assetId: z.string(), period: z.string(), target: money, spent: money, left: z.string() });
+const leftToSpendSchema = z.object({ assetId: z.string(), period: z.string(), target: money, spent: money, left: z.string() });
 /** BK-acct-04 (J-bank-16 #6): the owner's plans and the person's own; a paid plan names its blocker. */
 const planSchema = z.object({
   id: z.string(),
@@ -43,12 +43,12 @@ const planSchema = z.object({
   assetId: z.string(),
   period: z.literal('month'),
 });
-export const plansSchema = z.object({
+const plansSchema = z.object({
   plans: z.array(planSchema.extend({ blocker: z.literal('bank.plan_fee_unwired').nullable() })),
   current: planSchema,
 });
 /** BK-acct-04 (J-bank-16 #6): the partner's send limit and fee for a partner-held person, each null until it says. */
-export const partnerLimitsSchema = z.discriminatedUnion('held', [
+const partnerLimitsSchema = z.discriminatedUnion('held', [
   z.object({ held: z.literal(false) }),
   z.object({
     held: z.literal(true),
@@ -95,7 +95,7 @@ export const partnerHoldsSchema = z.discriminatedUnion('held', [
 ]);
 export type PartnerHolds = z.infer<typeof partnerHoldsSchema>;
 /** BK-acct-04: the owner's account fee table; `set: false` is none published. */
-export const accountFeesSchema = z.object({
+const accountFeesSchema = z.object({
   set: z.boolean(),
   lines: z.array(z.object({ id: z.string(), label: z.string(), fee: money, assetId: z.string() })),
 });

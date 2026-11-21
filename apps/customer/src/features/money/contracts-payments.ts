@@ -4,7 +4,7 @@ import { decimalSchema as money } from '../../shared/money';
 import { linkedAccountSchema } from './contracts-accounts';
 
 /** The partner bank's move of money it holds for the person (OWNER 226): its id, and the partner's name for itself. */
-export const partnerMoveSchema = z.object({ id: z.string().min(1), label: z.string().min(1) }).passthrough();
+const partnerMoveSchema = z.object({ id: z.string().min(1), label: z.string().min(1) }).passthrough();
 
 export const scheduleSchema = z.object({
   id: z.string(),
@@ -41,7 +41,7 @@ export const transferQuoteSchema = z.object({
 });
 
 /** svc-bank `bank.directDebits.*` (J-bank-06 #4, BK-xfer-11): mandates, their collections and refund requests. */
-export const directDebitCollectionSchema = z.object({
+const directDebitCollectionSchema = z.object({
   id: z.string(),
   mandateId: z.string(),
   collectionId: z.string(),
@@ -65,7 +65,7 @@ export const directDebitCollectionSchema = z.object({
   }),
 });
 export type DirectDebitCollection = z.infer<typeof directDebitCollectionSchema>;
-export const directDebitMandateSchema = z.object({
+const directDebitMandateSchema = z.object({
   id: z.string(),
   creditorId: z.string(),
   creditorName: z.string(),
@@ -77,7 +77,7 @@ export const directDebitMandateSchema = z.object({
   upcoming: z.array(directDebitCollectionSchema),
 });
 export type DirectDebitMandate = z.infer<typeof directDebitMandateSchema>;
-export const directDebitsViewSchema = z.object({
+const directDebitsViewSchema = z.object({
   scheme: z.object({
     status: z.enum(['unset', 'live']),
     standIn: z.string().nullable(),
@@ -102,7 +102,7 @@ export const directDebitWrites = {
 /** svc-bank `bank.calendar.window` (J-bank-06 #5, BK-acct-10): what is dated in a window, and how each source answered. */
 export const calendarSources = ['standing_orders', 'bills', 'direct_debits', 'loans', 'earn'] as const;
 export type CalendarSource = (typeof calendarSources)[number];
-export const calendarItemSchema = z.object({
+const calendarItemSchema = z.object({
   source: z.enum(calendarSources),
   refId: z.string(),
   key: z.string(),
@@ -114,7 +114,7 @@ export const calendarItemSchema = z.object({
   reasonCode: z.string().nullable(),
 });
 export type CalendarItem = z.infer<typeof calendarItemSchema>;
-export const calendarViewSchema = z.object({
+const calendarViewSchema = z.object({
   from: z.string(),
   to: z.string(),
   items: z.array(calendarItemSchema),
@@ -131,14 +131,14 @@ export const calendarViewSchema = z.object({
 export type CalendarView = z.infer<typeof calendarViewSchema>;
 /** svc-bank `bank.rules.*` (J-bank-06 #6, BK-acct-10): the payment reminder rule, and money rules waiting on the owner. */
 export const reminderLeadChoices = [24, 48, 72, 168] as const;
-export const reminderRuleSchema = z.object({
+const reminderRuleSchema = z.object({
   ruleKey: z.string(),
   leadHours: z.literal(reminderLeadChoices).nullable(),
   revision: z.number().int(),
   updatedAt: z.string(),
 });
 export type ReminderRule = z.infer<typeof reminderRuleSchema>;
-export const rulesViewSchema = z.object({
+const rulesViewSchema = z.object({
   reminder: reminderRuleSchema.nullable(),
   leadChoices: z.array(z.number().int()),
   moneyRules: z.object({ state: z.literal('not_set'), code: z.string() }),
@@ -149,7 +149,7 @@ export const rulesWrites = {
   createMoneyRule: z.never(),
 };
 /** svc-bank `bank.cashOut.*` (J-bank-03): cash out to a linked bank account, with what stands in the way. */
-export const cashOutQuoteSchema = z.object({
+const cashOutQuoteSchema = z.object({
   assetId: z.string(),
   amount: money,
   available: money,
@@ -166,7 +166,7 @@ export const cashOutQuoteSchema = z.object({
   standIn: z.string().nullable().default(null),
 });
 export type CashOutQuote = z.infer<typeof cashOutQuoteSchema>;
-export const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed', 'cancelled', 'returned'] as const;
+const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed', 'cancelled', 'returned'] as const;
 export const cashOutRequestSchema = z.object({
   requestId: z.string(),
   assetId: z.string(),
@@ -203,9 +203,9 @@ export const cashOutReceiptSchema = z.object({
 });
 export type CashOutReceipt = z.infer<typeof cashOutReceiptSchema>;
 /** svc-bank `bank.railSends.*` (J-bank-04 #1): send to a bank account over a bank rail, each rail with its own form. */
-export const BANK_RAILS = ['ach', 'wire', 'instant', 'sepa', 'proxy'] as const;
+const BANK_RAILS = ['ach', 'wire', 'instant', 'sepa', 'proxy'] as const;
 /** `bank.safety.regionNotice` (BK-safe-01, J-bank-18 #1): why a transfer refuses from a blocked region. */
-export const regionNoticeSchema = z.object({
+const regionNoticeSchema = z.object({
   region: z.string(),
   blocked: z.boolean(),
   code: z.string().nullable(),
@@ -215,7 +215,7 @@ export const regionNoticeSchema = z.object({
 });
 export type RegionNotice = z.infer<typeof regionNoticeSchema>;
 
-export const railRequirementsSchema = z.object({
+const railRequirementsSchema = z.object({
   rails: z.array(
     z.object({
       rail: z.enum(BANK_RAILS),

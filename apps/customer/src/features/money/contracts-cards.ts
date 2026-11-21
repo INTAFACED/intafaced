@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { decimalSchema as money } from '../../shared/money';
 
 export const programmeSchema = z.object({ id: z.string(), simulated: z.boolean(), displayName: z.string() });
-export const shippingAddressSchema = z.object({
+const shippingAddressSchema = z.object({
   name: z.string(),
   line1: z.string(),
   line2: z.string().nullable(),
@@ -41,7 +41,7 @@ export const cardSchema = z.object({
   replacedByCardId: z.string().nullable().optional(),
 });
 /** The card room's product list for one country (J-bank-13 #1): eligibility with its reason, limits, terms, designs, speeds. */
-export const cardCatalogueSchema = z.object({
+const cardCatalogueSchema = z.object({
   programme: programmeSchema,
   network: z.string(),
   country: z.string(),
@@ -60,7 +60,7 @@ export const cardCatalogueSchema = z.object({
   deliveryCountries: z.array(z.string()),
 });
 /** A physical card's delivery (J-bank-13 #3, #4): design, speed, estimate, state, tracking, address and its history. */
-export const cardDeliverySchema = z.object({
+const cardDeliverySchema = z.object({
   cardId: z.string(),
   state: z.enum(['ordered', 'produced', 'shipped', 'delivered']),
   designId: z.string().nullable(),
@@ -99,7 +99,7 @@ const payFromSchema = z.object({
  * svc-bank `cards.controls.*` (J-bank-14 #1, BK-cctl-01): the categories a card can block, its live blocks of a
  * category, a merchant or a country, and the history of its temporary lock, newest first.
  */
-export const cardControlsSchema = z.object({
+const cardControlsSchema = z.object({
   categories: z.array(z.string()),
   controls: z.array(
     z.object({ id: z.string(), kind: z.enum(['category', 'merchant', 'country']), value: z.string(), createdAt: z.string() }),
@@ -120,7 +120,7 @@ export type CardControls = z.infer<typeof cardControlsSchema>;
  * revealed details and PIN with when to drop them, and the wallets the card was added to. `test` marks the TEST
  * partner's stand-ins, which the screen labels TEST.
  */
-export const cardSecretsOfferedSchema = z.object({
+const cardSecretsOfferedSchema = z.object({
   details: z.boolean(),
   pin: z.boolean(),
   wallet: z.boolean(),
@@ -128,15 +128,15 @@ export const cardSecretsOfferedSchema = z.object({
   /** The card partner itself does not add this person's cards to a phone wallet (J-bank-13 #8). */
   walletNotOffered: z.boolean().default(false),
 });
-export const cardRevealSchema = z.object({
+const cardRevealSchema = z.object({
   pan: z.string(),
   expiry: z.string(),
   cvv: z.string(),
   expiresAt: z.string(),
   test: z.boolean(),
 });
-export const cardPinRevealSchema = z.object({ pin: z.string(), expiresAt: z.string(), test: z.boolean() });
-export const cardWalletTokensSchema = z.object({
+const cardPinRevealSchema = z.object({ pin: z.string(), expiresAt: z.string(), test: z.boolean() });
+const cardWalletTokensSchema = z.object({
   test: z.boolean(),
   tokens: z.array(
     z.object({ id: z.string(), wallet: z.enum(['apple', 'google']), state: z.enum(['added', 'paused', 'closed']), addedAt: z.string() }),
@@ -144,7 +144,7 @@ export const cardWalletTokensSchema = z.object({
 });
 export type CardWalletTokens = z.infer<typeof cardWalletTokensSchema>;
 /** A 3D Secure challenge as svc-bank answers it (J-bank-14 #5). `testCode` is the TEST partner's code, TEST stack only. */
-export const cardThreeDSChallengeSchema = z.object({
+const cardThreeDSChallengeSchema = z.object({
   id: z.string(),
   cardId: z.string(),
   challengeRef: z.string(),
@@ -163,7 +163,7 @@ export const cardThreeDSChallengeSchema = z.object({
 });
 export type CardThreeDSChallenge = z.infer<typeof cardThreeDSChallengeSchema>;
 /** One card fraud report (J-bank-14 #7). */
-export const cardFraudReportSchema = z.object({
+const cardFraudReportSchema = z.object({
   id: z.string(),
   cardId: z.string(),
   authorizationId: z.string(),
@@ -174,7 +174,7 @@ export type CardFraudReport = z.infer<typeof cardFraudReportSchema>;
 
 /** J-bank-15: a cardholder's own card dispute, as svc-bank `cards.disputes.*` answers it. The money is the partner's. */
 const disputeStateSchema = z.enum(['opened', 'representment', 'arbitration', 'closed']);
-export const cardDisputeCaseSchema = z.object({
+const cardDisputeCaseSchema = z.object({
   id: z.string(),
   cardId: z.string(),
   authorizationRef: z.string(),
@@ -212,7 +212,7 @@ export const cardDisputeCaseSchema = z.object({
     }),
   ),
 });
-export const cardDisputeFormSchema = z.object({
+const cardDisputeFormSchema = z.object({
   test: z.boolean(),
   rules: z.object({ windowDays: z.number().int(), evidenceAfterSubmission: z.boolean() }).nullable(),
   charge: z.object({
