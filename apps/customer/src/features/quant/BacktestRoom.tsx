@@ -56,7 +56,7 @@ function namedRefusal(message: string): Refusal | null {
   if (timing) return { input: 'fillTiming', detail: timing[1]!.trim(), blank: blank(timing[1]!) };
   const split = /^quant\.backtest_window_invalid — (split — |out-of-sample start )(.*)$/.exec(message);
   if (split) return { input: split[1]!.startsWith('split') ? 'split' : 'oosFrom', detail: split[2]!.trim(), blank: false };
-  const account = /^quant\.account_rule_unset — (leverage|maximum leverage|margin call level|stop-out level) — (.*)$/.exec(message);
+  const account = /^quant\.account_rule_unset — (leverage|maximum leverage|maintenance level|margin call level) — (.*)$/.exec(message);
   if (account) {
     const own = account[1] === 'leverage';
     return {
@@ -287,7 +287,7 @@ export function BacktestRoom() {
                           maxLength={8}
                           error={errorFor('leverage')}
                         />
-                        <AccountRules />
+                        {strategy?.modules && <AccountRules symbol={strategy.modules.symbol} />}
                         {selectError('accountRule')}
                       </>
                     ) : (
@@ -371,23 +371,36 @@ function SplitPreview(props: { from: string; to: string; preset: QuantSplitPrese
   );
 }
 
-/** The owner's published margin rules, read only; a blank one reads "not set" and a margin run refuses it by name. */
-function AccountRules() {
+/**
+ * The margin rules for the strategy's market, read only (J-algo-dev-02 #5): the venue's published maximum leverage and
+ * maintenance level, read from the venue, and our own margin-call warning, labelled as ours. A figure the venue does not
+ * publish reads "not published", our blank warning reads "not set"; a margin run refuses either by name.
+ */
+function AccountRules({ symbol }: { symbol: string }) {
   const api = useApi();
   const { t } = backtestCopy.useCopy();
-  const rules = useResource((signal) => api.call(QUANT_BACKTEST_ACCOUNT_RULES, undefined, { signal }), 'quant-account-rules');
+  const rules = useResource((signal) => api.call(QUANT_BACKTEST_ACCOUNT_RULES, { symbol }, { signal }), `quant-account-rules:${symbol}`);
   return (
     <Read resource={rules.resource} retry={rules.reload}>
       {(data) => (
-        <div data-testid="quant-account-rules">
-          <p className="muted">{t('accountRulesIntro')}</p>
+        <div data-testid="quant-account-rules" data-venue-market={data.venueMarket ?? ''}>
+          {data.test ? (
+            <p className="muted" data-testid="quant-account-rules-test">
+              {t('venueRulesTest')}
+            </p>
+          ) : null}
+          <p className="muted">{data.venueMarket ? t('venueRulesIntro', { market: data.venueMarket }) : t('venueRulesNoMarket')}</p>
           <dl className="quant-bar-totals">
-            {(['maxLeverage', 'marginCallPercent', 'stopOutPercent'] as const).map((name) => (
-              <div key={name} data-rule={name} data-value={data[name] ?? ''}>
+            {(['maxLeverage', 'maintenancePercent'] as const).map((name) => (
+              <div key={name} data-rule={name} data-value={data[name] ?? ''} data-source="venue">
                 <dt>{t(`rule_${name}`)}</dt>
-                <dd lang={data[name] === null ? undefined : 'zxx'}>{data[name] ?? t('notSet')}</dd>
+                <dd lang={data[name] === null ? undefined : 'zxx'}>{data[name] ?? t('notPublished')}</dd>
               </div>
             ))}
+            <div data-rule="marginCallPercent" data-value={data.marginCallPercent ?? ''} data-source="ours">
+              <dt>{t('rule_marginCallPercent')}</dt>
+              <dd lang={data.marginCallPercent === null ? undefined : 'zxx'}>{data.marginCallPercent ?? t('notSet')}</dd>
+            </div>
           </dl>
           <p>{t('accountMode')}</p>
         </div>
@@ -558,7 +571,8 @@ function ResultSummary({ result }: { result: QuantBacktestResult }) {
           ? t('marginAccount', {
               leverage: result.account.leverage,
               call: result.account.marginCallPercent ?? '',
-              stopOut: result.account.stopOutPercent ?? '',
+              maintenance: result.account.maintenancePercent ?? '',
+              market: result.account.venueMarket ?? '',
             })
           : t('cashAccount')}
       </p>

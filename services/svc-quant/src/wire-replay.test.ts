@@ -15,7 +15,7 @@ import {
 import { createEdgeContext, encodePrincipal, procedureCallers, signPrincipalHeader, type Context } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { missingLake } from './backtest/lake.js';
-import { missingFees, missingHistory, tradeFeePort, tradeHistoryPort } from './engine/ports.js';
+import { missingFees, missingHistory, missingMarginRules, tradeFeePort, tradeHistoryPort, tradeMarginRulesPort } from './engine/ports.js';
 import { openDisclosureRepository } from './disclosure/open.js';
 import { openShareRepository } from './share/open.js';
 import { openTemplateRepository } from './templates/open.js';
@@ -127,12 +127,18 @@ function candleRows(): [number, string, string, string, string, string][] {
   });
 }
 
-/** svc-trade's two public reads the history and fee ports make, answered the same on every run. */
+/** svc-trade's public reads the history, fee and venue margin-rules ports make, answered the same on every run. */
 async function tradeStub(url: string) {
   const path = url.replace('http://trade.test', '').split('?')[0]!;
   if (path.startsWith('/api/v1/ohlcv/')) return { ok: true, status: 200, json: async () => candleRows() };
   if (path === '/api/v1/fees/published')
     return { ok: true, status: 200, json: async () => ({ version: 'replay:v1', fees: { 'BTC/USDT': { makerBps: 8, takerBps: 10 } } }) };
+  if (path === '/api/v1/venue/margin-rules')
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ symbol: 'BTC-PERP', maxLeverageBps: 50_000, maintenanceRate: '0.05', test: true }),
+    };
   return { ok: false, status: 404, json: async () => ({ error: 'not found' }) };
 }
 
@@ -148,6 +154,7 @@ function build(env: QuantEnv, clock: (() => number) | undefined): { router: Retu
   const lake = missingLake();
   const history = env.TRADE_URL ? tradeHistoryPort({ tradeUrl: env.TRADE_URL, now, fetch: tradeStub as never }) : missingHistory();
   const fees = env.TRADE_URL ? tradeFeePort({ tradeUrl: env.TRADE_URL, fetch: tradeStub as never }) : missingFees();
+  const marginRules = env.TRADE_URL ? tradeMarginRulesPort({ tradeUrl: env.TRADE_URL, fetch: tradeStub as never }) : missingMarginRules();
   const quota = openQuota(dbEnv, {
     defaultProfile: env.QUANT_DEFAULT_QUOTA_PROFILE ?? null,
     seed: parseQuotaSeed(env.QUANT_TEST_QUOTA_SEED),
@@ -204,12 +211,7 @@ function build(env: QuantEnv, clock: (() => number) | undefined): { router: Retu
         maxVariants: env.QUANT_CHECK_MAX_VARIANTS ?? null,
         maxOffsetShiftPercent: env.QUANT_CHECK_MAX_OFFSET_SHIFT_PERCENT ?? null,
       },
-      account: {
-        mode: 'netting',
-        maxLeverage: env.QUANT_ACCOUNT_MAX_LEVERAGE ?? null,
-        marginCallPercent: env.QUANT_ACCOUNT_MARGIN_CALL_PERCENT ?? null,
-        stopOutPercent: env.QUANT_ACCOUNT_STOP_OUT_PERCENT ?? null,
-      },
+      account: { marginCallPercent: env.QUANT_ACCOUNT_MARGIN_CALL_PERCENT ?? null, venue: marginRules },
     },
     strategies: strategies.repository,
     runs: runs.repository,
@@ -291,9 +293,7 @@ function setEnv(url: string): QuantEnv {
     QUANT_CHECK_MAX_SAMPLE_GAP_PERCENT: '10',
     QUANT_CHECK_MAX_VARIANTS: '10',
     QUANT_CHECK_MAX_OFFSET_SHIFT_PERCENT: '10',
-    QUANT_ACCOUNT_MAX_LEVERAGE: '5',
     QUANT_ACCOUNT_MARGIN_CALL_PERCENT: '100',
-    QUANT_ACCOUNT_STOP_OUT_PERCENT: '50',
     QUANT_LIBRARY_LICENCES: 'MIT|All rights reserved',
     QUANT_REALISM_CHECKLIST: JSON.stringify({ version: 'TEST v1', items: ['costs included', 'no look-ahead'] }),
     QUANT_EDIT_LOCK_SECONDS: '300',
@@ -423,7 +423,7 @@ function calls(seed: Seed): Call[] {
     q('quota.get', ['valid', {}]),
     q('limits.get', ['valid', {}]),
     q('tier.list', ['valid', {}]),
-    q('backtest.accountRules', ['valid', undefined]),
+    q('backtest.accountRules', ['valid', { symbol: 'BTC/USDT' }]),
     q('backtest.fee', ['valid', { symbol: 'BTC/USDT' }], ['unknown-symbol', { symbol: 'NOPE/USDT' }]),
     q('ops.criteria.get', ['valid', undefined]),
     m(

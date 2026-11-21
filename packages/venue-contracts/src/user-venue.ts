@@ -1518,6 +1518,12 @@ export interface UserVenueMarket {
    */
   readonly marginTiers?: MaybeKnown<readonly UserVenueMarginTier[]>;
   /**
+   * A perpetual's one maintenance margin rate, a scaled fraction of notional (`0.005` is 0.5 %), where the venue publishes
+   * one rate for every position size; `known: false` where it publishes none or publishes tiers instead. The venue closes
+   * a position when its equity falls to this share of its value. Optional on the wire for venues that report none.
+   */
+  readonly maintenanceMarginRate?: MaybeKnown<Amount>;
+  /**
    * What the venue takes as margin on this market, each asset with its haircut, or `known: false` where it publishes no
    * list. Nothing else the account holds counts toward buying power. Optional on the wire for venues that report none.
    */
