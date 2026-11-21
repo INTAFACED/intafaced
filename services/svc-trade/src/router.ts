@@ -77,6 +77,19 @@ import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
+import {
+  copyCheckVenueFollowAnswer,
+  copyCloseCopiedPositionAnswer,
+  copyCopiedPositionsAnswer,
+  copyFollowAnswer,
+  copyFollowPositionsAnswer,
+  copyGrantSessionKeyAnswer,
+  copyLeaderProfileAnswer,
+  copyLeaderTradesAnswer,
+  copyListLeadersAnswer,
+  copyListMyFollowsAnswer,
+  copySkipLogAnswer,
+} from './copy/follow-answers.js';
 import { publishedCopyPageLimit, refuseLeaderDirectoryRanking } from './copy/leader-listing.js';
 import { refusePnlLinkedCopyFee } from './copy/fee-share.js';
 import { describeFuturesPolicy } from './futures/futures-policy.js';
@@ -1782,6 +1795,7 @@ export function createTradeRouter(
 
       follow: scopedProcedure('trade:write', { module: 'trade' })
         .input(copyFollowInput)
+        .output(copyFollowAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1805,6 +1819,7 @@ export function createTradeRouter(
             maxPerDay: z.union([decimal, z.literal('')]).optional(),
           }),
         )
+        .output(copyFollowAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Copy trading is unavailable', 'trade.copy_unavailable');
@@ -1818,6 +1833,7 @@ export function createTradeRouter(
        */
       checkVenueFollow: scopedProcedure('trade:write', { module: 'trade' })
         .input(copyFollowInput.omit({ agentAccountId: true }))
+        .output(copyCheckVenueFollowAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1852,6 +1868,7 @@ export function createTradeRouter(
 
       grantSessionKey: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyGrantSessionKeyAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1863,6 +1880,7 @@ export function createTradeRouter(
 
       killSessionKey: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyFollowAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1963,6 +1981,7 @@ export function createTradeRouter(
             })
             .optional(),
         )
+        .output(copyListLeadersAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             const query = input ?? {};
@@ -1976,6 +1995,7 @@ export function createTradeRouter(
       /** One listed leader's page: listing facts and the metrics the owner defined. Not listed → NOT_FOUND. */
       leaderProfile: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ leaderRef: z.string().min(1).max(80) }))
+        .output(copyLeaderProfileAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Leader not found', 'trade.copy_leader_not_found');
@@ -1992,6 +2012,7 @@ export function createTradeRouter(
             cursor: z.string().max(64).optional(),
           }),
         )
+        .output(copyLeaderTradesAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Leader not found', 'trade.copy_leader_not_found');
@@ -2002,6 +2023,7 @@ export function createTradeRouter(
       /** The caller's copied orders on one of their follows, newest first. */
       followPositions: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyFollowPositionsAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
@@ -2012,6 +2034,7 @@ export function createTradeRouter(
       /** The caller's copied positions on one of their follows, newest first, with what is still open (CB-copy-09/10). */
       copiedPositions: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyCopiedPositionsAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
@@ -2082,6 +2105,7 @@ export function createTradeRouter(
             qty: z.string().min(1).max(64).optional(),
           }),
         )
+        .output(copyCloseCopiedPositionAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
@@ -2092,6 +2116,7 @@ export function createTradeRouter(
       /** Leader fills this follow did not copy, with the reason id, newest first (CB-copy-11). */
       skipLog: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copySkipLogAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
@@ -2294,6 +2319,7 @@ export function createTradeRouter(
       /** Caller's follows only — product desk list. Omit limit → named refuse, never invent 50. */
       listMyFollows: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ limit: z.number().optional() }).optional())
+        .output(copyListMyFollowsAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             const limit = publishedListMyFollowsLimit(input?.limit);
