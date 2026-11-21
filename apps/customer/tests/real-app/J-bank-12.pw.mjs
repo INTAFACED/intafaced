@@ -1,5 +1,6 @@
 // World: none
 import { test, expect } from './journey.mjs';
+import { ADMIN } from './admin.mjs';
 import { api, fund, journeyState, stepAccount } from './stack.mjs';
 import { trpcError } from './answers.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
@@ -251,7 +252,7 @@ test(`${J} #5 opens the revolving credit page over test data: a labelled preview
 
   // The ops side: the card fraud risk page is the same labelled preview over TEST rows.
   const { page: desk } = await founders.console('a');
-  await desk.goto('/bank-ops/cards/fraud');
+  await desk.goto(`${ADMIN}/bank-ops/cards/fraud`);
   const fraud = desk.getByTestId('fraud-preview');
   await expect(fraud.getByRole('heading', { name: 'Card fraud risk', exact: true, level: 1 })).toBeVisible();
   await expect(desk.getByTestId('fraud-preview-label')).toHaveText(LABEL);
