@@ -1,7 +1,16 @@
 // World: restart
 import fs from 'node:fs';
 import path from 'node:path';
-import { createPublicClient, decodeFunctionData, defineChain, encodeFunctionData, formatUnits, http, parseAbi } from 'viem';
+import {
+  createPublicClient,
+  createWalletClient,
+  decodeFunctionData,
+  defineChain,
+  encodeFunctionData,
+  formatUnits,
+  http,
+  parseAbi,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, connectWhenAsked, dexRun, fundOnTestChain, testChain } from './dex.mjs';
@@ -47,10 +56,9 @@ import { userVenue, venueDoor } from './venue-room.mjs';
 // - #1's later clause (OWNER 226) is the exchange Deposit page with custody absent: #1 restarts the bank with no deposit
 //   custody (as J-wallet-02 #1 does) and puts it back; its address panel says deposit addresses are not available because
 //   crypto custody isn't connected;
-// - #7's crash clause (the process stopping after the intent is stored) cannot be caused from the browser; the step
-//   checks the browser half: the same single row comes back after the browser closes, with the one burn on chain and
-//   nothing sent again. The crash half is svc-protocol's src/bridge/transfers.test.ts (a stored intent whose burn never
-//   reached the service resumes from the chain, and the same key never stores a second transfer).
+// - #7 causes its crash clause: a second transfer's intent is stored, its burn is sent from the wallet's key, and
+//   svc-protocol is restarted before it hears the hash; the new browser finds #6's row as #6 left it and the second
+//   resumed from its burn on chain, with no burn offered again and one burn per intent.
 const J = 'J-dex-protocol-05';
 const dex = dexRun(`${J}-wallet`);
 const account = dexRun(J);
@@ -728,6 +736,7 @@ test(`${J} #6 builds a burn on a TEST route and signs it: burn submitted, then m
   await expect(sheet).toContainText(String(SECOND_CHAIN));
   await sheet.getByRole('button', { name: 'Continue in wallet', exact: true }).click();
   await expect(row).toContainText('Minted', { timeout: 60_000 });
+  bridge.run.write({ minted: true });
 
   // On the chains themselves: 1 TEST USDC left the wallet on the first network and reached it on the second.
   expect(await bridgeBalance(CHAIN_ID, address)).toBe(sourceBefore - 1_000_000n);
@@ -738,22 +747,64 @@ test(`${J} #6 builds a burn on a TEST route and signs it: burn submitted, then m
 
 test(`${J} #7 closes the browser after the burn and returns: the same row, still tracked; a stored intent resumes, never a second burn`, async ({
   browser,
+  stepPicture,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const context = await browser.newContext();
   try {
     await bridgeOn();
+    const before = bridge.run.read();
+    expect(before.bridged, 'the burn step ran').toBe(true);
+    const address = privateKeyToAccount(bridge.key()).address;
+
+    // The crash: a second transfer's intent is stored, the wallet sends its burn, and the service stops before it hears the
+    // hash. Its process is restarted (svc-protocol, the one that stored the intent), as a crash and restart would.
+    const { who } = venueState();
+    const signedIn = async () => api(who, account.run.read().secret ? { totpCode: await stepCode() } : {});
+    const nonce = await bridgeClient(CHAIN_ID).getTransactionCount({ address, blockTag: 'pending' });
+    const started = await (
+      await signedIn()
+    ).post('/api/protocol/trpc/bridge.transfers.start', {
+      wallet: address,
+      fromChainId: CHAIN_ID,
+      toChainId: SECOND_CHAIN,
+      asset: 'TUSDC',
+      amount: '2',
+      clientKey: `bridge-${CHAIN_ID}-${SECOND_CHAIN}-TUSDC-2-n${nonce}`,
+    });
+    expect(started.status, `bridge.transfers.start: ${JSON.stringify(started.body).slice(0, 300)}`).toBe(200);
+    const intent = started.body.result.data;
+    expect(intent.state).toBe('awaiting_burn');
+    const sender = createWalletClient({
+      account: privateKeyToAccount(bridge.key()),
+      chain: bridgeClient(CHAIN_ID).chain,
+      transport: http(testChain().gateUrl),
+    });
+    const crashedBurn = await sender.sendTransaction({ to: intent.burnCall.to, data: intent.burnCall.data });
+    await bridgeClient(CHAIN_ID).waitForTransactionReceipt({ hash: crashedBurn, timeout: 60_000 });
+    await restartService('protocol', { LOCAL_STACK_PROTOCOL_BRIDGE: 'on' });
+
+    // The person returns in a new browser.
     const page = await context.newPage();
-    expect(bridge.run.read().bridged, 'the burn step ran').toBe(true);
     const wallet = await openBridge(page);
-    // One row for the one burn, in whichever tracked state it reached; never a second burn row.
-    const row = transfers(page).getByRole('row').filter({ hasText: '1 TUSDC' });
-    await expect(row).toHaveCount(1);
-    await expect(row).toContainText(/Burn submitted|Mint ready|Minted/);
-    await expect(row).toContainText(bridge.run.read().burnTx);
-    await expect(row.getByRole('button', { name: 'Sign the burn', exact: true })).toHaveCount(0);
-    // The stored intent's burn is on chain exactly once, and the returning page sent nothing.
-    expect(await bridgeBurns(privateKeyToAccount(bridge.key()).address)).toHaveLength(1);
+    // #6's transfer: the same one row, in the state #6 left it.
+    const first = transfers(page).getByRole('row').filter({ hasText: '1 TUSDC' });
+    await expect(first).toHaveCount(1);
+    await expect(first).toContainText(before.burnTx);
+    await expect(first).toContainText(before.minted ? 'Minted' : 'Burn submitted');
+    // The stored intent resumed from its burn on chain: burn submitted with that burn, and no burn offered again.
+    const resumed = transfers(page).getByRole('row').filter({ hasText: '2 TUSDC' });
+    await expect(resumed).toHaveCount(1);
+    await expect(resumed).toContainText('Burn submitted', { timeout: 30_000 });
+    await expect(resumed).toContainText(crashedBurn);
+    await expect(resumed.getByRole('button', { name: 'Sign the burn', exact: true })).toHaveCount(0);
+    await stepPicture();
+    // On chain: one burn per intent, two in all; the returning page sent nothing.
+    const burns = await bridgeBurns(address);
+    expect(burns).toHaveLength(2);
+    expect(new Set(burns.map((b) => b.args.intentId)).size).toBe(2);
+    expect(burns.filter((b) => b.args.intentId === intent.intentId).map((b) => b.transactionHash)).toEqual([crashedBurn]);
+    expect(burns.map((b) => b.transactionHash)).toContain(before.burnTx);
     expect(wallet.sends).toHaveLength(0);
   } finally {
     await context.close();
