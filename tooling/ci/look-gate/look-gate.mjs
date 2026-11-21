@@ -1005,7 +1005,7 @@ async function main(opts) {
   const [k, n] = opts.shard;
   const mine = targets.filter((_, i) => i % n === k - 1);
   // Pages in parallel (each in its own browser context), rows kept in target order.
-  const perTarget = new Array(mine.length);
+  const perTarget = Array.from({ length: mine.length });
   let next = 0;
   const worker = async () => {
     while (next < mine.length) {
@@ -1098,7 +1098,7 @@ async function picture(browser, origin, target, vpName) {
 
 /** `items` through `fn` on LOOK_GATE_WORKERS workers, results in item order. */
 async function pool(items, fn) {
-  const out = new Array(items.length);
+  const out = Array.from({ length: items.length });
   let next = 0;
   const worker = async () => {
     while (next < items.length) {
