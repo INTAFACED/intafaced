@@ -1,21 +1,18 @@
 name: Beta screening seal
 
 # Puts the TEST screening fixture on the beta link's box (docs/runbooks/beta-link.md, "When it is not up") without
-# anyone seeing it: the box makes an RSA key pair and dispatches this run with only its public key; the run encrypts
-# the two repository secrets INTAFACED_SANCTIONS_REGIONS and INTAFACED_SANCTIONS_LIST_SOURCE to that key and uploads
-# only the ciphertext, kept one day. The box downloads it and decrypts it straight into
+# anyone seeing it: the run encrypts the two repository secrets INTAFACED_SANCTIONS_REGIONS and
+# INTAFACED_SANCTIONS_LIST_SOURCE to the box's RSA public key committed at tooling/beta/seal.pub.pem (its private key
+# never leaves the box), and uploads only the ciphertext, kept one day. It takes no input, so only a key reviewed onto
+# main can receive them. The box downloads it and decrypts it straight into
 # ~/.intafaced/beta/state/screening.local.json (mode 600). No value reaches a log, the artifact in clear, or a chat.
 # intafaced has no self-hosted runner, so nothing here can write to the box itself. (Failure it prevents: the beta
-# link read "blocked" from 21 Nov 2026 because the fixture lived only in these secrets; owner's choice "CI fixture",
-# 22 Nov 2026.)
+# link read "blocked" from 21 Nov 2026 because the fixture lived only in these secrets. The owner's decision is
+# tooling/ci/ci-review/REVIEW.md's entry of 2026-11-22.)
 #
-# Ends: with one dispatch from the box, on main: one run, seconds long.
+# Ends: with one dispatch on main: one run, seconds long.
 on:
   workflow_dispatch:
-    inputs:
-      public_key:
-        description: The box's RSA public key, PEM, base64 on one line
-        required: true
 
 permissions: {}
 
@@ -27,9 +24,13 @@ jobs:
     timeout-minutes: 5 # healthy run: seconds
     permissions: {}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: tooling/beta/seal.pub.pem
+          sparse-checkout-cone-mode: false
       - name: Encrypt the two secrets to the box's public key
         env:
-          PUBLIC_KEY_B64: ${{ inputs.public_key }}
           REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
           SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
         run: |
@@ -40,8 +41,8 @@ jobs:
             exit 1
           fi
           mkdir -p "$RUNNER_TEMP/seal" sealed
-          printf '%s' "$PUBLIC_KEY_B64" | base64 -d > "$RUNNER_TEMP/seal/box.pub.pem"
-          bits=$(openssl pkey -pubin -in "$RUNNER_TEMP/seal/box.pub.pem" -text -noout | sed -n 's/.*(\([0-9]*\) bit).*/\1/p' | head -1)
+          pub=tooling/beta/seal.pub.pem
+          bits=$(openssl pkey -pubin -in "$pub" -text -noout | sed -n 's/.*(\([0-9]*\) bit).*/\1/p' | head -1)
           if [ "${bits:-0}" -lt 3072 ]; then
             echo "::error::the public key is not an RSA key of at least 3072 bits"
             exit 1
@@ -50,7 +51,7 @@ jobs:
           openssl rand -hex 32 > "$RUNNER_TEMP/seal/k"
           jq -cn --arg regions "$REGIONS" --arg source "$SOURCE" '{regions: $regions, source: $source}' \
             | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass "file:$RUNNER_TEMP/seal/k" -out sealed/fixture.enc
-          openssl pkeyutl -encrypt -pubin -inkey "$RUNNER_TEMP/seal/box.pub.pem" \
+          openssl pkeyutl -encrypt -pubin -inkey "$pub" \
             -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
             -in "$RUNNER_TEMP/seal/k" -out sealed/key.enc
           rm -f "$RUNNER_TEMP/seal/k"
