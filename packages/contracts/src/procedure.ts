@@ -14,7 +14,8 @@ import { portabilityFindings, REFINEMENT, SchemaNotPortableError, strictJsonSche
  * Services export routers nothing may import (the boundary scan forbids an app or package depending on a service), so the
  * record lives here and the router is checked against it, never generated from it.
  *
- * `procedures.schema.json` beside this package holds the language-neutral form of every record (JSON Schema, draft 2020-12),
+ * `procedures/<service>.schema.json` beside this package holds the language-neutral form of every record (JSON Schema,
+ * draft 2020-12), one file per serving service so a change to one service's records touches only that service's file,
  * written by `pnpm --filter @intafaced/contracts procedures:write` and held by `procedure-registry.test.ts`.
  */
 
@@ -39,7 +40,7 @@ export interface HttpTransport {
 
 /**
  * Who may call. The serving side mounts the matching guard (`procedure-mount.ts`): `public` checks nothing, `scope` is
- * `scopedProcedure(scope, guards)`, `service` is `serviceProcedureFor(callers)` or, on a plain HTTP door, the service's
+ * `scopedProcedure(scope, guards)`, `anyScope` is `anyScopeProcedure(scopes, guards)`, `service` is `serviceProcedureFor(callers)` or, on a plain HTTP door, the service's
  * own signed-caller check against the same list; `signedIn` is `signedInProcedure(guards)`. `jurisdiction` needs no
  * principal but refuses a region the module is not served in (`publicJurisdictionProcedure(module, plane)`). The record
  * names the rule; the receiver reads the live facts.
@@ -54,6 +55,13 @@ export type Access =
       readonly plane?: Plane;
       readonly tier?: KycTier;
       readonly person?: boolean;
+    }
+  /** The first of these scopes the caller holds (`anyScopeProcedure(scopes, guards)`): a read open to a member and an operator alike. */
+  | {
+      readonly caller: 'anyScope';
+      readonly scopes: readonly [Scope, ...Scope[]];
+      readonly module?: ModuleId;
+      readonly plane?: Plane;
     }
   | { readonly caller: 'service'; readonly callers: readonly ServiceName[] }
   /** Any signed-in principal, no scope; then the module's jurisdiction check when `module` is named (`signedInProcedure`). */
@@ -108,7 +116,7 @@ export interface ProcedureSample {
 }
 
 export type ProcedureRecord<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodType> = (TrpcTransport | HttpTransport) & {
-  /** Stable name of the record; the key in `procedures.schema.json`. */
+  /** Stable name of the record; its key in `procedures/<service>.schema.json`. */
   readonly name: string;
   /** The service that serves the call. */
   readonly service: ServingServiceName;
@@ -230,10 +238,21 @@ function inputJsonSchema(record: ProcedureRecord): Record<string, unknown> {
   return optional ? { inputOptional: true, input: schema } : { input: schema };
 }
 
-/** The text of a package's `procedures.schema.json`: every record by name, in name order, as `procedureJsonSchema` writes it. */
-export function procedureSchemaFile(records: readonly ProcedureRecord[]): string {
+/**
+ * The files of a package's `procedures/` directory: `<service>.schema.json` for each serving service, holding that
+ * service's records by name, in name order, as `procedureJsonSchema` writes them. One file per service, never one for the
+ * package: a record change then touches only its own service's file, and a Rust crate reads only the records it serves.
+ */
+export function procedureSchemaFiles(records: readonly ProcedureRecord[]): Record<string, string> {
   const names = records.map((r) => r.name);
   if (new Set(names).size !== names.length) throw new Error(`two records share a name: ${names.join(', ')}`);
-  const byName = Object.fromEntries([...records].sort((a, b) => a.name.localeCompare(b.name)).map((r) => [r.name, procedureJsonSchema(r)]));
-  return `${JSON.stringify({ $comment: 'Written by `procedures:write`; held by its drift test. Do not edit by hand.', procedures: byName }, null, 2)}\n`;
+  const sorted = [...records].sort((a, b) => a.name.localeCompare(b.name));
+  const services = [...new Set(sorted.map((r) => r.service))].sort();
+  return Object.fromEntries(
+    services.map((service) => {
+      const byName = Object.fromEntries(sorted.filter((r) => r.service === service).map((r) => [r.name, procedureJsonSchema(r)]));
+      const text = `${JSON.stringify({ $comment: 'Written by `procedures:write`; held by its drift test. Do not edit by hand.', procedures: byName }, null, 2)}\n`;
+      return [`${service}.schema.json`, text];
+    }),
+  );
 }

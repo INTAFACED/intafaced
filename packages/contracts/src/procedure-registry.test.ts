@@ -1,5 +1,4 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
@@ -8,17 +7,19 @@ import {
   defineProcedure,
   NO_INPUT,
   procedureJsonSchema,
-  procedureSchemaFile,
+  procedureSchemaFiles,
   replyAccepted,
   routePath,
   type ProcedureRecord,
 } from './procedure.js';
 import { CONTRACT_PROCEDURES } from './procedure-registry.js';
-import { sampleDisagreements } from './procedure-sides.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
+import { committedProcedureSchemas, procedureSchemaDrift, sampleDisagreements } from './procedure-sides.js';
 import { TAX_LOT_BOOK, TAX_SET_DAY_METHOD } from './tax-procedures.js';
 
 const PACKAGE = fileURLToPath(new URL('..', import.meta.url));
-const committedSchema = () => readFileSync(new URL('../procedures.schema.json', import.meta.url), 'utf8');
+const committedSchemas = () => committedProcedureSchemas(new URL('../procedures/', import.meta.url));
+const WRITE = 'pnpm --filter @intafaced/contracts procedures:write';
 
 /** A minimal record to plant faults in. */
 const plant = (over: Partial<ProcedureRecord>): ProcedureRecord =>
@@ -40,9 +41,31 @@ const plant = (over: Partial<ProcedureRecord>): ProcedureRecord =>
   }) as ProcedureRecord;
 
 describe('the written records of calls', () => {
-  it('procedures.schema.json is what the records say (run `pnpm --filter @intafaced/contracts procedures:write`)', () => {
-    const committed = readFileSync(new URL('../procedures.schema.json', import.meta.url), 'utf8');
-    expect(JSON.parse(committed)).toEqual(JSON.parse(procedureSchemaFile(CONTRACT_PROCEDURES)));
+  it('procedures/ is what the records say, one file per service', () => {
+    expect(procedureSchemaDrift(committedSchemas(), CONTRACT_PROCEDURES, WRITE)).toEqual([]);
+  });
+
+  it('each service has its own file, holding only its own records, so one change touches one service', () => {
+    const files = procedureSchemaFiles(CONTRACT_PROCEDURES);
+    expect(Object.keys(files)).toEqual([...new Set(CONTRACT_PROCEDURES.map((r) => `${r.service}.schema.json`))].sort());
+    for (const [name, text] of Object.entries(files)) {
+      const services = Object.values(JSON.parse(text).procedures as Record<string, { service: string }>).map((r) => r.service);
+      expect(new Set(services)).toEqual(new Set([name.replace(/\.schema\.json$/, '')]));
+    }
+  });
+
+  it('a missing file, a stale file and a drifted file are each named, with the command that fixes them', () => {
+    const { 'svc-tax.schema.json': tax, ...rest } = committedSchemas();
+    expect(procedureSchemaDrift(rest, CONTRACT_PROCEDURES, WRITE)).toEqual([`procedures/svc-tax.schema.json is missing: run \`${WRITE}\``]);
+    const stale = { ...committedSchemas(), 'svc-gone.schema.json': '{"procedures":{}}' };
+    expect(procedureSchemaDrift(stale, CONTRACT_PROCEDURES, WRITE)).toEqual([
+      `procedures/svc-gone.schema.json holds no service's records: run \`${WRITE}\`, which deletes it`,
+    ]);
+    const file = JSON.parse(tax ?? '');
+    delete file.procedures['tax.lotBook'];
+    expect(procedureSchemaDrift({ ...rest, 'svc-tax.schema.json': JSON.stringify(file) }, CONTRACT_PROCEDURES, WRITE)).toEqual([
+      `procedures/svc-tax.schema.json is not what its records say: run \`${WRITE}\``,
+    ]);
   });
 
   it('the registry is every `defineProcedure` in src/, written by code (run `procedures:write` when this fails)', () => {
@@ -57,7 +80,7 @@ describe('the written records of calls', () => {
   });
 
   it("every record's samples get the same verdict from its zod schema and from its committed JSON export", () => {
-    expect(sampleDisagreements(CONTRACT_PROCEDURES, committedSchema())).toEqual([]);
+    expect(sampleDisagreements(CONTRACT_PROCEDURES, committedSchemas())).toEqual([]);
   });
 
   it('a sample whose verdict the record does not reach is a disagreement', () => {
@@ -65,13 +88,13 @@ describe('the written records of calls', () => {
       ...TAX_SET_DAY_METHOD,
       samples: [{ verdict: 'accept', input: { day: '2026-02-30', assetId: null, method: null } }],
     } as ProcedureRecord;
-    expect(sampleDisagreements([wrong], committedSchema())).toEqual([expect.stringContaining('zod says refuse, the record says accept')]);
+    expect(sampleDisagreements([wrong], committedSchemas())).toEqual([expect.stringContaining('zod says refuse, the record says accept')]);
   });
 
   it('a JSON export that drifted from the record is a disagreement (here: the method enum widened)', () => {
-    const file = JSON.parse(committedSchema());
+    const file = JSON.parse(committedSchemas()['svc-tax.schema.json'] ?? '');
     file.procedures['tax.lotBook'].input.properties.method.enum.push('NEWEST');
-    expect(sampleDisagreements([TAX_LOT_BOOK], JSON.stringify(file))).toEqual([
+    expect(sampleDisagreements([TAX_LOT_BOOK], { 'svc-tax.schema.json': JSON.stringify(file) })).toEqual([
       expect.stringContaining('the JSON export says accept, it should refuse'),
     ]);
   });
@@ -90,6 +113,11 @@ describe('the written records of calls', () => {
     it('an input or output that accepts anything', () => {
       expect(() => procedureJsonSchema(plant({ input: z.object({ a: z.unknown() }) }))).toThrow('z.unknown');
       expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.any() }) }))).toThrow('z.any');
+    });
+    it('a declared JSON value (`jsonValueSchema`), written whole; any other recursive schema stays refused', () => {
+      const json = procedureJsonSchema(plant({ output: z.object({ a: jsonValueSchema }) }));
+      expect(JSON.stringify(json.output)).toContain('"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"}');
+      expect(() => procedureJsonSchema(plant({ output: z.object({ a: z.json() }) }))).toThrow('z.lazy');
     });
     it('keeps an optional root as `inputOptional`, never as a required object', () => {
       expect(procedureJsonSchema(TAX_LOT_BOOK)).toMatchObject({ inputOptional: true, input: { type: 'object' } });

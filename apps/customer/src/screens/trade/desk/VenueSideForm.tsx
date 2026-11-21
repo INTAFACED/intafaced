@@ -1,6 +1,14 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type Ref } from 'react';
 import { displayAmount, parseAmount } from '../../../shared/money';
-import { keys, type AsOf, type OrderIntent, type VenueMarket, type VenuePreview, type VenueUp } from '../../../features/trade/venue-api';
+import {
+  draftId,
+  keys,
+  type AsOf,
+  type OrderIntent,
+  type VenueMarket,
+  type VenuePreview,
+  type VenueUp,
+} from '../../../features/trade/venue-api';
 import {
   OutcomeLine,
   outcomeText,
@@ -137,6 +145,8 @@ export function VenueSideForm({
   const sign = useSignPrepared(owner ?? '');
   // Good till date: the order rests on the venue good till cancelled, and our engine cancels it at the expiry.
   const gtd = type === 'limit' && tif === 'GTD';
+  // The draft this form's builder approval is asked under (keys.builderApproval).
+  const [approvalDraft] = useState(() => draftId());
   const [price, setPrice] = useState('');
   const [amount, setAmount] = useState('');
   // The unit flag: the person types the size in the base asset (Amount) or in the quote asset (Total, or Spend on a
@@ -161,7 +171,7 @@ export function VenueSideForm({
     sending.current = true;
     const answer = await run(
       { kind: 'approve_builder_fee', builder: status.builder.address, maxFeeBps: status.builder.feeBps },
-      { actionKey: keys.builderApproval(owner ?? '', status.builder.address, status.builder.feeBps) },
+      { actionKey: keys.builderApproval(owner ?? '', status.builder.address, status.builder.feeBps, undefined, approvalDraft) },
     );
     sending.current = false;
     setApproving(answer);

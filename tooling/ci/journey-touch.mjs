@@ -310,15 +310,23 @@ export function withSiblings(files, journeyFiles) {
  * A run by hand's journeys input (journey file names, spaces or commas between) as the files it runs: every file of each
  * journey it names (withSiblings), as a pull request's run takes them. (Failure it prevents: on 14 Nov 2026 run
  * 43637111867 named J-derivatives-01.pw.mjs alone, and the steps in J-derivatives-01-venue.pw.mjs read as missing money
- * steps.) A name that is not a journey file at the head stays as given, so the run still refuses it.
+ * steps.) A bare journey id (`J-cex-spot-10`, which journey-shards.mjs runs as `J-cex-spot-10.pw.mjs`) is every file
+ * of that journey too. (Failure it prevents: on 20 Nov 2026 run 44808167679 was given `J-cex-spot-10`, ran
+ * J-cex-spot-10.pw.mjs alone, and #9286's seal read J-cex-spot-10 #1 #2 #3 #4 #6 #9, in J-cex-spot-10-venue.pw.mjs
+ * since #8787, as missing.) A name that is not a journey file or id at the head stays as given, so the run still
+ * refuses it.
  */
 export function dispatchTarget(input, journeyFiles) {
-  return withSiblings(
-    String(input ?? '')
-      .split(/[\s,]+/)
-      .filter(Boolean),
-    journeyFiles,
-  ).join(' ');
+  const idOf = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1];
+  const names = String(input ?? '')
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .flatMap((f) => {
+      if (!journeyFiles || JOURNEY_FILE_NAME.test(f)) return [f];
+      const files = [...journeyFiles].filter((j) => idOf(j) === f);
+      return files.length ? files : [f];
+    });
+  return withSiblings(names, journeyFiles).join(' ');
 }
 
 /** A service's own stack file: what `local:stack` starts that one service with. A test file beside them, or any other
@@ -662,14 +670,20 @@ export function reusableRuns(runs, { sha, repo, journeyFiles, ranShards, workflo
 
 /**
  * What a pull request's run runs after leaving out the journey files `reused` (reusableRuns) already runs on its head.
- * `target`: the touch job's journey file names separated by spaces; '' (the full suite) is never narrowed. Returns
+ * `target`: the touch job's journey file names separated by spaces; '' (the full suite) is never narrowed. A journey's
+ * files are left out together or not at all: the verdict reads only this run's report, so a step in a reused file of a
+ * journey whose other file still runs here reads as missing. (Failure it prevents: #8835's run 44248303203 left out
+ * the hand-run J-derivatives-01-venue.pw.mjs, still ran J-derivatives-01.pw.mjs, and its verdict went red on
+ * "J-derivatives-01#1 #5 #6 #8 #9 #10 #11 (money): passed in run 1719, missing now"; project-state#3029.) Returns
  * { target, mode: 'run'|'none', why }.
  */
 export function afterReuse(target, reused, how = 'by hand') {
   const want = String(target ?? '')
     .split(/\s+/)
     .filter(Boolean);
-  const rest = want.filter((f) => !reused.has(f));
+  const idOf = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1] ?? f;
+  const runsHere = new Set(want.filter((f) => !reused.has(f)).map(idOf));
+  const rest = want.filter((f) => !reused.has(f) || runsHere.has(idOf(f)));
   if (!want.length || rest.length === want.length) return { target: want.join(' '), mode: 'run', why: '' };
   const ids = [...new Set(want.filter((f) => reused.has(f)).map((f) => reused.get(f)))];
   const why = `${want.length - rest.length} of its ${want.length} journey file(s) already run ${how} on this head (run ${ids.join(', ')}), so this run leaves them out`;

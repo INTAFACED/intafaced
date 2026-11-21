@@ -45,6 +45,8 @@ export const venueStatusSchema = z.union([
       .nullable()
       .optional(),
     builder: z.object({ address, feeBps: decimalSchema }).nullable(),
+    // J-derivatives-30 #1: our builder address alone, published even while the fee is blank (null: blank too).
+    builderAddress: address.nullable().optional(),
     // J-derivatives-03 #9: the most orders the venue takes in one signed action; above 1, a reverse is signed once.
     ordersPerAction: z.number().int().positive().optional(),
     // J-cex-spot-05: whether the venue lowers an order in place, and how many it cancels in one signed action (0: one each).
@@ -467,6 +469,46 @@ export const venueAccountModeSchema = z.object({
 });
 export type VenueAccountModeRead = z.infer<typeof venueAccountModeSchema>;
 export type VenueAccountMode = NonNullable<VenueAccountModeRead['mode']>;
+
+// ── J-derivatives-31: the venue's vaults, a position in one, and its lock-up, each the venue's own figure ──────────
+
+/**
+ * One vault the venue lists (J-derivatives-31 #1): its lock-up in seconds, the leader's profit share in basis points, what
+ * it holds and its past return over `days` (basis points, negative a loss); each `null` where the venue does not publish it.
+ */
+export const venueVaultSchema = z.object({
+  address: z.string(),
+  name: z.string(),
+  kind: z.enum(['protocol', 'user']),
+  leader: z.string().nullable(),
+  asset: z.string(),
+  lockUpSeconds: z.number().int().nonnegative().nullable(),
+  profitShareBps: z.number().int().nonnegative().max(10_000).nullable(),
+  vaultValue: decimalSchema.nullable(),
+  pastReturn: z.object({ bps: z.number().int(), days: z.number().int().positive() }).nullable(),
+});
+export type VenueVault = z.infer<typeof venueVaultSchema>;
+
+/**
+ * The account's vault positions with their lock-up ends, its account value as the venue counts it (vault balances
+ * included; `null` where it publishes none), and its vault transfers, newest first (J-derivatives-31 #2 #3 #5).
+ */
+export const venueVaultHoldingsSchema = z.object({
+  positions: z.array(z.object({ vault: z.string(), name: z.string(), asset: z.string(), equity: decimalSchema, lockUpEndsAt: isoTime })),
+  accountValue: z.object({ asset: z.string(), amount: decimalSchema }).nullable(),
+  transfers: z.array(
+    z.object({
+      vault: z.string(),
+      direction: z.enum(['deposit', 'withdraw']),
+      amount: decimalSchema,
+      creditedAmount: decimalSchema,
+      leaderShare: decimalSchema.nullable(),
+      transferredAt: isoTime,
+      nonce: z.string(),
+    }),
+  ),
+});
+export type VenueVaultHoldings = z.infer<typeof venueVaultHoldingsSchema>;
 
 // ── J-derivatives-07: a liquidation and its aftermath, each the venue's own figure ────────────────────────────────
 

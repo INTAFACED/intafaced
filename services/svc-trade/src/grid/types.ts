@@ -30,6 +30,12 @@ export interface GridBot {
   readonly levels: readonly GridLevelPlan[];
   /** How many times a top-up re-planned the levels (CB-bots-04): one per applied top-up, never on a replay. */
   readonly reinitCount: number;
+  /**
+   * The bot's price exits (CB-bots-03; J-copy-bots-otc-15 #3): the tick stops it once, reason `price_exit`, when the best
+   * bid falls to `exitBelow` or the best ask rises to `exitAbove`. Null is no exit.
+   */
+  readonly exitBelow: Amount | null;
+  readonly exitAbove: Amount | null;
   readonly status: GridStatus;
   readonly statusReason: string | null;
   readonly placeGrant: AlgoPlaceGrant;

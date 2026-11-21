@@ -1,13 +1,6 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
-import {
-  supportChartsLookupSchema,
-  supportCommentSchema,
-  supportTicketEventSchema,
-  supportTicketSchema,
-  supportViewListSchema,
-  supportViewSchema,
-} from '@intafaced/contracts';
+import { supportChartsLookupSchema, supportTicketSchema, supportViewListSchema, supportViewSchema } from '@intafaced/contracts';
 import {
   SUPPORT_DESK_ACCOUNT_STATE,
   SUPPORT_DESK_ASSIGN,
@@ -17,7 +10,6 @@ import {
   SUPPORT_DESK_CASE_FILE,
   SUPPORT_DESK_CLAIM,
   SUPPORT_DESK_CLAIM_NEXT,
-  SUPPORT_DESK_COMMENT,
   SUPPORT_DESK_ESCALATE,
   SUPPORT_DESK_GROUPS_ADD_MEMBER,
   SUPPORT_DESK_GROUPS_LIST,
@@ -56,6 +48,7 @@ import {
   SUPPORT_DESK_UNPUBLISH_KB,
   SUPPORT_DESK_VIEWS_COUNTS,
 } from '@intafaced/contracts/support-desk-procedures';
+import { SUPPORT_COMMENT, SUPPORT_EVENTS, SUPPORT_GET, SUPPORT_LIST_COMMENTS } from '@intafaced/contracts/support-customer-procedures';
 import {
   founderCall,
   founderRecordCall,
@@ -103,19 +96,6 @@ const LABELS: PartLabels = {
   service: 'svc-support',
   forbiddenMessage: `${SUPPORT_OPS_FORBIDDEN}. ${SUPPORT_OPS_FORBIDDEN_BODY}`,
 };
-
-const arrayOf =
-  <T>(schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false } }) =>
-  (raw: unknown): T[] | null => {
-    if (!Array.isArray(raw)) return null;
-    const out: T[] = [];
-    for (const row of raw) {
-      const parsed = schema.safeParse(row);
-      if (!parsed.success) return null;
-      out.push(parsed.data);
-    }
-    return out;
-  };
 
 const readQueuePage = (raw: unknown) => readQueueResult(raw, QUEUE_PAGE);
 
@@ -199,9 +179,9 @@ export async function loadViews(ctx: FounderCallContext, now: Date = new Date())
 
 export async function loadTicket(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<SupportTicketView> {
   const [ticket, comments, events, propertyChanges] = await Promise.all([
-    founderCall(ctx, 'support', 'get', 'GET', { ticketId }, parseWith(supportTicketSchema)),
-    founderCall(ctx, 'support', 'listComments', 'GET', { ticketId, limit: DESK_COMMENTS_READ }, arrayOf(supportCommentSchema)),
-    founderCall(ctx, 'support', 'events', 'GET', { ticketId, limit: 100 }, arrayOf(supportTicketEventSchema)),
+    founderRecordCall(ctx, SUPPORT_GET, { ticketId }),
+    founderRecordCall(ctx, SUPPORT_LIST_COMMENTS, { ticketId, limit: DESK_COMMENTS_READ }),
+    founderRecordCall(ctx, SUPPORT_EVENTS, { ticketId, limit: 100 }),
     founderRecordCall(ctx, SUPPORT_DESK_PROPERTY_CHANGES, { ticketId, limit: 100 }),
   ]);
   const detail = partFrom(
@@ -443,7 +423,7 @@ export function noteKey(ticketId: string, agentId: string, expectedSequence: num
 export async function runSupportAction(ctx: FounderCallContext, request: SupportActionRequest): Promise<FounderCallResult<unknown>> {
   switch (request.action) {
     case 'reply':
-      return founderRecordCall(ctx, SUPPORT_DESK_COMMENT, {
+      return founderRecordCall(ctx, SUPPORT_COMMENT, {
         ticketId: request.ticketId,
         body: request.body,
         ...(request.expectedSequence === undefined

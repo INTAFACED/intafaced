@@ -1,3 +1,5 @@
+import { ACADEMY_ADMIN_COURSES } from '@intafaced/contracts/academy-admin-procedures';
+import { ACADEMY_CERT_DEFINITIONS } from '@intafaced/contracts/academy-learner-procedures';
 import { DEX_HEALTH } from '@intafaced/contracts/dex-procedures';
 import {
   MARKET_COMMERCE_PROGRAMME,
@@ -9,7 +11,7 @@ import { INDEXER_STATUS } from '@intafaced/contracts/indexer-procedures';
 import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
 import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
-import { TOKEN_BURNED_SUPPLY } from '@intafaced/contracts/token-procedures';
+import { TOKEN_BURNED_SUPPLY, TOKEN_LIST_PROPOSALS } from '@intafaced/contracts/token-procedures';
 import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 
 /** A read whose call has a record: its module and path are the record's, never typed again here. */
@@ -1542,8 +1544,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.courses',
         title: 'Courses',
         note: 'Courses staff created on the course desk, counted by state. The four shipped courses (the curriculum paths) are counted under Curriculum inventory, not here.',
-        module: 'academy',
-        procedure: 'admin.courses',
+        ...readOf(ACADEMY_ADMIN_COURSES),
         input: { limit: 1 },
         shape: 'record',
         columns: [
@@ -1656,8 +1657,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.cert-defs',
         title: 'Certificate definitions',
         note: 'What each certificate requires. Definitions, not grants.',
-        module: 'academy',
-        procedure: 'certDefinitions',
+        ...readOf(ACADEMY_CERT_DEFINITIONS),
         shape: 'list',
         idKey: 'id',
         columns: [text('id', 'Certificate'), text('title', 'Title'), list('requiredItemSlugs', 'Required items', { detail: true })],
@@ -2252,9 +2252,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'token.proposals',
         title: 'Governance proposals',
         note: 'Proposals as svc-token lists them, with their window. The free-form proposal body and each proposal’s vote tally are separate reads (getProposal, one proposal at a time) that this desk does not make, so neither is shown.',
-        module: 'token',
         plainName: 'governance proposals',
-        procedure: 'listProposals',
+        ...readOf(TOKEN_LIST_PROPOSALS),
         input: { limit: 50 },
         shape: 'list',
         idKey: 'id',

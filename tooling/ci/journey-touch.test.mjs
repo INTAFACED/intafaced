@@ -1431,6 +1431,24 @@ test("a pull request's run leaves out the journey files a targeted run by hand o
   );
 });
 
+test("project-state#3029: a hand-run file of a journey whose other file still runs here is not left out, so its steps don't read as missing", () => {
+  const atHead = new Set(['J-derivatives-01.pw.mjs', 'J-derivatives-01-venue.pw.mjs', 'J-derivatives-08.pw.mjs', 'J-c-03.pw.mjs']);
+  // #8835's hand run 44248216382 ran these two files; its own run 44248303203 still had J-derivatives-01.pw.mjs to run.
+  const r = reusableRuns([byHand(44248216382, 'Real-app journeys by hand, J-derivatives-08.pw.mjs J-derivatives-01-venue.pw.mjs')], {
+    sha: HEAD,
+    repo: REPO,
+    journeyFiles: atHead,
+    ranShards: new Set([44248216382]),
+  });
+  assert.deepEqual(afterReuse('J-c-03.pw.mjs J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs J-derivatives-08.pw.mjs', r), {
+    target: 'J-c-03.pw.mjs J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs',
+    mode: 'run',
+    why: '1 of its 4 journey file(s) already run by hand on this head (run 44248216382), so this run leaves them out',
+  });
+  // Every file of a journey reused: the whole journey is left out.
+  assert.equal(afterReuse('J-derivatives-01-venue.pw.mjs J-derivatives-08.pw.mjs', r).mode, 'none');
+});
+
 test('planted: nothing is left out for a full run, or a run by hand that ran no shard, is cancelled, or is not on this exact head', () => {
   const same = (runs, target = 'J-a-01.pw.mjs', ranShards) =>
     assert.deepEqual(afterReuse(target, reuse(runs, ranShards)), { target, mode: 'run', why: '' });
@@ -1651,6 +1669,18 @@ test('15 Nov: a run by hand that names one file of a journey runs every file of 
   // At this checkout: the real derivatives-01 pair.
   const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
   assert.equal(dispatchTarget('J-derivatives-01.pw.mjs', real), 'J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs');
+});
+
+test('20 Nov: a run by hand given a bare journey id runs every file of that journey (run 44808167679, #9286)', () => {
+  const head = new Set(['J-cex-spot-10.pw.mjs', 'J-cex-spot-10-venue.pw.mjs', 'J-home-ia-01-venue.pw.mjs', 'J-bank-13.pw.mjs']);
+  assert.equal(dispatchTarget('J-cex-spot-10', head), 'J-cex-spot-10-venue.pw.mjs J-cex-spot-10.pw.mjs');
+  assert.equal(dispatchTarget('J-bank-13 J-cex-spot-10', head), 'J-bank-13.pw.mjs J-cex-spot-10-venue.pw.mjs J-cex-spot-10.pw.mjs');
+  assert.equal(dispatchTarget('J-home-ia-01', head), 'J-home-ia-01-venue.pw.mjs', 'an id whose only file is a part file');
+  assert.equal(dispatchTarget('J-nope-01', head), 'J-nope-01', 'an id with no file at the head stays, so the run refuses it');
+  assert.equal(dispatchTarget('J-cex-spot-10', null), 'J-cex-spot-10', 'the head unknown: the input as given');
+  // At this checkout: the real cex-spot-10 pair.
+  const real = new Set(readdirSync(join(ROOT, 'apps/customer/tests/real-app')));
+  assert.equal(dispatchTarget('J-cex-spot-10', real), 'J-cex-spot-10-venue.pw.mjs J-cex-spot-10.pw.mjs');
 });
 
 // The named rule's reach (17 Nov 2026): four real pull requests that each named one journey, ran only it and the

@@ -24,6 +24,8 @@
         "tooling/t3/setup-worktree.mjs",
         // Started by path: `verify look` (verify-app.mjs) and the look options' pictures, each through its own config.
         "tooling/scripts/{verify-look,look-options}.{pw,config}.mjs",
+        // Run by hand: the count of customer rooms in Volt.
+        "tooling/design/volt-count.mjs",
         "*.{mjs,js,cjs,ts}",
       ],
       "project": ["tooling/**/*.{mjs,cjs,js,ts}", "*.{mjs,js,cjs,ts}", "!tooling/pay-sim/**"],

@@ -531,40 +531,6 @@ export const SUPPORT_DESK_ASSIGN = defineProcedure({
   ],
 });
 
-export const SUPPORT_DESK_COMMENT = defineProcedure({
-  ...base,
-  name: 'support.comment',
-  kind: 'mutation',
-  path: 'comment',
-  /** The customer on their own request, or an agent (`support:ops` is read from the caller's scopes). */
-  access: { caller: 'scope', scope: 'support:write' },
-  refusals: refuse(
-    'support.client_request_id_required',
-    'support.comment.terminal',
-    'support.comment_cap_reached',
-    'support.comment_cap_unset',
-    'support.comment_secret_refused',
-    'support.idempotency_conflict',
-    'support.macro_placeholder_blank',
-    'support.not_found',
-    'support.stale_ticket',
-  ),
-  input: z.object({
-    ticketId: guid,
-    body: z.string().min(1).max(10_000),
-    /** The caller's key: sent again after a lost reply it answers the first comment and writes no second one. */
-    clientRequestId: z.string().min(1).max(200).optional(),
-    /** The last trail row (`sequence`) the writer read: a newer row by someone else refuses `support.stale_ticket`. */
-    expectedSequence: supportExpectedSequenceSchema.optional(),
-  }),
-  output: supportCommentSchema,
-  samples: [
-    { verdict: 'accept', input: { ticketId: TICKET, body: 'Thanks, looking now.' } },
-    { verdict: 'accept', input: { ticketId: TICKET, body: 'Thanks', expectedSequence: 3, clientRequestId: 'admin-reply:1' } },
-    { verdict: 'refuse', input: { ticketId: TICKET, body: '' } },
-  ],
-});
-
 export const SUPPORT_DESK_INTERNAL_NOTE = defineProcedure({
   ...base,
   name: 'support.addInternalNote',
@@ -1121,7 +1087,6 @@ export const SUPPORT_DESK_PROCEDURES = [
   SUPPORT_DESK_CLAIM_NEXT,
   SUPPORT_DESK_UNCLAIM,
   SUPPORT_DESK_ASSIGN,
-  SUPPORT_DESK_COMMENT,
   SUPPORT_DESK_INTERNAL_NOTE,
   SUPPORT_DESK_SET_STATUS,
   SUPPORT_DESK_ESCALATE,

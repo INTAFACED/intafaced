@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ApiClient, ApiResult } from '../../shared/api';
+import { parsesAs, type ApiClient, type ApiResult } from '../../shared/api';
+import { SUPPORT_GET_KB, SUPPORT_SEARCH_KB } from '@intafaced/contracts/support-customer-procedures';
 import { Button, Field, Failure, Loading } from '../../shared/ui';
 import { useLocation } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
@@ -97,12 +98,10 @@ export function PublicHelp() {
     async function load() {
       if (!same(captured) || selection.kind === 'invalid') return;
       if (selection.kind === 'article') {
-        const answer = await captured.actor.client.query(
-          'support',
-          'getKb',
+        const answer = await captured.actor.client.call(
+          SUPPORT_GET_KB,
           { id: selection.id, ...(selection.version === undefined ? {} : { version: selection.version }) },
-          exactHelpArticle(selection),
-          { signal: controller.signal },
+          { signal: controller.signal, accept: parsesAs(exactHelpArticle(selection)) },
         );
         if (!same(captured)) return;
         setRead(
@@ -111,9 +110,11 @@ export function PublicHelp() {
             : { context: captured, status: 'failed', failure: answer },
         );
       } else {
-        const answer = await captured.actor.client.query('support', 'searchKb', { q: '', limit }, helpWindow(limit), {
-          signal: controller.signal,
-        });
+        const answer = await captured.actor.client.call(
+          SUPPORT_SEARCH_KB,
+          { q: '', limit },
+          { signal: controller.signal, accept: parsesAs(helpWindow(limit)) },
+        );
         if (!same(captured)) return;
         setRead(
           answer.ok
@@ -155,7 +156,7 @@ export function PublicHelp() {
   const ranked = useResource(
     (signal): Promise<ApiResult<HelpArticle[]>> =>
       typed && loaded && !switchedOff
-        ? actor.client.query('support', 'searchKb', { q: typed, limit }, helpWindow(limit), { signal })
+        ? actor.client.call(SUPPORT_SEARCH_KB, { q: typed, limit }, { signal, accept: parsesAs(helpWindow(limit)) })
         : Promise.resolve({ ok: true, data: [] }),
     `help-search:${actor.owner ?? 'public'}:${limit}:${typed}:${Boolean(loaded && !switchedOff)}`,
   );

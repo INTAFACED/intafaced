@@ -29,6 +29,8 @@ use svc_ledger::door::{DoorConfig, Keys, LedgerDoor};
 use svc_ledger::env::{self, DEFAULT_PORT, LedgerEnv};
 use svc_ledger::freeze::{Bus, FreezeRelay, JetStreamBus};
 use svc_ledger::migrate;
+use svc_ledger::reconcile::{self, CustodyLayer};
+use svc_ledger::reconciler::{self, DEFAULT_MAX_CONSECUTIVE_INCOMPLETE, TickOptions, TickState};
 
 fn process_env() -> BTreeMap<String, String> {
     std::env::vars_os()
@@ -101,10 +103,18 @@ fn door(
         store,
         service_name: str_of("SERVICE_NAME"),
         bus,
-        approvals: approvals(env, fetch),
+        approvals: approvals(env, fetch.clone()),
         clock_skew_bound_ms: env.clock_skew_bound_ms,
         now_ms: system_ms,
         log: log.clone(),
+        custody: CustodyLayer::from_on(env.str("LEDGER_CUSTODY_LAYER") == Some("on")),
+        reconcile_statement_timeout_ms: env
+            .int("LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS")
+            .unwrap_or(reconcile::DEFAULT_STATEMENT_TIMEOUT_MS),
+        // `handleS2sPortfolio` reads `process.env.INDEXER_URL`; nothing in `env.ts` holds it.
+        indexer_url: std::env::var("INDEXER_URL").ok(),
+        // The same wire the approvals client uses.
+        fetch,
     })
 }
 
@@ -254,6 +264,18 @@ fn serve(
         );
     }
 
+    // `RECONCILE_CRON_MINUTES` is the owner's; blank refuses the start (the env check), never an invented cadence.
+    let cron_minutes = env.int("RECONCILE_CRON_MINUTES").ok_or(
+        "RECONCILE_CRON_MINUTES is required: the owner publishes the reconciliation cadence",
+    )?;
+    let tick_options = TickOptions {
+        max_stale_hours: env.int("LEDGER_RECONCILE_MAX_STALE_HOURS"),
+        max_consecutive_incomplete: env
+            .int("RECONCILE_MAX_CONSECUTIVE_INCOMPLETE")
+            .unwrap_or(DEFAULT_MAX_CONSECUTIVE_INCOMPLETE),
+        now_ms: system_ms,
+    };
+
     let stop = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         signal_hook::flag::register(signal, stop.clone()).map_err(|e| e.to_string())?;
@@ -261,6 +283,8 @@ fn serve(
     std::thread::scope(|scope| {
         let (store, stop, relays) = (app.wire.store(), &stop, &relays);
         scope.spawn(move || outbox_timer(store, relays, stop, log));
+        let (door, tick_options) = (&app.wire, &tick_options);
+        scope.spawn(move || reconcile_timer(door, cron_minutes, tick_options, stop, log));
         server::serve(&server, &app, log, telemetry, stop);
     });
     drop(server);
@@ -273,20 +297,54 @@ fn serve(
 /// `setInterval(() => ledger.recoverUnpublishedOutbox(), OUTBOX_RECOVER_MS)`: a failed recovery is logged and the
 /// next tick retries. One recovery at a time.
 fn outbox_timer(store: &Store, relays: &[&dyn Relay], stop: &AtomicBool, log: &Logger) {
-    let every = Duration::from_millis(OUTBOX_RECOVER_MS);
-    let step = Duration::from_millis(200);
-    loop {
-        let started = Instant::now();
-        while started.elapsed() < every {
-            if stop.load(Ordering::SeqCst) {
-                return;
-            }
-            std::thread::sleep(step.min(every.saturating_sub(started.elapsed())));
-        }
+    while wait(Duration::from_millis(OUTBOX_RECOVER_MS), stop) {
         if let Err(e) = boot::recover_outbox(store, relays) {
             log.error(
                 vec![("err", Json::str(failed(&e)))],
                 "ledger outbox recover failed",
+            );
+        }
+    }
+}
+
+/// Sleeps `every`, in short steps so a stop is seen; false once the process is stopping.
+fn wait(every: Duration, stop: &AtomicBool) -> bool {
+    let step = Duration::from_millis(200);
+    let started = Instant::now();
+    while started.elapsed() < every {
+        if stop.load(Ordering::SeqCst) {
+            return false;
+        }
+        std::thread::sleep(step.min(every.saturating_sub(started.elapsed())));
+    }
+    true
+}
+
+/// `setInterval(() => runScheduledReconciliationTick(...), RECONCILE_CRON_MINUTES * 60_000)`: one state for the life of
+/// the timer, so backoff spans ticks. A tick whose due freeze did not land is logged; the next one tries again. The
+/// due-controls part of the tick is the `controls` slice's.
+fn reconcile_timer(
+    door: &LedgerDoor,
+    cron_minutes: i64,
+    options: &TickOptions,
+    stop: &AtomicBool,
+    log: &Logger,
+) {
+    let every = Duration::from_secs(u64::try_from(cron_minutes.max(1)).unwrap_or(1) * 60);
+    let mut state = TickState::new(system_ms());
+    let ledger = door.reconciler();
+    while wait(every, stop) {
+        if let Err(e) = reconciler::tick(
+            &|| ledger.run_scheduled_default(),
+            &ledger,
+            log,
+            &mut state,
+            options,
+        ) {
+            log.log(
+                "fatal",
+                vec![("err", Json::str(failed(&e)))],
+                "LEDGER RECONCILIATION TICK FAILED — a freeze that was due did not land",
             );
         }
     }

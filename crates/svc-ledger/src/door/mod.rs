@@ -10,11 +10,14 @@
 //!    reaches the ledger (`schemas.json`).
 //!
 //! Past those the call is its slice's: [`Outcome::Owed`] names which, until the slice is ported. Ported so far:
-//! `/health` and `/ready` (the `store` slice, `crate::status`) and the freeze doors (the `freeze` slice,
-//! `freeze.rs`).
+//! `/health` and `/ready` (the `store` slice, `crate::status`), the freeze doors (the `freeze` slice, `freeze.rs`), the
+//! history doors (the `history` slice, `history.rs`), `/operator/reconcile` (the `reconcile` slice, `reconcile.rs`) and
+//! the account and transaction reads (the `balances` slice, `crate::balances`).
 
 mod callers;
 mod freeze;
+mod history;
+mod reconcile;
 
 pub use callers::DOOR_CALLERS;
 
@@ -232,12 +235,17 @@ pub const ROUTES: [Route; 44] = [
     ),
     s2s("txByKey", "/trpc/txByKey", Input::Body("txByKey"), Balances),
     s2s("txById", "/trpc/txById", Input::Body("txById"), Balances),
-    s2s("history", "/trpc/history", Input::None, History),
-    s2s("historyPage", "/trpc/historyPage", Input::None, History),
+    s2s("history", "/trpc/history", Input::Body("history"), History),
+    s2s(
+        "historyPage",
+        "/trpc/historyPage",
+        Input::Body("historyPage"),
+        History,
+    ),
     s2s(
         "holdingsHistory",
         "/trpc/holdingsHistory",
-        Input::None,
+        Input::Body("holdingsHistory"),
         History,
     ),
     s2s("assetsList", "/trpc/assetsList", Input::None, Assets),
@@ -412,6 +420,14 @@ pub struct DoorConfig {
     pub now_ms: fn() -> i64,
     /// `app.log`.
     pub log: Logger,
+    /// `LEDGER_CUSTODY_LAYER`: the switch posts enforce and reconciliation checks customer balances against.
+    pub custody: crate::reconcile::CustodyLayer,
+    /// `LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS`.
+    pub reconcile_statement_timeout_ms: i64,
+    /// `process.env.INDEXER_URL`: where `portfolio` reads a 0x account's chain positions.
+    pub indexer_url: Option<String>,
+    /// The wire every outgoing call goes through.
+    pub fetch: Arc<dyn service_kit::http::Fetch>,
 }
 
 /// The door.
@@ -655,6 +671,23 @@ impl LedgerDoor {
         }
     }
 
+    /// A service door's call once its input parses: the ported slices answer it, the rest are owed.
+    fn past_the_door(&self, route: &Route, door: &str, input: &Value) -> Outcome {
+        match route.slice {
+            Slice::History => Outcome::Answer(self.history_door(door, input)),
+            Slice::Balances => answer(crate::balances::respond(
+                &crate::balances::Reads {
+                    store: &self.cfg.store,
+                    indexer_url: self.cfg.indexer_url.as_deref(),
+                    fetch: self.cfg.fetch.as_ref(),
+                },
+                door,
+                input,
+            )),
+            slice => Outcome::Owed(slice),
+        }
+    }
+
     /// `registerS2sHttp`'s `authenticate`, then the door's input.
     fn service(
         &self,
@@ -697,12 +730,20 @@ impl LedgerDoor {
         let Input::Body(name) = route.input else {
             return Outcome::Owed(route.slice);
         };
+        // `refuseHistoryCursor`: on the raw body, before the schema would strip the field.
+        if door == "history"
+            && let Body::Parsed(Json::Object(fields)) = body
+            && let Some(f) =
+                crate::history::page_socket_field(fields.iter().map(|(k, _)| k.as_str()))
+        {
+            return answer(errors::http_error(&crate::history::page_socket(f).into()));
+        }
         let value = match body {
             Body::Absent => Value::Undefined,
             Body::Parsed(j) => Value::from_json(j),
         };
         match parse(name, value) {
-            Ok(Parsed::Ok(_)) => Outcome::Owed(route.slice),
+            Ok(Parsed::Ok(input)) => self.past_the_door(route, door, &input),
             Ok(Parsed::Issues(issues)) => {
                 answer(errors::http_error(&Failure::Zod(schema::message(&issues))))
             }
@@ -739,6 +780,7 @@ impl LedgerDoor {
             Slice::Freeze => {
                 Outcome::Answer(self.freeze_door(route.method, route.path, &principal, &input))
             }
+            Slice::Reconcile => Outcome::Answer(self.reconcile_door(&principal, &input)),
             slice => Outcome::Owed(slice),
         };
         match route.input {

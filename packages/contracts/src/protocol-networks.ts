@@ -19,7 +19,7 @@ export const FORBIDDEN_NETWORK_KINDS = ['mainnet', 'intachain'] as const;
 export const NETWORK_KIND_FORBIDDEN = 'protocol.network_kind_forbidden' as const;
 export const NETWORK_PARAMS_UNSET = 'protocol.network_params_unset' as const;
 
-// A pattern, not a predicate, so the rule travels in the call records' export (`procedures.schema.json`).
+// A pattern, not a predicate, so the rule travels in the call records' export (`procedures/<service>.schema.json`).
 const httpsUrl = z
   .string()
   .url()

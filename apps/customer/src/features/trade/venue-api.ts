@@ -31,6 +31,8 @@ import {
   venueIsolatedMarginSchema,
   venueAccountSummarySchema,
   venueAccountModeSchema,
+  venueVaultSchema,
+  venueVaultHoldingsSchema,
   venueLiquidationSchema,
   venueLiquidationStatusSchema,
   venueInsuranceFundSchema,
@@ -190,7 +192,9 @@ export type VenueIntent =
   // J-derivatives-29: USDC moved between the account's own perps and spot balances, and the account's mode changed, each
   // the person's own signed venue action.
   | { kind: 'spot_perps_transfer'; direction: 'perps_to_spot' | 'spot_to_perps'; asset: string; amount: string; moveKey: string }
-  | { kind: 'set_account_mode'; mode: VenueAccountMode; changeKey: string };
+  | { kind: 'set_account_mode'; mode: VenueAccountMode; changeKey: string }
+  // J-derivatives-31 #2 #5: USDC put into a venue vault or taken out of it, the person's own signed venue transfer.
+  | { kind: 'vault_transfer'; vault: string; direction: 'deposit' | 'withdraw'; asset: string; amount: string; moveKey: string };
 
 // ── Business keys ──────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -217,10 +221,18 @@ export const keys = {
   ownMove: (owner: string, draft: string) => `own:move:${part(owner)}:${draft}`,
   leverage: (owner: string, symbol: string, mode: VenueMarginMode, leverageBps: number, draft: string) =>
     `leverage:${part(owner)}:${part(symbol)}:${mode}:${leverageBps}:${draft}`,
-  builderApproval: (owner: string, builder: string, maxFeeBps: string, venueId?: string) =>
+  /**
+   * One asking for our builder-fee approval, by the draft minted when the page asked: a double press or a lost answer is
+   * the same approval, and an approval asked again after a revoke (J-derivatives-30 #4) is a new one, never the stored
+   * answer of the approval it revoked.
+   */
+  builderApproval: (owner: string, builder: string, maxFeeBps: string, venueId: string | undefined, draft: string) =>
     venueId
-      ? `builder-approval:${part(owner)}:${part(venueId)}:${part(builder)}:${maxFeeBps}`
-      : `builder-approval:${part(owner)}:${part(builder)}:${maxFeeBps}`,
+      ? `builder-approval:${part(owner)}:${part(venueId)}:${part(builder)}:${maxFeeBps}:${draft}`
+      : `builder-approval:${part(owner)}:${part(builder)}:${maxFeeBps}:${draft}`,
+  /** One reviewed revoke of our builder-fee approval on one venue (J-derivatives-30 #3): pressed again, the same revoke. */
+  builderRevoke: (owner: string, venueId: string, builder: string, draft: string) =>
+    `builder-revoke:${part(owner)}:${part(venueId)}:${part(builder)}:${draft}`,
   withdraw: (owner: string, draft: string) => `withdraw:${part(owner)}:${draft}`,
   /** One lowering of a resting order, by the venue's client id and the amount left: the same change asked twice is one. */
   amend: (owner: string, venueClientOrderId: string, amount: string) =>
@@ -242,6 +254,9 @@ export const keys = {
     `class-move:${part(owner)}:${direction === 'perps_to_spot' ? 'to-spot' : 'to-perps'}:${draft}`,
   /** One reviewed change of the account's mode (J-derivatives-29 #7 #8). */
   accountMode: (owner: string, mode: VenueAccountMode, draft: string) => `account-mode:${part(owner)}:${part(mode)}:${draft}`,
+  /** One reviewed move into or out of a vault (J-derivatives-31 #2 #5): the same move sent again is the same key. */
+  vaultMove: (owner: string, vault: string, direction: 'deposit' | 'withdraw', draft: string) =>
+    `vault-move:${part(owner)}:${part(vault)}:${direction}:${draft}`,
 };
 
 // ── Figures ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -384,6 +399,11 @@ export function venueApi(api: ApiClient) {
       read('/deleverages', asOf(z.array(venueDeleverageSchema)), { owner, venueId }, signal),
     /** The venue's insurance fund, or not published; signed in or not (J-derivatives-07 #4). */
     insuranceFund: (signal?: AbortSignal, venueId?: string) => read('/insurance-fund', venueInsuranceFundSchema, { venueId }, signal),
+    /** The vaults the venue lists, with its lock-up, profit share, value and past return (J-derivatives-31 #1). */
+    vaults: (signal?: AbortSignal, venueId?: string) => read('/vaults', asOf(z.array(venueVaultSchema)), { venueId }, signal),
+    /** The account's vault positions, its account value as the venue counts it, and its vault transfers (J-derivatives-31). */
+    vaultHoldings: (owner: string, signal?: AbortSignal, venueId?: string) =>
+      read('/vault-holdings', asOf(venueVaultHoldingsSchema), { owner, venueId }, signal),
     /** The venue's public liquidation and auto-deleveraging alerts, newest first (J-derivatives-07 #7). */
     liquidationAlerts: (q: { symbol?: string; limit?: number; venueId?: string }, signal?: AbortSignal) =>
       read(

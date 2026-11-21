@@ -418,6 +418,25 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     return answer(reply, async (d) => d.publicFees(), req.query.venueId);
   });
 
+  // J-derivatives-31 #1: the vaults the venue lists, signed in or not, each with its lock-up, leader profit share, value and
+  // past return as the venue publishes them (null: not published). A venue that lists none refuses not_offered.
+  app.get<{ Querystring: Query }>('/api/v1/venue/vaults', publicRead, async (req, reply) => {
+    return answer(
+      reply,
+      async (d) => {
+        const venue = await d.venue();
+        if (!venue.vaults)
+          throw new VenueRefusalError({
+            venueId: venue.venue.id,
+            code: 'not_offered',
+            detail: `${venue.venue.displayName} lists no vaults`,
+          });
+        return venue.vaults();
+      },
+      req.query.venueId,
+    );
+  });
+
   // J-derivatives-07 #4: the venue's own insurance fund or vault and where to read it, signed in or not. A venue that
   // publishes none answers `known: false`, read as "not published by this venue", never a zero. INTAFACED runs no fund.
   app.get<{ Querystring: Query }>('/api/v1/venue/insurance-fund', publicRead, async (req, reply) => {
@@ -675,6 +694,18 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
         });
       return venue.accountMode(a);
     },
+    // J-derivatives-31 #2 #3 #5: the account's vault positions with their lock-up ends, its account value as the venue
+    // counts it, and its vault transfers; a venue that reads none refuses not_offered.
+    '/api/v1/venue/vault-holdings': async (d, _q, a) => {
+      const venue = await d.venue();
+      if (!venue.vaultHoldings)
+        throw new VenueRefusalError({
+          venueId: venue.venue.id,
+          code: 'not_offered',
+          detail: `${venue.venue.displayName} reports no vault positions`,
+        });
+      return venue.vaultHoldings(a);
+    },
     // J-derivatives-07 #1 #3: the position's liquidation state on one market and the venue's price and fee rules, in its
     // own words; a venue that reads none refuses not_offered.
     '/api/v1/venue/liquidation': async (d, q, a) => {
@@ -767,16 +798,16 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     },
     // J-cex-spot-10 #6: the account's own fee tier, volume and rates as the venue reports them.
     '/api/v1/venue/fee-tier': async (d, _q, a) => d.accountFees(a),
+    // Read against our builder address alone, so an approval stays readable while the fee is blank (J-derivatives-30 #1).
     '/api/v1/venue/builder-fee-approval': async (d, _q, a) => {
-      const status = await d.status();
-      const builder = 'builder' in status ? status.builder : null;
+      const builder = d.publishedBuilderAddress();
       if (!builder)
         throw new VenueRefusalError({
           venueId: a.venueId,
           code: 'builder_fee_not_published',
           detail: 'our builder is not published (owner value blank)',
         });
-      return (await d.venue()).builderFeeApproval(a, builder.address);
+      return (await d.venue()).builderFeeApproval(a, builder);
     },
   };
   for (const path of [
@@ -794,6 +825,7 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     '/api/v1/venue/isolated-margin',
     '/api/v1/venue/account-summary',
     '/api/v1/venue/account-mode',
+    '/api/v1/venue/vault-holdings',
     '/api/v1/venue/liquidation',
     '/api/v1/venue/liquidations',
     '/api/v1/venue/deleverages',
