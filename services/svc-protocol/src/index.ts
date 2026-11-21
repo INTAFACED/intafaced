@@ -26,6 +26,7 @@ import { PostgresComplianceStore } from './address-risk/compliance.pg.js';
 import { PostgresTrustDeskStore } from './address-risk/trust-desk.pg.js';
 import { walletSessionFromSetting } from './address-book/session.js';
 import { PostgresAddressBookStore } from './address-book/book.pg.js';
+import { PostgresBridgeTransferStore } from './bridge/transfers.pg.js';
 import { venueConnectionTtlFromSetting, walletSanctionsFromSetting } from './venue-wallet/connection.js';
 import { PostgresVenueConnectionStore } from './venue-wallet/connection.pg.js';
 import { embeddedWalletFromSetting } from './embedded-wallet/provider.js';
@@ -192,6 +193,7 @@ export const appRouter = createProtocolRouter({
     mainnet: chainIsMainnet(env.PROTOCOL_CHAIN_ID, loadNetworks()),
   }),
   venue: () => env.PROTOCOL_VENUE_ADDRESS as `0x${string}`,
+  bridgeTransfers: new PostgresBridgeTransferStore(db.sql),
   lendingMarket: () => env.PROTOCOL_LENDING_MARKET_ADDRESS as `0x${string}`,
   swapV2: () =>
     isZeroAddress(env.PROTOCOL_ROUTER_V2_ADDRESS) ||

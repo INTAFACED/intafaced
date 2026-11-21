@@ -7,7 +7,7 @@ import { test, expect } from './journey.mjs';
 import { CHAIN_ID, TOKEN_A, TOKEN_B, UNBUILT, connectWallet, connectWhenAsked, dexRun, fundOnTestChain, testChain } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
-import { api, journeyState, ROOT, stackUrl } from './stack.mjs';
+import { api, journeyState, restartService, ROOT, stackUrl, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 import { depositCustody, partnerPayIn } from './bank-desk.mjs';
 import { chainRpc, withMiningPaused } from './chain-node.mjs';
@@ -35,8 +35,11 @@ import { userVenue, venueDoor } from './venue-room.mjs';
 //   USD (the TEST chain's stand-in for USDC, as the TEST venue's deposit route names it), and the stand-in says it was
 //   paid with that transfer. The test sends nothing: it reads the transfer from the TEST chain itself. Money: the ledger
 //   posts nothing for a purchase delivered to the wallet, read before and after;
-// - /protocol/rails has no route table, burn, attestation or mint tracking (D-bridge-chain-03), and no cross-chain
-//   review sheet (RC-dex-protocol-04);
+// - #6 and #7 run the bridge on the stack's TEST route (PROTOCOL_BRIDGE_ROUTES=TEST, served while #6 restarts protocol
+//   with `LOCAL_STACK_PROTOCOL_BRIDGE=on`; #7 puts it back off): the TEST bridge token on the stack's two TEST chains and
+//   the stack's TEST attester (tooling/scripts/local-test-chain.mjs). #6's wallet is its own, on both chains; money: the
+//   wallet signs the burn and the mint, the balances move on the chains themselves, and the ledger posts nothing;
+// - /dex has no cross-chain review sheet (RC-dex-protocol-04);
 // - there is no asset link review or contract-read docs (D-bridge-chain-04);
 // - #1's "no banned partner wording" clause reads the names from the brand scan's own list (tooling/ci/brand-scan.mjs
 //   FORBIDDEN) and checks the room's text against each; the test does not spell them out, since the scan refuses them
@@ -45,7 +48,9 @@ import { userVenue, venueDoor } from './venue-room.mjs';
 //   custody (as J-wallet-02 #1 does) and puts it back; its address panel says deposit addresses are not available because
 //   crypto custody isn't connected;
 // - #7's crash clause (the process stopping after the intent is stored) cannot be caused from the browser; the step
-//   checks the browser half: the same single row comes back after the browser closes.
+//   checks the browser half: the same single row comes back after the browser closes, with the one burn on chain and
+//   nothing sent again. The crash half is svc-protocol's src/bridge/transfers.test.ts (a stored intent whose burn never
+//   reached the service resumes from the chain, and the same key never stores a second transfer).
 const J = 'J-dex-protocol-05';
 const dex = dexRun(`${J}-wallet`);
 const account = dexRun(J);
@@ -96,6 +101,81 @@ async function openRails(page) {
   const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
   await page.goto('/protocol/rails');
   await expect(rails(page)).toBeVisible(UNBUILT);
+  return wallet;
+}
+
+// ── the bridge (#6, #7) ──────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The bridge steps' own TEST wallet, on both of the stack's TEST chains: the first (the app's chain id) and the second,
+ * where the TEST bridge mints (tooling/scripts/local-test-chain.mjs: TestBridgeToken at BRIDGE_TOKEN on both, and the
+ * TEST attester). `fund <address> bridge` gives it TEST ETH on both and 100 TEST USDC of the bridge token on the first.
+ */
+const bridge = dexRun(`${J}-bridge`);
+const SECOND_CHAIN = 31337;
+const BRIDGE_TOKEN = '0x000000000000000000000000000000000000b41d';
+const BRIDGE_ABI = parseAbi([
+  'function burn(bytes32 intentId, uint256 destinationChainId, address recipient, uint256 amount)',
+  'function mint(bytes32 intentId, uint256 sourceChainId, address recipient, uint256 amount, bytes attestation)',
+  'function balanceOf(address) view returns (uint256)',
+  'event Burned(bytes32 indexed intentId, address indexed sender, uint256 destinationChainId, address recipient, uint256 amount)',
+]);
+/** The TEST route table and its TEST provider are served only with this switch; #5 reads the owner's blank table. */
+const bridgeSwitch = journeyState(`${J}-bridge-switch`);
+async function bridgeOn() {
+  if (bridgeSwitch.read().on) return;
+  bridgeSwitch.write({ on: true });
+  await restartService('protocol', { LOCAL_STACK_PROTOCOL_BRIDGE: 'on' });
+}
+async function bridgeOff() {
+  if (!bridgeSwitch.read().on) return;
+  await restartService('protocol', { LOCAL_STACK_PROTOCOL_BRIDGE: null });
+  bridgeSwitch.write({ on: false });
+}
+test.afterAll(bridgeOff);
+
+function bridgeClient(chainId) {
+  const status = testChain();
+  expect(status.chain, 'the stack runs its TEST chains').toBe('running');
+  const url = chainId === CHAIN_ID ? status.gateUrl : status.second.gateUrl;
+  return createPublicClient({
+    chain: defineChain({
+      id: chainId,
+      name: 'LOCAL TEST chain',
+      nativeCurrency: { name: 'TEST ETH', symbol: 'TESTETH', decimals: 18 },
+      rpcUrls: { default: { http: [url] } },
+    }),
+    transport: http(url),
+  });
+}
+/** The wallet's TEST USDC of the bridge token on one TEST chain, read from that chain's node. */
+const bridgeBalance = (chainId, address) =>
+  bridgeClient(chainId).readContract({ address: BRIDGE_TOKEN, abi: BRIDGE_ABI, functionName: 'balanceOf', args: [address] });
+/** Every burn the wallet made on the first TEST chain, from the bridge token's own Burned events. */
+const bridgeBurns = (address) =>
+  bridgeClient(CHAIN_ID).getLogs({
+    address: BRIDGE_TOKEN,
+    event: BRIDGE_ABI.find((item) => item.type === 'event'),
+    args: { sender: address },
+    fromBlock: 0n,
+    toBlock: 'latest',
+  });
+
+/** Opens /protocol/rails with the bridge wallet connected to both TEST chains. */
+async function openBridge(page) {
+  const status = testChain();
+  expect(status.chain, 'the stack runs its TEST chains').toBe('running');
+  const wallet = await installTestWallet(page, {
+    chainId: CHAIN_ID,
+    privateKey: bridge.key(),
+    rpcUrl: status.gateUrl,
+    nodes: { [SECOND_CHAIN]: status.second.gateUrl },
+  });
+  await page.goto('/wallet');
+  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}`, exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Disconnect', exact: true })).toBeVisible();
+  await page.goto('/protocol/rails');
+  await expect(rails(page)).toBeVisible();
   return wallet;
 }
 
@@ -606,39 +686,78 @@ test(`${J} #5 opens the rails room with the route table blank: the full layout, 
 test(`${J} #6 builds a burn on a TEST route and signs it: burn submitted, then mint ready when the attestation arrives, then minted after the mint is signed`, async ({
   page,
 }) => {
-  await openRails(page);
-  await page.getByRole('button', { name: 'Start a transfer' }).click(UNBUILT);
-  const form = page.getByRole('form', { name: 'Bridge transfer' });
-  await form.getByRole('combobox', { name: 'From' }).selectOption({ label: 'Base Sepolia' });
-  await form.getByRole('combobox', { name: 'To' }).selectOption({ label: 'TEST chain' });
-  await form.getByRole('combobox', { name: 'Token' }).selectOption({ label: 'USDC' });
+  test.setTimeout(300_000);
+  const { who } = venueState();
+  const signedIn = async () => api(who, account.run.read().secret ? { totpCode: await stepCode() } : {});
+  const ledgerBefore = await (await signedIn()).balances();
+  await bridgeOn();
+  const address = privateKeyToAccount(bridge.key()).address;
+  tool('local-test-chain.mjs', 'fund', address, 'bridge');
+  const sourceBefore = await bridgeBalance(CHAIN_ID, address);
+  const destinationBefore = await bridgeBalance(SECOND_CHAIN, address);
+
+  const wallet = await openBridge(page);
+  // The TEST route the TEST table publishes, with its TEST provider.
+  await expect(rails(page).getByRole('row').filter({ hasText: 'TEST chain B' })).toContainText('TEST provider');
+  await page.getByRole('button', { name: 'Start a transfer', exact: true }).click();
+  const form = page.getByRole('form', { name: 'Bridge transfer', exact: true });
+  await form.getByRole('combobox', { name: 'From', exact: true }).selectOption({ label: 'TEST chain' });
+  await form.getByRole('combobox', { name: 'To', exact: true }).selectOption({ label: 'TEST chain B' });
+  await form.getByRole('combobox', { name: 'Token', exact: true }).selectOption({ label: 'TUSDC' });
   await form.getByRole('textbox', { name: /^Amount/ }).fill('1');
-  await form.getByRole('button', { name: 'Review' }).click();
-  await page.getByRole('button', { name: 'Continue in wallet' }).click();
-  const row = transfers(page).getByRole('row').filter({ hasText: '1 USDC' });
+  await form.getByRole('button', { name: 'Review', exact: true }).click();
+  // The plain-words sheet before the wallet: the burn, on the first network, for this amount.
+  const sheet = page.locator('[data-sheet="sequence"]');
+  await expect(sheet).toContainText('Burn on the first network');
+  await expect(sheet).toContainText('1 TUSDC');
+  await sheet.getByRole('button', { name: 'Continue in wallet', exact: true }).click();
+  // The wallet signed and sent the burn itself, to the bridge token on the first network.
+  await expect.poll(() => wallet.sends.filter((s) => s.hash).length).toBe(1);
+  const burn = wallet.sends.find((s) => s.hash);
+  expect(burn.params[0].to.toLowerCase()).toBe(BRIDGE_TOKEN);
+  expect(decodeFunctionData({ abi: BRIDGE_ABI, data: burn.params[0].data }).functionName).toBe('burn');
+
+  const row = transfers(page).getByRole('row').filter({ hasText: '1 TUSDC' });
+  await expect(row).toHaveCount(1);
   await expect(row).toContainText('Burn submitted');
   // Kept as soon as the burn is in, so #7 finds the transfer even if this step stops before the mint.
-  dex.run.write({ bridged: true });
+  bridge.run.write({ bridged: true, burnTx: burn.hash });
   await expect(row).toContainText('Mint ready', { timeout: 120_000 });
-  await row.getByRole('button', { name: 'Sign the mint' }).click();
-  await page.getByRole('button', { name: 'Continue in wallet' }).click();
+  await row.getByRole('button', { name: 'Sign the mint', exact: true }).click();
+  await expect(sheet).toContainText('Mint on the second network');
+  await expect(sheet).toContainText(String(SECOND_CHAIN));
+  await sheet.getByRole('button', { name: 'Continue in wallet', exact: true }).click();
   await expect(row).toContainText('Minted', { timeout: 60_000 });
+
+  // On the chains themselves: 1 TEST USDC left the wallet on the first network and reached it on the second.
+  expect(await bridgeBalance(CHAIN_ID, address)).toBe(sourceBefore - 1_000_000n);
+  expect(await bridgeBalance(SECOND_CHAIN, address)).toBe(destinationBefore + 1_000_000n);
+  // The bridge is non-custodial: the ledger posts nothing for it.
+  expect(await (await signedIn()).balances()).toEqual(ledgerBefore);
 });
 
 test(`${J} #7 closes the browser after the burn and returns: the same row, still tracked; a stored intent resumes, never a second burn`, async ({
   browser,
 }) => {
+  test.setTimeout(180_000);
   const context = await browser.newContext();
   try {
+    await bridgeOn();
     const page = await context.newPage();
-    await openRails(page);
-    expect(dex.run.read().bridged, 'the burn step ran').toBe(true);
+    expect(bridge.run.read().bridged, 'the burn step ran').toBe(true);
+    const wallet = await openBridge(page);
     // One row for the one burn, in whichever tracked state it reached; never a second burn row.
-    const row = transfers(page).getByRole('row').filter({ hasText: '1 USDC' });
+    const row = transfers(page).getByRole('row').filter({ hasText: '1 TUSDC' });
     await expect(row).toHaveCount(1);
     await expect(row).toContainText(/Burn submitted|Mint ready|Minted/);
+    await expect(row).toContainText(bridge.run.read().burnTx);
+    await expect(row.getByRole('button', { name: 'Sign the burn', exact: true })).toHaveCount(0);
+    // The stored intent's burn is on chain exactly once, and the returning page sent nothing.
+    expect(await bridgeBurns(privateKeyToAccount(bridge.key()).address)).toHaveLength(1);
+    expect(wallet.sends).toHaveLength(0);
   } finally {
     await context.close();
+    await bridgeOff();
   }
 });
 
