@@ -49,6 +49,8 @@ import {
   JUDGE_SCHEMA,
 } from './test-judge.mjs';
 import { roomOf } from './look-baselines.mjs';
+import { lookImages, waitForLook } from './look-pictures.mjs';
+import { reachesLook } from './ci-affected.mjs';
 import { AUTO_REVERT_AUTHOR, AUTO_REVERT_BRANCH } from './journey-seal.mjs';
 import { exactReverse, revertTreeMatches } from './exact-revert.mjs';
 import { isBudgetResponse, budgetLine, titleFor } from './api-budget.mjs';
@@ -1028,7 +1030,8 @@ export async function collectBaselineImages({ repo, base, head, get }) {
 }
 
 /** The facts that go before one image: its path, which side, and the commit it was read at. */
-export function imageLabel({ path, side, commit }, i, n) {
+export function imageLabel({ path, side, commit, label }, i, n) {
+  if (label) return `Image ${i + 1} of ${n}: ${label}`;
   const at =
     side === 'before'
       ? `before this pull request, at base ${commit.slice(0, 7)}`
@@ -1045,8 +1048,12 @@ export const REVIEW_ASK = 'Review the pull request in the input against the brie
  */
 export function streamInput(prompt, images) {
   const content = [{ type: 'text', text: prompt }];
-  images.forEach((img, i) => {
-    content.push({ type: 'text', text: imageLabel(img, i, images.length) });
+  // A text entry (the look pictures' note, look-pictures.mjs lookImages) goes as it is; each image after its label.
+  const pictures = images.filter((img) => img.data);
+  images.forEach((img) => {
+    if (!img.data) return void content.push({ type: 'text', text: img.text });
+    const i = pictures.indexOf(img);
+    content.push({ type: 'text', text: imageLabel(img, i, pictures.length) });
     content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: img.data } });
   });
   content.push({ type: 'text', text: REVIEW_ASK });
@@ -1195,7 +1202,7 @@ export async function writeReviewInputs(
     writeFileSync(join(dir, 'prompt.txt'), prompt);
     if (images.length === 0 || parts.length > 1) return '';
     writeFileSync(join(dir, 'input.jsonl'), streamInput(prompt, images));
-    return `; ${images.length} look-baseline image(s) attached`;
+    return `; ${images.filter((img) => img.data).length} image(s) attached`;
   };
   if (existsSync(join(tests, 'prompt.txt'))) {
     const said = withImages(readFileSync(join(tests, 'prompt.txt'), 'utf8'));
@@ -1218,6 +1225,9 @@ export function readableDiff(text, { base, head }) {
     throw new Error(`the diff ${base.slice(0, 7)}...${head.slice(0, 7)} is empty: nothing to review, so no verdict; re-run the job`);
   return text;
 }
+
+/** Every path a unified diff names, old and new (`diff --git a/<old> b/<new>`). */
+export const diffPaths = (diff) => [...String(diff).matchAll(/^diff --git a\/(\S+) b\/(\S+)$/gm)].flatMap((m) => [m[1], m[2]]);
 
 async function cmdDiff(dir) {
   const { GITHUB_REPOSITORY: repo, GITHUB_EVENT_PATH: path } = process.env;
@@ -1242,12 +1252,35 @@ async function cmdDiff(dir) {
       console.log(`export blobs: not read (${String(e.message).split('\n')[0]}); a changed export file stays whole`);
     }
   }
-  // The changed look-baseline images, old and new, when the diff is small enough to review at all.
+  // The changed look-baseline images, old and new, when the diff is small enough to review at all; then, in what the
+  // call has left, the look gate's before and after pictures of the rooms the change reaches (#9325; look-pictures.mjs).
   let images = [];
   if (Buffer.byteLength(r.text) <= MAX_DIFF_BYTES) {
     const got = await collectBaselineImages({ repo, base: pull.base, head: pull.head, get: getText });
     console.log(`images: ${got.images.length > 0 ? got.why : `none (${got.why})`}`);
     images = got.images;
+    const dir2 = join(process.env.RUNNER_TEMP ?? dir, 'look-pictures');
+    // Only a change CI's look job runs for (ci-affected.mjs reachesLook) waits for it; any other review starts at once.
+    const look = reachesLook(diffPaths(r.text))
+      ? await waitForLook({
+          repo,
+          head: pull.head,
+          dir: dir2,
+          token: process.env.GH_TOKEN,
+          minutes: Number(process.env.LOOK_WAIT_MINUTES ?? 25),
+        })
+      : { ready: false, why: 'the change draws no Customer room or kit part' };
+    if (look.ready) {
+      const used = images.reduce((n, img) => n + Buffer.byteLength(img.data, 'base64'), 0);
+      const got2 = lookImages(dir2, {
+        head: pull.head,
+        base: pull.base,
+        maxImages: MAX_IMAGES - images.length,
+        maxBytes: MAX_IMAGES_TOTAL_BYTES - used,
+      });
+      console.log(`look pictures: ${got2.why}`);
+      images = [...images, ...got2.images];
+    } else console.log(`look pictures: none (${look.why})`);
   }
   const loadWords = async () => {
     const t = process.env.PROJECT_STATE_READ_TOKEN;

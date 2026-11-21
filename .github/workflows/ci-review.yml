@@ -43,8 +43,9 @@ jobs:
       !github.event.pull_request.draft &&
       (github.event.action != 'edited' || github.event.changes.base)
     runs-on: ubuntu-24.04
-    # Healthy run: a few minutes, under 10 with the test part; a shared-harness change sends up to 1.5 MB.
-    timeout-minutes: 30
+    # Healthy run: a few minutes, under 10 with the test part; a shared-harness change sends up to 1.5 MB. A change that
+    # draws a Customer room also waits for CI's look gate on its head (up to 25 minutes, look-pictures.mjs).
+    timeout-minutes: 55
     environment: ci-review
     env:
       APP_KEY_SET: ${{ secrets.INTAFACED_APP_KEY != '' }} # true or false only; the key itself is read by one step
@@ -57,7 +58,7 @@ jobs:
       tests: ${{ steps.tests.outcome }}
     permissions:
       contents: read # the default branch's checkout, the compare diff, and the base and head as text for the test part
-      actions: read # read this run's tree index
+      actions: read # read this run's tree index, and CI's look gate pictures on the head
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -118,7 +119,9 @@ jobs:
       # The pull request's code is read as text (the compare API and two shallow fetches of its base and head), never
       # checked out or run. A changed look baseline's PNGs, which the text diff shows only as "Binary files differ", are
       # read as blobs at the same base and head and given as images (ci-review.mjs collectBaselineImages; project-state
-      # #1819); past any of its caps, none are.
+      # #1819); past any of its caps, none are. A change that draws a Customer room or kit part waits for CI's look gate on
+      # the same head and gives the reviewer a band of each reached room's before and after picture (look-pictures.mjs,
+      # #9325), in what the image caps leave; `actions: read` reads that run's jobs and artifacts.
       - name: Read the diff
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
