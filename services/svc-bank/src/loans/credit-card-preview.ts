@@ -16,7 +16,7 @@
 import { PREVIEW_LABEL, previewRefusal, type PreviewRefusal } from '@intafaced/contracts';
 import { CREDIT_CARD_TABS, CREDIT_CARD_VARIANTS } from '@intafaced/contracts/bank-credit-preview-procedures';
 
-export const CREDIT_CARD_PREVIEW_LABEL = PREVIEW_LABEL;
+const CREDIT_CARD_PREVIEW_LABEL = PREVIEW_LABEL;
 /** Engine id for the typed Preview refusal (`<module>.<engine>`). */
 export const CREDIT_CARD_PREVIEW_ENGINE = 'bank.credit_card' as const;
 

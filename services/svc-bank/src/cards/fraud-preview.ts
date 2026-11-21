@@ -22,7 +22,7 @@ import {
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { bankRefusal } from '../router/errors.js';
 
-export { FRAUD_BLOCK_STANCES, FRAUD_RISK_BANDS, FRAUD_SIGNALS };
+export { FRAUD_SIGNALS };
 export type FraudRiskBand = (typeof FRAUD_RISK_BANDS)[number];
 
 export type FraudSignal = (typeof FRAUD_SIGNALS)[number];
