@@ -344,7 +344,7 @@ function cashDesk(opts: { catalogue?: typeof CATALOGUE; store?: MemoryCashLegSto
   const partner = new TestCashPartner(opts.catalogue ?? CATALOGUE, {
     store,
     now: () => new Date(),
-    deliver: async (acct, asset, amount, ref) => {
+    deliver: async ({ account: acct, asset, amount, ref }) => {
       if (opts.failDelivery?.()) throw new Error('TEST delivery down');
       deliveries.push(ref);
       sim.deposit(acct, asset, amount, ref);
@@ -359,12 +359,12 @@ describe('venue Convert from a cash currency: two linked legs where the partner 
   it('no partner is set by default, and the TEST partner is refused outside APP_ENV dev or test and without its catalogue', () => {
     const deps = { store: new MemoryCashLegStore(), now: () => new Date(), deliver: async () => undefined };
     const json = JSON.stringify(CATALOGUE);
-    expect(cashPartnerFor('', json, 'test', deps)).toBeNull();
+    expect(cashPartnerFor({ setting: '', catalogueJson: json, appEnv: 'test' }, deps)).toBeNull();
     for (const appEnv of ['production', 'staging', undefined])
-      expect(() => cashPartnerFor('test', json, appEnv, deps)).toThrow(/refused outside/);
-    expect(() => cashPartnerFor('test', '', 'test', deps)).toThrow(/catalogue/);
-    expect(() => cashPartnerFor('acme', json, 'test', deps)).toThrow(/leave it blank/);
-    expect(cashPartnerFor('test', json, 'dev', deps)?.offers('EUR')).toBe(true);
+      expect(() => cashPartnerFor({ setting: 'test', catalogueJson: json, appEnv }, deps)).toThrow(/refused outside/);
+    expect(() => cashPartnerFor({ setting: 'test', catalogueJson: '', appEnv: 'test' }, deps)).toThrow(/catalogue/);
+    expect(() => cashPartnerFor({ setting: 'acme', catalogueJson: json, appEnv: 'test' }, deps)).toThrow(/leave it blank/);
+    expect(cashPartnerFor({ setting: 'test', catalogueJson: json, appEnv: 'dev' }, deps)?.offers('EUR')).toBe(true);
   });
 
   it('with no partner, a currency it does not offer, or toward cash, the route says not offered and nothing is priced', async () => {

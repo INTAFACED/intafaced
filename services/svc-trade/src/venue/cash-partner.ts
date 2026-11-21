@@ -134,6 +134,7 @@ export class SqlCashLegStore implements CashLegStore {
   constructor(private readonly sql: Sql) {}
 
   async insert(l: CashLeg): Promise<CashLeg> {
+    // leg_id is the hash of business_key (`legIdOf`), so both unique keys name one row: a clash on either is the leg that won.
     await this.sql`
       INSERT INTO trade.test_cash_partner_legs (
         business_key, leg_id, user_id, venue_id, owner, currency, cash, fee, rate, stable, stable_amount, state, refusal,
@@ -143,7 +144,7 @@ export class SqlCashLegStore implements CashLegStore {
         ${formatAmount(l.fee)}, ${formatAmount(l.rate)}, ${l.stable}, ${formatAmount(l.stableAmount)}, ${l.state}, ${l.refusal},
         ${l.createdAt.toISOString()}, ${l.settledAt?.toISOString() ?? null}
       )
-      ON CONFLICT (business_key) DO NOTHING`;
+      ON CONFLICT DO NOTHING`;
     const stored = await this.get(l.key);
     if (!stored) throw new Error(`cash leg ${l.key} was not stored`);
     return stored;
@@ -196,7 +197,7 @@ export class TestCashPartner implements CashPartner {
       store: CashLegStore;
       now: () => Date;
       /** Credits `amount` of `asset` to `account` under `ref`, once per ref (the TEST venue's deposit control). */
-      deliver: (account: UserVenueAccount, asset: string, amount: Amount, ref: string) => Promise<void>;
+      deliver: (delivery: { account: UserVenueAccount; asset: string; amount: Amount; ref: string }) => Promise<void>;
     },
   ) {
     this.stable = catalogue.stable;
@@ -245,7 +246,7 @@ export class TestCashPartner implements CashPartner {
       throw err;
     }
     // A delivery that fails leaves the leg pending: the same key again delivers under the same id, credited once.
-    await this.deps.deliver(leg.account, leg.stable, leg.stableAmount, leg.legId);
+    await this.deps.deliver({ account: leg.account, asset: leg.stable, amount: leg.stableAmount, ref: leg.legId });
     return this.deps.store.decide(leg.key, { state: 'settled', at: this.deps.now() });
   }
 
@@ -259,9 +260,7 @@ export class TestCashPartner implements CashPartner {
  * LOCAL TEST stand-in, refused outside APP_ENV dev or test and without its catalogue.
  */
 export function cashPartnerFor(
-  setting: string,
-  catalogueJson: string,
-  appEnv: string | undefined,
+  { setting, catalogueJson, appEnv }: { setting: string; catalogueJson: string; appEnv: string | undefined },
   deps: ConstructorParameters<typeof TestCashPartner>[1],
 ): CashPartner | null {
   const name = setting.trim();

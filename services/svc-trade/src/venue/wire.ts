@@ -152,10 +152,15 @@ export function wireUserVenue(deps: {
   // wallet signs. On whichever door the request names. Off with the door.
   // From a cash currency, the partner's cash leg first (#11). The LOCAL TEST partner delivers its TEST stablecoin through
   // the TEST venue's own deposit control, on the venue the account is on, under the leg's id (credited once).
-  const cashPartner = cashPartnerFor(env.TRADE_CONVERT_CASH_PARTNER, env.TRADE_CONVERT_CASH_TEST_JSON, process.env.APP_ENV, {
+  const cashPartnerSetting = {
+    setting: env.TRADE_CONVERT_CASH_PARTNER,
+    catalogueJson: env.TRADE_CONVERT_CASH_TEST_JSON,
+    appEnv: process.env.APP_ENV,
+  };
+  const cashPartner = cashPartnerFor(cashPartnerSetting, {
     store: new SqlCashLegStore(sql),
     now: () => new Date(),
-    deliver: async (account, asset, amount, depositRef) => {
+    deliver: async ({ account, asset, amount, ref: depositRef }) => {
       const ids = await Promise.all(userVenueDoors.map(async (d) => (await d.venue()).venue.id));
       const url = userVenueUrls[ids.indexOf(account.venueId)];
       if (!url) throw new Error(`no TEST venue ${account.venueId} to deliver the cash leg to`);
