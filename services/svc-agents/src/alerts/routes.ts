@@ -387,10 +387,7 @@ export function alertsRouter(sql: Sql | undefined, baseline: PolicyBaseline, pub
   };
   // A signed-in operator's own session: never a service forwarding a principal, an API key or a sub-account.
   const operator = (scope: 'admin:read' | 'admin:write') =>
-    scopedProcedure(scope, { module: 'agents', person: true }).use(({ ctx, next }) => {
-      if (ctx.principal.kid || ctx.principal.sub_account) throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.alerts_person_only' });
-      return next();
-    });
+    scopedProcedure(scope, { module: 'agents', person: true, ownSession: 'agents.alerts_person_only' });
 
   return router({
     /** The stored rules, oldest first, and the newest alerts with their delivery state. */

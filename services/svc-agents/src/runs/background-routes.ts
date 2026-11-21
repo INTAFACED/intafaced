@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { AgentsRouterDeps } from '../router.js';
 import type { RunRouteKit } from './routes.js';
+import { executeProcedure } from '../procedures.js';
 import { RUN_NOTICES, sessionRunSchema, sessionRunStopSchema } from '@intafaced/contracts/agents-runs';
 import { SessionRunConflict, SessionRunStore } from './background.js';
 import { selfFreezeGate } from '../own/self-freeze.js';
@@ -12,7 +13,7 @@ import { selfFreezeGate } from '../own/self-freeze.js';
  * runs: someone else's run id is `agents.run_not_found`, the same as one that does not exist.
  */
 export function backgroundRunRoutes(deps: AgentsRouterDeps, kit: RunRouteKit) {
-  const { guard, executeProcedure, ownedSession } = kit;
+  const { guard, ownedSession } = kit;
   const settings = deps.sessionRuns ?? { maxSteps: null, stepMs: null };
   const store = () => {
     if (!deps.sql) throw new Error('agents sql is unset');

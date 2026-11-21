@@ -108,6 +108,7 @@ function guardFor(name: string, access: Access, founder: FounderGuard | undefine
         ...(access.plane === undefined ? {} : { plane: access.plane }),
         ...(access.tier === undefined ? {} : { tier: access.tier }),
         ...(access.person === undefined ? {} : { person: access.person }),
+        ...(access.ownSession === undefined ? {} : { ownSession: access.ownSession }),
       });
     case 'anyScope':
       return anyScopeProcedure(access.scopes, {
