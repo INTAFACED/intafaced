@@ -33,7 +33,7 @@ What fails the other way: `tooling/ci/boundary-scan.mjs` (one service's SQL on a
 - **Route** through the area's routes file named in `apps/customer/README.md`; a new top-level screen id goes in `ScreenId` (`apps/customer/src/app/screen-types.ts`) first.
 - **Draw** with `packages/ui` and its role tokens (`.claude/rules/design.md`); a part being moved keeps its exact output, bugs included.
 
-What fails the other way: `garden/no-effect-in-product` (an effect in product code), `apps/customer/src/app/one-main.test.ts` (a page with two main landmarks), `tooling/ci/look-drift.mjs` (a raw colour, size or physical side). A second live stream fails nothing yet.
+What fails the other way: `garden/no-effect-in-product` (an effect in product code), `apps/customer/src/app/one-main.test.ts` (a page with two main landmarks), `tooling/ci/look-drift.mjs` (a raw colour, size or physical side), `garden/no-restyled-kit-part`, `garden/no-raw-control` and `garden/no-raw-type-class` (a kit part given colour, type, radius or shadow; a raw `<button>` or `<input>`; a raw `text-sm`: use the part's variant, the kit's control or `Text`), each room file held under its count in `apps/customer/kit-ceilings.json` (`tooling/lint/kit-ceilings.test.mjs`). A second live stream fails nothing yet.
 
 ## 5. A service is put together in one place
 
