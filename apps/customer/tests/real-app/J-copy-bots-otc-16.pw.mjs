@@ -88,7 +88,8 @@ async function openCoin(page) {
   return box;
 }
 
-async function openManage(page) {
+/** The Manage dialog of the rule with this file's basket; `newest` picks the newest of several (#8 makes a second one). */
+async function openManage(page, { newest = false } = {}) {
   const { chainId } = await venueInfo();
   await installTestWallet(page, { chainId, privateKey: state('walletKey') });
   await signIn(page, state('who'));
@@ -97,8 +98,8 @@ async function openManage(page) {
     .getByRole('table', { name: 'My recurring buys' })
     .getByRole('row')
     .filter({ hasText: state('basketLine') });
-  await expect(row).toHaveCount(1);
-  await row.getByRole('button', { name: 'Manage', exact: true }).click();
+  if (!newest) await expect(row).toHaveCount(1);
+  await (newest ? row.first() : row).getByRole('button', { name: 'Manage', exact: true }).click();
   const box = page.getByRole('dialog', { name: 'Manage recurring buy' });
   await expect(box).toBeVisible();
   return box;
@@ -213,15 +214,6 @@ async function nextSlotOrNow(ruleId) {
   await expect.poll(async () => (await rule(state('who'), ruleId)).slots.filter((s) => s.outcome === 'bought').length).toBe(1);
   return rule(state('who'), ruleId);
 }
-
-test(`${J} #3 sets a target savings pool: each run routes the bought asset to flexible savings under its own key`, async ({ page }) => {
-  const ruleId = state('ruleId');
-  const box = await openManage(page);
-  await box.getByLabel('Send what I buy to', { exact: true }).selectOption('Flexible savings', UNBUILT);
-  await box.getByRole('button', { name: 'Save', exact: true }).click();
-  const routed = await nextSlot(ruleId, 2);
-  expect(routed.slots.at(-1).savingsKey).toMatch(new RegExp(`^recurring:${ruleId}:`));
-});
 
 test(`${J} #4 chooses card funding: the notice that card funding needs the card processor and is off in this build, and nothing is saved`, async ({
   page,
@@ -363,6 +355,7 @@ test(`${J} #8 opens the share page: cost always shown; value reads "Not set" wit
   });
   expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
   const ruleId = made.body.result.data.ruleId;
+  run.write({ shareRuleId: ruleId });
   await expect.poll(async () => (await rule(who, ruleId)).slots.filter((s) => s.outcome === 'bought').length).toBe(1);
 
   // No mark on one coin: the maker's bid on it is pulled, so the venue has no mid to price it by.
@@ -399,4 +392,16 @@ test(`${J} #8 opens the share page: cost always shown; value reads "Not set" wit
   await expect(sheet.getByTestId('recurring-share-text')).toContainText('Cost 10 USDC');
   await expect(sheet.getByTestId('recurring-share-text')).toContainText('Profit');
   expect(writes).toEqual([]);
+});
+
+// Last on purpose: #3 is not built and fails at its first missing part, and a failed test starts a new worker for what
+// follows it, which would leave the steps after it without the rule they act on. #7 ended the first rule, so it acts on #8's,
+// which is still running.
+test(`${J} #3 sets a target savings pool: each run routes the bought asset to flexible savings under its own key`, async ({ page }) => {
+  const ruleId = state('shareRuleId');
+  const box = await openManage(page, { newest: true });
+  await box.getByLabel('Send what I buy to', { exact: true }).selectOption('Flexible savings', UNBUILT);
+  await box.getByRole('button', { name: 'Save', exact: true }).click();
+  const routed = await nextSlot(ruleId, 2);
+  expect(routed.slots.at(-1).savingsKey).toMatch(new RegExp(`^recurring:${ruleId}:`));
 });
