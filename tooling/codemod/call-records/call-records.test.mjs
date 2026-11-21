@@ -9,6 +9,15 @@ import { answerChecks, Changes, pruneImports, recordName, rewriteSite } from './
 import { applyEdits, freeNames, load, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { CALL_METHOD, doublesIn } from './doubles.mjs';
+import { armsOf, callsOf } from './door.mjs';
+import { canon, doorTree, treeOf } from './door-check.mjs';
+import { samplesFor } from './samples.mjs';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+
+/** The zod the records use: the one @intafaced/contracts resolves. */
+const contractsZod = () =>
+  import(pathToFileURL(createRequire(new URL('../../../packages/contracts/package.json', import.meta.url)).resolve('zod')).href);
 
 test('a record is named by its module and path, a leading segment that repeats the module dropped', () => {
   assert.equal(recordName('bank', 'deposits.addresses.list'), 'BANK_DEPOSITS_ADDRESSES_LIST');
@@ -522,4 +531,62 @@ test("portable: a service's wire replay samples a JSON-value schema as main's z.
     assert.equal(withReplayJson(once), once);
   }
   assert.equal(withReplayJson('const y = 2;\n'), undefined);
+});
+
+test("a door's match arms: a pattern over lines, each arm to the next, a literal that is no call skipped", () => {
+  const lines = [
+    '    match path {',
+    '        "a.one" => one()?,',
+    '        "b.two"',
+    '        | "b.three" => {',
+    '            two()?',
+    '        }',
+    '        "not.a.call" => other(),',
+    '        _ => rest(),',
+    '    }',
+  ];
+  const arms = armsOf('src/slices/x.rs', lines, new Map([['a.one'], ['b.two'], ['b.three']]));
+  assert.deepEqual(
+    arms.map((a) => [a.call, a.from, a.to]),
+    [
+      ['a.one', 1, 2],
+      ['b.two', 2, 6],
+      ['b.three', 2, 6],
+    ],
+  );
+});
+
+test("a door's calls.rs rows read as kind, scope (null when public) and guarded; a row it can't read stops it", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'door-'));
+  mkdirSync(join(dir, 'src/door'), { recursive: true });
+  const row = (path, kind, access, guarded) =>
+    `Call { path: "${path}", kind: Kind::${kind}, access: Access::${access}, guarded: ${guarded}, }`;
+  writeFileSync(
+    join(dir, 'src/door/calls.rs'),
+    [row('a', 'Query', 'Public', 'false'), row('b', 'Mutation', 'Scope("x:write")', 'true')].join('\n'),
+  );
+  assert.deepEqual(Object.fromEntries(callsOf(dir)), {
+    a: { kind: 'query', scope: null, guarded: false },
+    b: { kind: 'mutation', scope: 'x:write', guarded: true },
+  });
+  writeFileSync(join(dir, 'src/door/calls.rs'), 'Call { path: "c", kind: Kind::Query, access: Access::Operator, guarded: true, }');
+  assert.throws(() => callsOf(dir), /can't read/);
+});
+
+test("a record's input is held to the door's tree: the same zod parts match, one changed bound does not", async () => {
+  const { z } = await contractsZod();
+  const nodes = [
+    { t: 'object', shape: [['slug', 1]], catchall: 'strict' },
+    { t: 'string', checks: [{ k: 'min_length', n: 1 }] },
+  ];
+  assert.equal(canon(treeOf(z.strictObject({ slug: z.string().min(1) }))), canon(doorTree(nodes, 0)));
+  assert.notEqual(canon(treeOf(z.strictObject({ slug: z.string().min(2) }))), canon(doorTree(nodes, 0)));
+});
+
+test("a door record's accepted sample is the door's own accepted request, and none is guessed without one", async () => {
+  const { z } = await contractsZod();
+  const record = { name: 'X', path: 'p', input: z.object({ from: z.string() }) };
+  assert.match(samplesFor(record, new Map([['p', { from: '2026-01-01' }]])), /verdict: 'accept', input: \{"from":"2026-01-01"\}/);
+  assert.throws(() => samplesFor(record, new Map()), /the door lets through/);
+  assert.match(samplesFor(record), /verdict: 'accept'/);
 });

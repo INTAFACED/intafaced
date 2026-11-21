@@ -8,7 +8,7 @@
 //        [--file bank-deposit-procedures] [--write]
 //
 // Safe to rerun: a call already made through its record is no site, and a record already written is reused.
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
@@ -26,6 +26,7 @@ import {
 } from './ast.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { closureOf, contractsExports, usedOutside } from './closure.mjs';
+import { doorOf } from './door.mjs';
 import { findSites } from './sites.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
@@ -55,9 +56,12 @@ function args(argv) {
     else if (a === '--router-fn') out.routerFn = argv[++i];
     else if (a === '--json') out.json = argv[++i];
     else if (a === '--skip-file') out.skip = JSON.parse(readFileSync(argv[++i], 'utf8'));
+    else if (a === '--door') out.door = argv[++i];
+    else if (a === '--from-rev') out.fromRev = argv[++i];
     else throw new Error(`unknown argument ${a}`);
   }
   if (!out.module) throw new Error('--module is required');
+  if (Boolean(out.door) !== Boolean(out.fromRev)) throw new Error('--door and --from-rev go together');
   out.service ??= `svc-${out.module}`;
   return out;
 }
@@ -144,7 +148,8 @@ function plan(opts) {
     if (!byPath.has(s.path)) byPath.set(s.path, []);
     byPath.get(s.path).push(s);
   }
-  const readers = refusalReaders(serviceDir);
+  const readers = opts.door ? [] : refusalReaders(serviceDir);
+  const door = opts.door ? doorOf(join(REPO, opts.door)) : undefined;
   const exportsIndex = contractsExports(REPO);
   const records = [];
   const existing = [];
@@ -172,14 +177,35 @@ function plan(opts) {
       continue;
     }
     const chain = chainOf(proc);
+    let reader = door ? undefined : readerFor(readers, proc.p.file);
+    if (door) {
+      // The door is the wire: its kind and access stand for the router's, which only checks them against it; a guard
+      // the router writes its own way is the door's access all the same.
+      const row = door.calls.get(path);
+      chain.problems = chain.problems.filter((x) => !/^guard |^scopedProcedure /.test(x));
+      if (!row) chain.problems.push(`${opts.door} serves no call ${path}`);
+      else if (row.kind !== chain.kind) chain.problems.push(`${opts.door} serves ${path} as a ${row.kind}, the router as a ${chain.kind}`);
+      else {
+        chain.guard = { text: row.scope ? `{ caller: 'scope', scope: '${row.scope}', module: '${opts.module}' }` : "{ caller: 'public' }" };
+        try {
+          reader = { refusals: door.refusals(path) };
+        } catch (e) {
+          chain.problems.push(e.message);
+        }
+      }
+    }
     const kindMismatch = list.filter((s) => s.kind && s.kind !== chain.kind);
-    const reader = readerFor(readers, proc.p.file);
     if (chain.problems.length || !reader) {
       const why = chain.problems.join('; ') || `${opts.service} has no refusal reader this file can import (no exported \`: RefusalOf\`)`;
       for (const s of list) hand.push({ site: s, why });
       continue;
     }
     const name = recordName(opts.module, path);
+    if (exportsIndex.has(name) && door && recordOfPath(exportsIndex.get(name), name, path)) {
+      // A door call with its record already written: the callers move to it.
+      existing.push({ path, name, file: exportsIndex.get(name), sites: list, kind: chain.kind });
+      continue;
+    }
     if (exportsIndex.has(name)) {
       for (const s of list) hand.push({ site: s, why: `contracts already exports ${name}` });
       continue;
@@ -191,6 +217,15 @@ function plan(opts) {
     for (const s of kindMismatch) hand.push({ site: s, why: `calls ${path} as a ${s.kind}, but the service mounts a ${chain.kind}` });
   }
   return { serviceDir, procs, unread, sites, records, existing, hand };
+}
+
+/** Whether `name` in contracts `file` is the record of `path`: its `defineProcedure({ … path: '<path>' … })`. */
+function recordOfPath(file, name, path) {
+  const src = readFileSync(file, 'utf8');
+  const at = src.indexOf(`export const ${name} = defineProcedure(`);
+  if (at < 0) return false;
+  const end = src.indexOf('\n});', at);
+  return src.slice(at, end).includes(`path: '${path}',`);
 }
 
 /** The input argument of a site, and whether it is no input at all (`undefined`, `{}`, or absent). */
@@ -339,6 +374,12 @@ function build(opts, planned) {
     for (const r of recs) {
       const { p, node } = r.proc;
       const { reader } = r;
+      // A door serves its records itself (its records test holds it to them): only the callers move.
+      if (opts.door) {
+        for (const s of r.sites) rewriteSite(changes, s, r.name, contractsSpec(file), !r.chain.input);
+        done.push(r);
+        continue;
+      }
       changes.edit(p.file, node.start, node.end, `mountRecord(${r.name}, ${text(p, r.chain.handler)}, ${reader.name})`);
       changes.imp(p.file, contractsSpec(file), r.name);
       changes.imp(p.file, '@intafaced/contracts/procedure-mount', 'mountRecord');
@@ -606,7 +647,7 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
       `  kind: '${r.chain.kind}',`,
       `  path: '${r.path}',`,
       `  access: ${r.chain.guard.text},`,
-      '  refusals: {},',
+      `  refusals: ${r.reader.refusals ? JSON.stringify(r.reader.refusals).replace(/"/g, "'").replace(/','/g, "', '").replace(/':'/g, "': '") : '{}'},`,
       `  input: ${r.chain.input ? exactInput(p, r.chain.input, lines, r.path) : 'NO_INPUT'},`,
       `  output: ${text(p, r.chain.output)},`,
       `  samples: ${r.chain.input ? "[{ verdict: 'accept', input: {} }, { verdict: 'refuse', input: 42 }]" : "[{ verdict: 'accept' }]"},`,
@@ -843,10 +884,33 @@ export function pruneImports(file) {
   }
 }
 
+/**
+ * A service the door now serves in Rust: its TypeScript router, read from the commit before it was deleted, gives each
+ * record's schemas (the door's inputs were generated from them, and its answers are replayed against them), written back
+ * for this run only and deleted after it.
+ */
+function withRouterFrom(opts, fn) {
+  if (!opts.fromRev) return fn();
+  const dir = join(REPO, 'services', opts.service);
+  if (existsSync(dir)) throw new Error(`${dir} exists: --from-rev reads a router the checkout no longer has`);
+  execFileSync('sh', ['-c', `git archive "$1" "services/$2" | tar -x`, 'sh', opts.fromRev, opts.service], { cwd: REPO });
+  try {
+    return fn();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 function main() {
   const opts = args(process.argv.slice(2));
+  withRouterFrom(opts, () => report(opts));
+}
+
+function report(opts) {
   const planned = plan(opts);
   const result = build(opts, planned);
+  // The router read from history is not written back: only contracts and the callers change.
+  if (opts.fromRev) for (const f of result.changes.files.keys()) if (f.startsWith(planned.serviceDir)) result.changes.files.delete(f);
   const summary = {
     service: opts.service,
     // A `? :` call is two sites, one per branch, and one call.
