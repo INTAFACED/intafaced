@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { z } from 'zod';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Field } from '../../shared/ui';
 import { isHiddenPath } from '../../app/feature-registry';
@@ -9,7 +8,8 @@ import { t as legacyText } from './copy';
 import { Details, Read, type useAction } from './common';
 import { deskCopy } from './support-desk-copy';
 import { HIDDEN_FEATURE_ARTICLES, KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from './support-desk';
-import { kbSchema, type KbArticle } from './support-schemas';
+import type { KbArticle } from './support-schemas';
+import { SUPPORT_SEARCH_KB } from '@intafaced/contracts/support-customer-procedures';
 import { readRelated, sendArticleFeedback } from './support-calls';
 
 const CATEGORY_KEY = {
@@ -58,10 +58,7 @@ export function SupportHelpArticles({ action, onStartRequest }: { action: Return
   const [draft, setDraft] = useState(carried),
     [search, setSearch] = useState(carried),
     [category, setCategory] = useState<KbCategory>('all');
-  const kb = useResource(
-    (signal) => api.query('support', 'searchKb', { q: search, limit: 50 }, z.array(kbSchema), { signal }),
-    `kb:${search}`,
-  );
+  const kb = useResource((signal) => api.call(SUPPORT_SEARCH_KB, { q: search, limit: 50 }, { signal }), `kb:${search}`);
   useEffect(() => keepDeskSearch(userId, search), [userId, search]);
   return (
     <section className="support-pane" aria-label={copy.t('tabHelp')}>
