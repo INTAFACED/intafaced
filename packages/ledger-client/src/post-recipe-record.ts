@@ -20,7 +20,7 @@ import { LedgerError, type PostRequest } from './types.js';
  * refused (`ledger.idempotency_conflict`) as on `/trpc/post`.
  *
  * Adding a recipe to the door is one entry in `RECIPE_DOORS` (its inputs' wire shape and the conversion to its bigints),
- * its line in `postRecipeInput`, and its grant in svc-ledger's `caller-allowlist.ts`. Only svc-academy's two recipes are on the door now.
+ * its line in `postRecipeInput`, and its grant in the ledger gate's `gate/caller-allowlist.ts`. Only svc-academy's two recipes are on the door now.
  */
 
 /** A positive or zero decimal string, at most 18 places: the recipe refuses zero where it must. */
@@ -121,7 +121,7 @@ export const LEDGER_POST_RECIPE = defineProcedure({
   transport: 'http',
   method: 'POST',
   path: '/trpc/postRecipe',
-  /** The services granted a recipe on this door (svc-ledger `caller-allowlist.ts`); svc-ledger's `post-recipe-door.test.ts` holds them equal. */
+  /** The services granted a recipe on this door (`gate/caller-allowlist.ts`); svc-ledger's `post-recipe-door.test.ts` holds them equal. */
   access: { caller: 'service', callers: ['svc-academy'] },
   /** Plain-HTTP refusals: status and `{ message, code }` from svc-ledger's `httpError`. */
   refusals: {

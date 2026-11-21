@@ -1330,7 +1330,6 @@
   "services/svc-bank/src/loans/loan-service.ts#dailyLoanInterest",
   "services/svc-bank/src/loans/loan-servicing-preview.ts#LOAN_EXTERNAL_REPAY_ENGINE",
   "services/svc-bank/src/loans/loan-servicing-preview.ts#LOAN_SCHEDULE_ENGINE",
-  "services/svc-bank/src/loans/loan-servicing-preview.ts#throwPreviewRefusal",
   "services/svc-bank/src/loans/risk.ts#BPS",
   "services/svc-bank/src/loans/risk.ts#DAYS_PER_YEAR",
   "services/svc-bank/src/loans/risk.ts#formatAmount",

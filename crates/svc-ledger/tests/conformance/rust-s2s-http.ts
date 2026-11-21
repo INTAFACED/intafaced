@@ -10,7 +10,7 @@
  */
 import { rehydrateLedgerHttpError } from '../../../../packages/ledger-client/dist/index.js';
 import { DIRECT } from './door-client.ts';
-import type { PostCaller } from '../../../../services/svc-ledger/src/caller-binding.ts';
+import type { PostCaller } from '../../../../packages/ledger-client/src/gate/caller-judge.ts';
 import { currentRustBook } from './rust-db.ts';
 import { signerFor } from './rust-door.ts';
 

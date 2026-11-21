@@ -28,6 +28,7 @@ import { createSafetyRouter } from './safety/safety.router.js';
 import { createBankAccountRouter } from './onboarding/bank-account.router.js';
 import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
+import { createCreditPreviewsRouter } from './loans/credit-previews.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { createDirectDebitsRouter } from './direct-debits/direct-debits.router.js';
@@ -301,6 +302,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     }),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),
+    /** J-bank-12 overdraft, personal and business term loan, bureau, loan schedule and revolving credit previews: TEST rows and typed Preview refusals only. */
+    creditPreviews: createCreditPreviewsRouter(),
     bills: createBillsRouter(bank, stepUp),
     global: createGlobalRouter(bank, stepUp),
     personalRequest: createPersonalRequestRouter(bank, guard),

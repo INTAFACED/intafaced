@@ -21,10 +21,6 @@ export function reasonOf(why) {
   const rules = [
     [/no refusal reader this file can import/, 'service has no exported refusal reader (one file per service)'],
     [/comes from @intafaced\/[a-z-]+, wh|is not declared/, 'answer or input schema from another package or generic'],
-    [/useBankRead has no record form/, 'no record form: useBankRead'],
-    [/founderEdgeCall has no record form/, 'no record form: founderEdgeCall'],
-    [/payCall has no record form/, 'no record form: payCall'],
-    [/has no record form/, 'no record form: other'],
     [/named by a template/, 'service or call named by a template'],
     [/builds the schema/, "schema built by the caller's own function"],
     [/own schema checks the answer/, 'caller schema checks the answer (.refine and the like)'],
@@ -34,6 +30,7 @@ export function reasonOf(why) {
     [/clashes with another/, 'helper name clash (a rerun places it)'],
     [/is not a declaration in/, 'helper the closure cannot follow'],
     [/scopedProcedure with a scope or options/, 'scopedProcedure scope or options a record cannot copy'],
+    [/guard \S+ kept by hand/, 'guard kept by hand (named, with its reason)'],
     [/guard .*chained/, 'guard chained with .use()'],
     [/guard /, 'guard a record cannot name'],
     [/no \.output\(\)/, 'no answer schema in the router'],
@@ -158,6 +155,13 @@ function main() {
     if (s.error) return { service, error: s.error };
     return { service, sites: s.sites, wouldMove: s.rewritten, records: s.records.length, left: count(s.hand.map((h) => reasonOf(h.why))) };
   });
+  // A checkout without its install (`pnpm install`) can't load the parser: every plan fails, and the totals would read 0.
+  const failed = rows.filter((r) => r.error);
+  if (failed.length === rows.length || failed.length > rows.length / 2) {
+    console.error(`the codemod could not plan ${failed.length} of ${rows.length} services (run \`pnpm install\` first):`);
+    for (const r of failed.slice(0, 5)) console.error(`  ${r.service}: ${r.error}`);
+    process.exit(1);
+  }
   let extra = {};
   if (argv.includes('--deep')) {
     try {
@@ -184,6 +188,10 @@ function main() {
       maxBuffer: 512 * 1024 * 1024,
     },
   );
+  if (ox.status !== 0 && ox.status !== 1) {
+    console.error(`oxlint did not run (exit ${ox.status}): ${(ox.stderr || '').split('\n')[0]}`);
+    process.exit(1);
+  }
   const shapes = {};
   for (const d of JSON.parse(ox.stdout || '{"diagnostics":[]}').diagnostics ?? []) {
     if (!/no-call-by-name/.test(d.code ?? '')) continue;

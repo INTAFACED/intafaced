@@ -98,9 +98,12 @@ The `controls` slice is ported, not served yet (the switch is its own item). It 
 - `tests/controls_pg.rs`: `reconciliation-controls.pg.test.ts` case for case on a real Postgres, each case in its own database, its outside sources a local HTTP server. The tRPC router case runs through the operator door. The feed case and `transactionsExist` stay in `tests/ops_reads_pg.rs`.
 - `tests/controls_sources.rs`: `reconciliation-sources.test.ts`; the tick hook case of `reconciliation-controls.test.ts` is in `tests/reconcile_tick.rs`, its schedule cases in `src/controls/schedule.rs`.
 
-Left to later slices:
+The `/metrics` route is ported, not served yet (the switch is its own item). It added:
 
-- `/metrics` is in no slice yet. The switch needs it, since Prometheus scrapes it; the `ledger_reconcile_last_verified_*` gauges come with it.
+- `service_kit::metrics`: `@intafaced/telemetry`'s `Metrics` (the series names, labels, buckets, HELP and TYPE text, label escaping, the 2,000-series cap with its `_overflow` series, the trailing newline and the content type) and `renderGauges`. A door turns it on with `Door::metrics` (default off, so svc-tax, svc-academy, svc-agents and svc-matching are unchanged): the kit's server then serves `GET /metrics` and observes every reply it sends, 404s and `/metrics` included, under `module="_local"` and `outcome="none"`. `crates/service-kit/tests/metrics_golden.rs` holds the exposition byte for byte to what `Metrics` rendered for the same observations (`tests/fixtures/metrics.golden.json`, written by `crates/service-kit/scripts/record-metrics.mjs`).
+- `src/metrics.rs`: `reconcileGauges`, read from the book on each scrape through `Door::gauges` (`read_last_verified`); a read that fails leaves the gauges out and the scrape answers.
+- `tests/metrics.rs`: `metrics.test.ts`, `metrics.boot.e2e.test.ts` and `observability-wiring.test.ts` case for case, over a real socket to the kit's `serve` loop; every scrape and the counts a sequence of requests leaves, against what the TypeScript route answered (`tests/fixtures/metrics-route.golden.json`, written by `scripts/record-metrics.mjs`). `tests/store_pg.rs` reads the gauges from a real book.
+- Where it cannot be the TypeScript's: a reply is observed once its answer is ready, just before it is written; Fastify's `onResponse` takes the time after the write. The difference is the socket write.
 
 ## What the shell holds, and how it is proved
 

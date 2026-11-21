@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { answerChecks, pruneImports, recordName } from './index.mjs';
-import { freeNames, load } from './ast.mjs';
+import { answerChecks, Changes, pruneImports, recordName, rewriteSite } from './index.mjs';
+import { applyEdits, freeNames, load, text } from './ast.mjs';
+import { findSites } from './sites.mjs';
 import { CALL_METHOD, doublesIn } from './doubles.mjs';
 
 test('a record is named by its module and path, a leading segment that repeats the module dropped', () => {
@@ -111,9 +112,78 @@ test("a schema the caller's own function builds is an answer check, so its call 
   assert.deepEqual(answerChecks(p, init('b')), []);
 });
 
+test('a useBankRead, payCall and founderEdgeCall call each moves to its record form, its other arguments kept', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const put = (path, lines) => {
+    mkdirSync(join(repo, dirname(path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  const money = 'apps/customer/src/features/money';
+  put(`${money}/contracts-cards.ts`, ["import { z } from 'zod';", "export const cardsReads = { 'cards.list': z.array(z.string()) };"]);
+  put(`${money}/contracts.ts`, ["import { cardsReads } from './contracts-cards';", 'export const bankReads = { ...cardsReads } as const;']);
+  put(`${money}/components.tsx`, [
+    "import { bankReads } from './contracts';",
+    'export function useBankRead(p, i, e = true) { return bankReads[p]; }',
+  ]);
+  put(`${money}/Cards.tsx`, [
+    "import { useBankRead } from './components';",
+    "export const Cards = () => useBankRead('cards.list', { limit: 5 }, open);",
+  ]);
+  put('apps/admin/src/lib/pay.ts', [
+    "import { payCall, parseWith } from '@/lib/merchants/pay-call';",
+    "import { founderEdgeCall } from '@/lib/founder-session';",
+    "export const a = payCall(ctx, 'payHalts.history', 'GET', { limit: 5 }, parseWith(historySchema));",
+    "export const b = payCall(ctx, 'recipients.list', 'GET', {}, readRows, 'identity');",
+    "export const c = founderEdgeCall(config, 'identity', 'recipients.add', 'POST', input, undefined, signIn);",
+  ]);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  execFileSync('git', ['add', '.'], { cwd: repo });
+
+  const sites = findSites(repo).filter((s) => s.shape !== 'keyed-schema');
+  const of = (shape, path) => sites.find((s) => s.shape === shape && s.path === path);
+  for (const s of sites) assert.equal(s.problem, undefined, `${s.shape} ${s.path}: ${s.problem}`);
+  assert.deepEqual(
+    sites.map((s) => [s.shape, s.module, s.path, s.kind]).sort(),
+    [
+      ['founderEdgeCall', 'identity', 'recipients.add', 'mutation'],
+      ['payCall', 'identity', 'recipients.list', 'query'],
+      ['payCall', 'pay', 'payHalts.history', 'query'],
+      ['useBankRead', 'bank', 'cards.list', 'query'],
+    ].sort(),
+  );
+  assert.match(text(of('useBankRead', 'cards.list').schema.p, of('useBankRead', 'cards.list').schema.node), /^z\.array/);
+
+  const moved = (s, name, takesNone) => {
+    const changes = new Changes();
+    rewriteSite(changes, s, name, '@intafaced/contracts/x', takesNone);
+    const f = changes.of(s.file);
+    return { code: applyEdits(load(s.file).src, f.edits), imports: [...f.imports] };
+  };
+  const card = moved(of('useBankRead', 'cards.list'), 'BANK_CARDS_LIST');
+  assert.match(card.code, /= \(\) => useBankRecord\(BANK_CARDS_LIST, \{ limit: 5 \}, open\);$/m);
+  assert.deepEqual(
+    card.imports.map(([spec, names]) => [spec, [...names]]),
+    [
+      ['./components', ['useBankRecord']],
+      ['@intafaced/contracts/x', ['BANK_CARDS_LIST']],
+    ],
+  );
+  assert.match(
+    moved(of('payCall', 'payHalts.history'), 'PAY_HALTS_HISTORY').code,
+    /= payRecordCall\(ctx, PAY_HALTS_HISTORY, \{ limit: 5 \}\);$/m,
+  );
+  assert.match(
+    moved(of('payCall', 'recipients.list'), 'IDENTITY_RECIPIENTS_LIST', true).code,
+    /= payRecordRead\(ctx, IDENTITY_RECIPIENTS_LIST, undefined, readRows\);$/m,
+  );
+  assert.match(
+    moved(of('founderEdgeCall', 'recipients.add'), 'IDENTITY_RECIPIENTS_ADD').code,
+    /= founderEdgeRecordCall\(config, IDENTITY_RECIPIENTS_ADD, input, undefined, signIn\);$/m,
+  );
+});
+
 test('the report sorts each hand reason into the kind one script change or one decision closes', async () => {
   const { reasonOf } = await import('./report.mjs');
-  assert.equal(reasonOf('founderEdgeCall has no record form yet'), 'no record form: founderEdgeCall');
   assert.equal(
     reasonOf('its own schema checks the answer, mine() builds the schema (a.ts:3): move it'),
     "schema built by the caller's own function",
@@ -265,6 +335,63 @@ test('a call naming one of two paths by `? :` is a site per branch, its input wr
     'auth.register consequent stays',
     'auth.login alternate stays',
   ]);
+});
+
+test("a guard behind the service's own function or const options is copied whole onto its record; one that checks more keeps its call, named", async () => {
+  const { procedures, chainOf } = await import('./router.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-guards-'));
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(
+    join(dir, 'src/procedures.ts'),
+    [
+      "import { scopedProcedure } from '@intafaced/contracts';",
+      "export function executeProcedure() { return scopedProcedure('agents:execute', { module: 'agents', person: true, ownSession: 'agents.execute_person_only' }); }",
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { scopedProcedure, TRPCError } from '@intafaced/contracts';",
+      "import { executeProcedure } from './procedures.js';",
+      "const guards = { module: 'core-ops' as const, plane: 'fiat' as const };",
+      "const opsScope = 'admin:compliance' as const;",
+      'export function createSvcRouter(deps) {',
+      "  const operator = (scope: 'admin:read' | 'admin:write') => scopedProcedure(scope, { module: 'agents', person: true, ownSession: 'agents.fleet_person_only' });",
+      "  const readProcedure = () => scopedProcedure('agents:read', { module: 'agents' });",
+      '  const reader = scopedProcedure(opsScope, guards);',
+      "  const either = (flag) => { if (flag) return scopedProcedure('admin:write'); return scopedProcedure('admin:read'); };",
+      "  const opsProcedure = scopedProcedure('campaigns:ops', guards).use(({ next }) => next());",
+      '  return router({',
+      "    desk: operator('admin:read').output(o).query(h),",
+      '    run: executeProcedure().output(o).mutation(h),',
+      '    signer: readProcedure().output(o).query(h),',
+      '    inbox: reader.output(o).query(h),',
+      "    status: scopedProcedure('admin:read', guards).output(o).query(h),",
+      '    pick: either(true).output(o).query(h),',
+      '    ops: opsProcedure.output(o).query(h),',
+      '  });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found } = procedures(dir);
+  const access = Object.fromEntries(
+    [...found].map(([path, proc]) => [path, chainOf(proc)]).map(([path, c]) => [path, c.guard?.text ?? c.problems.join('; ')]),
+  );
+  assert.deepEqual(access, {
+    desk: "{ caller: 'scope', scope: 'admin:read', module: 'agents', person: true, ownSession: 'agents.fleet_person_only' }",
+    run: "{ caller: 'scope', scope: 'agents:execute', module: 'agents', person: true, ownSession: 'agents.execute_person_only' }",
+    signer: "{ caller: 'scope', scope: 'agents:read', module: 'agents' }",
+    inbox: "{ caller: 'scope', scope: 'admin:compliance', module: 'core-ops', plane: 'fiat' }",
+    status: "{ caller: 'scope', scope: 'admin:read', module: 'core-ops', plane: 'fiat' }",
+    // Two returns may be two guards: neither is copied.
+    pick: 'guard either() is a function with more than its returned guard: not one a record names',
+    ops: "guard opsProcedure kept by hand: it adds svc-campaigns' ops second-factor check (requireOpsMfa); no record field says that",
+  });
+  const { reasonOf } = await import('./report.mjs');
+  assert.equal(reasonOf(access.ops), 'guard kept by hand (named, with its reason)');
 });
 
 test('portable: a refused z.unknown() is followed from the record to its source and becomes jsonValueSchema', async () => {

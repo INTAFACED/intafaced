@@ -26,8 +26,6 @@ export const INVENTORY_PATH = 'tooling/ci/custody-layer-inventory.json';
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo', '.next', 'coverage', 'drizzle', 'target', '.git', '__tests__']);
 const TEST_FILE = /\.(test|spec|testkit|fixture|fixtures)\.[cm]?tsx?$|\.pw\.[cm]?[jt]s$/;
 const LEDGER_CLIENT_SRC = 'packages/ledger-client/';
-/** Names every recipe to sample its shape for the HTTP door's allowlist; it posts none of them. */
-const NOT_A_POSTING_SITE = new Set(['services/svc-ledger/src/recipe-gate.ts']);
 
 function* walk(dir) {
   if (!existsSync(dir)) return;
@@ -95,7 +93,7 @@ export function customerPostingSites(root, customerRecipes) {
   for (const top of ['services', 'packages']) {
     for (const file of walk(join(root, top))) {
       const rel = relative(root, file).split(sep).join('/');
-      if (rel.startsWith(LEDGER_CLIENT_SRC) || NOT_A_POSTING_SITE.has(rel) || TEST_FILE.test(rel)) continue;
+      if (rel.startsWith(LEDGER_CLIENT_SRC) || TEST_FILE.test(rel)) continue;
       const calls = customerRecipeCalls(readFileSync(file, 'utf8'), customerRecipes);
       if (calls.length > 0) sites[rel] = calls;
     }
