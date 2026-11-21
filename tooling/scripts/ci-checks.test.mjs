@@ -120,6 +120,7 @@ test('a rule test walks a folder and reads the source it finds; one file read by
   assert.ok(ruleTest('a/x.test.ts', "execFileSync('git', ['ls-files', '--', '*.ts'])"));
   assert.ok(!ruleTest('a/x.test.ts', "readFileSync(new URL('./format.ts', import.meta.url))"));
   assert.ok(!ruleTest('a/x.test.ts', "readdirSync(drizzle).filter((n) => n.endsWith('.sql'))"));
+  assert.ok(ruleTest('a/x.test.ts', "declaredRoutes(REPO, { isRouteSource });\nrepo('services/svc-ws/src/x.ts')"), 'the shared route walk');
   assert.ok(!ruleTest('a/x.ts', "readdirSync(d).filter((n) => n.endsWith('.ts'))"), 'not a test file');
 });
 

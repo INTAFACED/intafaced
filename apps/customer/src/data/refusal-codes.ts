@@ -116,7 +116,7 @@ export type RefusalKind =
   | 'unknown';
 
 /** Exact codes first. */
-const EXACT: Readonly<Record<string, RefusalKind>> = {
+export const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.convert_spread_unset': 'convertSpreadUnset',
   'trade.slippage_cap_unset': 'slippageCapUnset',
   // The owner's spread limit on a venue market order is blank: market orders pause the same way.
@@ -352,7 +352,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
 };
 
 /** Prefix rules, checked in order after the exact table. */
-const PREFIXES: ReadonlyArray<readonly [prefix: string, kind: RefusalKind]> = [
+export const PREFIXES: ReadonlyArray<readonly [prefix: string, kind: RefusalKind]> = [
   ['denied.kyc', 'verify'],
   ['denied.region', 'region'],
   ['denied.screening', 'screening'],
@@ -375,7 +375,7 @@ const PREFIXES: ReadonlyArray<readonly [prefix: string, kind: RefusalKind]> = [
 ];
 
 // `*_unset` / `*_unwired` are the services' "an operator has not configured this yet" refusals.
-const SUFFIXES: ReadonlyArray<readonly [suffix: string, kind: RefusalKind]> = [
+export const SUFFIXES: ReadonlyArray<readonly [suffix: string, kind: RefusalKind]> = [
   ['.tier_required', 'verify'],
   ['_unset', 'notSetUp'],
   ['_unwired', 'notSetUp'],

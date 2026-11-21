@@ -115,24 +115,12 @@ export interface MethodCashRules {
   readonly releaseWindowSeconds: number;
 }
 
-/** Bounds of the rule texts and the cash release window; the service and the database check the same. */
-export const NOTE_GUIDANCE_MAX = 500;
-export const NOTE_FORBIDDEN_MAX_WORDS = 20;
-export const NOTE_FORBIDDEN_WORD_MAX = 80;
-export const CASH_TEXT_MAX = 1000;
-export const CASH_RELEASE_MIN_SECONDS = 300;
-export const CASH_RELEASE_MAX_SECONDS = 24 * 60 * 60;
-
 /**
  * How money on a method arrives in one market. Instant: at once, and the published payment deadline applies. Non-instant:
  * within `windowSeconds`, which becomes the order's payment deadline and the earliest a party may open a dispute; a blank
  * window falls back to the published payment deadline.
  */
 export type MethodSettlement = { readonly instant: true } | { readonly instant: false; readonly windowSeconds: number | null };
-
-/** The bounds of a settlement window, in seconds (one minute to thirty days); the database checks the same. */
-export const SETTLEMENT_WINDOW_MIN_SECONDS = 60;
-export const SETTLEMENT_WINDOW_MAX_SECONDS = 30 * 24 * 60 * 60;
 
 /** Country wildcard. A schema registered against it applies to every country. */
 export const ANY_COUNTRY = '*';

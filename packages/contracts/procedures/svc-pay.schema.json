@@ -2274,6 +2274,857 @@
         }
       ]
     },
+    "pay.payHalts.history": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "payHalts.history",
+      "access": {
+        "caller": "founder"
+      },
+      "refusals": {
+        "pay.halt_store_unavailable": "SERVICE_UNAVAILABLE",
+        "pay.halt_target_not_found": "NOT_FOUND",
+        "pay.halt_target_unknown_rail": "NOT_FOUND",
+        "pay.halt_target_unsupported": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": ["intake", "conversion", "payout", "settlement"]
+          },
+          "target": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "const": "global"
+                  }
+                },
+                "required": ["level"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "const": "merchant"
+                  },
+                  "merchantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["level", "merchantId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "const": "user"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["level", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "const": "rail"
+                  },
+                  "railId": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+                  }
+                },
+                "required": ["level", "railId"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string",
+              "enum": ["intake", "conversion", "payout", "settlement"]
+            },
+            "target": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "level": {
+                      "type": "string",
+                      "const": "global"
+                    }
+                  },
+                  "required": ["level"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "level": {
+                      "type": "string",
+                      "const": "merchant"
+                    },
+                    "merchantId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    }
+                  },
+                  "required": ["level", "merchantId"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "level": {
+                      "type": "string",
+                      "const": "user"
+                    },
+                    "userId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    }
+                  },
+                  "required": ["level", "userId"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "level": {
+                      "type": "string",
+                      "const": "rail"
+                    },
+                    "railId": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+                    }
+                  },
+                  "required": ["level", "railId"],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "halted": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": ["string", "null"]
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": ["operator", "auto_trip"]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "actorUserId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "version": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^(?:0|[1-9]\\d*)$"
+            },
+            "changedAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "confirmedByUserId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["scope", "target", "halted", "reason", "source", "actorUserId", "version", "changedAt", "confirmedByUserId"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "scope": "intake",
+            "limit": 20
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        }
+      ]
+    },
+    "pay.payHalts.operatorStatus": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "payHalts.operatorStatus",
+      "access": {
+        "caller": "founder"
+      },
+      "refusals": {
+        "pay.halt_store_unavailable": "SERVICE_UNAVAILABLE"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "readable": {
+            "type": "boolean"
+          },
+          "autoTrip": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "consecutiveFailures": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["enabled", "consecutiveFailures"],
+            "additionalProperties": false
+          },
+          "states": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "enum": ["intake", "conversion", "payout", "settlement"]
+                },
+                "target": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "level": {
+                          "type": "string",
+                          "const": "global"
+                        }
+                      },
+                      "required": ["level"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "level": {
+                          "type": "string",
+                          "const": "merchant"
+                        },
+                        "merchantId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["level", "merchantId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "level": {
+                          "type": "string",
+                          "const": "user"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["level", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "level": {
+                          "type": "string",
+                          "const": "rail"
+                        },
+                        "railId": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+                        }
+                      },
+                      "required": ["level", "railId"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "halted": {
+                  "type": "boolean"
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["operator", "auto_trip"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "actorUserId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "version": {
+                  "type": "string",
+                  "maxLength": 40,
+                  "pattern": "^(?:0|[1-9]\\d*)$"
+                },
+                "changedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["scope", "target", "halted", "reason", "source", "actorUserId", "version", "changedAt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["readable", "autoTrip", "states"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "pay.payHalts.pendingClears": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "payHalts.pendingClears",
+      "access": {
+        "caller": "founder"
+      },
+      "refusals": {
+        "pay.halt_store_unavailable": "SERVICE_UNAVAILABLE",
+        "pay.halt_target_not_found": "NOT_FOUND",
+        "pay.halt_target_unknown_rail": "NOT_FOUND",
+        "pay.halt_target_unsupported": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "cursor": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["limit"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "proposals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "requestId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": ["intake", "conversion", "payout", "settlement"]
+                },
+                "target": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "level": {
+                          "type": "string",
+                          "const": "global"
+                        }
+                      },
+                      "required": ["level"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "level": {
+                          "type": "string",
+                          "const": "merchant"
+                        },
+                        "merchantId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["level", "merchantId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "level": {
+                          "type": "string",
+                          "const": "user"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                        }
+                      },
+                      "required": ["level", "userId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "level": {
+                          "type": "string",
+                          "const": "rail"
+                        },
+                        "railId": {
+                          "type": "string",
+                          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+                        }
+                      },
+                      "required": ["level", "railId"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "expectedVersion": {
+                  "type": "string",
+                  "maxLength": 40,
+                  "pattern": "^(?:0|[1-9]\\d*)$"
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                },
+                "requestedByUserId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                "requestedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              },
+              "required": ["requestId", "scope", "target", "expectedVersion", "reason", "requestedByUserId", "requestedAt"],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["proposals", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 50,
+            "cursor": "x"
+          }
+        }
+      ]
+    },
+    "pay.payHalts.set": {
+      "service": "svc-pay",
+      "module": "pay",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "payHalts.set",
+      "access": {
+        "caller": "founder"
+      },
+      "refusals": {
+        "pay.halt_store_unavailable": "SERVICE_UNAVAILABLE",
+        "pay.halt_target_not_found": "NOT_FOUND",
+        "pay.halt_target_unknown_rail": "NOT_FOUND",
+        "pay.halt_target_unsupported": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "scope": {
+            "type": "string",
+            "enum": ["intake", "conversion", "payout", "settlement"]
+          },
+          "target": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "const": "global"
+                  }
+                },
+                "required": ["level"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "const": "merchant"
+                  },
+                  "merchantId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["level", "merchantId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "const": "user"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  }
+                },
+                "required": ["level", "userId"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "const": "rail"
+                  },
+                  "railId": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+                  }
+                },
+                "required": ["level", "railId"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "halted": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          },
+          "expectedVersion": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^(?:0|[1-9]\\d*)$"
+          }
+        },
+        "required": ["requestId", "scope", "target", "halted", "reason", "expectedVersion"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": ["changed", "noop", "conflict", "pending_confirmation"]
+          },
+          "state": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": ["intake", "conversion", "payout", "settlement"]
+              },
+              "target": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "level": {
+                        "type": "string",
+                        "const": "global"
+                      }
+                    },
+                    "required": ["level"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "level": {
+                        "type": "string",
+                        "const": "merchant"
+                      },
+                      "merchantId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["level", "merchantId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "level": {
+                        "type": "string",
+                        "const": "user"
+                      },
+                      "userId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                      }
+                    },
+                    "required": ["level", "userId"],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "level": {
+                        "type": "string",
+                        "const": "rail"
+                      },
+                      "railId": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+                      }
+                    },
+                    "required": ["level", "railId"],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "halted": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": ["string", "null"]
+              },
+              "source": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["operator", "auto_trip"]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "actorUserId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^(?:0|[1-9]\\d*)$"
+              },
+              "changedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["scope", "target", "halted", "reason", "source", "actorUserId", "version", "changedAt"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["requestId", "outcome", "state"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "requestId": "55555555-5555-4555-8555-555555555555",
+            "scope": "payout",
+            "target": {
+              "level": "global"
+            },
+            "halted": true,
+            "reason": "venue outage",
+            "expectedVersion": "0"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "requestId": "55555555-5555-4555-8555-555555555555",
+            "scope": "payout",
+            "target": {
+              "level": "global"
+            },
+            "halted": true,
+            "expectedVersion": "0"
+          }
+        }
+      ]
+    },
     "pay.withdrawal.cancel": {
       "service": "svc-pay",
       "module": "pay",

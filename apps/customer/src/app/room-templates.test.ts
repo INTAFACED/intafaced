@@ -1,12 +1,13 @@
+// @vitest-environment happy-dom
 // The route-to-template registry stays in step with the app's route table (Lit glass redesign).
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { templates } from '@intafaced/ui/lit';
 import { PORTAL_ROOMS } from '../features/pay/portal/routes';
 import { rooms } from './navigation';
+import { renderPart } from './render-record/harness';
 import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-templates';
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /**
  * Report-only until stage C of the redesign: a route without a template is listed, not failed. Stage C flips this
@@ -15,7 +16,8 @@ import { PORTAL_TEMPLATES, ROUTE_TEMPLATES, type RoomTemplate } from './room-tem
 const EVERY_ROUTE_NEEDS_A_TEMPLATE = false;
 
 const routes = rooms.filter((r) => !r.alias).map((r) => r.path);
-const src = fileURLToPath(new URL('..', import.meta.url));
+/** A route's pattern as a person opens it: a `:pair` is a real market. */
+const opened = (route: string) => route.replace(':pair', 'BTC-USDT');
 const isRoom = (v: RoomTemplate | string): v is RoomTemplate => typeof v === 'object';
 
 describe('room templates registry', () => {
@@ -47,13 +49,24 @@ describe('room templates registry', () => {
     console.info(`Rooms on their template: ${migrated} of ${all.length}`);
   });
 
-  it('a migrated room really renders through a template', () => {
-    const all = [...Object.entries(ROUTE_TEMPLATES), ...Object.entries(PORTAL_TEMPLATES)];
-    for (const [room, entry] of all) {
-      if (!isRoom(entry) || !entry.migrated) continue;
-      const file = join(src, entry.migrated.file);
-      expect(existsSync(file), `${room}: ${entry.migrated.file}`).toBe(true);
-      expect(readFileSync(file, 'utf8'), room).toContain('@intafaced/ui/lit/templates');
+  it('a migrated room really renders through its template', { timeout: 300_000 }, async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      for (const [room, entry] of Object.entries(ROUTE_TEMPLATES)) {
+        if (!isRoom(entry) || !entry.migrated) continue;
+        const html = await renderPart({ name: room, route: opened(room) });
+        expect(html.startsWith('<!-- never settled -->'), `${room} settles`).toBe(false);
+        const drawn = [...html.matchAll(/data-template="([a-z-]+)"/g)].map((m) => m[1]);
+        expect(drawn, `${room} (${entry.migrated.file}) draws the ${entry.template} template`).toContain(entry.template);
+      }
+    } finally {
+      vi.useRealTimers();
     }
+    // A portal page has no route of its own in the room table to open; one marked migrated is drawn here first.
+    const portal = Object.entries(PORTAL_TEMPLATES).filter(([, entry]) => entry.migrated);
+    expect(
+      portal.map(([room]) => room),
+      'a migrated merchant portal page: open its /pay address above and check it draws its template',
+    ).toEqual([]);
   });
 });

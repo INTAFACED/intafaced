@@ -159,13 +159,6 @@ export function coinHref(asset: string, layoutMode: 'simple' | 'pro', symbol?: s
   if (layoutMode === 'pro') return `/trade/spot/${normalizePair(symbol ?? `${asset}-USDT`)}`;
   return signedIn ? `/coin/${encodeURIComponent(asset)}` : `/trade/buy?asset=${encodeURIComponent(asset)}`;
 }
-export const doors: ReadonlyArray<{ name: Door; path: string }> = [
-  { name: 'Home', path: '/home' },
-  { name: 'Money', path: '/money' },
-  { name: 'Trade', path: '/trade' },
-  { name: 'Pay', path: '/pay' },
-  { name: 'More', path: '/more' },
-];
 import { navigationCopy } from './navigation-copy';
 import { currentPreferences } from '../shared/preferences';
 import type { UiLocale } from '../shared/i18n';

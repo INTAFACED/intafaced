@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { P2P_DELIST_REASONS } from './p2p-delist.js';
 import { P2P_CANCEL_REASONS, P2P_CANCELLED_BY } from './p2p-cancel.js';
 import { defineProcedure, NO_INPUT, type ProcedureRecord, type Refusals, type RefusalStatus } from './procedure.js';
 import { jsonValueSchema } from './procedure-strict-schema.js';
@@ -2608,6 +2609,464 @@ export const P2P_OFFERS_UPDATE = defineProcedure({
   ],
 });
 
+/**
+ * Payment instruments (§6.2): the registry of what each method needs per market, and the owner's own destinations. Who
+ * may see a seller's account details is stated once in svc-p2p's router: nobody but the owner and, while escrow is held,
+ * the counterparty (plus a moderator during an open dispute). Nothing here returns a field value except `reveal` and
+ * `revealMasked`, and each writes an access-log row in the same statement. Refusals were read from each handler and the
+ * service methods it calls, with statuses from svc-p2p's `toTrpcError`; internal failures are not listed.
+ */
+const INSTRUMENT = '66666666-6666-4666-8666-666666666666';
+
+/** Bounds of the rule texts and the cash release window; the service and the database check the same. */
+export const NOTE_GUIDANCE_MAX = 500;
+export const NOTE_FORBIDDEN_MAX_WORDS = 20;
+export const NOTE_FORBIDDEN_WORD_MAX = 80;
+export const CASH_TEXT_MAX = 1000;
+export const CASH_RELEASE_MIN_SECONDS = 300;
+export const CASH_RELEASE_MAX_SECONDS = 24 * 60 * 60;
+/** The bounds of a settlement window, in seconds (one minute to thirty days); the database checks the same. */
+export const SETTLEMENT_WINDOW_MIN_SECONDS = 60;
+export const SETTLEMENT_WINDOW_MAX_SECONDS = 30 * 24 * 60 * 60;
+
+/** One field a method asks for, as the "add a payment method" screen needs it. About methods, never about people. */
+export const P2P_METHOD_FIELD = z.object({
+  key: z.string(),
+  label: z.string(),
+  required: z.boolean(),
+  pattern: z.string().optional(),
+  minLength: z.number().int().optional(),
+  maxLength: z.number().int().optional(),
+  /** A hint for the input control. Not an access-control decision. */
+  sensitive: z.boolean().optional(),
+  help: z.string().optional(),
+  /** P-ads-merchant-18: the account holder's name, checked against the person's verified legal name. */
+  holderName: z.boolean().optional(),
+});
+
+/** What a method needs in one market, as the operator registered it. */
+export const P2P_METHOD_SCHEMA = z.object({
+  methodId: z.string(),
+  country: z.string(),
+  label: z.string(),
+  fields: z.array(P2P_METHOD_FIELD),
+  enabled: z.boolean(),
+  settlement: P2P_SETTLEMENT,
+  /** P-ads-merchant-19: cash in person when the row carries cash rules; the rules themselves, or null. */
+  kind: z.enum(['transfer', 'cash_in_person']),
+  // Unbounded on the way out: the bounds judge what an operator registers, never a stored row on a read.
+  noteRules: z.object({ guidance: z.string(), forbidden: z.array(z.string()).readonly() }).nullable(),
+  cashRules: z.object({ meetingGuidance: z.string(), proof: z.string(), releaseWindowSeconds: z.number() }).nullable(),
+});
+const methodSchemaAccept = {
+  cashWindow: {
+    says: 'a cash release window is a whole number of seconds',
+    holds: (reply: unknown) =>
+      z
+        .array(z.object({ cashRules: z.object({ releaseWindowSeconds: z.number().int() }).nullable() }))
+        .safeParse(Array.isArray(reply) ? reply : [reply]).success,
+  },
+};
+
+/**
+ * An instrument without its values: the only shape any list returns. No mask, no last four and no fingerprint: a mask
+ * is still the data on a path that is not logged, and a fingerprint is an oracle for a guessed account number.
+ */
+export const P2P_INSTRUMENT = z.object({
+  id: z.string().guid(),
+  methodId: z.string(),
+  country: z.string(),
+  fiatCurrency: z.string(),
+  label: z.string(),
+  status: z.enum(['active', 'removed']),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  removedAt: z.string().nullable(),
+});
+/** The owner's own instrument with its values, only ever produced by a call that wrote an access-log row. */
+export const P2P_REVEALED_INSTRUMENT = P2P_INSTRUMENT.extend({ details: z.record(z.string(), z.string()) });
+
+const instrumentId = z.object({ instrumentId: z.string().guid() });
+const instrumentDetails = z.record(z.string(), z.string());
+const operatorApproval = {
+  confirmOperatorId: z.string().max(128).nullish(),
+  approvalId: z.string().max(128).nullish(),
+  operationId: z.string().max(128).nullish(),
+};
+const NOT_FOUND_INSTRUMENT = { 'p2p.instrument_not_found': 'NOT_FOUND' } as const;
+const INSTRUMENT_KMS = { 'p2p.instrument_kms_required': 'PRECONDITION_FAILED' } as const;
+/** What a method's registered schema says of the details given for it, and the own-name rule. */
+const DETAILS_REFUSALS = {
+  'p2p.instrument_method_unknown': 'BAD_REQUEST',
+  'p2p.instrument_method_disabled': 'BAD_REQUEST',
+  'p2p.instrument_schema_invalid': 'BAD_REQUEST',
+  'p2p.instrument_field_missing': 'BAD_REQUEST',
+  'p2p.instrument_field_undeclared': 'BAD_REQUEST',
+  'p2p.instrument_field_invalid': 'BAD_REQUEST',
+  'p2p.account_format_invalid': 'BAD_REQUEST',
+  'p2p.holder_name_mismatch': 'BAD_REQUEST',
+  'p2p.holder_name_unverified': 'FORBIDDEN',
+  'p2p.holder_name_unverifiable': 'PRECONDITION_FAILED',
+} as const;
+const INSTRUMENT_STEP_UP = {
+  'auth.step_up_required': 'FORBIDDEN',
+  'auth.step_up_failed': 'FORBIDDEN',
+  'p2p.step_up_unverifiable': 'PRECONDITION_FAILED',
+} as const;
+const noteRulesInput = z.object({
+  guidance: z.string().min(1).max(NOTE_GUIDANCE_MAX),
+  forbidden: z.array(z.string().min(1).max(NOTE_FORBIDDEN_WORD_MAX)).max(NOTE_FORBIDDEN_MAX_WORDS).readonly(),
+});
+const cashRulesInput = z.object({
+  meetingGuidance: z.string().min(1).max(CASH_TEXT_MAX),
+  proof: z.string().min(1).max(CASH_TEXT_MAX),
+  releaseWindowSeconds: z.number().int().min(CASH_RELEASE_MIN_SECONDS).max(CASH_RELEASE_MAX_SECONDS),
+});
+
+/**
+ * The registry: what each method needs, per market. Ships empty; until an operator registers a market it refuses
+ * instruments, and an empty registry refuses `p2p.instrument_method_unknown`. A missing page size refuses
+ * `p2p.method_schema_list_limit_unset`: blank is not 50.
+ */
+export const P2P_INSTRUMENTS_METHODS_LIST = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.methods.list',
+  kind: 'query',
+  path: 'instruments.methods.list',
+  access: READ,
+  refusals: refuse({
+    'p2p.method_schema_list_limit_unset': 'PRECONDITION_FAILED',
+    'p2p.instrument_country_invalid': 'BAD_REQUEST',
+    'p2p.instrument_schema_invalid': 'BAD_REQUEST',
+    'p2p.instrument_method_unknown': 'BAD_REQUEST',
+  }),
+  input: z
+    .object({
+      country: z.string().length(2).optional(),
+      methodId: z.string().max(64).optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+    })
+    .optional(),
+  output: z.array(P2P_METHOD_SCHEMA),
+  accept: methodSchemaAccept,
+  samples: [
+    { verdict: 'accept', input: { country: 'NG', limit: 200 } },
+    { verdict: 'refuse', input: { limit: 0 } },
+  ],
+});
+
+/**
+ * OPERATOR ONLY, `admin:compliance`: what a market's rails require is researched, jurisdictional content, like a
+ * sanctions list. MFA and an identity-consumed approval from a second operator; missing approval ids refuse.
+ */
+export const P2P_INSTRUMENTS_METHODS_REGISTER = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.methods.register',
+  kind: 'mutation',
+  path: 'instruments.methods.register',
+  access: ADMIN,
+  refusals: refuse({
+    ...APPROVAL_REFUSALS,
+    'p2p.instrument_country_invalid': 'BAD_REQUEST',
+    'p2p.instrument_schema_invalid': 'BAD_REQUEST',
+    'p2p.delist_reason_required': 'BAD_REQUEST',
+  }),
+  input: z.object({
+    methodId: z.string().min(1).max(64),
+    /** ISO 3166-1 alpha-2, or `*` for "the same everywhere". */
+    country: z.string().min(1).max(2),
+    label: z.string().min(1).max(120),
+    /** The field list, checked whole by the service (`parseFieldSpecs`), which names the field it refuses. */
+    fields: z.array(jsonValueSchema).min(1),
+    enabled: z.boolean().optional(),
+    /**
+     * P-disputes-security-09: whether money on the method arrives at once here, or within `windowSeconds` (null: the
+     * published payment deadline applies). Omitted keeps a row's profile; a new row is instant.
+     */
+    settlement: z
+      .discriminatedUnion('instant', [
+        z.object({ instant: z.literal(true) }),
+        z.object({
+          instant: z.literal(false),
+          windowSeconds: z.number().int().min(SETTLEMENT_WINDOW_MIN_SECONDS).max(SETTLEMENT_WINDOW_MAX_SECONDS).nullable(),
+        }),
+      ])
+      .optional(),
+    /** P-ads-merchant-19: payment-note rules. Omitted keeps the row's; null clears them. */
+    noteRules: noteRulesInput.nullable().optional(),
+    /** P-ads-merchant-19: rules make the method cash in person; null makes it a transfer; omitted keeps. */
+    cashRules: cashRulesInput.nullable().optional(),
+    ...operatorApproval,
+  }),
+  output: P2P_METHOD_SCHEMA.extend({ confirmOperatorId: z.string() }),
+  accept: methodSchemaAccept,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        methodId: 'bank_transfer',
+        country: 'NG',
+        label: 'Bank transfer',
+        fields: [{ label: 'Account number', required: true, key: 'example' }],
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+      },
+    },
+    { verdict: 'refuse', input: { methodId: 'bank_transfer', country: 'NG', label: 'Bank transfer', fields: [] } },
+  ],
+});
+
+/**
+ * OPERATOR ONLY. Retiring a rail is the same class of change as registering one: MFA and a second operator's approval.
+ * Retiring needs a reason (`p2p.delist_reason_required`), which a take on it is then told; switching on takes none.
+ */
+export const P2P_INSTRUMENTS_METHODS_SET_ENABLED = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.methods.setEnabled',
+  kind: 'mutation',
+  path: 'instruments.methods.setEnabled',
+  access: ADMIN,
+  refusals: refuse({
+    ...APPROVAL_REFUSALS,
+    'p2p.delist_reason_required': 'BAD_REQUEST',
+    'p2p.instrument_country_invalid': 'BAD_REQUEST',
+    'p2p.instrument_schema_invalid': 'BAD_REQUEST',
+    'p2p.instrument_method_unknown': 'BAD_REQUEST',
+  }),
+  input: z.object({
+    methodId: z.string().min(1).max(64),
+    country: z.string().min(1).max(2),
+    enabled: z.boolean(),
+    /** Required when retiring (`enabled: false`); the customer is told it on a take. */
+    reason: z.enum(P2P_DELIST_REASONS).optional(),
+    ...operatorApproval,
+  }),
+  output: P2P_METHOD_SCHEMA.extend({ confirmOperatorId: z.string() }),
+  accept: methodSchemaAccept,
+  samples: [
+    { verdict: 'accept', input: { methodId: 'bank_transfer', country: 'NG', enabled: false, reason: 'regulation', approvalId: 'appr-1' } },
+    { verdict: 'refuse', input: { methodId: 'bank_transfer', country: 'NG', enabled: false, reason: 'whim' } },
+  ],
+});
+
+/**
+ * Add a destination. The caller names its id (adding does not mint one), the details are exactly the fields the
+ * method's schema declares, and identity's approval of exactly this change and these details comes with it
+ * (P-ads-merchant-18). Saved details are sealed with the instrument key: without it nothing is saved.
+ */
+export const P2P_INSTRUMENTS_CREATE = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.create',
+  kind: 'mutation',
+  path: 'instruments.create',
+  access: WRITE,
+  refusals: refuse({
+    ...INSTRUMENT_KMS,
+    ...INSTRUMENT_STEP_UP,
+    'p2p.instrument_id_required': 'BAD_REQUEST',
+    'p2p.instrument_country_invalid': 'BAD_REQUEST',
+    ...DETAILS_REFUSALS,
+    'p2p.instrument_slot_taken': 'CONFLICT',
+  }),
+  input: z.object({
+    instrumentId: z.string().guid(),
+    methodId: z.string().min(1).max(64),
+    country: z.string().length(2),
+    fiatCurrency: z.string().length(3),
+    label: z.string().max(120).optional(),
+    /** Exactly the fields the method schema declared. An extra key is refused. */
+    details: instrumentDetails,
+    /** Identity's approval of exactly this change and these details (P-ads-merchant-18). Without it, refused. */
+    stepUpApprovalId: z.string().min(1).max(200).optional(),
+  }),
+  output: P2P_INSTRUMENT,
+  samples: [
+    {
+      verdict: 'accept',
+      input: {
+        instrumentId: INSTRUMENT,
+        methodId: 'bank_transfer',
+        country: 'NG',
+        fiatCurrency: 'NGN',
+        details: { account: '0123456789' },
+        stepUpApprovalId: 'appr-1',
+      },
+    },
+    { verdict: 'refuse', input: { instrumentId: INSTRUMENT, methodId: 'bank_transfer', country: 'NGA', fiatCurrency: 'NGN', details: {} } },
+  ],
+});
+
+/** Edit a destination. A trade already holding a snapshot of it keeps that snapshot: that is the snapshot's point. */
+export const P2P_INSTRUMENTS_UPDATE = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.update',
+  kind: 'mutation',
+  path: 'instruments.update',
+  access: WRITE,
+  refusals: refuse({ ...INSTRUMENT_KMS, ...INSTRUMENT_STEP_UP, ...NOT_FOUND_INSTRUMENT, ...DETAILS_REFUSALS }),
+  input: z.object({
+    instrumentId: z.string().guid(),
+    label: z.string().max(120).optional(),
+    details: instrumentDetails.optional(),
+    stepUpApprovalId: z.string().min(1).max(200).optional(),
+  }),
+  output: P2P_INSTRUMENT,
+  samples: [
+    { verdict: 'accept', input: { instrumentId: INSTRUMENT, label: 'Salary account', stepUpApprovalId: 'appr-1' } },
+    { verdict: 'refuse', input: { instrumentId: 'not-a-uuid' } },
+  ],
+});
+
+/**
+ * P-ads-merchant-18: the caller's active sell ads that list this method, and which of them it is the last payable
+ * method for (`pauses`). Read before removing, so the warning names the ads. Ad ids and coins only.
+ */
+export const P2P_INSTRUMENTS_REMOVAL_IMPACT = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.removalImpact',
+  kind: 'query',
+  path: 'instruments.removalImpact',
+  access: READ,
+  refusals: refuse(NOT_FOUND_INSTRUMENT),
+  input: instrumentId,
+  output: z.object({
+    instrumentId: z.string(),
+    methodId: z.string(),
+    fiatCurrency: z.string(),
+    ads: z.array(z.object({ offerId: z.string(), asset: z.string(), fiatCurrency: z.string(), pauses: z.boolean() })),
+  }),
+  accept: {
+    ids: {
+      says: 'the instrument id and every ad id are UUIDs, and every coin code is 1 to 16 characters',
+      holds: (reply) =>
+        z
+          .object({
+            instrumentId: z.string().guid(),
+            ads: z.array(z.object({ offerId: z.string().guid(), asset: z.string().min(1).max(16) })),
+          })
+          .safeParse(reply).success,
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { instrumentId: INSTRUMENT } },
+    { verdict: 'refuse', input: { instrumentId: 'not-a-uuid' } },
+  ],
+});
+
+/**
+ * Remove a destination: a state change that drops its values in the same statement. An in-flight trade keeps its own
+ * snapshot. When the method is the last payable one of an active sell ad, the removal refuses `p2p.method_in_use`
+ * unless `pauseOfferIds` names each of those ads, and is refused before the person's confirmation is spent.
+ */
+export const P2P_INSTRUMENTS_REMOVE = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.remove',
+  kind: 'mutation',
+  path: 'instruments.remove',
+  access: WRITE,
+  refusals: refuse({ ...NOT_FOUND_INSTRUMENT, 'p2p.method_in_use': 'CONFLICT', ...INSTRUMENT_STEP_UP }),
+  input: z.object({
+    instrumentId: z.string().guid(),
+    stepUpApprovalId: z.string().min(1).max(200).optional(),
+    /** The ads `removalImpact` marked `pauses`, which the person agreed to pause with the method. */
+    pauseOfferIds: z.array(z.string().guid()).max(1000).optional(),
+  }),
+  output: P2P_INSTRUMENT,
+  samples: [
+    { verdict: 'accept', input: { instrumentId: INSTRUMENT, stepUpApprovalId: 'appr-1', pauseOfferIds: [OFFER] } },
+    { verdict: 'refuse', input: { instrumentId: INSTRUMENT, pauseOfferIds: ['not-a-uuid'] } },
+  ],
+});
+
+/** The caller's own instruments, headers only. A missing page size refuses `p2p.instrument_list_limit_unset`. */
+export const P2P_INSTRUMENTS_LIST = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.list',
+  kind: 'query',
+  path: 'instruments.list',
+  access: READ,
+  refusals: refuse({ 'p2p.instrument_list_limit_unset': 'PRECONDITION_FAILED' }),
+  input: z
+    .object({
+      includeRemoved: z.boolean().optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+    })
+    .optional(),
+  output: z.array(P2P_INSTRUMENT),
+  samples: [
+    { verdict: 'accept', input: { limit: 200 } },
+    { verdict: 'refuse', input: { limit: 201 } },
+  ],
+});
+
+/**
+ * The owner reads their own account details, logged like anyone else's read: an account takeover holds the session too.
+ * `p2p:write`, so a read-only API key cannot dump a person's stored bank details.
+ */
+export const P2P_INSTRUMENTS_REVEAL = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.reveal',
+  kind: 'mutation',
+  path: 'instruments.reveal',
+  access: WRITE,
+  refusals: refuse({ ...NOT_FOUND_INSTRUMENT, ...INSTRUMENT_KMS }),
+  input: instrumentId,
+  output: P2P_REVEALED_INSTRUMENT,
+  samples: [
+    { verdict: 'accept', input: { instrumentId: INSTRUMENT } },
+    { verdict: 'refuse', input: {} },
+  ],
+});
+
+/**
+ * The owner's own details masked (J-p2p-04 #3): the account holder whole, every other value as its last four. Logged
+ * like `reveal`, and `p2p:write` for the same reason; the whole values stay behind `reveal`.
+ */
+export const P2P_INSTRUMENTS_REVEAL_MASKED = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.revealMasked',
+  kind: 'mutation',
+  path: 'instruments.revealMasked',
+  access: WRITE,
+  refusals: refuse({ ...NOT_FOUND_INSTRUMENT, ...INSTRUMENT_KMS, 'p2p.instrument_schema_invalid': 'BAD_REQUEST' }),
+  input: instrumentId,
+  output: P2P_REVEALED_INSTRUMENT,
+  samples: [
+    { verdict: 'accept', input: { instrumentId: INSTRUMENT } },
+    { verdict: 'refuse', input: {} },
+  ],
+});
+
+/**
+ * "Who has looked at my account details, and when", the owner's own log, refusals included. A missing page size refuses
+ * `p2p.access_log_limit_unset`: blank is not 100.
+ */
+export const P2P_INSTRUMENTS_ACCESS_LOG = defineProcedure({
+  ...base,
+  name: 'p2p.instruments.accessLog',
+  kind: 'query',
+  path: 'instruments.accessLog',
+  access: READ,
+  refusals: refuse({ 'p2p.access_log_limit_unset': 'PRECONDITION_FAILED' }),
+  input: z.object({ limit: z.number().int().min(1).max(500).optional() }).optional(),
+  output: z.array(
+    z.object({
+      id: z.string().guid(),
+      instrumentId: z.string().guid().nullable(),
+      viewerId: z.string(),
+      viewerRole: z.enum(['owner', 'counterparty', 'moderator', 'other']),
+      tradeId: z.string().guid().nullable(),
+      outcome: z.enum(['revealed', 'denied']),
+      denyReason: z.string().nullable(),
+      at: z.string(),
+    }),
+  ),
+  samples: [
+    { verdict: 'accept', input: { limit: 100 } },
+    { verdict: 'refuse', input: { limit: 501 } },
+  ],
+});
+
 export const P2P_PROCEDURES = [
   P2P_HEALTH,
   P2P_FIAT_LIST,
@@ -2689,4 +3148,15 @@ export const P2P_PROCEDURES = [
   P2P_OFFERS_PAUSE,
   P2P_OFFERS_RESUME,
   P2P_OFFERS_UPDATE,
+  P2P_INSTRUMENTS_METHODS_LIST,
+  P2P_INSTRUMENTS_METHODS_REGISTER,
+  P2P_INSTRUMENTS_METHODS_SET_ENABLED,
+  P2P_INSTRUMENTS_CREATE,
+  P2P_INSTRUMENTS_UPDATE,
+  P2P_INSTRUMENTS_REMOVAL_IMPACT,
+  P2P_INSTRUMENTS_REMOVE,
+  P2P_INSTRUMENTS_LIST,
+  P2P_INSTRUMENTS_REVEAL,
+  P2P_INSTRUMENTS_REVEAL_MASKED,
+  P2P_INSTRUMENTS_ACCESS_LOG,
 ] as const satisfies readonly ProcedureRecord[];

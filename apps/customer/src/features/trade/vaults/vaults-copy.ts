@@ -45,6 +45,8 @@ export const vaultsCopy = defineCopy('trade.vaults', {
   withdrawTitle: 'Withdraw from {vault}',
   amount: 'Amount (USDC)',
   freeLine: 'Free in your venue account: {free} USDC, as {venue} reports it',
+  freeReading: 'Reading your free USDC from {venue}…',
+  freeFailed: 'Couldn’t read your free USDC from {venue}: {detail}',
   review: 'Review',
   cancel: 'Cancel',
   badAmount: 'Enter an amount above zero: “{amount}”',

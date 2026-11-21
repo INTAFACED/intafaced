@@ -14,8 +14,9 @@
 //! asset registry's doors (the `assets` slice, `assets.rs`), the history doors (the `history` slice, `history.rs`),
 //! `/operator/reconcile` (the `reconcile` slice, `reconcile.rs`), the account and transaction reads (the `balances`
 //! slice, `crate::balances`), the five report doors (the `reports` slice, `crate::reports`), the ledger desk's reads
-//! and account metadata writes (the `desk` slice, `desk.rs` over `crate::desk`) and svc-ops' five reads (the
-//! `ops-reads` slice, `crate::ops_reads`).
+//! and account metadata writes (the `desk` slice, `desk.rs` over `crate::desk`), svc-ops' five reads (the
+//! `ops-reads` slice, `crate::ops_reads`), `post` (the `posting` slice, `crate::posting`) and `postRecipe` (the
+//! `post-recipe` slice, `crate::posting::recipe_door`).
 
 mod assets;
 mod callers;
@@ -458,6 +459,8 @@ pub struct DoorConfig {
     pub indexer_url: Option<String>,
     /// The wire every outgoing call goes through.
     pub fetch: Arc<dyn service_kit::http::Fetch>,
+    /// The `posting` slice: its bus, custody switch and engine settings.
+    pub posting: crate::posting::Posting,
 }
 
 /// The door.
@@ -664,6 +667,11 @@ impl LedgerDoor {
         &self.cfg.store
     }
 
+    /// The `posting` slice's parts, for the outbox relay the binary drives.
+    pub fn posting(&self) -> &crate::posting::Posting {
+        &self.cfg.posting
+    }
+
     /// `sql.end()`.
     pub fn end(&self) {
         self.cfg.store.end();
@@ -791,6 +799,32 @@ impl LedgerDoor {
         if route.slice == Slice::Assets {
             return Outcome::Answer(self.assets_service(door, body_value(body)));
         }
+        // Posting judges the caller the door proved, so both posting doors are answered here rather than past the door.
+        let caller = if auth.scheme == Some("keypair") {
+            crate::posting::gate::Caller::Bound(service)
+        } else {
+            crate::posting::gate::Caller::Legacy(Some(service))
+        };
+        let mode = match keys.map(|k| k.mode) {
+            Some(Mode::Keypair) => "keypair",
+            _ => "dual",
+        };
+        if route.slice == Slice::PostRecipe {
+            let sent = match body {
+                Body::Absent => None,
+                Body::Parsed(j) => Some(j),
+            };
+            return match crate::posting::recipe_door::answer(
+                &self.cfg.store,
+                &self.cfg.posting,
+                Some(&caller),
+                mode,
+                sent,
+            ) {
+                Ok(receipt) => answer((200, receipt)),
+                Err(failure) => answer(errors::http_error(&failure)),
+            };
+        }
         let Input::Body(name) = route.input else {
             return self.past_the_door(route, door, &Value::Undefined, body);
         };
@@ -803,6 +837,19 @@ impl LedgerDoor {
             return answer(errors::http_error(&crate::history::page_socket(f).into()));
         }
         match parse(name, body_value(body)) {
+            Ok(Parsed::Ok(input)) if route.slice == Slice::Posting => {
+                let parsed = input.to_json().unwrap_or(Json::Null);
+                match crate::posting::post(
+                    &self.cfg.store,
+                    &self.cfg.posting,
+                    Some(&caller),
+                    mode,
+                    &parsed,
+                ) {
+                    Ok(ack) => answer((200, ack)),
+                    Err(failure) => answer(errors::http_error(&failure)),
+                }
+            }
             Ok(Parsed::Ok(input)) => self.past_the_door(route, door, &input, body),
             Ok(Parsed::Issues(issues)) => {
                 answer(errors::http_error(&Failure::Zod(schema::message(&issues))))

@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
@@ -42,6 +40,8 @@ describe('the selfie decision request', () => {
   const accept = { kind: 'identity.kyc_selfie.decide' as const, selfieId: SELFIE, decision: 'accepted' as const };
   const reject = { ...accept, decision: 'rejected' as const };
 
+  // identity's side of the binding (the approval it consumes carries exactly this hash) is held by svc-identity
+  // `router.test.ts` › "decide: MFA, never the reviewer's own, ... the approval binds selfie and decision".
   it('is bound to the selfie and the decision exactly as identity consumes it', () => {
     expect(payloadHashFor(accept)).toBe(identityActionPayloadHash('kyc.selfie.decide', { selfieId: SELFIE, decision: 'accepted' }));
     expect(payloadHashFor(reject)).toBe(identityActionPayloadHash('kyc.selfie.decide', { selfieId: SELFIE, decision: 'rejected' }));
@@ -52,10 +52,6 @@ describe('the selfie decision request', () => {
       targetId: 'kyc.selfie.decide',
       expectedVersion: '1',
     });
-    const router = readFileSync(fileURLToPath(new URL('../../../../../services/svc-identity/src/router.ts', import.meta.url)), 'utf8');
-    expect(router).toMatch(
-      /consumePrivileged\(ctx\.principal\.userId, input, 'kyc\.selfie\.decide', \{\s+selfieId: input\.selfieId,\s+decision: input\.decision,\s+\}\)/,
-    );
     expect(confirmPhrase(accept)).toBe('ACCEPT SELFIE 6f4a5b6c');
     expect(confirmPhrase(reject)).toBe('REJECT SELFIE 6f4a5b6c');
     expect(requestReason(accept)).toBeNull();

@@ -2,6 +2,10 @@ import {
   P2P_CHAT_MESSAGES_LIST,
   P2P_CHAT_MESSAGES_SEND,
   P2P_CONTACTS_LIST,
+  P2P_INSTRUMENTS_LIST,
+  P2P_INSTRUMENTS_METHODS_LIST,
+  P2P_INSTRUMENTS_REMOVAL_IMPACT,
+  P2P_INSTRUMENTS_REVEAL_MASKED,
   P2P_MERCHANTS_ADVERTISER_TERMS,
   P2P_MERCHANTS_POSTING_ELIGIBILITY,
   P2P_MERCHANTS_PRESENCE,
@@ -72,47 +76,13 @@ export type BoardQuery = {
   fiatAmount?: string;
   sort?: BoardSort;
 };
-export const instrumentSchema = z.object({
-  id,
-  methodId: z.string(),
-  country: z.string(),
-  fiatCurrency: z.string(),
-  label: z.string(),
-  status: z.enum(['active', 'removed']),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  removedAt: z.string().nullable(),
-});
+/** One of the person's payment methods, headers only: a list never carries a value. */
+export type Instrument = ProcedureOutput<typeof P2P_INSTRUMENTS_LIST>[number];
 /** `instruments.revealMasked`: the owner's own values as svc-p2p masks them, read only on request and logged like every read. */
-export const revealedInstrumentSchema = instrumentSchema.extend({ details: z.record(z.string(), z.string()) });
-/** One field a payment method asks for, as svc-p2p's registry publishes it. About the method, never about a person. */
-export const methodFieldSchema = z.object({
-  key: z.string(),
-  label: z.string(),
-  required: z.boolean(),
-  pattern: z.string().optional(),
-  minLength: z.number().int().optional(),
-  maxLength: z.number().int().optional(),
-  sensitive: z.boolean().optional(),
-  help: z.string().optional(),
-  /** P-ads-merchant-18: the account holder, who must be the person themself. */
-  holderName: z.boolean().optional(),
-});
-export type MethodField = z.infer<typeof methodFieldSchema>;
-export const methodSchema = z.object({
-  methodId: z.string(),
-  country: z.string(),
-  label: z.string(),
-  fields: z.array(methodFieldSchema),
-  enabled: z.boolean(),
-  settlement: P2P_SETTLEMENT.optional(),
-  /** P-ads-merchant-19: the row's payment-note rules and cash-in-person rules (cash in person when set), or null. */
-  noteRules: z
-    .object({ guidance: z.string(), forbidden: z.array(z.string()) })
-    .nullable()
-    .optional(),
-  cashRules: z.object({ meetingGuidance: z.string(), proof: z.string(), releaseWindowSeconds: z.number().int() }).nullable().optional(),
-});
+export type RevealedInstrument = ProcedureOutput<typeof P2P_INSTRUMENTS_REVEAL_MASKED>;
+/** What a payment method needs in one market, as svc-p2p's registry publishes it. About the method, never about a person. */
+export type MethodSchema = ProcedureOutput<typeof P2P_INSTRUMENTS_METHODS_LIST>[number];
+export type MethodField = MethodSchema['fields'][number];
 export const disputeSchema = z.object({
   id,
   tradeId: id,
@@ -448,12 +418,7 @@ export type Merchant = z.infer<typeof merchantSchema>;
 export type Payment = z.infer<typeof paymentSchema>;
 
 /** P-ads-merchant-18: the person's active sell ads that list a method, and which ones lose their last payable method. */
-export const methodRemovalImpactSchema = z.object({
-  instrumentId: id,
-  methodId: z.string(),
-  fiatCurrency: z.string(),
-  ads: z.array(z.object({ offerId: id, asset, fiatCurrency: z.string(), pauses: z.boolean() })),
-});
+export type MethodRemovalImpact = ProcedureOutput<typeof P2P_INSTRUMENTS_REMOVAL_IMPACT>;
 
 /** P-ads-merchant-08: the person's presence. A scheduled week is a list of windows in their own time zone. */
 export type Presence = ProcedureOutput<typeof P2P_MERCHANTS_PRESENCE>;

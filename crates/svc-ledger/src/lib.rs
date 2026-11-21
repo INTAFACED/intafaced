@@ -7,8 +7,9 @@
 //! switch (`freeze`, with `approval` and `clock`); the `history` slice the history reads (`history`); the `reconcile`
 //! slice the proof of the book (`chain`, `reconcile`) and what runs and acts on it (`reconciler`); the `balances` slice
 //! the account and transaction reads (`balances`); the `desk` slice the ledger desk's reads and account metadata writes
-//! (`desk`); the `ops-reads` slice svc-ops' five reads (`ops_reads`). Past the door a call is owed by its slice;
-//! `PORT.md` lists the slices and what each ports.
+//! (`desk`); the `ops-reads` slice svc-ops' five reads (`ops_reads`); the `posting` slice books `post` (`posting`: the
+//! caller binding, the recipe gate, the binding checks, the custody switch, the engine and the `ledgerTxPosted` relay).
+//! Past the door a call is owed by its slice; `PORT.md` lists the slices and what each ports.
 
 pub mod approval;
 pub mod assets;
@@ -26,6 +27,7 @@ pub mod freeze;
 pub mod history;
 pub mod migrate;
 pub mod ops_reads;
+pub mod posting;
 pub mod reconcile;
 pub mod reconciler;
 pub mod refines;

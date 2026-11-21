@@ -149,3 +149,19 @@ impl Drop for TestDb {
         }
     }
 }
+
+/// The `posting` slice for a door whose test posts nothing: custody off, refuse mode, its own empty bus.
+pub fn idle_posting() -> svc_ledger::posting::Posting {
+    svc_ledger::posting::Posting::new(
+        std::sync::Arc::new(svc_ledger::freeze::MemoryBus::default()),
+        "svc-ledger".to_owned(),
+        false,
+        svc_ledger::posting::engine::EngineOptions {
+            conflict: svc_ledger::posting::engine::Conflict::Refuse,
+            clock_skew_bound_ms: None,
+            clock_ms: || 0,
+        },
+        false,
+        None,
+    )
+}

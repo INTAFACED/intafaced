@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { rooms } from '../navigation';
@@ -11,11 +11,16 @@ const here = fileURLToPath(new URL('.', import.meta.url));
 const AREAS: readonly Area[] = ['public', 'home', 'money', 'trade', 'pay', 'more', 'person', 'team', 'web3'];
 
 describe('the room table, one file per area', () => {
-  it('declares no room row in navigation.ts', () => {
-    const source = readFileSync(new URL('../navigation.ts', import.meta.url), 'utf8');
-    // A room row is `{ path, title, ... }`; the five doors (`{ name, path }`) are not rooms.
-    const rows = [...source.matchAll(/\{\s*path:\s*['`]\/[^'`]*['`],\s*title:/g)].map((m) => m[0]);
-    expect(rows, "add a room to its area's file, src/app/rooms/<area>.ts, never to navigation.ts").toEqual([]);
+  it('declares no room row in navigation.ts: the table is the area lists joined, row for row', async () => {
+    const joined: Room[] = [];
+    for (const area of AREAS) {
+      const module = (await import(`./${area}.ts`)) as Record<string, readonly Room[]>;
+      joined.push(...(module[`${area}Rooms`] ?? []));
+    }
+    const own = rooms.filter((room) => !joined.includes(room)).map((room) => room.path);
+    expect(own, "add a room to its area's file, src/app/rooms/<area>.ts, never to navigation.ts").toEqual([]);
+    expect(rooms).toHaveLength(joined.length);
+    rooms.forEach((room, i) => expect(room, `row ${i} (${room.path})`).toBe(joined[i]));
   });
 
   it('has one file per area, and each file holds only that area', async () => {
