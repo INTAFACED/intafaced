@@ -531,7 +531,9 @@ test("portable: a service's wire replay samples a JSON-value schema as main's z.
     assert.ok(once.includes('function acceptsAnyJson(schema: unknown): boolean'));
     assert.equal(withReplayJson(once), once);
   }
-  assert.equal(withReplayJson('const y = 2;\n'), undefined);
+  // A replay that reads the service's schemas through another sampler is refused; one that reads none is left as it is.
+  assert.equal(withReplayJson("const s = readFileSync('svc.schema.json');\n"), undefined);
+  assert.equal(withReplayJson('const y = 2;\n'), 'const y = 2;\n');
 });
 
 test("a door's match arms: a pattern over lines, each arm to the next, a literal that is no call skipped", () => {
