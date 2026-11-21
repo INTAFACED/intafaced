@@ -91,16 +91,30 @@ import {
   ACADEMY_ADMIN_SET_COURSE_PACING,
   ACADEMY_ADMIN_ACADEMY_ROLES,
   ACADEMY_ADMIN_SET_CUSTOM_ROLE_ACTIVE,
+  ACADEMY_ADMIN_MODERATION_QUEUE,
+  ACADEMY_ADMIN_COURSE_TEAM,
+  ACADEMY_ADMIN_DELETE_DISCUSSION_POST,
+  ACADEMY_ADMIN_BULK_DELETE_USER_POSTS,
+  ACADEMY_ADMIN_PROPOSE_TEAM_CHANGE,
+  ACADEMY_ADMIN_CONFIRM_TEAM_CHANGE,
+  ACADEMY_ADMIN_GRANT_CERT_EXCEPTION,
 } from './academy-admin-records.js';
 import { ACADEMY_AMBASSADOR_PAY_PLANE } from './academy-ambassador-pay-plane-procedures.js';
+import { ACADEMY_AMBASSADORS } from './academy-ambassadors-procedures.js';
+import { ACADEMY_APPLY_RESIDENCY } from './academy-apply-residency-procedures.js';
+import { ACADEMY_APPOINT_AMBASSADOR } from './academy-appoint-ambassador-procedures.js';
 import { ACADEMY_AUTHORED_COURSE } from './academy-authored-course-procedures.js';
 import { ACADEMY_CERT_PATHS } from './academy-cert-paths-procedures.js';
+import { ACADEMY_CERT_VERIFY } from './academy-cert-verify-procedures.js';
 import { ACADEMY_CERT_XP_PLANE } from './academy-cert-xp-plane-procedures.js';
+import { ACADEMY_COURSE_CONVERSATIONS } from './academy-course-conversations-procedures.js';
 import { ACADEMY_COURSE_OUTLINE } from './academy-course-outline-procedures.js';
 import { ACADEMY_COURSE_PURCHASE } from './academy-course-purchase-procedures.js';
 import { ACADEMY_CURRICULUM_DEPTH } from './academy-curriculum-depth-procedures.js';
 import { ACADEMY_CURRICULUM_IMPORT_STATUS } from './academy-curriculum-import-status-procedures.js';
 import { ACADEMY_CURRICULUM_INVENTORY } from './academy-curriculum-inventory-procedures.js';
+import { ACADEMY_DECIDE_RESIDENCY } from './academy-decide-residency-procedures.js';
+import { ACADEMY_FREEZE_AMBASSADOR } from './academy-freeze-ambassador-procedures.js';
 import { ACADEMY_HEALTH } from './academy-health-procedures.js';
 import {
   ACADEMY_ROOMS,
@@ -144,12 +158,18 @@ import {
   ACADEMY_PLANNER_SEND_GOAL_REMINDER,
 } from './academy-learner-procedures.js';
 import { ACADEMY_MY_ACCESS_GRANTS } from './academy-my-access-grants-procedures.js';
+import { ACADEMY_MY_CERTS } from './academy-my-certs-procedures.js';
+import { ACADEMY_MY_COMPLETIONS } from './academy-my-completions-procedures.js';
 import { ACADEMY_MY_LEARNING } from './academy-my-learning-procedures.js';
+import { ACADEMY_OPEN_COURSE_CONVERSATION } from './academy-open-course-conversation-procedures.js';
+import { ACADEMY_OPEN_RESIDENCIES } from './academy-open-residencies-procedures.js';
 import { ACADEMY_PAPER_OPS_STATUS } from './academy-paper-ops-status-procedures.js';
 import { ACADEMY_PEER_REVIEW_FILE } from './academy-peer-review-file-procedures.js';
 import { ACADEMY_PEER_REVIEW } from './academy-peer-review-procedures.js';
 import { ACADEMY_PIN_LESSON } from './academy-pin-lesson-procedures.js';
 import { ACADEMY_INTERNAL_CURRICULUM } from './academy-procedures.js';
+import { ACADEMY_PROGRAMME } from './academy-programme-procedures.js';
+import { ACADEMY_PROGRAMMES } from './academy-programmes-procedures.js';
 import { ACADEMY_PUBLIC_AUTHORED_COURSE } from './academy-public-authored-course-procedures.js';
 import { ACADEMY_PUBLIC_AUTHORED_COURSES } from './academy-public-authored-courses-procedures.js';
 import { ACADEMY_PUBLIC_COURSE_BY_LINK } from './academy-public-course-by-link-procedures.js';
@@ -161,10 +181,15 @@ import { ACADEMY_PUBLIC_CURRICULUM_RELATED } from './academy-public-curriculum-r
 import { ACADEMY_PUBLIC_HUB } from './academy-public-hub-procedures.js';
 import { ACADEMY_PUBLIC_VIDEOS } from './academy-public-videos-procedures.js';
 import { ACADEMY_RESIDENCY_PAY_QUOTE } from './academy-residency-pay-quote-procedures.js';
+import { ACADEMY_SEASONS } from './academy-seasons-procedures.js';
+import { ACADEMY_SEND_COURSE_MESSAGE } from './academy-send-course-message-procedures.js';
+import { ACADEMY_STANDINGS } from './academy-standings-procedures.js';
+import { ACADEMY_STREAM_CREDENTIAL } from './academy-stream-credential-procedures.js';
 import { ACADEMY_UNDO_CURRICULUM_COMPLETE } from './academy-undo-curriculum-complete-procedures.js';
 import { ACADEMY_UNPIN_LESSON } from './academy-unpin-lesson-procedures.js';
 import { ACADEMY_UPLOAD_ASSIGNMENT_FILE } from './academy-upload-assignment-file-procedures.js';
 import { ACADEMY_VIDEOS } from './academy-videos-procedures.js';
+import { ACADEMY_WITHDRAW_RESIDENCY } from './academy-withdraw-residency-procedures.js';
 import { BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_CARRY, BANK_CASH_LEG_READ } from './bank-cash-leg-procedures.js';
 import {
   BANK_CREDIT_PREVIEWS_OVERVIEW,
@@ -1021,15 +1046,29 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ACADEMY_ADMIN_SET_COURSE_PACING,
   ACADEMY_ADMIN_ACADEMY_ROLES,
   ACADEMY_ADMIN_SET_CUSTOM_ROLE_ACTIVE,
+  ACADEMY_ADMIN_MODERATION_QUEUE,
+  ACADEMY_ADMIN_COURSE_TEAM,
+  ACADEMY_ADMIN_DELETE_DISCUSSION_POST,
+  ACADEMY_ADMIN_BULK_DELETE_USER_POSTS,
+  ACADEMY_ADMIN_PROPOSE_TEAM_CHANGE,
+  ACADEMY_ADMIN_CONFIRM_TEAM_CHANGE,
+  ACADEMY_ADMIN_GRANT_CERT_EXCEPTION,
   ACADEMY_AMBASSADOR_PAY_PLANE,
+  ACADEMY_AMBASSADORS,
+  ACADEMY_APPLY_RESIDENCY,
+  ACADEMY_APPOINT_AMBASSADOR,
   ACADEMY_AUTHORED_COURSE,
   ACADEMY_CERT_PATHS,
+  ACADEMY_CERT_VERIFY,
   ACADEMY_CERT_XP_PLANE,
+  ACADEMY_COURSE_CONVERSATIONS,
   ACADEMY_COURSE_OUTLINE,
   ACADEMY_COURSE_PURCHASE,
   ACADEMY_CURRICULUM_DEPTH,
   ACADEMY_CURRICULUM_IMPORT_STATUS,
   ACADEMY_CURRICULUM_INVENTORY,
+  ACADEMY_DECIDE_RESIDENCY,
+  ACADEMY_FREEZE_AMBASSADOR,
   ACADEMY_HEALTH,
   ACADEMY_ROOMS,
   ACADEMY_SESSION,
@@ -1071,12 +1110,18 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ACADEMY_PLANNER_SET_GOAL,
   ACADEMY_PLANNER_SEND_GOAL_REMINDER,
   ACADEMY_MY_ACCESS_GRANTS,
+  ACADEMY_MY_CERTS,
+  ACADEMY_MY_COMPLETIONS,
   ACADEMY_MY_LEARNING,
+  ACADEMY_OPEN_COURSE_CONVERSATION,
+  ACADEMY_OPEN_RESIDENCIES,
   ACADEMY_PAPER_OPS_STATUS,
   ACADEMY_PEER_REVIEW_FILE,
   ACADEMY_PEER_REVIEW,
   ACADEMY_PIN_LESSON,
   ACADEMY_INTERNAL_CURRICULUM,
+  ACADEMY_PROGRAMME,
+  ACADEMY_PROGRAMMES,
   ACADEMY_PUBLIC_AUTHORED_COURSE,
   ACADEMY_PUBLIC_AUTHORED_COURSES,
   ACADEMY_PUBLIC_COURSE_BY_LINK,
@@ -1088,10 +1133,15 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ACADEMY_PUBLIC_HUB,
   ACADEMY_PUBLIC_VIDEOS,
   ACADEMY_RESIDENCY_PAY_QUOTE,
+  ACADEMY_SEASONS,
+  ACADEMY_SEND_COURSE_MESSAGE,
+  ACADEMY_STANDINGS,
+  ACADEMY_STREAM_CREDENTIAL,
   ACADEMY_UNDO_CURRICULUM_COMPLETE,
   ACADEMY_UNPIN_LESSON,
   ACADEMY_UPLOAD_ASSIGNMENT_FILE,
   ACADEMY_VIDEOS,
+  ACADEMY_WITHDRAW_RESIDENCY,
   BANK_CASH_LEG_OFFERS,
   BANK_CASH_LEG_CARRY,
   BANK_CASH_LEG_READ,

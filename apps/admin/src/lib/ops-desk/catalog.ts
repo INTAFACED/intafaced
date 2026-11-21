@@ -19,6 +19,9 @@ import { ACADEMY_CURRICULUM_DEPTH } from '@intafaced/contracts/academy-curriculu
 import { ACADEMY_CURRICULUM_IMPORT_STATUS } from '@intafaced/contracts/academy-curriculum-import-status-procedures';
 import { ACADEMY_CERT_XP_PLANE } from '@intafaced/contracts/academy-cert-xp-plane-procedures';
 import { ACADEMY_PAPER_OPS_STATUS } from '@intafaced/contracts/academy-paper-ops-status-procedures';
+import { ACADEMY_AMBASSADORS } from '@intafaced/contracts/academy-ambassadors-procedures';
+import { ACADEMY_OPEN_RESIDENCIES } from '@intafaced/contracts/academy-open-residencies-procedures';
+import { ACADEMY_SEASONS } from '@intafaced/contracts/academy-seasons-procedures';
 
 /** A read whose call has a record: its module and path are the record's, never typed again here. */
 export const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
@@ -1711,8 +1714,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.seasons',
         title: 'Seasons',
         note: 'Season windows and status, as the service lists them.',
-        module: 'academy',
-        procedure: 'seasons',
+        ...readOf(ACADEMY_SEASONS),
         input: { limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -1760,8 +1762,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.ambassadors',
         title: 'Ambassadors',
         note: 'Every ambassador and whether they are active or frozen. Freezing and lifting a freeze are two-founder requests.',
-        module: 'academy',
-        procedure: 'ambassadors',
+        ...readOf(ACADEMY_AMBASSADORS),
         input: { limit: 100 },
         shape: 'list',
         idKey: 'userId',
@@ -1783,8 +1784,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.residencies',
         title: 'Residency applications awaiting a decision',
         note: 'Open applications, as svc-academy lists them. Accept or reject each as a two-founder request.',
-        module: 'academy',
-        procedure: 'openResidencies',
+        ...readOf(ACADEMY_OPEN_RESIDENCIES),
         input: { limit: 100 },
         shape: 'list',
         idKey: 'id',

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ACADEMY_MY_CERTS } from '@intafaced/contracts/academy-my-certs-procedures';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { createMinimalOriginalJournal, type JournalPorts } from '../../shared/minimal-original-journal';
 
@@ -90,8 +91,13 @@ export function createAcademyGrantApi(api: ApiClient, owner: string, ports = aca
   async function readRecords(limit: number, guard: () => boolean, signal?: AbortSignal): Promise<ApiResult<GrantRecord[]>> {
     if (!current(guard)) return refuse('changed');
     if (!Number.isInteger(limit) || limit < 1 || limit > 200) return refuse('limit');
-    const result = await api.query('academy', 'myCerts', { limit }, recordsFor(owner, limit), { signal });
-    return current(guard) ? result : refuse('changed');
+    // The record's answer, held to this owner's own checks (`recordsFor`), and read back to the grant fields alone, as
+    // recordsFor's parse gave them.
+    const checks = recordsFor(owner, limit);
+    const result = await api.call(ACADEMY_MY_CERTS, { limit }, { signal, accept: (rows) => checks.safeParse(rows).success });
+    if (!current(guard)) return refuse('changed');
+    if (!result.ok) return result;
+    return { ...result, data: result.data.map(({ userId, certId, grantedAt, idempotencyKey }) => ({ userId, certId, grantedAt, idempotencyKey })) };
   }
   async function execute(
     marker: AcademyPending,

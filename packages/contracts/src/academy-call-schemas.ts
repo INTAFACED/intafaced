@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { academyIssuedCertDesignSchema } from './academy-cert-designs.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** The schemas svc-academy's records share, moved from the service so the records and every caller read one copy. */
@@ -145,4 +146,78 @@ export const curriculumTeachingOut = {
 export const curriculumItemOut = curriculumSummaryOut.extend({
   body: z.string(),
   ...curriculumTeachingOut,
+});
+
+export const ambassadorStatus = z.enum(['active', 'frozen']);
+
+export const ambassadorOut = z.object({
+  userId: z.string().guid(),
+  status: ambassadorStatus,
+  appointedBy: z.string().guid(),
+  appointedAt: z.iso.datetime({ offset: true }),
+  frozenAt: z.iso.datetime({ offset: true }).nullable(),
+  frozenBy: z.string().guid().nullable(),
+  freezeReason: z.string().nullable(),
+});
+
+export const operatorApprovalIds = {
+  confirmOperatorId: z.string().max(128).nullish(),
+  approvalId: z.string().max(128).nullish(),
+  operationId: z.string().max(128).nullish(),
+};
+
+export const seasonStatus = z.enum(['scheduled', 'live', 'frozen', 'ended']);
+
+export const seasonOut = z.object({
+  id: z.string().guid(),
+  slug: z.string(),
+  title: z.string(),
+  status: seasonStatus,
+  rulesSummary: z.string(),
+  startsAt: z.iso.datetime({ offset: true }),
+  endsAt: z.iso.datetime({ offset: true }).nullable(),
+});
+
+export const standingOut = z.object({
+  seasonId: z.string().guid(),
+  userId: z.string().guid(),
+  score: z.number().int(),
+  updatedAt: z.iso.datetime({ offset: true }),
+  rank: z.number().int(),
+});
+
+export const sessionStatus = z.enum(['scheduled', 'live', 'ended', 'cancelled']);
+
+export const sessionOut = z.object({
+  id: z.string().guid(),
+  roomId: z.string().guid(),
+  title: z.string(),
+  hostId: z.string().guid(),
+  status: sessionStatus,
+  startsAt: z.date(),
+  endsAt: z.date().nullable(),
+  /** Null when no SFU is configured — the lobby still runs as text and presence. */
+  streamProvider: z.string().nullable(),
+  scene: z.record(z.string(), z.unknown()),
+  /** Always on read — client supplies this as expectedFingerprint on updateScene. */
+  sceneFingerprint: z.string().min(1),
+  seated: z.boolean(),
+  role: z.enum(['host', 'speaker', 'attendee']).nullable(),
+});
+
+export const completionPageOut = z.object({
+  items: z.array(z.object({ itemSlug: z.string(), completedAt: z.iso.datetime({ offset: true }) })),
+  nextCursor: z.string().nullable(),
+});
+
+export const certGrantOut = z.object({
+  userId: z.string().guid(),
+  certId: z.string(),
+  grantedAt: z.iso.datetime({ offset: true }),
+  idempotencyKey: z.string(),
+  publicId: z.string().regex(/^[0-9a-f]{32}$/),
+  /** `revoked` once staff revoked it (AC-certificates-03); the public check then says revoked too. */
+  status: z.enum(['valid', 'revoked']).optional(),
+  /** AC-certificates-03: the design revision this certificate prints, or null when it was issued before any was active. */
+  design: academyIssuedCertDesignSchema.nullable().optional(),
 });
