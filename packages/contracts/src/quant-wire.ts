@@ -28,6 +28,17 @@ export const quantLanguageSchema = z.enum(QUANT_SANDBOX_LANGUAGES);
 /** An operator or teammate may name the account; otherwise it is the caller's own (`resolveStudioAccount`). */
 export const quantAccountField = { accountId: z.string().guid().optional() };
 export const quantWriteKeyField = { idempotencyKey: z.string().optional().nullable() };
+/** The caller's own id for a new strategy, so a lost save reply is answered by saving again. */
+export const quantClientIdField = { clientStrategyId: z.string().optional().nullable() };
+
+/** A save's risk block as sent: each cap is checked by name in the handler (`quant.studio_risk_block_required`). */
+export const quantStudioRiskInputSchema = z
+  .object({
+    maxDrawdown: z.string().optional(),
+    maxNotional: z.string().optional(),
+    kill: z.string().optional(),
+  })
+  .optional();
 
 const quantFillSchema = z.object({
   side: z.enum(['buy', 'sell']),

@@ -11,6 +11,7 @@
 //! `PORT.md` lists the slices and what each ports.
 
 pub mod approval;
+pub mod assets;
 pub mod balances;
 pub mod boot;
 pub mod chain;

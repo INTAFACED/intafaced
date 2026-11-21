@@ -34,11 +34,12 @@ pub struct ConsumeInput<'a> {
     pub replay: Option<Replay<'a>>,
 }
 
-/// A replayable consume's key and the operator who consumes it.
+/// A replayable consume's key and, when the caller sends one, the operator who consumes it (identity then answers the
+/// replay only to that operator). svc-ledger's asset edit sends the key alone, as `applyAssetEdit` does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Replay<'a> {
     pub request_id: &'a str,
-    pub consumer_principal_id: &'a str,
+    pub consumer_principal_id: Option<&'a str>,
 }
 
 /// The fields of the consumed `ActionApproval` a service reads after the echo check.
@@ -93,7 +94,9 @@ fn consume_payload(input: &ConsumeInput<'_>) -> Result<String, ConsumeError> {
     ];
     if let Some(r) = input.replay {
         fields.push(("requestId", r.request_id, 128));
-        fields.push(("consumerPrincipalId", r.consumer_principal_id, 128));
+        if let Some(consumer) = r.consumer_principal_id {
+            fields.push(("consumerPrincipalId", consumer, 128));
+        }
     }
     for &(name, value, max) in &fields {
         if !bounded(value, max) {
@@ -102,13 +105,11 @@ fn consume_payload(input: &ConsumeInput<'_>) -> Result<String, ConsumeError> {
             )));
         }
     }
-    Ok(Json::Object(
-        fields
-            .iter()
-            .map(|(k, v, _)| ((*k).to_owned(), Json::str(*v)))
-            .collect(),
-    )
-    .compact())
+    let out: Vec<(String, Json)> = fields
+        .iter()
+        .map(|(k, v, _)| ((*k).to_owned(), Json::str(*v)))
+        .collect();
+    Ok(Json::Object(out).compact())
 }
 
 /// `refusalDetail(text)`: tRPC's `error.message` (or the text itself when it is not JSON), first line, trimmed, cut at
@@ -465,6 +466,35 @@ mod tests {
     }
 
     #[test]
+    fn a_replay_key_travels_after_the_six_fields_and_is_bounded() {
+        let (c, fake) = client(200, trpc(approval("CONSUMED", Json::str("appr"))));
+        let keyed = ConsumeInput {
+            replay: Some(Replay {
+                request_id: "asset-edit:USDT:1",
+                consumer_principal_id: None,
+            }),
+            ..input()
+        };
+        c.consume(&keyed).unwrap();
+        assert_eq!(
+            fake.seen.lock().unwrap()[0].body.as_deref(),
+            Some(
+                r#"{"approvalId":"ap-1","operationId":"op-1","payloadHash":"sha256:abc","targetService":"svc-academy","targetId":"academy.season.create","expectedVersion":"1","requestId":"asset-edit:USDT:1"}"#
+            )
+        );
+        let long = "k".repeat(129);
+        let too_long = ConsumeInput {
+            replay: Some(Replay {
+                request_id: &long,
+                consumer_principal_id: None,
+            }),
+            ..input()
+        };
+        assert!(matches!(c.consume(&too_long), Err(ConsumeError::Thrown(_))));
+        assert_eq!(fake.seen.lock().unwrap().len(), 1);
+    }
+
+    #[test]
     fn the_founder_attestation_is_read_and_a_non_boolean_one_is_not_an_approval() {
         let attested = with(
             with(
@@ -579,14 +609,14 @@ mod tests {
         );
         asked.replay = Some(Replay {
             request_id: "op-1",
-            consumer_principal_id: "founder-a",
+            consumer_principal_id: Some("founder-a"),
         });
         assert!(consume_payload(&asked).unwrap().ends_with(
             r#""expectedVersion":"1","requestId":"op-1","consumerPrincipalId":"founder-a"}"#
         ));
         asked.replay = Some(Replay {
             request_id: "op-1",
-            consumer_principal_id: "",
+            consumer_principal_id: Some(""),
         });
         assert!(consume_payload(&asked).is_err());
     }
