@@ -41,7 +41,7 @@ import { InfoNote, RefusalNote } from './parts';
 export type RecurringRule = z.output<typeof recurringRuleSchema>;
 type RoomApi = ReturnType<typeof createRoomApi>;
 
-export const DCA_HREF = '/trade/bots/dca';
+const DCA_HREF = '/trade/bots/dca';
 const FREQUENCIES = [
   { value: 'hourly', label: 'Hourly' },
   { value: 'daily', label: 'Daily' },

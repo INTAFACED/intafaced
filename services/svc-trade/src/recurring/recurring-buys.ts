@@ -103,7 +103,7 @@ export class RecurringError extends Error {
 export interface RecurringNotices {
   suspended(input: { ruleId: string; userId: string; slot: number; asset: string; amount: Amount; free: Amount; at: Date }): Promise<void>;
 }
-export const NO_RECURRING_NOTICES: RecurringNotices = { suspended: async () => {} };
+const NO_RECURRING_NOTICES: RecurringNotices = { suspended: async () => {} };
 
 export interface RecurringBuysDeps {
   readonly door: UserVenueDoor;
@@ -138,7 +138,7 @@ export interface RecurringCreateInput {
   readonly maxInvestment?: string | null;
 }
 
-export function recurringRuleIdFor(userId: string, clientRequestId: string): string {
+function recurringRuleIdFor(userId: string, clientRequestId: string): string {
   if (!REQUEST_KEY.test(clientRequestId)) {
     throw new RecurringError('clientRequestId must be 8 to 120 letters, digits or : . _ -', 'trade.recurring_field_invalid', {
       field: 'clientRequestId',
@@ -176,7 +176,7 @@ function isTypedData(value: unknown): value is TypedDataDefinition {
 }
 
 /** The rule's fields checked in the order the form shows them; nothing is read from the venue yet. */
-export function checkRecurringFields(input: RecurringCreateInput) {
+function checkRecurringFields(input: RecurringCreateInput) {
   if (input.funding === 'card') throw new RecurringError(CARD_FUNDING_OFF, 'trade.recurring_card_funding_off', { field: 'Funding' });
   const symbols = new Set<string>();
   const rows = input.basket.map((row, i) => {
