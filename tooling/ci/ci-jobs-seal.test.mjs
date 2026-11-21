@@ -18,9 +18,12 @@ import {
   judgeCiJobs,
   modelVerdict,
   moneyVerdict,
+  RERUN_POLLS,
+  rerunStaleGates,
   ruleChanges,
   rulesTakenAt,
   rulesVerdict,
+  staleRulesRerun,
   touchesMoney,
 } from './ci-jobs-seal.mjs';
 
@@ -309,6 +312,87 @@ test('project-state#3035: a gate-list change is cleared by re-running a Doctrine
     assert.match(v.lines[0], /merge origin\/main and push/);
   }
   assert.equal(judgedOnFreshMain(undefined), false);
+});
+
+// #9429 on 21 Nov 2026: CI run 44912458884's Doctrine gates job 136871122503 started at 14:10:05Z; #9422 changed
+// tooling/lint/ in 01354ce8b2 at 14:10:35Z. Seal run 44912453971 attempt 2 failed on that verdict alone at 14:43:28Z and
+// sat red until someone re-ran the job by hand.
+test('project-state#3599: the seal re-runs a Doctrine gates job a lint change on main made stale, and asks no other re-run', () => {
+  const ci = run(44912458884, { created_at: '2026-11-21T14:10:00Z' });
+  const lint = { sha: '01354ce8b2'.padEnd(40, '0'), date: '2026-11-21T14:10:35Z', title: 'test(lint) (#9422)', path: 'tooling/lint/' };
+  const gatesJob = {
+    id: 136871122503,
+    name: 'Doctrine gates',
+    status: 'completed',
+    conclusion: 'success',
+    started_at: '2026-11-21T14:10:05Z',
+  };
+  const rules = rulesVerdict({ run: ci, jobs: [gatesJob], changes: [lint] });
+  const pass = { ok: true, lines: [] };
+  const fail = { ok: false, lines: ['x'] };
+  assert.deepEqual(staleRulesRerun({ ci: pass, money: pass, model: pass, rules }), { runId: 44912458884, jobId: 136871122503 });
+  // Planted: any other failed verdict asks for none, whether or not the rules are stale too.
+  for (const other of ['ci', 'money', 'model']) {
+    const vs = { ci: pass, money: pass, model: pass, rules, [other]: fail };
+    assert.equal(staleRulesRerun(vs), null, other);
+  }
+  assert.equal(staleRulesRerun({ ci: fail, money: pass, model: pass, rules: { ok: true, lines: [], rerun: null } }), null);
+  assert.equal(staleRulesRerun({ ci: pass, money: pass, model: pass, rules: { ok: true, lines: [], rerun: null } }), null);
+  // A gate-list change a re-run can't clear (a gates job that never judged on main afresh) asks none: merge main and push.
+  const gate = { ...lint, path: 'tooling/ci/gates.mjs' };
+  const g = rulesVerdict({ run: ci, jobs: [gatesJob], changes: [lint, { ...gate, sha: 'e'.repeat(40) }] });
+  assert.equal(g.ok, false);
+  assert.equal(staleRulesRerun({ ci: pass, money: pass, model: pass, rules: g }), null);
+  // No gates job to name: nothing to re-run.
+  assert.equal(rulesVerdict({ run: ci, jobs: [], changes: [{ ...lint, date: '2026-11-21T14:20:00Z' }] }).rerun, null);
+  // At most once per change: the re-run job starts after the change, so the next seal asks for none.
+  const after = rulesVerdict({ run: ci, jobs: [{ ...gatesJob, id: 136871999999, started_at: '2026-11-21T14:44:00Z' }], changes: [lint] });
+  assert.equal(after.ok, true);
+  assert.equal(staleRulesRerun({ ci: pass, money: pass, model: pass, rules: after }), null);
+});
+
+test('project-state#3599: rerunStaleGates waits for the CI run to finish, then re-runs that one job; a refusal is printed, not thrown', async () => {
+  const step = { runId: 44912458884, jobId: 136871122503 };
+  const calls = [];
+  const states = ['in_progress', 'in_progress', 'completed'];
+  const line = await rerunStaleGates({
+    repo: 'o/r',
+    step,
+    get: async (p) => (calls.push(['get', p]), { status: states.shift() }),
+    post: async (p) => (calls.push(['post', p]), { status: 201 }),
+    sleep: async () => {},
+  });
+  assert.deepEqual(
+    calls.filter((c) => c[0] === 'post'),
+    [['post', '/repos/o/r/actions/jobs/136871122503/rerun']],
+  );
+  assert.equal(calls.filter((c) => c[0] === 'get').length, 3);
+  assert.match(line, /re-ran Doctrine gates job 136871122503 of CI run 44912458884/);
+  const refused = await rerunStaleGates({
+    repo: 'o/r',
+    step,
+    get: async () => ({ status: 'completed' }),
+    post: async () => ({ status: 403, message: 'Resource not accessible by integration' }),
+    sleep: async () => {},
+  });
+  assert.match(refused, /could not re-run .*403 Resource not accessible by integration.*by hand/);
+  let posts = 0;
+  const never = await rerunStaleGates({
+    repo: 'o/r',
+    step,
+    get: async () => ({ status: 'in_progress' }),
+    post: async () => (posts++, { status: 201 }),
+    sleep: async () => {},
+  });
+  assert.equal(posts, 0, 'never posts into a running run');
+  assert.match(never, new RegExp(`had not finished after ${RERUN_POLLS * 10} s`));
+});
+
+test("project-state#3599: merge-seal.yml's seal job may re-run a job (actions: write), and its script still never checks out the pull request", () => {
+  const text = readFileSync('.github/workflows/merge-seal.yml', 'utf8');
+  const seal = text.split('\n  seal:\n')[1];
+  assert.match(seal, /\n {6}actions: write\b/);
+  assert.doesNotMatch(text, /ref: \$\{\{ github\.event\.pull_request/);
 });
 
 test("project-state#3035: ci.yml's Doctrine gates job merges the head onto main fetched afresh before any gate or install", () => {

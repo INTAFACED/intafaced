@@ -12,7 +12,8 @@ import { z } from 'zod';
  */
 
 /** What a partner may not offer. `currencies` is the partner's currency accounts (J-bank-01 #3). */
-export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet'] as const;
+/** What a partner may not offer. `cash_leg` is cash through a coin in Convert (J-cex-spot-11 #11). */
+export const PARTNER_FEATURES = ['currencies', 'spaces', 'pots', 'joint', 'phone_wallet', 'cash_leg'] as const;
 export type PartnerFeature = (typeof PARTNER_FEATURES)[number];
 
 export const testPartnerSwitches = z

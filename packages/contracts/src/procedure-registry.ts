@@ -90,6 +90,7 @@ import {
   ACADEMY_PLANNER_SEND_GOAL_REMINDER,
 } from './academy-learner-procedures.js';
 import { ACADEMY_INTERNAL_CURRICULUM } from './academy-procedures.js';
+import { BANK_CASH_LEG_OFFERS, BANK_CASH_LEG_CARRY, BANK_CASH_LEG_READ } from './bank-cash-leg-procedures.js';
 import {
   BANK_DEPOSITS_ASSETS,
   BANK_DEPOSITS_ADDRESS,
@@ -189,6 +190,7 @@ import {
 } from './dex-procedures.js';
 import { EXECUTION_SPINE } from './execution-procedures.js';
 import { FIX_ADAPTER_STATUS, FIX_DROP_COPY_FILL } from './fix-procedures.js';
+import { IDENTITY_ACTION_APPROVAL_LIST } from './identity-action-approval-procedures.js';
 import { IDENTITY_API_VERSION_GET, IDENTITY_API_VERSION_SET } from './identity-api-version-procedures.js';
 import {
   IDENTITY_DEVELOPER_KEYS_LIST,
@@ -931,6 +933,9 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   ACADEMY_PLANNER_SET_GOAL,
   ACADEMY_PLANNER_SEND_GOAL_REMINDER,
   ACADEMY_INTERNAL_CURRICULUM,
+  BANK_CASH_LEG_OFFERS,
+  BANK_CASH_LEG_CARRY,
+  BANK_CASH_LEG_READ,
   BANK_DEPOSITS_ASSETS,
   BANK_DEPOSITS_ADDRESS,
   BANK_DEPOSITS_ADDRESSES_LIST,
@@ -1019,6 +1024,7 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   EXECUTION_SPINE,
   FIX_ADAPTER_STATUS,
   FIX_DROP_COPY_FILL,
+  IDENTITY_ACTION_APPROVAL_LIST,
   IDENTITY_API_VERSION_GET,
   IDENTITY_API_VERSION_SET,
   IDENTITY_DEVELOPER_KEYS_LIST,

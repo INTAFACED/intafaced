@@ -11,7 +11,19 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { applyEdits, bindingOf, forget, leadingDoc, load, resolveRelative, statementEnd, statementStart, text, walk } from './ast.mjs';
+import {
+  applyEdits,
+  bindingOf,
+  forget,
+  keyOf,
+  leadingDoc,
+  load,
+  resolveRelative,
+  statementEnd,
+  statementStart,
+  text,
+  walk,
+} from './ast.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { closureOf, contractsExports, usedOutside } from './closure.mjs';
 import { findSites } from './sites.mjs';
@@ -182,7 +194,12 @@ function plan(opts) {
 }
 
 /** The input argument of a site, and whether it is no input at all (`undefined`, `{}`, or absent). */
-const inputArg = (s) => s.node.arguments[s.shape === 'founderCall' ? 4 : 2];
+const inputArg = (s) =>
+  s.shape === 'desk-read'
+    ? s.inputProp?.value
+    : s.shape === 'ops-entry'
+      ? s.dispatchers[0].arguments[4]
+      : s.node.arguments[s.shape === 'founderCall' ? 4 : 2];
 function noInput(s) {
   const a = inputArg(s);
   return !a || (a.type === 'Identifier' && a.name === 'undefined') || (a.type === 'ObjectExpression' && a.properties.length === 0);
@@ -330,11 +347,52 @@ function build(opts, planned) {
     }
   }
   for (const e of planned.existing) for (const s of e.sites) rewriteSite(changes, s, e.name, contractsSpec(e.file));
+  tables(changes, planned, done);
+  pairs(changes, planned, done);
   return { changes, created, problems, done };
+}
+
+/**
+ * A table whose every entry moved: its calls send the entry's record (`founderRecordRead`, the page's own reader kept).
+ * A table with an entry that stays keeps every entry as it was, each named, since one call sends them all.
+ */
+function tables(changes, planned, done) {
+  for (const [file, f] of changes.files) {
+    for (const [table, { site, moved }] of f.tables ?? []) {
+      const entries = table.properties.filter(
+        (pr) => pr.type === 'Property' && pr.value.type === 'ObjectExpression' && pr.value.properties.some((x) => keyOf(x) === 'procedure'),
+      );
+      const takesNone = moved.filter((m) => m.takesNone).length;
+      const why =
+        moved.length < entries.length
+          ? `${site.tableName} has an entry that stays, and one call sends them all`
+          : takesNone && takesNone < moved.length
+            ? `${site.tableName} mixes calls that take no input with calls that do`
+            : undefined;
+      if (why) {
+        f.edits = f.edits.filter((e) => !moved.some((m) => m.edit === e));
+        const back = new Set(moved.map((m) => m.s));
+        for (const r of [...done, ...planned.existing]) r.sites = r.sites.filter((s) => !back.has(s));
+        for (const s of back) planned.hand.push({ site: s, why });
+        continue;
+      }
+      const p = load(file);
+      for (const d of site.dispatchers) {
+        const a = d.arguments;
+        const input = takesNone ? 'undefined' : text(p, a[4]);
+        const rest = [text(p, a[0]), `${text(p, a[2].object)}.record`, input, text(p, a[5]), ...(a[6] ? [text(p, a[6])] : [])];
+        changes.edit(file, d.start, d.end, `founderRecordRead(${rest.join(', ')})`);
+      }
+      changes.imp(file, site.founderCallFrom, 'founderRecordRead');
+      // The calls the table sent by name are sent by record now.
+      planned.hand = planned.hand.filter((h) => !site.dispatchers.some((d) => d.start === h.site.node.start && h.site.file === file));
+    }
+  }
 }
 
 /** The schema a caller parses the answer with, or undefined. */
 function schemaArgOf(s) {
+  if (s.shape === 'desk-read' || s.shape === 'ops-entry') return undefined;
   const a = s.node.arguments;
   return s.shape === 'founderCall' ? (s.reader ? undefined : a[5]?.arguments?.[0]) : a[3];
 }
@@ -385,11 +443,55 @@ export function answerChecks(p, node, seen = new Set()) {
   return [...new Set(found)];
 }
 
-/** One caller, rewritten to its record. */
-function rewriteSite(changes, s, name, spec, takesNone) {
+/** The record call that replaces one caller: `recv.call(RECORD, input, opts)` or `founderRecordCall/Read(...)`. */
+function callText(changes, s, name, takesNone) {
   const p = load(s.file);
   const n = s.node;
   const a = n.arguments;
+  const input = takesNone ? 'undefined' : text(p, inputArg(s));
+  if (s.shape === 'query' || s.shape === 'mutate') {
+    const recv = text(p, n.callee.object);
+    const rest = [input, ...(a[4] ? [text(p, a[4])] : [])];
+    return `${recv}.call(${name}, ${rest.join(', ')})`;
+  }
+  // A page's own reader stays, reading the record's parsed answer into its view (`founderRecordRead`).
+  const fn = s.reader ? 'founderRecordRead' : 'founderRecordCall';
+  const rest = [text(p, a[0]), name, input, ...(s.reader ? [text(p, a[5])] : []), ...(a[6] ? [text(p, a[6])] : [])];
+  changes.imp(s.file, s.founderCallFrom, fn);
+  return `${fn}(${rest.join(', ')})`;
+}
+
+/**
+ * `cond ? 'a.x' : 'a.y'` with both branches moved: `cond ? call(A_X, ...) : call(A_Y, ...)`, each branch typed by its own
+ * record. With one branch left, neither moves: both are named.
+ */
+function pairs(changes, planned, done) {
+  for (const [file, f] of changes.files) {
+    for (const [cond, { s, branches }] of f.pairs ?? []) {
+      const { consequent: c, alternate: a } = branches;
+      if (!c || !a) {
+        const back = new Set([c?.s, a?.s].filter(Boolean));
+        for (const r of [...done, ...planned.existing]) r.sites = r.sites.filter((x) => !back.has(x));
+        for (const x of back) planned.hand.push({ site: x, why: 'the other branch of its `? :` stays, and one call sends both' });
+        continue;
+      }
+      const p = load(file);
+      const test = text(p, cond.test);
+      changes.edit(
+        file,
+        s.node.start,
+        s.node.end,
+        `(${test} ? ${callText(changes, c.s, c.name, c.takesNone)} : ${callText(changes, a.s, a.name, a.takesNone)})`,
+      );
+      changes.imp(file, c.spec, c.name);
+      changes.imp(file, a.spec, a.name);
+    }
+  }
+}
+
+/** One caller, rewritten to its record. */
+function rewriteSite(changes, s, name, spec, takesNone) {
+  const n = s.node;
   // The hand schema the caller parsed with: its types now come from the record (`retype`).
   const schemaArg = schemaArgOf(s);
   if (schemaArg?.type === 'Identifier') {
@@ -398,18 +500,41 @@ function rewriteSite(changes, s, name, spec, takesNone) {
     if (!f.schemas.has(schemaArg.name)) f.schemas.set(schemaArg.name, new Set());
     f.schemas.get(schemaArg.name).add(name);
   }
-  const input = takesNone ? 'undefined' : text(p, inputArg(s));
-  if (s.shape === 'query' || s.shape === 'mutate') {
-    const recv = text(p, n.callee.object);
-    const rest = [input, ...(a[4] ? [text(p, a[4])] : [])];
-    changes.edit(s.file, n.start, n.end, `${recv}.call(${name}, ${rest.join(', ')})`);
-  } else if (s.shape === 'founderCall') {
-    // A page's own reader stays, reading the record's parsed answer into its view (`founderRecordRead`).
-    const fn = s.reader ? 'founderRecordRead' : 'founderRecordCall';
-    const rest = [text(p, a[0]), name, input, ...(s.reader ? [text(p, a[5])] : []), ...(a[6] ? [text(p, a[6])] : [])];
-    changes.edit(s.file, n.start, n.end, `${fn}(${rest.join(', ')})`);
-    changes.imp(s.file, s.founderCallFrom, fn);
+  if (s.shape === 'desk-read') {
+    // `module: 'x', ... procedure: 'y'` becomes `...readOf(RECORD)` where `procedure` was (`toolOf` for an operator tool,
+    // its `edgeModule` and `kind` dropped too); the record names them.
+    const props = s.obj.properties;
+    for (const d of s.drop) {
+      const i = props.indexOf(d);
+      // To the next key; the last key goes from the end of the one before it, so no comma is left behind.
+      if (props[i + 1]) changes.edit(s.file, d.start, props[i + 1].start, '');
+      else changes.edit(s.file, props[i - 1].end, d.end, '');
+    }
+    changes.edit(s.file, n.start, n.end, `...${s.helper}(${name})`);
+    if (s.helperFrom) changes.imp(s.file, s.helperFrom, s.helper);
+    changes.imp(s.file, spec, name);
+    return;
   }
+  if (s.shape === 'ops-entry') {
+    // The entry names its record; its table's calls are sent by record once every entry of the table has moved (`tables`).
+    const edit = { start: n.start, end: n.end, text: `record: ${name}` };
+    changes.of(s.file).edits.push(edit);
+    changes.imp(s.file, spec, name);
+    const f = changes.of(s.file);
+    f.tables ??= new Map();
+    if (!f.tables.has(s.table)) f.tables.set(s.table, { site: s, moved: [] });
+    f.tables.get(s.table).moved.push({ s, edit, takesNone });
+    return;
+  }
+  if (s.branch) {
+    // One branch of `cond ? 'a.x' : 'a.y'`: the call is written once both branches have their record (`pairs`).
+    const f = changes.of(s.file);
+    f.pairs ??= new Map();
+    if (!f.pairs.has(s.cond)) f.pairs.set(s.cond, { s, branches: {} });
+    f.pairs.get(s.cond).branches[s.branch] = { s, name, spec, takesNone };
+    return;
+  }
+  changes.edit(s.file, n.start, n.end, callText(changes, s, name, takesNone));
   changes.imp(s.file, spec, name);
 }
 
@@ -707,10 +832,11 @@ function main() {
   const result = build(opts, planned);
   const summary = {
     service: opts.service,
-    sites: planned.sites.length,
+    // A `? :` call is two sites, one per branch, and one call.
+    sites: new Set(planned.sites.map((s) => s.node)).size,
     records: result.done.map((r) => r.name),
     existing: planned.existing.map((e) => e.name),
-    rewritten: result.done.reduce((n, r) => n + r.sites.length, 0) + planned.existing.reduce((n, e) => n + e.sites.length, 0),
+    rewritten: new Set([...result.done, ...planned.existing].flatMap((r) => r.sites.map((s) => s.node))).size,
     hand: planned.hand.map((h) => ({
       at: `${relative(REPO, h.site.file)}:${h.site.line}`,
       call: `${h.site.module ?? '?'} ${h.site.path ?? '?'}`,
