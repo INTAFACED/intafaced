@@ -1,4 +1,12 @@
 import 'server-only';
+import {
+  NO_INPUT,
+  replyAccepted,
+  type ProcedureInput,
+  type ProcedureOutput,
+  type ProcedureRecord,
+  type TrpcTransport,
+} from '@intafaced/contracts/procedure';
 import type { AdminSessionConfig, FounderSession } from '@/lib/founder-session';
 
 /**
@@ -132,4 +140,28 @@ export function parseWith<T>(schema: {
     const result = schema.safeParse(raw);
     return result.success ? result.data : null;
   };
+}
+
+type PayRecord = ProcedureRecord & TrpcTransport & { readonly service: 'svc-pay'; readonly module: 'pay' };
+
+/**
+ * `payCall` through the call's record: the path and method come from the record, the input is checked by it before it
+ * leaves, and the answer is parsed by `record.output` and the record's `accept` checks. An input the record refuses is
+ * never sent: it is refused here as the service refuses it, a 400 with no code.
+ */
+export async function payRecordCall<R extends PayRecord>(
+  ctx: PayCallContext,
+  record: R,
+  input: ProcedureInput<R>,
+): Promise<PayCallResult<ProcedureOutput<R>>> {
+  let checked: unknown;
+  if (record.input !== NO_INPUT) {
+    const parsed = record.input.safeParse(input);
+    if (!parsed.success) return { kind: 'refused', refusal: { code: null, message: parsed.error.message, status: 400 }, requestId: null };
+    checked = parsed.data;
+  }
+  return payCall(ctx, record.path, record.kind === 'query' ? 'GET' : 'POST', checked, (raw) => {
+    const parsed = record.output.safeParse(raw);
+    return parsed.success && replyAccepted(record, parsed.data) ? (parsed.data as ProcedureOutput<R>) : null;
+  });
 }

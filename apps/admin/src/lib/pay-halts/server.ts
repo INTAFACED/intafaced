@@ -1,14 +1,13 @@
 import 'server-only';
+import { payHaltSetInputSchema, type PayHaltScope, type PayHaltTarget } from '@intafaced/contracts';
 import {
-  payHaltEventSchema,
-  payHaltOperatorStatusSchema,
-  payHaltPendingClearListSchema,
-  payHaltSetInputSchema,
-  payHaltSetResultSchema,
-  type PayHaltScope,
-  type PayHaltTarget,
-} from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult, partFrom, type Part, type PartLabels } from '@/lib/desk';
+  PAY_HALTS_HISTORY,
+  PAY_HALTS_OPERATOR_STATUS,
+  PAY_HALTS_PENDING_CLEARS,
+  PAY_HALTS_SET,
+} from '@intafaced/contracts/pay-halt-procedures';
+import type { ProcedureOutput } from '@intafaced/contracts/procedure';
+import { founderRecordCall, type FounderCallContext, type FounderCallResult, partFrom, type Part, type PartLabels } from '@/lib/desk';
 import { HALT_REASON_MAX, HALT_REASON_MIN, scopeTargetProblem } from './model';
 import type { PayHaltsRead } from './types';
 
@@ -26,22 +25,11 @@ const LABELS: PartLabels = {
 
 const part = <T, U>(result: FounderCallResult<T>, pick: (data: T) => U): Part<U> => partFrom(result, pick, LABELS);
 
-const eventsParser = (raw: unknown) => {
-  if (!Array.isArray(raw)) return null;
-  const out = [];
-  for (const row of raw) {
-    const parsed = payHaltEventSchema.safeParse(row);
-    if (!parsed.success) return null;
-    out.push(parsed.data);
-  }
-  return out;
-};
-
 export async function loadPayHalts(ctx: FounderCallContext, now: Date = new Date()): Promise<PayHaltsRead> {
   const [status, pending, history] = await Promise.all([
-    founderCall(ctx, 'pay', 'payHalts.operatorStatus', 'GET', {}, parseWith(payHaltOperatorStatusSchema)),
-    founderCall(ctx, 'pay', 'payHalts.pendingClears', 'GET', { limit: 50 }, parseWith(payHaltPendingClearListSchema)),
-    founderCall(ctx, 'pay', 'payHalts.history', 'GET', { limit: 30 }, eventsParser),
+    founderRecordCall(ctx, PAY_HALTS_OPERATOR_STATUS, undefined),
+    founderRecordCall(ctx, PAY_HALTS_PENDING_CLEARS, { limit: 50 }),
+    founderRecordCall(ctx, PAY_HALTS_HISTORY, { limit: 30 }),
   ]);
   return {
     asOf: now.toISOString(),
@@ -70,8 +58,8 @@ export function readSetBody(raw: unknown): SetBody | null {
   return body;
 }
 
-export type PayHaltSetResult = NonNullable<ReturnType<typeof payHaltSetResultSchema.parse>>;
+export type PayHaltSetResult = ProcedureOutput<typeof PAY_HALTS_SET>;
 
 export function setHalt(ctx: FounderCallContext, body: SetBody): Promise<FounderCallResult<PayHaltSetResult>> {
-  return founderCall(ctx, 'pay', 'payHalts.set', 'POST', body, parseWith(payHaltSetResultSchema));
+  return founderRecordCall(ctx, PAY_HALTS_SET, body);
 }
