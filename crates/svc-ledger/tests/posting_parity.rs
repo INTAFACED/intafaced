@@ -12,9 +12,10 @@
 )]
 
 use service_kit::json::{self, Json};
+use svc_ledger::chain::{self, HashEntry, HashTx};
 use svc_ledger::errors::Failure;
 use svc_ledger::posting::gate::{self, Caller};
-use svc_ledger::posting::rules::{self, HashLeg, Wide};
+use svc_ledger::posting::rules::{self, Wide};
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/posting-parity");
 
@@ -66,7 +67,8 @@ fn said(j: Result<Option<&'static str>, gate::Violation>) -> String {
 }
 
 const TX_ID: &str = "9a9a9a9a-0000-4000-8000-000000000001";
-const POSTED_AT: &str = "2026-11-21T01:02:03.045Z";
+/// `2026-11-21T01:02:03.045Z`, the instant the fixture was hashed at.
+const POSTED_AT_MS: i64 = 1_795_222_923_045;
 
 #[test]
 fn every_recorded_post_is_judged_hashed_and_refused_as_the_typescript_does() {
@@ -127,18 +129,25 @@ fn every_recorded_post_is_judged_hashed_and_refused_as_the_typescript_does() {
         let ids: Vec<String> = (0..r.entries.len())
             .map(|i| format!("00000000-0000-4000-8000-{i:012}"))
             .collect();
-        let legs: Vec<HashLeg<'_>> = r
+        let legs: Vec<HashEntry<'_>> = r
             .entries
             .iter()
             .zip(&ids)
-            .map(|(e, id)| HashLeg {
+            .map(|(e, id)| HashEntry {
                 account_id: id,
                 asset_id: &e.account.asset_id,
-                direction: e.direction,
+                direction: e.direction.as_str(),
                 amount: e.amount,
             })
             .collect();
-        let hash = |prev| rules::hash_tx(TX_ID, &r.module, &r.reason, POSTED_AT, &legs, prev);
+        let tx = HashTx {
+            id: TX_ID,
+            module: &r.module,
+            reason: &r.reason,
+            posted_at_ms: POSTED_AT_MS,
+            entries: &legs,
+        };
+        let hash = |prev| chain::hash_tx(&tx, prev).unwrap();
         assert_eq!(Some(&Json::str(hash(None))), c.get("hash"), "{label}: hash");
         let tip = "f".repeat(64);
         assert_eq!(

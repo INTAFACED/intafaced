@@ -12,12 +12,13 @@ use service_kit::json::{self, Json};
 use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::time::Instant;
 
+use crate::chain::{self, HashEntry, HashTx};
 use crate::db::{StoreError, transaction};
 use crate::errors::{self, Failure};
 use crate::posting::PostError;
 use crate::posting::rules::{
-    self, AccountRef, Direction, HashLeg, PostRequest, Wide, assert_balanced,
-    assert_idempotency_key, assert_valid_post, post_fingerprint, replay_meta_differs,
+    self, AccountRef, Direction, PostRequest, Wide, assert_balanced, assert_idempotency_key,
+    assert_valid_post, post_fingerprint, replay_meta_differs,
 };
 
 /// `LEDGER_IDEMPOTENCY_CONFLICT_MODE`, as the environment resolved it.
@@ -362,25 +363,34 @@ fn book(
     }
 
     let meta = rules::canonical_meta(r.meta.as_deref()).compact();
-    let hash_legs: Vec<HashLeg<'_>> = r
+    let hash_entries: Vec<HashEntry<'_>> = r
         .entries
         .iter()
         .zip(&legs)
-        .map(|(e, (id, _))| HashLeg {
+        .map(|(e, (id, _))| HashEntry {
             account_id: id,
             asset_id: &e.account.asset_id,
-            direction: e.direction,
+            direction: e.direction.as_str(),
             amount: e.amount,
         })
         .collect();
-    let hash = rules::hash_tx(
-        &tx_id,
-        &r.module,
-        &r.reason,
-        &posted_at,
-        &hash_legs,
+    // The clock's instant, which `Instant::iso` printed above, so the hash cannot refuse it.
+    let hash = chain::hash_tx(
+        &HashTx {
+            id: &tx_id,
+            module: &r.module,
+            reason: &r.reason,
+            posted_at_ms,
+            entries: &hash_entries,
+        },
         previous_hash.as_deref(),
-    );
+    )
+    .ok_or_else(|| {
+        PostError::Store(StoreError::new(
+            "the clock is past what a JavaScript Date holds",
+            None,
+        ))
+    })?;
 
     let seq: String = tx
         .query_one(

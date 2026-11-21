@@ -255,6 +255,8 @@ fn doors(db: &TestDb) -> Doors {
         clock_skew_bound_ms: None,
         now_ms: system_ms,
         log: Logger::new("info", Box::new(std::io::sink())),
+        custody: svc_ledger::reconcile::CustodyLayer::On,
+        reconcile_statement_timeout_ms: svc_ledger::reconcile::DEFAULT_STATEMENT_TIMEOUT_MS,
         posting: support::idle_posting(),
     })
     .unwrap();

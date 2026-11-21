@@ -521,54 +521,6 @@ pub fn post_fingerprint(module: &str, reason: &str, entries: &[Entry]) -> String
     sha256_hex(&[b"ledger-post-body-v1\0", canonical.as_bytes()])
 }
 
-/// One booked leg, as `hashTx` reads it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HashLeg<'a> {
-    pub account_id: &'a str,
-    pub asset_id: &'a str,
-    pub direction: Direction,
-    pub amount: Amount,
-}
-
-/// `hashTx(tx, previousHash)`: `sha256(previousHash ‖ ' ' ‖ JSON.stringify({ id, module, reason, postedAt, entries }))`.
-/// The space is the byte `ledger_tx.hash` was written with.
-pub fn hash_tx(
-    id: &str,
-    module: &str,
-    reason: &str,
-    posted_at: &str,
-    entries: &[HashLeg<'_>],
-    previous_hash: Option<&str>,
-) -> String {
-    let body = Json::obj([
-        ("id", Json::str(id)),
-        ("module", Json::str(module)),
-        ("reason", Json::str(reason)),
-        ("postedAt", Json::str(posted_at)),
-        (
-            "entries",
-            Json::Array(
-                entries
-                    .iter()
-                    .map(|e| {
-                        Json::obj([
-                            ("accountId", Json::str(e.account_id)),
-                            ("assetId", Json::str(e.asset_id)),
-                            ("direction", Json::str(e.direction.as_str())),
-                            ("amount", Json::str(format_amount(e.amount))),
-                        ])
-                    })
-                    .collect(),
-            ),
-        ),
-    ]);
-    sha256_hex(&[
-        previous_hash.unwrap_or("").as_bytes(),
-        b" ",
-        body.compact().as_bytes(),
-    ])
-}
-
 /// `String(value)` for a value JSON can hold.
 pub fn js_string(v: &Json) -> String {
     match v {

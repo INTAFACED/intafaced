@@ -16,22 +16,13 @@
 
 mod support;
 
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
 
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use hmac::{Hmac, Mac};
-use service_kit::approvals::{ConsumeInput, Consumed};
-use service_kit::json::{self, Json};
-use service_kit::s2s::system_seconds;
-use service_kit::s2s_verify::BodyBind;
-use service_kit::server::{Door, Request};
-use service_kit::telemetry::Logger;
-use service_kit::tokens::TokenConfig;
-use sha2::Sha256;
+use service_kit::json::Json;
 use support::TestDb;
-use svc_ledger::approval::{self, Approvals, Refused};
+use support::operator::{OPERATOR, Shared, bearer, call, code, door_config, stub, treasury};
+use svc_ledger::approval::{self, Approvals};
 use svc_ledger::boot;
 use svc_ledger::clock::{self, SKEW_BOUND_UNSET, WRITES_BLOCKED_CLOCK_SKEW, system_ms};
 use svc_ledger::db::{Store, with_client};
@@ -40,10 +31,8 @@ use svc_ledger::freeze::{self, Command, FreezeRelay, MemoryBus, SUBJECT};
 use svc_ledger::migrate::FILES;
 use svc_ledger::status::{self, FreezeState, read_freeze};
 
-const OPERATOR: &str = "11111111-1111-4111-8111-111111111111";
 const CHECKER: &str = "22222222-2222-4222-8222-222222222222";
 const APPROVER: &str = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
-const TOKEN_SECRET: &str = "placeholder-ledger-freeze-test-token-secret";
 
 fn migrated() -> Option<TestDb> {
     let db = TestDb::new()?;
@@ -466,60 +455,6 @@ fn a_blank_bound_refuses_and_an_explicit_zero_blocks_a_shifted_app_clock() {
 
 // ── The doors: operator-http.test.ts, four-eyes-unfreeze.test.ts ──────────────────────────────────────────────────
 
-/// What a consume asked for: approval, operation, payload hash, target and version.
-type Asked = (String, String, String, String, String);
-
-/// `stubApprovalConsumer`: consumes whatever it is asked, as `approver`, recording each request.
-struct Stub {
-    approver: Option<&'static str>,
-    requester: &'static str,
-    founders: Option<bool>,
-    seen: Mutex<Vec<Asked>>,
-}
-
-impl Approvals for Stub {
-    fn consume(&self, input: &ConsumeInput<'_>) -> Result<Consumed, Refused> {
-        self.seen.lock().unwrap().push((
-            input.approval_id.to_owned(),
-            input.operation_id.to_owned(),
-            input.payload_hash.to_owned(),
-            input.target_id.to_owned(),
-            input.expected_version.to_owned(),
-        ));
-        let verb = input
-            .target_id
-            .strip_prefix("posting_")
-            .unwrap_or(input.target_id);
-        Ok(Consumed {
-            action_type: format!("ledger.{verb}"),
-            target_service: input.target_service.to_owned(),
-            target_id: input.target_id.to_owned(),
-            status: "CONSUMED".to_owned(),
-            requester_id: self.requester.to_owned(),
-            approver_id: self.approver.map(str::to_owned),
-            approver_is_founder: self.founders,
-            requester_is_founder: self.founders,
-        })
-    }
-}
-
-fn stub(approver: Option<&'static str>, founders: Option<bool>) -> Arc<Stub> {
-    Arc::new(Stub {
-        approver,
-        requester: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-        founders,
-        seen: Mutex::new(Vec::new()),
-    })
-}
-
-struct Shared(Arc<Stub>);
-
-impl Approvals for Shared {
-    fn consume(&self, input: &ConsumeInput<'_>) -> Result<Consumed, Refused> {
-        self.0.consume(input)
-    }
-}
-
 fn door(
     db: &TestDb,
     bus: Arc<MemoryBus>,
@@ -528,94 +463,11 @@ fn door(
     now_ms: fn() -> i64,
 ) -> LedgerDoor {
     LedgerDoor::new(DoorConfig {
-        internal_secret: "placeholder-freeze-test-internal-secret".to_owned(),
-        body_bind: BodyBind::Require,
-        keys: None,
-        tokens: TokenConfig {
-            secret: TOKEN_SECRET.to_owned(),
-            issuer: "intafaced".to_owned(),
-            audience: "intafaced.api".to_owned(),
-            key_id: None,
-            verify_only: Vec::new(),
-        },
-        clock: system_seconds,
-        store: db.store(),
-        service_name: "svc-ledger".to_owned(),
-        bus,
-        approvals,
         clock_skew_bound_ms: bound,
         now_ms,
-        log: Logger::new("info", Box::new(std::io::sink())),
-        posting: support::idle_posting(),
+        ..door_config(db, bus, approvals)
     })
     .unwrap()
-}
-
-/// `issueAccessToken` for the operator, with these scopes and second factor.
-fn bearer(scopes: &[&str], mfa: bool) -> String {
-    let now = system_seconds();
-    let b64 = |j: Json| URL_SAFE_NO_PAD.encode(j.compact());
-    let header = b64(Json::obj([
-        ("alg", Json::str("HS256")),
-        ("typ", Json::str("JWT")),
-    ]));
-    let claims = b64(Json::obj([
-        (
-            "scopes",
-            Json::Array(scopes.iter().map(|s| Json::str(*s)).collect()),
-        ),
-        ("tier", Json::str("basic")),
-        ("mfa", Json::Bool(mfa)),
-        ("sid", Json::str("33333333-3333-4333-8333-333333333333")),
-        ("sub", Json::str(OPERATOR)),
-        ("iss", Json::str("intafaced")),
-        ("aud", Json::str("intafaced.api")),
-        ("iat", Json::int(now)),
-        ("exp", Json::int(now + 900)),
-        ("jti", Json::str("44444444-4444-4444-8444-444444444444")),
-    ]));
-    let mut mac = Hmac::<Sha256>::new_from_slice(TOKEN_SECRET.as_bytes()).unwrap();
-    mac.update(format!("{header}.{claims}").as_bytes());
-    let sig = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
-    format!("Bearer {header}.{claims}.{sig}")
-}
-
-fn treasury() -> Option<String> {
-    Some(bearer(&["admin:treasury"], true))
-}
-
-/// One request to the door: its status and parsed body.
-fn call(
-    door: &LedgerDoor,
-    method: &str,
-    path: &str,
-    auth: Option<String>,
-    body: &str,
-) -> (u16, Json) {
-    let mut headers = Vec::new();
-    if let Some(a) = auth {
-        headers.push(("authorization".to_owned(), a));
-    }
-    if !body.is_empty() {
-        headers.push(("content-type".to_owned(), "application/json".to_owned()));
-    }
-    let r = door.handle_as(
-        &Request {
-            method,
-            url: path,
-            headers: &headers,
-            body,
-        },
-        "req-1",
-    );
-    (r.status, json::parse(&r.body).unwrap())
-}
-
-fn code(body: &Json) -> Option<&str> {
-    match body.get("code") {
-        Some(Json::String(c)) => Some(c),
-        _ => None,
-    }
 }
 
 #[test]

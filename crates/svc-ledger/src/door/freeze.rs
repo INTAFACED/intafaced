@@ -94,7 +94,7 @@ fn text<'a>(input: &'a Value, key: &str) -> &'a str {
 }
 
 impl LedgerDoor {
-    fn relay(&self) -> FreezeRelay<'_> {
+    pub(super) fn relay(&self) -> FreezeRelay<'_> {
         FreezeRelay {
             bus: &*self.cfg.bus,
             producer: self.cfg.service_name.clone(),

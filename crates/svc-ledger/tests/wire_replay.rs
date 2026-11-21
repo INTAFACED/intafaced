@@ -192,6 +192,8 @@ fn door(mode: Option<Mode>, keyring: &[KeyringEntry]) -> LedgerDoor {
         clock_skew_bound_ms: None,
         now_ms: svc_ledger::clock::system_ms,
         log: service_kit::telemetry::Logger::new("info", Box::new(std::io::sink())),
+        custody: svc_ledger::reconcile::CustodyLayer::On,
+        reconcile_statement_timeout_ms: svc_ledger::reconcile::DEFAULT_STATEMENT_TIMEOUT_MS,
         posting: Posting::new(
             Arc::new(svc_ledger::freeze::MemoryBus::default()),
             "svc-ledger".to_owned(),
