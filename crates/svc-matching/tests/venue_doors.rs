@@ -2570,3 +2570,20 @@ fn halt_stress_burst_of_n_clips_fills_the_taker_once_each_no_double_live_no_inve
     assert_eq!(makers, sorted);
     assert!(live_ids(&door).is_empty());
 }
+
+// ── added beyond the TypeScript ─────────────────────────────────────────
+
+/// `consumeVenueKill` checks both people identity recorded against the operator list: an approver without an operator
+/// seat refuses, whoever typed the request. No TypeScript test holds this line (`router.ts`'s
+/// `!isOperator(consumed.requesterId) || !isOperator(approverId)`).
+#[test]
+fn approval_an_approver_off_the_operator_list_refuses_and_nothing_switches() {
+    let door = door_with(stub(), "ops-1");
+    let a = post(&door, &market_url(MARKET, "halt"), &kill());
+    refused_400(&door, &a, "action_approval.not_operator");
+    assert_eq!(
+        a.text("message"),
+        "both the proposer and the approver must be operators of this venue"
+    );
+    assert!(!flags(&door, MARKET).halted);
+}
