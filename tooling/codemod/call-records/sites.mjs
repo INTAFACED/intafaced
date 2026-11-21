@@ -91,16 +91,38 @@ function isSchemaParse(n) {
 }
 
 /**
- * An ops-desk read (`{ module: 'bank', procedure: 'health', ... }` in a file that has `readOf`): a query whose entry
- * names its record as `...readOf(RECORD)`, the form the desk's catalog test asks for.
+ * A catalog entry that names its record by a spread the file defines: an ops-desk read (`{ module: 'bank', procedure:
+ * 'health' }` beside `readOf`, always a query) or an operator tool (`{ edgeModule: 'bank', procedure: 'ops.x', kind:
+ * 'mutation' }` beside `toolOf`). The entry becomes `...readOf(RECORD)` or `...toolOf(RECORD)` where `procedure` was, and
+ * the keys the record now gives are dropped.
  */
+const SPREADS = [
+  { helper: 'readOf', moduleKey: 'module', kindKey: undefined },
+  { helper: 'toolOf', moduleKey: 'edgeModule', kindKey: 'kind' },
+];
 function deskRead(p, n) {
   if (!literal(n.value)) return undefined;
   const obj = p.parents.get(n);
-  const moduleProp = obj?.properties?.find((pr) => pr.type === 'Property' && keyOf(pr) === 'module' && literal(pr.value));
-  if (!moduleProp || bindingOf(p, n, 'readOf').kind === 'none') return undefined;
-  const inputProp = obj.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'input');
-  return { module: literal(moduleProp.value), path: literal(n.value), kind: 'query', moduleProp, inputProp, obj };
+  if (obj?.type !== 'ObjectExpression') return undefined;
+  const prop = (k) => obj.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === k && literal(pr.value));
+  for (const { helper, moduleKey, kindKey } of SPREADS) {
+    const moduleProp = prop(moduleKey);
+    const kindProp = kindKey ? prop(kindKey) : undefined;
+    if (!moduleProp || (kindKey && !kindProp) || bindingOf(p, n, helper).kind === 'none') continue;
+    const kind = kindProp ? literal(kindProp.value) : 'query';
+    if (kind !== 'query' && kind !== 'mutation') continue;
+    const inputProp = obj.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'input');
+    return {
+      module: literal(moduleProp.value),
+      path: literal(n.value),
+      kind,
+      helper,
+      drop: [moduleProp, kindProp].filter(Boolean),
+      inputProp,
+      obj,
+    };
+  }
+  return undefined;
 }
 
 /** The ops-desk reads in one parsed file. */

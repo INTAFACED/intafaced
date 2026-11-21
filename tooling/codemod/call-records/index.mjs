@@ -456,11 +456,16 @@ function rewriteSite(changes, s, name, spec, takesNone) {
     f.schemas.get(schemaArg.name).add(name);
   }
   if (s.shape === 'desk-read') {
-    // `module: 'x', ... procedure: 'y'` becomes `...readOf(RECORD)` where `procedure` was; the record names both.
+    // `module: 'x', ... procedure: 'y'` becomes `...readOf(RECORD)` where `procedure` was (`toolOf` for an operator tool,
+    // its `edgeModule` and `kind` dropped too); the record names them.
     const props = s.obj.properties;
-    const i = props.indexOf(s.moduleProp);
-    changes.edit(s.file, s.moduleProp.start, props[i + 1] ? props[i + 1].start : s.moduleProp.end, '');
-    changes.edit(s.file, n.start, n.end, `...readOf(${name})`);
+    for (const d of s.drop) {
+      const i = props.indexOf(d);
+      // To the next key; the last key goes from the end of the one before it, so no comma is left behind.
+      if (props[i + 1]) changes.edit(s.file, d.start, props[i + 1].start, '');
+      else changes.edit(s.file, props[i - 1].end, d.end, '');
+    }
+    changes.edit(s.file, n.start, n.end, `...${s.helper}(${name})`);
     changes.imp(s.file, spec, name);
     return;
   }

@@ -180,6 +180,20 @@ test('an ops-desk read beside readOf is a site the codemod moves to ...readOf(RE
     found.map((s) => `${s.module} ${s.path} ${s.kind}`),
     ['bank health query'],
   );
+  // An operator tool beside `toolOf`: its kind is its own, and `edgeModule` and `kind` are what the record replaces.
+  const tools = join(dir, 'tools.ts');
+  writeFileSync(
+    tools,
+    [
+      'export const toolOf = (r: { module: string; path: string; kind: string }) => ({ edgeModule: r.module, procedure: r.path, kind: r.kind });',
+      "export const t = { id: 'pay.set', edgeModule: 'pay', procedure: 'merchantState.set', kind: 'mutation', scope: 'admin:write' };",
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(
+    deskReadSite(load(tools)).map((s) => `${s.module} ${s.path} ${s.kind} ${s.helper} ${s.drop.map((d) => d.key.name).join('+')}`),
+    ['pay merchantState.set mutation toolOf edgeModule+kind'],
+  );
 });
 
 test('a table its own founderCall sends by `spec.procedure` is a site, the whole table or none of it', async () => {
