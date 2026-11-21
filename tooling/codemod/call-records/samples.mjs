@@ -40,23 +40,26 @@ const STRINGS = [
 ];
 
 /** Values a JSON Schema allows, most likely first (`depth` keeps nested objects small). */
-function candidates(schema, depth = 0) {
+// A field named like a credential gets a value the secret scan reads as one (tooling/ci/secret-scan.mjs: /placeholder/i).
+const CREDENTIAL_KEY = /pass(word|phrase)?|token|secret|api[_-]?key|private|credential/i;
+
+function candidates(schema, depth = 0, key = '') {
   if (!schema || typeof schema !== 'object' || depth > 8) return [null];
   if ('const' in schema) return [schema.const];
   if (schema.enum) return schema.enum.slice(0, 3);
   if ('default' in schema && depth > 0) return [undefined, schema.default];
-  for (const k of ['anyOf', 'oneOf']) if (schema[k]) return schema[k].flatMap((s) => candidates(s, depth + 1)).slice(0, 8);
-  if (schema.allOf) return candidates(Object.assign({}, ...schema.allOf), depth + 1);
+  for (const k of ['anyOf', 'oneOf']) if (schema[k]) return schema[k].flatMap((s) => candidates(s, depth + 1, key)).slice(0, 8);
+  if (schema.allOf) return candidates(Object.assign({}, ...schema.allOf), depth + 1, key);
   const type = Array.isArray(schema.type) ? (schema.type.find((t) => t !== 'null') ?? 'null') : schema.type;
   switch (type) {
     case 'object': {
       const req = schema.required ?? [];
       const props = schema.properties ?? {};
       const base = {};
-      for (const k of req) base[k] = candidates(props[k], depth + 1)[0];
+      for (const k of req) base[k] = candidates(props[k], depth + 1, k)[0];
       const out = [base];
       // A second try per field: its next candidate, for a field whose first one the schema's own checks refuse.
-      for (const k of req) for (const alt of candidates(props[k], depth + 1).slice(1, 4)) out.push({ ...base, [k]: alt });
+      for (const k of req) for (const alt of candidates(props[k], depth + 1, k).slice(1, 4)) out.push({ ...base, [k]: alt });
       return out;
     }
     case 'array': {
@@ -82,6 +85,11 @@ function candidates(schema, depth = 0) {
         ].filter((s) => re.test(s) && s.length >= min && s.length <= max);
       }
       if (list.length === 0) list = ['x'.repeat(Math.max(1, min))];
+      if (CREDENTIAL_KEY.test(key)) {
+        const fake = `placeholder${'x'.repeat(Math.max(0, min - 11))}`;
+        const fits = fake.length <= max && (!schema.pattern || new RegExp(schema.pattern, 'u').test(fake));
+        if (fits) return [fake];
+      }
       return list.slice(0, 6);
     }
     case 'integer':

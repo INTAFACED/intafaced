@@ -233,6 +233,37 @@ function build(opts, planned) {
         return build(opts, { ...planned, records: planned.records.filter((r) => good.includes(r) || recordFile(opts, r.path) !== file) });
       }
     }
+    // Two different declarations under one name (svc-bank's routers each keep their own `amountString`, some with a
+    // message, some without) cannot land in one file. Keep the records whose helpers agree; the rest go back to their
+    // router, named, and a rerun places them beside their own record, where the name is free.
+    const keyOfMoved = (m) => (m.q ? `${m.q.file}#${m.name}` : `inline#${m.name}`);
+    const clashing = (moved, seen = new Map()) =>
+      moved.find((m) => {
+        if (seen.has(m.name) && seen.get(m.name) !== keyOfMoved(m)) return true;
+        seen.set(m.name, keyOfMoved(m));
+        return false;
+      });
+    if (clashing(closure.moved)) {
+      const keep = [];
+      const seen = new Map();
+      for (const r of recs) {
+        const c = closureOf(
+          REPO,
+          roots.filter((x) => x.where.startsWith(`${r.path} `)),
+        );
+        const trial = new Map(seen);
+        const bad = clashing(c.moved, trial);
+        if (bad && keep.length) {
+          for (const site of r.sites)
+            planned.hand.push({ site, why: `helper ${bad.name} clashes with another ${bad.name} in this record file: a rerun places it` });
+          continue;
+        }
+        keep.push(r);
+        for (const [k, v] of trial) seen.set(k, v);
+      }
+      groups.set(file, keep);
+      return build(opts, { ...planned, records: planned.records.filter((r) => keep.includes(r) || recordFile(opts, r.path) !== file) });
+    }
     // Each moved declaration lands once: in the service's shared schema file, or, when its name is taken there by
     // another declaration, with all of this file's new ones in the record file itself.
     const shared = join(CONTRACTS, `${opts.module}-call-schemas.ts`);
