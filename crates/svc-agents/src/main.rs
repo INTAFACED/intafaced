@@ -27,6 +27,7 @@ use svc_agents::db::{self, Store};
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
 use svc_agents::env::{self, AgentsEnv, DEFAULT_PORT};
 use svc_agents::factories::Factories;
+use svc_agents::factories::merchant::{PayMetrics, PayMetricsHttp};
 use svc_agents::factories::scanner::{SpotTickers, SpotTickersHttp};
 use svc_agents::gateway::Gateway;
 use svc_agents::gateway::desk::GatewaySlice;
@@ -303,14 +304,35 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
     })
 }
 
-/// The factories' live ports as \`index.ts\` builds them: svc-trade's tickers while \`TRADE_URL\` is set.
-fn factories(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Factories {
+/// The factories' live ports as \`index.ts\` builds them, each outside call signed as svc-agents (with its own key when
+/// S2S is on): svc-trade's tickers while \`TRADE_URL\` is set, svc-pay's merchant metrics while \`PAY_URL\` is.
+fn factories(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Factories, String> {
     let url = |k: &str| env.str(k).filter(|u| !u.is_empty());
-    Factories {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    Ok(Factories {
         spot_tickers: url("TRADE_URL")
             .map(|u| Box::new(SpotTickersHttp::new(u, fetch.clone())) as Box<dyn SpotTickers>),
+        pay_metrics: url("PAY_URL").map(|u| {
+            Box::new(PayMetricsHttp::new(u, signer("svc-pay"), fetch.clone()))
+                as Box<dyn PayMetrics>
+        }),
         ..Factories::unwired()
-    }
+    })
 }
 
 /// The door, built once from the environment, with the store, the meter, the gateway and what `/ready` reports.
@@ -408,8 +430,8 @@ fn serve(
     let tasks = gateway.gateway.base().routes.len();
     let metering = metering(env, bus.clone(), &fetch)?;
     let runtime = runtime(env, &fetch)?;
-    let door =
-        door(env, store, metering, gateway, ready, runtime)?.with_factories(factories(env, &fetch));
+    let door = door(env, store, metering, gateway, ready, runtime)?
+        .with_factories(factories(env, &fetch)?);
 
     let app = App {
         wire: door,
