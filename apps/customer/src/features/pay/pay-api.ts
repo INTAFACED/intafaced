@@ -12,6 +12,12 @@ import {
   P2P_CONTACTS_UNFOLLOW,
   P2P_FIAT_LIST,
   P2P_HEALTH,
+  P2P_INSTRUMENTS_CREATE,
+  P2P_INSTRUMENTS_LIST,
+  P2P_INSTRUMENTS_METHODS_LIST,
+  P2P_INSTRUMENTS_REMOVAL_IMPACT,
+  P2P_INSTRUMENTS_REMOVE,
+  P2P_INSTRUMENTS_REVEAL_MASKED,
   P2P_LIMITS_VERIFICATION,
   P2P_MERCHANTS_ACCEPT_ADVERTISER_TERMS,
   P2P_MERCHANTS_ADVERTISER_TERMS,
@@ -615,9 +621,8 @@ export function createPersonalPayApi(
     /** Only a live service answers `ok: true`; anything else reads as unverified. */
     health: (signal?: AbortSignal) => api.call(P2P_HEALTH, undefined, { signal, accept: (health) => health.ok }),
     fiat: (signal?: AbortSignal) => api.call(P2P_FIAT_LIST, undefined, { signal }),
-    methods: (signal?: AbortSignal) => api.query('p2p', 'instruments.methods.list', { limit: 200 }, z.array(s.methodSchema), { signal }),
-    instruments: (limit: number, signal?: AbortSignal) =>
-      api.query('p2p', 'instruments.list', { limit }, z.array(s.instrumentSchema), { signal }),
+    methods: (signal?: AbortSignal) => api.call(P2P_INSTRUMENTS_METHODS_LIST, { limit: 200 }, { signal }),
+    instruments: (limit: number, signal?: AbortSignal) => api.call(P2P_INSTRUMENTS_LIST, { limit }, { signal }),
     async destination(tradeId: string, signal?: AbortSignal, expected?: { method: string; fiatCurrency: string }) {
       const denied = signedIn();
       if (denied) return denied;
@@ -1229,38 +1234,33 @@ export function createPersonalPayApi(
       details: Record<string, string>;
       /** The person's confirmation of exactly this change and these details (svc-p2p refuses a change without one). */
       stepUpApprovalId?: string;
-    }): Promise<ApiResult<z.infer<typeof s.instrumentSchema>>> {
+    }): Promise<ApiResult<s.Instrument>> {
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      const result = await api.mutate('p2p', 'instruments.create', input, s.instrumentSchema);
+      const result = await api.call(P2P_INSTRUMENTS_CREATE, input);
       if (result.ok || result.reason !== 'uncertain') return result;
-      const listed = await api.query('p2p', 'instruments.list', { limit: 200 }, z.array(s.instrumentSchema));
+      const listed = await api.call(P2P_INSTRUMENTS_LIST, { limit: 200 });
       const stored = listed.ok ? listed.data.find((row) => row.id.toLowerCase() === input.instrumentId.toLowerCase()) : undefined;
       return stored ? { ok: true, data: stored } : result;
     },
     /** P-ads-merchant-18: what removing this method does to the person's ads, read before they confirm. */
-    async methodRemovalImpact(instrumentId: string, signal?: AbortSignal): Promise<ApiResult<z.infer<typeof s.methodRemovalImpactSchema>>> {
+    async methodRemovalImpact(instrumentId: string, signal?: AbortSignal): Promise<ApiResult<s.MethodRemovalImpact>> {
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      return api.query('p2p', 'instruments.removalImpact', { instrumentId }, s.methodRemovalImpactSchema, { signal });
+      return api.call(P2P_INSTRUMENTS_REMOVAL_IMPACT, { instrumentId }, { signal });
     },
     /** `pauseOfferIds`: the ads the person was shown pausing with this method and agreed to; svc-p2p pauses no other. */
     removeInstrument: (instrumentId: string, stepUpApprovalId?: string, pauseOfferIds: readonly string[] = []) =>
       guard.run(
         `${userId}:instrument:${instrumentId}`,
         () =>
-          api.mutate(
-            'p2p',
-            'instruments.remove',
-            {
-              instrumentId,
-              ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
-              ...(pauseOfferIds.length ? { pauseOfferIds: [...pauseOfferIds] } : {}),
-            },
-            s.instrumentSchema,
-          ),
+          api.call(P2P_INSTRUMENTS_REMOVE, {
+            instrumentId,
+            ...(stepUpApprovalId ? { stepUpApprovalId } : {}),
+            ...(pauseOfferIds.length ? { pauseOfferIds: [...pauseOfferIds] } : {}),
+          }),
         undefined,
         p2pCurrent,
       ),
@@ -1397,11 +1397,11 @@ export function createPersonalPayApi(
      * last four). svc-p2p logs every read in the same statement, the owner's included, so this runs only when the person
      * asks to see them.
      */
-    async maskedInstrument(instrumentId: string): Promise<ApiResult<z.infer<typeof s.revealedInstrumentSchema>>> {
+    async maskedInstrument(instrumentId: string): Promise<ApiResult<s.RevealedInstrument>> {
       const denied = signedIn();
       if (denied) return denied;
       if (!p2pCurrent()) return p2pDeparted();
-      return api.mutate('p2p', 'instruments.revealMasked', { instrumentId }, s.revealedInstrumentSchema);
+      return api.call(P2P_INSTRUMENTS_REVEAL_MASKED, { instrumentId });
     },
     guard,
   };

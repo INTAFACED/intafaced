@@ -968,6 +968,7 @@ fn door(db: &TestDb, approvals: Box<dyn Approvals>) -> LedgerDoor {
         reconcile_statement_timeout_ms: svc_ledger::reconcile::DEFAULT_STATEMENT_TIMEOUT_MS,
         indexer_url: None,
         fetch: Arc::new(service_kit::http::UreqFetch::new()),
+        posting: support::idle_posting(),
     })
     .unwrap()
 }

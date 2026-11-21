@@ -415,6 +415,13 @@ describe('svc-p2p mount — authorisation', () => {
     await expect(caller.instruments.list({ limit: 50 })).resolves.toEqual([]);
   });
 
+  it('instruments.create refuses a missing or non-UUID instrumentId as BAD_REQUEST, before the service is asked', async () => {
+    const caller = routerFor(stubP2p()).createCaller(signed(principal({ scopes: ['p2p:read', 'p2p:write'] })));
+    const add = { methodId: 'sepa', country: 'DE', fiatCurrency: 'EUR', details: { iban: 'DE00' }, stepUpApprovalId: 'appr-1' };
+    await expect(caller.instruments.create({ ...add, instrumentId: 'not-a-uuid' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(caller.instruments.create(add as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+  });
+
   it('instruments.accessLog omit is PRECONDITION_FAILED — never invents a 100-row page', async () => {
     const instruments = stubInstruments({
       accessLogFor: async (_ownerId: string, limit?: number) => {
@@ -1102,6 +1109,37 @@ describe('svc-p2p mount — merchant API access', () => {
       ['pause', () => caller.offers.pause({ offerId })],
       ['resume', () => caller.offers.resume({ offerId })],
       ['update', () => caller.offers.update({ offerId, idempotencyKey: 'edit:offer:1', price: '1.01' })],
+    ];
+    for (const [name, call] of doors) {
+      await expect(call(), name).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringMatching(/approved merchant/i) });
+    }
+  });
+
+  it('refuses a key without approved standing on every payment-instrument door, before the door reads or moves anything', async () => {
+    const keyCtx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read', 'p2p:write'] }));
+    const caller = createP2pRouter(stubP2p(), stubInstruments(), undefined, {}, merchantStub('applied') as never).createCaller(keyCtx);
+    const instrumentId = '66666666-6666-4666-8666-666666666666';
+    const doors: Array<[string, () => Promise<unknown>]> = [
+      ['methods.list', () => caller.instruments.methods.list({ limit: 50 })],
+      [
+        'create',
+        () =>
+          caller.instruments.create({
+            instrumentId,
+            methodId: 'sepa',
+            country: 'DE',
+            fiatCurrency: 'EUR',
+            details: { iban: 'DE00' },
+            stepUpApprovalId: 'appr-1',
+          }),
+      ],
+      ['update', () => caller.instruments.update({ instrumentId, label: 'Salary', stepUpApprovalId: 'appr-1' })],
+      ['removalImpact', () => caller.instruments.removalImpact({ instrumentId })],
+      ['remove', () => caller.instruments.remove({ instrumentId, stepUpApprovalId: 'appr-1' })],
+      ['list', () => caller.instruments.list({ limit: 50 })],
+      ['reveal', () => caller.instruments.reveal({ instrumentId })],
+      ['revealMasked', () => caller.instruments.revealMasked({ instrumentId })],
+      ['accessLog', () => caller.instruments.accessLog({ limit: 50 })],
     ];
     for (const [name, call] of doors) {
       await expect(call(), name).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringMatching(/approved merchant/i) });

@@ -23,6 +23,9 @@ pub const CONNECT_TIMEOUT_S: u32 = 10;
 pub struct StoreError {
     pub message: String,
     pub code: Option<String>,
+    /// The server never answered: the connection was refused, dropped or timed out (the TypeScript driver's socket
+    /// codes, `ECONNREFUSED` and the like). A write that fails so is blocked, not faulty (`write-block.ts`).
+    pub socket: bool,
     /// The constraint the server named, for a violation (`constraint_name`).
     pub constraint: Option<String>,
 }
@@ -32,6 +35,7 @@ impl StoreError {
         StoreError {
             message: message.into(),
             code: code.map(str::to_owned),
+            socket: false,
             constraint: None,
         }
     }
@@ -42,12 +46,25 @@ impl From<&postgres::Error> for StoreError {
         StoreError {
             message: db_message(e),
             code: e.code().map(|c| c.code().to_owned()),
+            socket: e.as_db_error().is_none() && (e.is_closed() || io_error(e)),
             constraint: e
                 .as_db_error()
                 .and_then(|d| d.constraint())
                 .map(str::to_owned),
         }
     }
+}
+
+/// An error that came from the socket itself.
+fn io_error(e: &postgres::Error) -> bool {
+    let mut source = std::error::Error::source(e);
+    while let Some(s) = source {
+        if s.is::<std::io::Error>() {
+            return true;
+        }
+        source = s.source();
+    }
+    false
 }
 
 impl From<postgres::Error> for StoreError {
@@ -58,9 +75,11 @@ impl From<postgres::Error> for StoreError {
 
 impl From<DbError> for StoreError {
     fn from(e: DbError) -> StoreError {
+        // The pool fails only to connect, or when it or its connection has ended.
         StoreError {
             message: e.0,
             code: None,
+            socket: true,
             constraint: None,
         }
     }
