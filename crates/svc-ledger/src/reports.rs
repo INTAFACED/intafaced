@@ -72,27 +72,17 @@ pub fn answer(
     }
 }
 
-/// `postgres-ledger.ts` `balances`: every account of the owner, each balance read as a stored amount. The rows
-/// themselves change nothing in the statement; a read that fails fails the call.
+/// The owner's balances, read by the `balances` slice's own read (`crate::balances::balances`). The rows change
+/// nothing in the statement; a read that fails fails the call.
 pub fn read_balances(store: &Store, owner_type: &str, owner_id: &str) -> Result<(), Failure> {
     let pool = store.pool().map_err(|_| Failure::Fault)?;
-    let balances = with_client(pool, |c| {
-        let rows = c.query(
-            "SELECT balance::text
-               FROM accounts
-              WHERE owner_type = $1::text::owner_type AND owner_id = $2
-              ORDER BY asset_id, kind, purpose",
-            &[&owner_type, &owner_id],
-        )?;
-        rows.iter()
-            .map(|r| r.try_get::<_, String>(0).map_err(Into::into))
-            .collect::<Result<Vec<String>, crate::db::StoreError>>()
+    let mut read = Ok(());
+    with_client(pool, |c| {
+        read = crate::balances::balances(c, owner_type, owner_id).map(|_| ());
+        Ok(())
     })
     .map_err(|_| Failure::Fault)?;
-    for b in &balances {
-        amount(b)?;
-    }
-    Ok(())
+    read
 }
 
 // ── What the five share ────────────────────────────────────────────────────────────────────────────────────────────
