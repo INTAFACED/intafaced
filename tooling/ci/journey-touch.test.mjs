@@ -1431,6 +1431,24 @@ test("a pull request's run leaves out the journey files a targeted run by hand o
   );
 });
 
+test("project-state#3029: a hand-run file of a journey whose other file still runs here is not left out, so its steps don't read as missing", () => {
+  const atHead = new Set(['J-derivatives-01.pw.mjs', 'J-derivatives-01-venue.pw.mjs', 'J-derivatives-08.pw.mjs', 'J-c-03.pw.mjs']);
+  // #8835's hand run 44248216382 ran these two files; its own run 44248303203 still had J-derivatives-01.pw.mjs to run.
+  const r = reusableRuns([byHand(44248216382, 'Real-app journeys by hand, J-derivatives-08.pw.mjs J-derivatives-01-venue.pw.mjs')], {
+    sha: HEAD,
+    repo: REPO,
+    journeyFiles: atHead,
+    ranShards: new Set([44248216382]),
+  });
+  assert.deepEqual(afterReuse('J-c-03.pw.mjs J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs J-derivatives-08.pw.mjs', r), {
+    target: 'J-c-03.pw.mjs J-derivatives-01-venue.pw.mjs J-derivatives-01.pw.mjs',
+    mode: 'run',
+    why: '1 of its 4 journey file(s) already run by hand on this head (run 44248216382), so this run leaves them out',
+  });
+  // Every file of a journey reused: the whole journey is left out.
+  assert.equal(afterReuse('J-derivatives-01-venue.pw.mjs J-derivatives-08.pw.mjs', r).mode, 'none');
+});
+
 test('planted: nothing is left out for a full run, or a run by hand that ran no shard, is cancelled, or is not on this exact head', () => {
   const same = (runs, target = 'J-a-01.pw.mjs', ranShards) =>
     assert.deepEqual(afterReuse(target, reuse(runs, ranShards)), { target, mode: 'run', why: '' });

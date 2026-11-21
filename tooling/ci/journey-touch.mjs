@@ -670,14 +670,20 @@ export function reusableRuns(runs, { sha, repo, journeyFiles, ranShards, workflo
 
 /**
  * What a pull request's run runs after leaving out the journey files `reused` (reusableRuns) already runs on its head.
- * `target`: the touch job's journey file names separated by spaces; '' (the full suite) is never narrowed. Returns
+ * `target`: the touch job's journey file names separated by spaces; '' (the full suite) is never narrowed. A journey's
+ * files are left out together or not at all: the verdict reads only this run's report, so a step in a reused file of a
+ * journey whose other file still runs here reads as missing. (Failure it prevents: #8835's run 44248303203 left out
+ * the hand-run J-derivatives-01-venue.pw.mjs, still ran J-derivatives-01.pw.mjs, and its verdict went red on
+ * "J-derivatives-01#1 #5 #6 #8 #9 #10 #11 (money): passed in run 1719, missing now"; project-state#3029.) Returns
  * { target, mode: 'run'|'none', why }.
  */
 export function afterReuse(target, reused, how = 'by hand') {
   const want = String(target ?? '')
     .split(/\s+/)
     .filter(Boolean);
-  const rest = want.filter((f) => !reused.has(f));
+  const idOf = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1] ?? f;
+  const runsHere = new Set(want.filter((f) => !reused.has(f)).map(idOf));
+  const rest = want.filter((f) => !reused.has(f) || runsHere.has(idOf(f)));
   if (!want.length || rest.length === want.length) return { target: want.join(' '), mode: 'run', why: '' };
   const ids = [...new Set(want.filter((f) => reused.has(f)).map((f) => reused.get(f)))];
   const why = `${want.length - rest.length} of its ${want.length} journey file(s) already run ${how} on this head (run ${ids.join(', ')}), so this run leaves them out`;
