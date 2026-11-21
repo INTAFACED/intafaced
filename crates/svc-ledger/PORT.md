@@ -31,6 +31,19 @@ The `history` slice is ported. It added:
 - `src/door/history.rs`: the three doors. `history` refuses `after` and `cursor` before its schema would strip them; `holdingsHistory` refuses a start ahead of the clock or off its bucket. Their inputs are recorded in `schemas.json` (the recorder now records `literal` and `default` parts).
 - `tests/history_pg.rs`: `history-postgres.test.ts`, `history-page-postgres.test.ts`, `history-page-order-id-postgres.test.ts`, `holdings-history-postgres.test.ts` and `holdings-history-door.test.ts`, case for case, on a real Postgres. Each books the same recipes the TypeScript test posts, recorded in `tests/fixtures/history-book.golden.json`.
 
+The `reconcile` slice is ported. It added:
+
+- `src/chain.rs`: `hashTx`, the chain's digest, held to the TypeScript's by its tests. A row's asset hashes and cross-shard anchor are `posting`'s.
+- `src/reconcile.rs`: the proof (`reconcileBalances`, `verifyChain`, `totalsByAsset`, `customerBalancesWhileCustodyOff`, `runReconciliation`) and the run (`runSnapshotReconciliation`): its own session, one REPEATABLE READ snapshot, the single-flight advisory lock, the staged `balance_snapshots` write, and the `ok`, `mismatch` and `incomplete` run rows. The checks issue their statements in the order the TypeScript's pipelined checks reach its one connection, so the same checks finish when one statement times out. `readLastVerified` and `countConsecutiveIncompleteRuns` read the run rows.
+- `src/reconciler.rs`: `LedgerService.reconcile`, `handleReconciliationMismatch` (the freeze, then the `ledgerReconciliationFailed` page), `runScheduledReconciliation`, the `ledgerReconciliationRunFailed` alert, and the hourly tick with its streak, backoff and staleness report. `src/freeze.rs` gained `write_in`, the switch inside a transaction the caller holds, for the mismatch run row and its halt.
+- `src/door/reconcile.rs`: `POST /operator/reconcile`. The binary runs the tick every `RECONCILE_CRON_MINUTES`; a blank cadence refuses the start.
+- `tests/reconcile_pg.rs` and `tests/reconcile_tick.rs`: the TypeScript's reconcile cases, case for case, on a real Postgres (the book written there as a deposit is posted, since posting is not ported) and against a recording ledger. The shared operator test kit is `tests/support/operator.rs`.
+
+Where the port cannot be the TypeScript's:
+
+- A connection failure's code is the server's SQLSTATE, else the socket's errno name as Node gives it (`ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `EPIPE`, `EHOSTUNREACH`, `ENETUNREACH`), else `unknown`. A TLS failure cannot happen yet: the pool has no TLS.
+- The custody switch is a type with two values, so the TypeScript's refusal of a missing or unknown one cannot be reached.
+
 The `ops-reads` slice is ported. It added:
 
 - `src/ops_reads.rs`: svc-ops' five reads. `feeRevenue` sums earned, returned and collected per venue and asset over a half-open window, and refuses an empty or inverted one with `ledger.fee_revenue_window_invalid`. `ownFunds` reads our house and module accounts and our own-funds places in one statement, then checks every row again with the custody split, so a customer's row is a 500, never counted as ours. `restoreWatermark` reads the chain tip, live or as of `{ asOf }` (`ledger.skew_bound_unset` with no bound, `ledger.restore_asof_unanswerable` before the cut-off is past it). `reconciliationEvaluations` reads settled runs after a microsecond cursor. `transactionsExist` answers ids only.
@@ -41,8 +54,8 @@ The `ops-reads` slice is ported. It added:
 Left to later slices:
 
 - The recovery has one relay. `posting` adds the `ledgerTxPosted` one; until then a committed post's intent waits unsent.
-- The reconcile timer is `reconcile`'s.
-- `/metrics` is in no slice yet. The switch needs it, since Prometheus scrapes it.
+- The tick's due-controls run (`runDueReconciliationControls`) is `controls`'s.
+- `/metrics` is in no slice yet. The switch needs it, since Prometheus scrapes it; the `ledger_reconcile_last_verified_*` gauges come with it.
 
 ## What the shell holds, and how it is proved
 

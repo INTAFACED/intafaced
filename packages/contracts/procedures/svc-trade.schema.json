@@ -1,0 +1,1154 @@
+{
+  "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
+  "procedures": {
+    "trade.admin.builderFees.accountMode": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "admin.builderFees.accountMode",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read"
+      },
+      "refusals": {
+        "trade.user_venue_off": "SERVICE_UNAVAILABLE",
+        "trade.builder_address_unset": "PRECONDITION_FAILED"
+      },
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "builder": {
+            "type": "string",
+            "minLength": 1
+          },
+          "venues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "venueId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "displayName": {
+                  "type": ["string", "null"]
+                },
+                "test": {
+                  "type": "boolean"
+                },
+                "builder": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "mode": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "read"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "asOf": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["status", "mode", "asOf"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "unknown"
+                        },
+                        "code": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["status", "code", "message"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "required": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "published"
+                        },
+                        "mode": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": ["status", "mode"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "not_published"
+                        }
+                      },
+                      "required": ["status"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "const": "unknown"
+                        }
+                      },
+                      "required": ["status"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": ["required_mode", "not_collected", "not_published", "unknown"]
+                }
+              },
+              "required": ["venueId", "displayName", "test", "builder", "mode", "required", "verdict"],
+              "additionalProperties": false
+            }
+          },
+          "alerting": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "on"
+                  },
+                  "contact": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["status", "contact"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "refused"
+                  },
+                  "code": {
+                    "type": "string",
+                    "const": "trade.builder_mode_alert_contact_unset"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": ["status", "code", "message"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "alerts": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "venueId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "builder": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "modeSeen": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "requiredMode": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "contact": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "openedAt": {
+                  "type": "string"
+                },
+                "clearedAt": {
+                  "type": ["string", "null"]
+                },
+                "clearedMode": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["id", "venueId", "builder", "modeSeen", "requiredMode", "contact", "openedAt", "clearedAt", "clearedMode"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["asOf", "builder", "venues", "alerting", "alerts"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "trade.bots.grid.setExits": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "bots.grid.setExits",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.grid_not_found": "NOT_FOUND",
+        "trade.grid_not_running": "CONFLICT",
+        "trade.grid_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.bots_grid_rsi_source_not_set": "BAD_REQUEST",
+        "trade.bots_grid_exit_price_invalid": "BAD_REQUEST",
+        "trade.bots_verification_insufficient": "FORBIDDEN",
+        "trade.bots_verification_level_not_set": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "botId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "stopBelow": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stopAbove": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rsiBelow": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rsiAbove": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["botId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "stopBelow": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stopAbove": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rsi": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "null"
+              }
+            },
+            "required": ["source"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["stopBelow", "stopAbove", "rsi"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "botId": "0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b",
+            "stopBelow": "58000",
+            "stopAbove": null
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "botId": "0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b",
+            "rsiBelow": "30"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "botId": ""
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.bots.grid.setIdleYield": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "bots.grid.setIdleYield",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.grid_not_found": "NOT_FOUND",
+        "trade.grid_not_running": "CONFLICT",
+        "trade.grid_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.bots_grid_idle_yield_unwired": "BAD_REQUEST",
+        "trade.bots_verification_insufficient": "FORBIDDEN",
+        "trade.bots_verification_level_not_set": "FORBIDDEN"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "botId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "on": {
+            "type": "boolean"
+          }
+        },
+        "required": ["botId", "on"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "on": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": ["on"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "botId": "0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b",
+            "on": true
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "botId": "0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.bots.grid.submitPermission": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "bots.grid.submitPermission",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:write",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.grid_not_found": "NOT_FOUND",
+        "trade.bots_grid_not_signing": "CONFLICT",
+        "trade.grid_unavailable": "SERVICE_UNAVAILABLE",
+        "trade.bots_grid_agent_key_unset": "BAD_REQUEST",
+        "trade.bots_grid_venue_unreadable": "SERVICE_UNAVAILABLE"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "botId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "actionKey": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 200
+          },
+          "signature": {
+            "type": "object",
+            "properties": {
+              "digest": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{64}$"
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]+$"
+              },
+              "signedBy": {
+                "type": "string",
+                "pattern": "^0x[0-9a-fA-F]{40}$"
+              }
+            },
+            "required": ["digest", "signature", "signedBy"]
+          }
+        },
+        "required": ["botId", "actionKey", "signature"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "botId": {
+            "type": "string"
+          },
+          "clientRequestId": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "baseAsset": {
+            "type": "string"
+          },
+          "quoteAsset": {
+            "type": "string"
+          },
+          "lowerPrice": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+          },
+          "upperPrice": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+          },
+          "gridCount": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "investment": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+          },
+          "reinitCount": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "status": {
+            "type": "string",
+            "enum": ["signing", "initializing", "running", "paused_range", "stopped"]
+          },
+          "statusReason": {
+            "type": ["string", "null"]
+          },
+          "reserve": {
+            "type": "null"
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "hold": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "openOrder": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "side": {
+                          "type": "string",
+                          "enum": ["buy", "sell"]
+                        },
+                        "orderId": {
+                          "type": "string"
+                        },
+                        "clientOrderId": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["side", "orderId", "clientOrderId"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["index", "price", "qty", "hold", "openOrder"],
+              "additionalProperties": false
+            }
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "clientOrderId": {
+                  "type": "string"
+                },
+                "orderId": {
+                  "type": "string"
+                },
+                "levelIndex": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "cycle": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "holdAmount": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["open", "filled", "partial", "cancelled"]
+                },
+                "pairProfit": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["clientOrderId", "orderId", "levelIndex", "side", "cycle", "price", "qty", "holdAmount", "status", "pairProfit"],
+              "additionalProperties": false
+            }
+          },
+          "gridProfit": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+          },
+          "withdrawableProfit": {
+            "type": "string",
+            "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+          },
+          "closedPairs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "gridApr": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "const": "under_a_day"
+                  },
+                  "percent": {
+                    "type": "null"
+                  }
+                },
+                "required": ["state", "percent"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "const": "set"
+                  },
+                  "percent": {
+                    "type": "string",
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                  }
+                },
+                "required": ["state", "percent"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "venue": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "test": {
+                "type": "boolean"
+              },
+              "owner": {
+                "type": "string"
+              },
+              "agentAddress": {
+                "type": "string"
+              },
+              "agentName": {
+                "type": "string"
+              }
+            },
+            "required": ["id", "name", "test", "owner", "agentAddress", "agentName"],
+            "additionalProperties": false
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "actionKey": {
+                    "type": "string"
+                  },
+                  "digest": {
+                    "type": "string"
+                  },
+                  "typedData": {
+                    "type": "object",
+                    "properties": {
+                      "domain": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": ["string", "number"]
+                        }
+                      },
+                      "types": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["name", "type"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "primaryType": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": ["string", "number", "boolean", "null"]
+                        }
+                      }
+                    },
+                    "required": ["domain", "types", "primaryType", "message"],
+                    "additionalProperties": false
+                  }
+                },
+                "required": ["actionKey", "digest", "typedData"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fees": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "asset": {
+                  "type": "string"
+                },
+                "venueFee": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                },
+                "builderFee": {
+                  "type": "string",
+                  "pattern": "^-?[0-9]+(\\.[0-9]+)?$"
+                }
+              },
+              "required": ["asset", "venueFee", "builderFee"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "botId",
+          "clientRequestId",
+          "symbol",
+          "baseAsset",
+          "quoteAsset",
+          "lowerPrice",
+          "upperPrice",
+          "gridCount",
+          "investment",
+          "reinitCount",
+          "status",
+          "statusReason",
+          "reserve",
+          "levels",
+          "orders",
+          "gridProfit",
+          "withdrawableProfit",
+          "closedPairs",
+          "gridApr",
+          "createdAt",
+          "venue",
+          "next",
+          "fees"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "botId": "0f6c0b6e-1c2d-5e3f-8a4b-5c6d7e8f9a0b",
+            "actionKey": "grid-agent:0x1111111111111111111111111111111111111111:0x2222222222222222222222222222222222222222",
+            "signature": {
+              "digest": "0xabababababababababababababababababababababababababababababababab",
+              "signature": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+              "signedBy": "0x1111111111111111111111111111111111111111"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "botId": "x",
+            "actionKey": "grid-agent:x",
+            "signature": {
+              "digest": "0x1",
+              "signature": "0x",
+              "signedBy": "me"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "trade.copy.myCopyFees": {
+      "service": "svc-trade",
+      "module": "trade",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "copy.myCopyFees",
+      "access": {
+        "caller": "scope",
+        "scope": "trade:read",
+        "module": "trade"
+      },
+      "refusals": {
+        "trade.copy_limit_missing": "BAD_REQUEST",
+        "trade.copy_unavailable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": ["limit"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "venue": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "test": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["name", "test"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "fillId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "followId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "symbol": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "side": {
+                  "type": "string",
+                  "enum": ["buy", "sell"]
+                },
+                "amount": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                },
+                "price": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                },
+                "filledAt": {
+                  "type": "string"
+                },
+                "venueFee": {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "asset": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["amount", "asset"],
+                  "additionalProperties": false
+                },
+                "builderFee": {
+                  "type": "object",
+                  "properties": {
+                    "amount": {
+                      "type": "string",
+                      "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                    },
+                    "asset": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": ["amount", "asset"],
+                  "additionalProperties": false
+                },
+                "lead": {
+                  "type": "object",
+                  "properties": {
+                    "leaderRef": {
+                      "type": ["string", "null"]
+                    },
+                    "displayName": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": ["leaderRef", "displayName"],
+                  "additionalProperties": false
+                },
+                "feeShare": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "none"
+                        }
+                      },
+                      "required": ["state"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "recording"
+                        }
+                      },
+                      "required": ["state"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "waiting_collection"
+                        },
+                        "share": {
+                          "type": "object",
+                          "properties": {
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "asset": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": ["amount", "asset"],
+                          "additionalProperties": false
+                        },
+                        "shareBps": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
+                        }
+                      },
+                      "required": ["state", "share", "shareBps"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "owed"
+                        },
+                        "share": {
+                          "type": "object",
+                          "properties": {
+                            "amount": {
+                              "type": "string",
+                              "pattern": "^[0-9]+(\\.[0-9]+)?$"
+                            },
+                            "asset": {
+                              "type": "string",
+                              "minLength": 1
+                            }
+                          },
+                          "required": ["amount", "asset"],
+                          "additionalProperties": false
+                        },
+                        "shareBps": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 10000
+                        },
+                        "ledgerKey": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": ["state", "share", "shareBps", "ledgerKey"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "const": "not_owed"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": ["cap_reached", "zero_share"]
+                        }
+                      },
+                      "required": ["state", "reason"],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "fillId",
+                "followId",
+                "symbol",
+                "side",
+                "amount",
+                "price",
+                "filledAt",
+                "venueFee",
+                "builderFee",
+                "lead",
+                "feeShare"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["asOf", "venue", "rows"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 50
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    }
+  }
+}

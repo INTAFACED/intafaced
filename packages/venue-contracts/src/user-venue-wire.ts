@@ -99,6 +99,10 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   // UserVenueLockSplit (J-portfolio-01 #4); `margin` is above
   'inOrders',
   'staked',
+  // UserVenueVault, UserVenueVaultTransfer (J-derivatives-31): a vault's value, and what a vault transfer credited
+  'vaultValue',
+  'creditedAmount',
+  'leaderShare',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -144,6 +148,9 @@ const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   // VenueFundingRow.premium (J-derivatives-08 #6): null where the venue publishes none, and its annualised rate
   'premium',
   'annualisedRate',
+  // UserVenueVault.vaultValue and UserVenueVaultTransfer.leaderShare (J-derivatives-31): null where not published or a deposit
+  'vaultValue',
+  'leaderShare',
 ]);
 
 const DATE_FIELDS: ReadonlySet<string> = new Set([
@@ -191,6 +198,9 @@ const DATE_FIELDS: ReadonlySet<string> = new Set([
   // UserVenueFundingPayment and VenuePriceSample (J-derivatives-08)
   'periodAt',
   'sampledAt',
+  // UserVenueVaultPosition and UserVenueVaultTransfer (J-derivatives-31)
+  'lockUpEndsAt',
+  'transferredAt',
 ]);
 
 /**
