@@ -565,7 +565,7 @@ const todayInLookRoles: Record<string, string> = {
   '--if-down-bg': 'color-mix(in srgb, var(--if-down) 22%, transparent)',
   '--if-up-bg-soft': 'color-mix(in srgb, var(--if-up) 12%, transparent)',
   '--if-font-ui': 'var(--lit-font-ui)',
-  '--if-r-md': 'var(--lit-radius-control)',
+  '--if-r-md': 'var(--lit-radius-tile)',
   '--if-r-lg': 'var(--lit-radius-panel)',
   '--color-background': 'var(--lit-page)',
   '--color-shell': 'var(--lit-page-2)',

@@ -122,6 +122,14 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
     expect(css.toLowerCase()).toContain(`--lit-accent: ${lit.accent.toLowerCase()};`);
     expect(lit.accent).toBe('#E0F83A');
   });
+
+  it("today's medium and large radii are box radii, never the control's pill (a tall box drawn with a pill clips into an ellipse)", () => {
+    for (const name of ['--if-r-md', '--if-r-lg']) {
+      const role = css.match(new RegExp(`${name}: var\\(--lit-([a-z-]+)\\);`))?.[1];
+      expect(role, name).toBeDefined();
+      expect(parseFloat(String(lit[role as keyof typeof lit])), `${name} → --lit-${role}`).toBeLessThan(40);
+    }
+  });
 });
 
 describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)', () => {
