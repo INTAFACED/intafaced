@@ -18,6 +18,7 @@ export {
   founderCall,
   founderAskedCall,
   founderRecordCall,
+  founderRecordRead,
   parseWith,
   type FounderCallContext,
   type DeskModule,

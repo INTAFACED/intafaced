@@ -231,11 +231,23 @@ export function usedOutside(p, name, ranges) {
   walk(p.program, (n, parent) => {
     if (used) return false;
     if (ranges.some((r) => n.start >= r.start && n.end <= r.end)) return false;
+    // A JSX tag (`<Button>`, `<Icons.Coin>`) reads its name too.
+    if (
+      n.type === 'JSXIdentifier' &&
+      n.name === name &&
+      parent?.type !== 'JSXAttribute' &&
+      !(parent?.type === 'JSXMemberExpression' && parent.property === n)
+    ) {
+      used = true;
+      return;
+    }
     if (n.type !== 'Identifier' || n.name !== name) return;
     if (parent?.type === 'MemberExpression' && parent.property === n && !parent.computed) return;
     if (parent?.type === 'Property' && parent.key === n && !parent.computed && !parent.shorthand) return;
     if (parent?.type === 'VariableDeclarator' && parent.id === n) return;
-    if (/^(ImportSpecifier|ImportDefaultSpecifier|ImportNamespaceSpecifier|ExportSpecifier)$/.test(parent?.type ?? '')) return;
+    if (/^(ImportSpecifier|ImportDefaultSpecifier|ImportNamespaceSpecifier)$/.test(parent?.type ?? '')) return;
+    // `export { name as other }` reads `name`, not `other`.
+    if (parent?.type === 'ExportSpecifier' && parent.local !== n) return;
     if (parent?.type === 'FunctionDeclaration' && parent.id === n) return;
     if (/^TS(TypeAlias|Interface|Enum)Declaration$/.test(parent?.type ?? '') && parent.id === n) return;
     used = true;

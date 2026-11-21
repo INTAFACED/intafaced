@@ -273,7 +273,7 @@ export function build(opts, planned) {
       }
       changes.edit(m.q.file, statementStart(m.q, stmt), statementEnd(m.q, stmt), '');
       changes.imp(m.q.file, contractsSpec(target), b.kind === 'type' ? `type ${m.name}` : m.name);
-      if (b.exported) changes.of(m.q.file).exports.add(m.name);
+      if (b.exported) changes.of(m.q.file).exports.add(b.kind === 'type' ? `type ${m.name}` : m.name);
     }
     // The router: each procedure is mounted from its record.
     for (const r of recs) {
