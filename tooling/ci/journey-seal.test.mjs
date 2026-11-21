@@ -2452,6 +2452,75 @@ test('an automatic revert runs the journeys that failed on main and the reverted
   assert.doesNotMatch(forged.lines.join('\n'), /automatic revert of/);
 });
 
+// intafaced #9482 (project-state#3637): its auto-merge stayed armed after #9483 fixed J-identity-10 #1 forward. The seal
+// holds an automatic revert once main's newest finished journeys run passes its steps outright with the culprit still in.
+test("an automatic revert's seal fails once main's newest journeys run passes its steps with the culprit in; red there, it passes", async () => {
+  const { AUTO_REVERT_AUTHOR, revertSpent } = await import('./journey-seal.mjs');
+  const CULPRIT = 'd'.repeat(40);
+  const RED_HEAD = 'e'.repeat(40);
+  const FIXED = 'f'.repeat(40);
+  const pull = {
+    state: 'open',
+    draft: false,
+    head: { sha: HEAD, ref: `revert/auto-${CULPRIT.slice(0, 10)}`, repo: { full_name: REPO } },
+    user: { login: AUTO_REVERT_AUTHOR, type: 'Bot' },
+    title: 'Revert #9426, which turned the Real-app journeys red (run 44933042118)',
+    body: `x\n\n- Red run: https://github.com/${REPO}/actions/runs/1\n- Failing: \`J-identity-10 #1\`\n- Culprit: #9426, commit \`${CULPRIT}\``,
+  };
+  const red = mainRun(1, { head_sha: RED_HEAD, conclusion: 'failure' });
+  const fixed = mainRun(2, { head_sha: FIXED });
+  const io = ({ runs = [red, fixed], step = 'passed', contains = async () => true } = {}) => ({
+    mainRuns: async () => runs,
+    reportOf: reports({ 1: { states: { 'J-identity-10#1': 'failed' } }, 2: { states: { 'J-identity-10#1': step } } }),
+    contains,
+  });
+  const spent = await revertSpent({ io: io(), repo: REPO, pull, culprit: CULPRIT });
+  assert.match(spent, /main no longer needs this revert: main's journeys run \d+ on ffffffffff J-identity-10#1 passed outright/);
+  assert.equal(await revertSpent({ io: io({ step: 'failed' }), repo: REPO, pull, culprit: CULPRIT }), null, 'still red on main: it merges');
+  assert.equal(await revertSpent({ io: io({ step: 'flaky' }), repo: REPO, pull, culprit: CULPRIT }), null, 'passed only on its retry');
+  assert.equal(await revertSpent({ io: io({ runs: [red] }), repo: REPO, pull, culprit: CULPRIT }), null, 'the red run is the newest');
+  assert.equal(
+    await revertSpent({ io: io({ contains: async (sha) => sha !== CULPRIT }), repo: REPO, pull, culprit: CULPRIT }),
+    null,
+    "the green run's head lacks the culprit",
+  );
+  assert.equal(
+    await revertSpent({ io: io(), repo: REPO, pull: { ...pull, user: { login: 'ZenYoda3', type: 'User' } }, culprit: CULPRIT }),
+    null,
+    "not main-bisect's revert",
+  );
+  // Through sealPull: the same pull request, its own narrow run green, is refused while main has the step back.
+  const paths = ['packages/ui/src/lit/a.ts'];
+  const seal = (over) =>
+    sealPull({
+      repo: REPO,
+      number: 9482,
+      sha: HEAD,
+      io: {
+        ...io(over),
+        pull: async (n) => (n === 9426 ? { title: 'design(customer): Volt' } : pull),
+        pullCommits: async () => [{ commit: { message: `Revert "x"\n\nThis reverts commit ${CULPRIT}.` } }],
+        commit: async () => ({ sha: CULPRIT, files: paths.map((filename) => ({ filename })) }),
+        journeyFiles: async () => new Set(['J-identity-10.pw.mjs']),
+        runs: async () => [run(7, { ran: ['J-identity-10.pw.mjs'] })],
+        reportOf: reports({
+          1: { states: { 'J-identity-10#1': 'failed' } },
+          2: { states: { 'J-identity-10#1': over?.step ?? 'passed' } },
+          7: { states: { 'J-identity-10#1': 'passed' }, files: {}, ran: ['J-identity-10.pw.mjs'] },
+        }),
+        files: async () => paths,
+        text: async () => null,
+        verdictOf: async () => ({ red: [], failing: 0, missing: [] }),
+      },
+    });
+  const back = await seal();
+  assert.equal(back.ok, false, back.lines.join('\n'));
+  assert.match(back.lines.join('\n'), /main no longer needs this revert/);
+  const needed = await seal({ step: 'failed' });
+  assert.doesNotMatch(needed.lines.join('\n'), /main no longer needs this revert/);
+  assert.equal(needed.ok, true, needed.lines.join('\n'));
+});
+
 // ---- A red names its kind in its title (OWNER 289; 10-D-one-verdict.md item 8) ----
 
 test("a red's title names its kind: yours, main's or runner", async () => {
