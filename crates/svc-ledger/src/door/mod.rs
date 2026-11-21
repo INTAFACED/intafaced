@@ -12,7 +12,8 @@
 //! Past those the call is its slice's: [`Outcome::Owed`] names which, until the slice is ported. Ported so far:
 //! `/health` and `/ready` (the `store` slice, `crate::status`), the freeze doors (the `freeze` slice, `freeze.rs`), the
 //! history doors (the `history` slice, `history.rs`), `/operator/reconcile` (the `reconcile` slice, `reconcile.rs`) and
-//! svc-ops' five reads (the `ops-reads` slice, `crate::ops_reads`).
+//! the account and transaction reads (the `balances` slice, `crate::balances`) and svc-ops' five reads (the `ops-reads`
+//! slice, `crate::ops_reads`).
 
 mod callers;
 mod freeze;
@@ -429,6 +430,10 @@ pub struct DoorConfig {
     pub custody: crate::reconcile::CustodyLayer,
     /// `LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS`.
     pub reconcile_statement_timeout_ms: i64,
+    /// `process.env.INDEXER_URL`: where `portfolio` reads a 0x account's chain positions.
+    pub indexer_url: Option<String>,
+    /// The wire every outgoing call goes through.
+    pub fetch: Arc<dyn service_kit::http::Fetch>,
 }
 
 /// The door.
@@ -672,6 +677,38 @@ impl LedgerDoor {
         }
     }
 
+    /// A service door's call once its input parses: the ported slices answer it, the rest are owed.
+    fn past_the_door(&self, route: &Route, door: &str, input: &Value, body: &Body) -> Outcome {
+        match route.slice {
+            Slice::OpsReads => {
+                let body = match body {
+                    Body::Absent => None,
+                    Body::Parsed(j) => Some(j),
+                };
+                let reply = crate::ops_reads::answer(
+                    door,
+                    &self.cfg.store,
+                    input,
+                    body,
+                    self.cfg.clock_skew_bound_ms,
+                    self.cfg.now_ms,
+                );
+                answer(reply.map_or_else(|e| errors::http_error(&e), |j| (200, j)))
+            }
+            Slice::History => Outcome::Answer(self.history_door(door, input)),
+            Slice::Balances => answer(crate::balances::respond(
+                &crate::balances::Reads {
+                    store: &self.cfg.store,
+                    indexer_url: self.cfg.indexer_url.as_deref(),
+                    fetch: self.cfg.fetch.as_ref(),
+                },
+                door,
+                input,
+            )),
+            slice => Outcome::Owed(slice),
+        }
+    }
+
     /// `registerS2sHttp`'s `authenticate`, then the door's input.
     fn service(
         &self,
@@ -711,27 +748,8 @@ impl LedgerDoor {
                 format!("Caller {service} may not call {door}."),
             )));
         }
-        let past = |input: &Value| match route.slice {
-            Slice::OpsReads => {
-                let body = match body {
-                    Body::Absent => None,
-                    Body::Parsed(j) => Some(j),
-                };
-                let reply = crate::ops_reads::answer(
-                    door,
-                    &self.cfg.store,
-                    input,
-                    body,
-                    self.cfg.clock_skew_bound_ms,
-                    self.cfg.now_ms,
-                );
-                answer(reply.map_or_else(|e| errors::http_error(&e), |j| (200, j)))
-            }
-            Slice::History => Outcome::Answer(self.history_door(door, input)),
-            slice => Outcome::Owed(slice),
-        };
         let Input::Body(name) = route.input else {
-            return past(&Value::Undefined);
+            return self.past_the_door(route, door, &Value::Undefined, body);
         };
         // `refuseHistoryCursor`: on the raw body, before the schema would strip the field.
         if door == "history"
@@ -746,7 +764,7 @@ impl LedgerDoor {
             Body::Parsed(j) => Value::from_json(j),
         };
         match parse(name, value) {
-            Ok(Parsed::Ok(input)) => past(&input),
+            Ok(Parsed::Ok(input)) => self.past_the_door(route, door, &input, body),
             Ok(Parsed::Issues(issues)) => {
                 answer(errors::http_error(&Failure::Zod(schema::message(&issues))))
             }

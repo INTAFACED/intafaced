@@ -52,6 +52,8 @@ pub fn door_config(db: &TestDb, bus: Arc<MemoryBus>, approvals: Box<dyn Approval
         clock_skew_bound_ms: None,
         now_ms: system_ms,
         log: Logger::new("info", Box::new(std::io::sink())),
+        indexer_url: None,
+        fetch: Arc::new(service_kit::http::UreqFetch::new()),
         custody: CustodyLayer::On,
         reconcile_statement_timeout_ms: DEFAULT_STATEMENT_TIMEOUT_MS,
     }
