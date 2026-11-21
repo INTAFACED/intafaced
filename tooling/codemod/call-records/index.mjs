@@ -11,20 +11,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import {
-  applyEdits,
-  bindingOf,
-  calleeName,
-  forget,
-  leadingDoc,
-  literal,
-  load,
-  resolveRelative,
-  statementEnd,
-  statementStart,
-  text,
-  walk,
-} from './ast.mjs';
+import { applyEdits, bindingOf, forget, leadingDoc, load, resolveRelative, statementEnd, statementStart, text, walk } from './ast.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { closureOf, contractsExports, usedOutside } from './closure.mjs';
 import { findSites } from './sites.mjs';
@@ -75,7 +62,7 @@ function refusalReaders(serviceDir) {
     encoding: 'utf8',
   })
     .split('\n')
-    .filter((f) => /\.ts$/.test(f) && !/\.test\.ts$/.test(f));
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'));
   for (const f of files) {
     const src = readFileSync(join(serviceDir, f), 'utf8');
     for (const m of src.matchAll(/^(export )?const (\w+): RefusalOf\b/gm))

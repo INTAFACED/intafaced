@@ -25,6 +25,8 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { alertEvaluationOutput } from '@intafaced/contracts/notify-call-schemas';
+import { NOTIFY_ALERTS } from '@intafaced/contracts/notify-notify-procedures';
 import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -63,10 +65,7 @@ describe('the alert evaluation driver is reachable from the entrypoint', () => {
     const router = src('router.ts');
     expect(router).toMatch(/evaluationStatus\(\)/);
     // The watchlist's answer carries the evaluation status: its record, which the router mounts.
-    const records = readFileSync(join(here, '../../../../packages/contracts/src/notify-notify-procedures.ts'), 'utf8');
-    expect(records.slice(records.indexOf('export const NOTIFY_ALERTS = '), records.indexOf('export const NOTIFY_CREATE_ALERT = '))).toMatch(
-      /evaluation: alertEvaluationOutput/,
-    );
+    expect(NOTIFY_ALERTS.output.shape.evaluation).toBe(alertEvaluationOutput);
     // Both surfaces: reading the list AND creating a watch.
     const createAlert = router.slice(router.indexOf('createAlert:'), router.indexOf('cancelAlert:'));
     expect(createAlert).toMatch(/alerts\.whaleEvaluationStatus\(\)/);
