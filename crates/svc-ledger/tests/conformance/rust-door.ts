@@ -5,7 +5,10 @@
  */
 import { generateKeyPairSync } from 'node:crypto';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { closeSync, mkdtempSync, openSync, readFileSync, watch } from 'node:fs';
 import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { serviceCallSigner } from '../../../../packages/contracts/src/service-auth-http.ts';
@@ -79,6 +82,10 @@ type Serving = { keyed?: boolean; detect?: boolean };
 /** The binary serving `url`; `keyed` adds the keyring, `detect` answers a reused key in detect mode. */
 async function serve(url: string, { keyed = false, detect = false }: Serving) {
   const port = await freePort();
+  // The log goes to a file, one JSON object a line. A line is written and flushed before the answer it belongs to is
+  // sent, so once a caller has its answer the line is on disk: read whole, it says what that call reported.
+  const logPath = join(mkdtempSync(join(tmpdir(), 'svc-ledger-conf-')), 'log.jsonl');
+  const logFd = openSync(logPath, 'a');
   const child: ChildProcess = spawn(BINARY, [], {
     env: {
       PATH: process.env.PATH,
@@ -101,33 +108,44 @@ async function serve(url: string, { keyed = false, detect = false }: Serving) {
       LOG_LEVEL: 'info',
       ...(keyed ? { S2S_AUTH_MODE: 'dual', S2S_KEYRING: KEYRING } : {}),
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', logFd, 'pipe'],
   });
+  closeSync(logFd);
+  const logged = (): Array<Record<string, unknown>> =>
+    readFileSync(logPath, 'utf8')
+      .split('\n')
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line) as Record<string, unknown>];
+        } catch {
+          return [];
+        }
+      });
   // A test file that dies before its teardown must not leave a binary serving.
   const orphaned = () => child.kill('SIGKILL');
   process.once('exit', orphaned);
   child.once('exit', () => process.off('exit', orphaned));
   let stderr = '';
   child.stderr?.on('data', (d) => (stderr += String(d)));
-  // The log is one JSON object a line on stdout: the server's ready line, and the detect door's mismatch reports.
-  const mismatches: Array<Record<string, unknown>> = [];
-  let partial = '';
-  let ready: () => void = () => undefined;
+  // Up once the server logs that it listens: watched, never polled.
   const up = new Promise<void>((resolve, reject) => {
-    ready = resolve;
-    child.once('exit', (code) => reject(new Error(`svc-ledger exited ${code}: ${stderr}`)));
-  });
-  child.stdout?.on('data', (d) => {
-    const lines = (partial + String(d)).split('\n');
-    partial = lines.pop() ?? '';
-    for (const line of lines) {
-      try {
-        const o = JSON.parse(line) as Record<string, unknown>;
-        if (o.event === 'ledger.idempotency_mismatch') mismatches.push(o);
-        if (o.msg === 'svc-ledger ready') ready();
-      } catch {}
+    const isUp = () => logged().some((o) => o.msg === 'svc-ledger ready');
+    const watcher = watch(logPath, () => {
+      if (isUp()) {
+        watcher.close();
+        resolve();
+      }
+    });
+    child.once('exit', (code) => {
+      watcher.close();
+      reject(new Error(`svc-ledger exited ${code}: ${stderr}`));
+    });
+    if (isUp()) {
+      watcher.close();
+      resolve();
     }
   });
+  const mismatches = () => logged().filter((o) => o.event === 'ledger.idempotency_mismatch');
   const base = `http://127.0.0.1:${port}`;
   // Logged once the server is listening.
   await up;
@@ -150,7 +168,7 @@ export interface RustBook {
   /** No keys, and a reused key answered in detect mode. */
   readonly detect: string;
   /** The detect door's `ledger.idempotency_mismatch` reports so far, as it logged them. */
-  readonly mismatches: ReadonlyArray<Record<string, unknown>>;
+  mismatches(): ReadonlyArray<Record<string, unknown>>;
   teardown(): Promise<void>;
 }
 

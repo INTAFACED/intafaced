@@ -29,18 +29,15 @@ export class PostgresLedger extends Engine {
       sign: signerFor(DIRECT, false) as never,
       retries: 0,
     });
-    const seen = book.mismatches.length;
+    const seen = book.mismatches().length;
     try {
       return await http.post(request);
     } catch (err) {
       throw asClientError(err);
     } finally {
+      // The detect door logs a mismatch before it answers, so the report is in its log by now.
       if (detect) {
-        // The report is logged before the answer is sent, but the log pipe has no end-of-report event, and a retry
-        // must be shown to report nothing.
-        // oxlint-disable-next-line garden/no-real-clock-wait-in-tests -- proving nothing happens: no mismatch line follows a plain retry
-        await new Promise((r) => setTimeout(r, 150));
-        for (const m of book.mismatches.slice(seen)) {
+        for (const m of book.mismatches().slice(seen)) {
           this.#options.onIdempotencyMismatch?.({
             idempotencyKey: String(m.idempotencyKey),
             module: String(m.module),
