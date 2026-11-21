@@ -78,6 +78,7 @@ import {
   type ComplianceDeps,
 } from './address-risk/router.js';
 import type { AddressRiskStore } from './address-risk/risk.js';
+import { requireRoutable, TokenBlockedError } from './address-risk/trust-desk.js';
 import { listSessions } from './session/list.js';
 import { protocolHealthHonesty } from './health-honesty.js';
 import { mountProtocolRecord } from './record-mount.js';
@@ -191,6 +192,7 @@ function toTrpcError(err: unknown): TRPCError {
    * message discarded.
    */
   if (err instanceof TRPCError) return err;
+  if (err instanceof TokenBlockedError) return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
   if (err instanceof RepresentationRefusedError) {
     const code =
       err.code === REPRESENTATION_UNSET
@@ -382,6 +384,7 @@ const unwiredAddressRiskStore: AddressRiskStore = {
   labels: () => Promise.reject(new Error('address risk store is not wired')),
   openReportCount: () => Promise.reject(new Error('address risk store is not wired')),
   insertReport: () => Promise.reject(new Error('address risk store is not wired')),
+  tokenStanding: () => Promise.reject(new Error('address risk store is not wired')),
 };
 
 const unwiredComplianceStore: ComplianceDeps['store'] = {
@@ -401,6 +404,9 @@ const unwiredTrustDeskStore: ComplianceDeps['trustDesk'] = {
   nameTags: notWired,
   requestNameTag: notWired,
   approveNameTag: notWired,
+  blocklist: notWired,
+  addToBlocklist: notWired,
+  blockedAmong: notWired,
 };
 
 /** Never reached with a setting: an unwired representation has none, so it refuses `compliance.representation_unset` first. */
@@ -421,6 +427,12 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const chainIdentity: ChainIdentityReader = deps.chainIdentity ?? chainIdentityReader(chain);
   const listingChain = (): OwnershipChain => (ownership ??= deps.listing?.chain ?? ownershipChain(chain, chainIdentity));
   const routeBalances = blockBalances(chain);
+  /**
+   * The blocklist gate (D-launch-listing-02): every route, path and swap call naming a blocked token refuses
+   * `protocol.token_blocked`. An unwired or unanswering store refuses too: nothing is routed unchecked.
+   */
+  const routable = (tokens: readonly string[]) =>
+    requireRoutable(deps.compliance?.trustDesk ?? unwiredTrustDeskStore, chain.config.chainId, tokens);
   let contracts: ContractChain | null = null;
   /** The fee relay's reads go to the same node as every other chain read. */
   const feeChain = (): FeeRelayChain => chain.client as unknown as FeeRelayChain;
@@ -941,6 +953,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         setting: () => deps.swapV2?.() ?? null,
         permitLifetimeCapSeconds: () => deps.permitLifetimeCapSeconds?.() ?? null,
         slippageCeilingBps: () => requireSwapSlippageBps(deps.swapSlippageBps()),
+        routable,
         pairs: async () => {
           const factory = deps.ammFactoryAddress();
           if (isZeroAddress(factory))
@@ -1154,6 +1167,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         if (input.tokenIn.toLowerCase() === input.tokenOut.toLowerCase())
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'protocol.route_same_token: pay and receive name the same token.' });
         try {
+          await routable([input.tokenIn, input.tokenOut]);
           return await routeOptions(routeBalances, await readPairs(factory), {
             tokenIn: toChecksum(input.tokenIn),
             tokenOut: toChecksum(input.tokenOut),
@@ -1220,6 +1234,8 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           const tokenIn = toChecksum(input.tokenIn);
           const amountIn = BigInt(input.amountIn);
           const minAmountOut = BigInt(input.minAmountOut);
+          const [token0, token1] = await Promise.all([chain.poolToken0(pool), chain.poolToken1(pool)]);
+          await routable([tokenIn, token0, token1]);
           const quoted = await freshPoolQuote(chain, pool, tokenIn, amountIn);
           assertMinAmountOut(minAmountOut, quoted.amountOut, slippageBps);
           const call = buildSwapExactIn(pool, tokenIn, amountIn, minAmountOut, toChecksum(input.to));

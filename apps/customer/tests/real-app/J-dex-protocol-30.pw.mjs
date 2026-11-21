@@ -18,9 +18,10 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 // subject is the TEST chain's TEST Token A; #7's two name tag requests are filed through the tab's form, and its proof is a
 // real owner's signature on a contract deployed to the TEST chain; #9's checklist is opened through the tab's own form;
 // each two-person step is asked by founder A and approved by founder B.
-// Steps written but not built yet fail at their first missing part, quickly (UNBUILT): #6's blocklist
-// (D-launch-listing-02) and #8's pool halts (D-launch-listing-07), whose subjects are TEST tokens and pools the stack will
-// seed when those tabs are built.
+// #6's blocked and permissioned tokens are fresh addresses each run; the permissioned one is gated by a checklist founder A
+// opens and founder B approves.
+// Steps written but not built yet fail at their first missing part, quickly (UNBUILT): #8's pool halts
+// (D-launch-listing-07), whose subject is a TEST pool the stack will seed when that tab is built.
 const J = 'J-dex-protocol-30';
 const founders = founderPair();
 const SUSPECT = '0x00000000000000000000000000000000000ba5e0';
@@ -192,16 +193,78 @@ test(`${J} #5 opens the trust criteria with the criteria blank: every token read
 
 test(`${J} #6 adds a token to the blocklist: it is not routed and shows the badge; permissioned gating shows for tokens that need it`, async ({
   browser,
+  page,
 }) => {
-  const { a } = await founders(browser);
+  test.setTimeout(180_000);
+  const { a, b } = await founders(browser);
+  // This run's subjects: a token to block and a token a permissioned pool gates, each an address no earlier run used.
+  const BLOCKED = privateKeyToAccount(generatePrivateKey()).address.toLowerCase();
+  const GATED = privateKeyToAccount(generatePrivateKey()).address.toLowerCase();
+  const CHECKER = privateKeyToAccount(generatePrivateKey()).address.toLowerCase();
+  const BLOCK_REASON = `LOCAL TEST ${J} blocklist ${RUN}`;
+  const POOL = `LOCAL TEST permissioned token pool ${RUN}`;
+  // svc-protocol's route read for the token against TEST Token A, as the swap asks for it.
+  const route = async () => {
+    const input = { tokenIn: BLOCKED, tokenOut: TOKEN_A.address, amountIn: '1000', exclude: [] };
+    const res = await fetch(`${EDGE}/api/protocol/trpc/amm.routes?input=${encodeURIComponent(JSON.stringify(input))}`, {
+      headers: { origin: ORIGIN },
+    });
+    return { status: res.status, body: await res.text() };
+  };
+  const before = await route();
+  expect(before.body).not.toContain('protocol.token_blocked');
+
   const blocklist = await trust(a, 'Blocklist');
-  await blocklist.getByLabel('Token address').fill('0x00000000000000000000000000000000000ba5e0');
-  await blocklist.getByLabel(/^Reason/).fill(`LOCAL TEST ${J} blocklist`);
+  await blocklist.getByLabel('Token address').fill(BLOCKED);
+  await blocklist.getByLabel(/^Reason/).fill(BLOCK_REASON);
   await blocklist.getByRole('button', { name: 'Add to the blocklist' }).click();
-  const blocked = row(blocklist, 'Blocked tokens', '0x00000000000000000000000000000000000ba5e0');
+  const blocked = row(blocklist, 'Blocked tokens', BLOCKED);
   await expect(blocked).toContainText('Not routed');
   await expect(blocked).toContainText('Blocked badge shown');
-  await expect(row(blocklist, 'Permissioned tokens', 'TEST permissioned')).toContainText('Gated');
+  await expect(blocked).toContainText(BLOCK_REASON);
+  // The same token again is refused, and it stays listed once.
+  await blocklist.getByLabel('Token address').fill(BLOCKED);
+  await blocklist.getByLabel(/^Reason/).fill(`${BLOCK_REASON} again`);
+  await blocklist.getByRole('button', { name: 'Add to the blocklist' }).click();
+  await expect(blocklist.getByRole('alert')).toContainText('already on the blocklist');
+  await expect(blocked).toHaveCount(1);
+
+  // Not routed: svc-protocol refuses the route by name.
+  const after = await route();
+  expect(after.status, after.body).toBe(403);
+  expect(after.body).toContain('protocol.token_blocked');
+  // The token's page shows the badge and why; it is not a permissioned token.
+  await page.goto(`/dex/tokens/${BLOCKED}`);
+  const badge = page.getByRole('main').getByTestId('token-blocked');
+  await expect(badge).toContainText('Blocked');
+  await expect(badge).toContainText(BLOCK_REASON);
+  await expect(page.getByRole('main').getByTestId('token-permissioned')).toHaveCount(0);
+
+  // A permissioned pool's checklist is opened by founder A and approved by founder B: only then is its token gated.
+  const onboarding = await trust(a, 'Permissioned pools');
+  for (const [label, value] of [
+    ['Pool name', POOL],
+    ['Legal entity', 'LOCAL TEST Issuer Ltd'],
+    ['Token contract', GATED],
+    ['Checker address', CHECKER],
+    ['Wrapper address', '0x000000000000000000000000000000000000a7a9'],
+    ['Routing registration', 'LOCAL TEST registry entry'],
+  ])
+    await onboarding.getByLabel(label, { exact: true }).fill(value);
+  await onboarding.getByRole('button', { name: 'Open the checklist' }).click();
+  await expect(row(onboarding, 'Onboarding', POOL)).toBeVisible();
+  await expect(row(await trust(a, 'Blocklist'), 'Permissioned tokens', POOL)).toHaveCount(0);
+  const second = await trust(b, 'Permissioned pools');
+  await second.getByLabel('Approval reason').fill(`LOCAL TEST ${J} permissioned approval`);
+  await row(second, 'Onboarding', POOL).getByRole('button', { name: 'Approve' }).click();
+  await expect(row(second, 'Onboarding', POOL)).toContainText('Approved by');
+  await a.reload();
+  const gated = row(await trust(a, 'Blocklist'), 'Permissioned tokens', POOL);
+  await expect(gated).toContainText(GATED);
+  await expect(gated).toContainText(`Gated by the checker ${CHECKER}`);
+  await page.goto(`/dex/tokens/${GATED}`);
+  await expect(page.getByRole('main').getByTestId('token-permissioned')).toContainText(`Only addresses its checker ${CHECKER} allows`);
+  await expect(page.getByRole('main').getByTestId('token-blocked')).toHaveCount(0);
 });
 
 test(`${J} #7 approves a public name tag: needs two approvers and a proof of ownership`, async ({ browser, page }) => {

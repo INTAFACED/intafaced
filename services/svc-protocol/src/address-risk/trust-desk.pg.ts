@@ -2,6 +2,8 @@ import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type {
   HumanTokenTier,
+  ProtocolBlockedToken,
+  ProtocolPermissionedToken,
   ProtocolNameTagRequest,
   ProtocolOnboardingChecklist,
   ProtocolOnboardingOpenInput,
@@ -358,5 +360,47 @@ export class PostgresTrustDeskStore implements TrustDeskStore {
         VALUES (${label!.id}, ${label!.version}, ${row.tag}, 'UNKNOWN', ${row.reason}, NULL, ${input.approverId})`;
       return { kind: 'approved', request: await this.nameTagOf(q, row.id) } as const;
     });
+  }
+
+  async blocklist(chainId: number) {
+    const blocked = await this.sql<{ token: string; reason: string; added_by: string; added_at: Date | string }[]>`
+      SELECT token, reason, added_by, added_at FROM protocol.token_blocklist WHERE chain_id = ${chainId}
+      ORDER BY added_at DESC, token LIMIT 500`;
+    // A permissioned token is the token contract of an approved checklist, gated by that checklist's checker.
+    const permissioned = await this.sql<{ token: string; pool: string; checker: string; approved_at: Date | string }[]>`
+      SELECT token_contract AS token, pool, checker_address AS checker, approved_at FROM protocol.pool_onboarding
+      WHERE chain_id = ${chainId} AND status = 'approved' ORDER BY approved_at DESC, id LIMIT 500`;
+    return {
+      blocked: blocked.map((r): ProtocolBlockedToken => ({
+        token: r.token,
+        reason: r.reason,
+        addedBy: r.added_by,
+        addedAt: iso(r.added_at),
+      })),
+      permissioned: permissioned.map((r): ProtocolPermissionedToken => ({
+        token: r.token,
+        pool: r.pool,
+        checkerAddress: r.checker,
+        approvedAt: iso(r.approved_at),
+      })),
+    };
+  }
+
+  async addToBlocklist(input: { chainId: number; token: string; reason: string; actorId: string }) {
+    const rows = await this.sql<{ token: string; reason: string; added_by: string; added_at: Date | string }[]>`
+      INSERT INTO protocol.token_blocklist (chain_id, token, reason, added_by)
+      VALUES (${input.chainId}, ${input.token}, ${input.reason}, ${input.actorId})
+      ON CONFLICT (chain_id, token) DO NOTHING RETURNING token, reason, added_by, added_at`;
+    const r = rows[0];
+    if (!r) return { kind: 'already_blocked' } as const;
+    return { kind: 'added', entry: { token: r.token, reason: r.reason, addedBy: r.added_by, addedAt: iso(r.added_at) } } as const;
+  }
+
+  async blockedAmong(chainId: number, tokens: readonly string[]): Promise<string[]> {
+    if (tokens.length === 0) return [];
+    const rows = await this.sql<{ token: string }[]>`
+      SELECT token FROM protocol.token_blocklist WHERE chain_id = ${chainId} AND token = ANY(${this.sql.array([...tokens])}::text[])
+      ORDER BY token`;
+    return rows.map((r) => r.token);
   }
 }

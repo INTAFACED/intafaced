@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { getAddress as toChecksum, type Address } from 'viem';
 import type { AddressReportKind } from '@intafaced/contracts/protocol-address-risk';
-import type { AddressRiskStore, LabelRecord, NewReport, ReportRecord } from './risk.js';
+import type { AddressRiskStore, LabelRecord, NewReport, ReportRecord, TokenStanding } from './risk.js';
 
 /**
  * Postgres `AddressRiskStore` over `protocol.address_labels` and `protocol.address_reports` (20261107073648). A report is
@@ -84,6 +84,19 @@ export class PostgresAddressRiskStore implements AddressRiskStore {
         note: row.note,
         createdAt: at(row.created_at),
       },
+    };
+  }
+
+  async tokenStanding(chainId: number, address: Address): Promise<TokenStanding> {
+    const token = address.toLowerCase();
+    const [blocked] = await this.sql<{ reason: string; added_at: Date | string }[]>`
+      SELECT reason, added_at FROM protocol.token_blocklist WHERE chain_id = ${chainId} AND token = ${token}`;
+    const [gated] = await this.sql<{ pool: string; checker: string; approved_at: Date | string }[]>`
+      SELECT pool, checker_address AS checker, approved_at FROM protocol.pool_onboarding
+      WHERE chain_id = ${chainId} AND status = 'approved' AND token_contract = ${token} ORDER BY approved_at DESC LIMIT 1`;
+    return {
+      blocked: blocked ? { reason: blocked.reason, since: at(blocked.added_at).toISOString() } : null,
+      permissioned: gated ? { pool: gated.pool, checkerAddress: gated.checker, approvedAt: at(gated.approved_at).toISOString() } : null,
     };
   }
 }
