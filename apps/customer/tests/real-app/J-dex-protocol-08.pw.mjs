@@ -568,12 +568,16 @@ test.describe('the embedded login', () => {
     await expect(page.getByText('wallet.export_spent')).toBeVisible();
     await expect(shown).toHaveCount(0);
     const second = fromProvider.slice(heard);
-    expect(second.length).toBeGreaterThan(0);
-    for (const answer of second) {
+    // The export's own answers (its challenge, and the export if one was sent) all refuse it. The wallet room's chain
+    // reads through the provider's connection (`/client/rpc`, J-wallet-24's deposit panel) also land here: they are
+    // not the export, but none of them may carry the key either.
+    const exportAnswers = second.filter((a) => /\/client\/(challenge|export)$/.test(a.path));
+    expect(exportAnswers.length).toBeGreaterThan(0);
+    for (const answer of exportAnswers) {
       expect(answer.status).toBe(410);
       expect(JSON.parse(answer.text)).toMatchObject({ error: 'export_spent' });
-      expect(answer.text.toLowerCase()).not.toContain(key.slice(2).toLowerCase());
     }
+    for (const answer of second) expect(answer.text.toLowerCase()).not.toContain(key.slice(2).toLowerCase());
     // Refused before any passkey prompt.
     expect((await held())[0].signCount).toBe(promptsBefore);
 
