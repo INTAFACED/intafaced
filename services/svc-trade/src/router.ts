@@ -8,7 +8,8 @@ import type { StrategyHaltDesk } from './quant/live-run/halts.js';
 import type { AgentDesk } from './venue/agent-desk.js';
 import { z } from 'zod';
 import { gridRouter } from './grid/router.js';
-import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { tradeRefusal } from './record-refusal.js';
 import { COPY_MY_COPY_FEES } from '@intafaced/contracts/trade-copy-procedures';
 import type { GridService } from './grid/grid-service.js';
 import {
@@ -56,6 +57,19 @@ import {
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
 import type { LeadDesk } from './copy/lead-applications.js';
+import {
+  applyToLeadAnswer,
+  leadCopiersAnswer,
+  leadEarningsAnswer,
+  leadEligibilityAnswer,
+  leadLevelAnswer,
+  leadMissionsAnswer,
+  leadTradesAnswer,
+  myLeadAnswer,
+  myLeadApplicationAnswer,
+  platformPausesAnswer,
+  refusedAlwaysAnswer,
+} from './copy/lead-answers.js';
 import { signalsRouter } from './signals/router.js';
 import type { SignalDesk } from './signals/signal-desk.js';
 import type { PlatformPauseDesk } from './copy/platform-pauses.js';
@@ -63,6 +77,19 @@ import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
+import {
+  copyCheckVenueFollowAnswer,
+  copyCloseCopiedPositionAnswer,
+  copyCopiedPositionsAnswer,
+  copyFollowAnswer,
+  copyFollowPositionsAnswer,
+  copyGrantSessionKeyAnswer,
+  copyLeaderProfileAnswer,
+  copyLeaderTradesAnswer,
+  copyListLeadersAnswer,
+  copyListMyFollowsAnswer,
+  copySkipLogAnswer,
+} from './copy/follow-answers.js';
 import { publishedCopyPageLimit, refuseLeaderDirectoryRanking } from './copy/leader-listing.js';
 import { refusePnlLinkedCopyFee } from './copy/fee-share.js';
 import { describeFuturesPolicy } from './futures/futures-policy.js';
@@ -75,6 +102,17 @@ import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { copyCloseTrpcError } from './copy/copy-close-errors.js';
 import { VenueCopyRefusal } from './copy/venue-copy.js';
+import { algoPolicyAnswer, optionsPolicyAnswer } from './desk/answers.js';
+import {
+  firmRfqAnswer,
+  otcAcceptAnswer,
+  otcConvertBoundsAnswer,
+  otcConvertQuoteAnswer,
+  otcDeskStatusAnswer,
+  otcMakersAnswer,
+  otcSettleAnswer,
+  rfqQuoteAnswer,
+} from './otc/answers.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
 import { presentAlgo, presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { algoCreateInputSchema } from './algo/create-input.js';
@@ -551,14 +589,6 @@ const copyFollowInput = z.object({
     })
     .optional(),
 });
-
-/** svc-trade's refusals in their wire form, read once for every copy record (procedure-mount.ts). */
-const copyRefusalOf: RefusalOf = (err) => {
-  if (!(err instanceof TRPCError)) return undefined;
-  const cause: unknown = err.cause;
-  const code = typeof cause === 'object' && cause !== null && 'code' in cause ? cause.code : undefined;
-  return typeof code === 'string' ? { code, error: err } : undefined;
-};
 
 export function toTrpcError(err: unknown): TRPCError {
   const historyError = convertHistoryTrpcError(err);
@@ -1357,34 +1387,36 @@ export function createTradeRouter(
     otc: router({
       policy: publicProcedure.query(() => describeOtcPolicy()),
 
-      deskStatus: scopedProcedure('trade:read', { module: 'trade' }).query(() => {
-        if (!otc) {
-          const deskLaw = OTC_DESK_LAW_RESIDUAL;
-          return {
-            published: false,
-            statusLine: otcDeskLawStatusLine(UNPUBLISHED_OTC_DESK_LAW),
-            residual: deskLaw,
-            assets: null,
-            minTier: null,
-            makerRouting: otcMakerRoutingStatus(),
-            midFeed: otcMidFeedStatus(),
-            residuals: {
-              deskLaw,
-              assets: deskLaw,
-              minTier: deskLaw,
-              makerRouting: OTC_MAKER_ROUTING_RESIDUAL,
-              midFeed: OTC_MID_FEED_RESIDUAL,
-            },
-          };
-        }
-        return otc.deskStatus();
-      }),
+      deskStatus: scopedProcedure('trade:read', { module: 'trade' })
+        .output(otcDeskStatusAnswer)
+        .query(() => {
+          if (!otc) {
+            const deskLaw = OTC_DESK_LAW_RESIDUAL;
+            return {
+              published: false,
+              statusLine: otcDeskLawStatusLine(UNPUBLISHED_OTC_DESK_LAW),
+              residual: deskLaw,
+              assets: null,
+              minTier: null,
+              makerRouting: otcMakerRoutingStatus(),
+              midFeed: otcMidFeedStatus(),
+              residuals: {
+                deskLaw,
+                assets: deskLaw,
+                minTier: deskLaw,
+                makerRouting: OTC_MAKER_ROUTING_RESIDUAL,
+                midFeed: OTC_MID_FEED_RESIDUAL,
+              },
+            };
+          }
+          return otc.deskStatus();
+        }),
 
       /** Liquidity-provider directory and multi-select check (CB-otc-01). */
       makers: router({
-        list: scopedProcedure('trade:read', { module: 'trade' }).query(() =>
-          otc ? otc.listMakers() : listOtcMakers(UNPUBLISHED_OTC_MAKER_DIRECTORY),
-        ),
+        list: scopedProcedure('trade:read', { module: 'trade' })
+          .output(otcMakersAnswer)
+          .query(() => (otc ? otc.listMakers() : listOtcMakers(UNPUBLISHED_OTC_MAKER_DIRECTORY))),
         select: scopedProcedure('trade:read', { module: 'trade' })
           .input(z.object({ makerIds: z.array(z.string().max(120)).max(50) }).strict())
           .query(({ input }) =>
@@ -1452,6 +1484,7 @@ export function createTradeRouter(
             })
             .strict(),
         )
+        .output(otcAcceptAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1464,6 +1497,7 @@ export function createTradeRouter(
 
       settle: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ quoteId: z.string().guid() }).strict())
+        .output(otcSettleAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1472,9 +1506,9 @@ export function createTradeRouter(
         ),
 
       /** Owner bounds for one-click buy and convert at OTC pricing (CB-otc-12). */
-      convertBounds: scopedProcedure('trade:read', { module: 'trade' }).query(() =>
-        otc ? otc.convertBoundsStatus() : { convert: null, oneClickBuy: null },
-      ),
+      convertBounds: scopedProcedure('trade:read', { module: 'trade' })
+        .output(otcConvertBoundsAnswer)
+        .query(() => (otc ? otc.convertBoundsStatus() : { convert: null, oneClickBuy: null })),
 
       /** Bounds-gated OTC quote for one-click buy / convert. The desk names the price. */
       convertQuote: scopedProcedure('trade:read', { module: 'trade' })
@@ -1489,6 +1523,7 @@ export function createTradeRouter(
             })
             .strict(),
         )
+        .output(otcConvertQuoteAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1517,6 +1552,7 @@ export function createTradeRouter(
             })
             .strict(),
         )
+        .output(rfqQuoteAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1533,6 +1569,7 @@ export function createTradeRouter(
 
       accept: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ quoteId: z.string().guid(), assertedPrice: decimal.optional() }).strict())
+        .output(firmRfqAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1545,6 +1582,7 @@ export function createTradeRouter(
 
       expire: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ quoteId: z.string().guid() }).strict())
+        .output(firmRfqAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1554,6 +1592,7 @@ export function createTradeRouter(
 
       get: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ quoteId: z.string().guid() }).strict())
+        .output(firmRfqAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1593,7 +1632,7 @@ export function createTradeRouter(
      */
     algo: router({
       // The flags this service was started with, so the room shows whether slices are placed (CB-order-controls-03 #1).
-      policy: publicProcedure.query(() => trade.algoPolicy()),
+      policy: publicProcedure.output(algoPolicyAnswer).query(() => trade.algoPolicy()),
       ...algoDeskProcedures(trade),
 
       createTwap: scopedProcedure('trade:write', { module: 'trade' })
@@ -1752,7 +1791,7 @@ export function createTradeRouter(
      * Settlement asset law stamp required before listing — no invented live set.
      */
     options: router({
-      policy: publicProcedure.query(() => describeOptionsPolicy()),
+      policy: publicProcedure.output(optionsPolicyAnswer).query(() => describeOptionsPolicy()),
       ...optionsDeskProcedures(trade),
     }),
 
@@ -1776,6 +1815,7 @@ export function createTradeRouter(
 
       follow: scopedProcedure('trade:write', { module: 'trade' })
         .input(copyFollowInput)
+        .output(copyFollowAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1799,6 +1839,7 @@ export function createTradeRouter(
             maxPerDay: z.union([decimal, z.literal('')]).optional(),
           }),
         )
+        .output(copyFollowAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Copy trading is unavailable', 'trade.copy_unavailable');
@@ -1812,6 +1853,7 @@ export function createTradeRouter(
        */
       checkVenueFollow: scopedProcedure('trade:write', { module: 'trade' })
         .input(copyFollowInput.omit({ agentAccountId: true }))
+        .output(copyCheckVenueFollowAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1846,6 +1888,7 @@ export function createTradeRouter(
 
       grantSessionKey: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyGrantSessionKeyAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1857,6 +1900,7 @@ export function createTradeRouter(
 
       killSessionKey: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyFollowAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) {
@@ -1957,6 +2001,7 @@ export function createTradeRouter(
             })
             .optional(),
         )
+        .output(copyListLeadersAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             const query = input ?? {};
@@ -1970,6 +2015,7 @@ export function createTradeRouter(
       /** One listed leader's page: listing facts and the metrics the owner defined. Not listed → NOT_FOUND. */
       leaderProfile: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ leaderRef: z.string().min(1).max(80) }))
+        .output(copyLeaderProfileAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Leader not found', 'trade.copy_leader_not_found');
@@ -1986,6 +2032,7 @@ export function createTradeRouter(
             cursor: z.string().max(64).optional(),
           }),
         )
+        .output(copyLeaderTradesAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Leader not found', 'trade.copy_leader_not_found');
@@ -1996,6 +2043,7 @@ export function createTradeRouter(
       /** The caller's copied orders on one of their follows, newest first. */
       followPositions: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyFollowPositionsAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
@@ -2006,6 +2054,7 @@ export function createTradeRouter(
       /** The caller's copied positions on one of their follows, newest first, with what is still open (CB-copy-09/10). */
       copiedPositions: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyCopiedPositionsAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
@@ -2016,6 +2065,7 @@ export function createTradeRouter(
       /** The caller's own lead earnings: settled fee-share rows and their sum per asset; never a profit figure (J-copy-bots-otc-06 #3). */
       leadEarnings: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ limit: z.number() }))
+        .output(leadEarningsAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('lead earnings are not mounted', 'trade.copy_unavailable');
@@ -2031,20 +2081,23 @@ export function createTradeRouter(
             if (!copy) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
             return copy.myCopyFees(ctx.principal, input);
           }),
-        copyRefusalOf,
+        tradeRefusal,
       ),
 
       /** The caller's own lead level: not set while the owner's thresholds are blank; the maximum ratio is never set (J-copy-bots-otc-06 #5). */
-      leadLevel: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
-        guard(async () => {
-          if (!copy) throw new CopyError('lead level is not mounted', 'trade.copy_unavailable');
-          return copy.leadLevel(ctx.principal);
-        }),
-      ),
+      leadLevel: scopedProcedure('trade:read', { module: 'trade' })
+        .output(leadLevelAnswer)
+        .query(({ ctx }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('lead level is not mounted', 'trade.copy_unavailable');
+            return copy.leadLevel(ctx.principal);
+          }),
+        ),
 
       /** A profit pre-deduction or profit-share ratio: refused `trade.copy_pnl_fee_forbidden` whatever is sent (J-copy-bots-otc-06 #4). */
       setProfitShare: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.unknown())
+        .output(refusedAlwaysAnswer)
         .mutation(() =>
           guard(async () => {
             refusePnlLinkedCopyFee();
@@ -2054,6 +2107,7 @@ export function createTradeRouter(
       /** A maximum ratio: refused `trade.copy_pnl_fee_forbidden` whatever is sent (J-copy-bots-otc-06 #5). */
       setMaxRatio: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.unknown())
+        .output(refusedAlwaysAnswer)
         .mutation(() =>
           guard(async () => {
             refusePnlLinkedCopyFee();
@@ -2071,6 +2125,7 @@ export function createTradeRouter(
             qty: z.string().min(1).max(64).optional(),
           }),
         )
+        .output(copyCloseCopiedPositionAnswer)
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
@@ -2081,6 +2136,7 @@ export function createTradeRouter(
       /** Leader fills this follow did not copy, with the reason id, newest first (CB-copy-11). */
       skipLog: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copySkipLogAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
@@ -2108,32 +2164,43 @@ export function createTradeRouter(
       applyToLead: scopedProcedure('trade:write', { module: 'trade' })
         // A blank name reaches the desk, which refuses it with its own code, so the room can say what to fix.
         .input(z.object({ displayName: z.string().max(200) }))
+        .output(applyToLeadAnswer)
         .mutation(({ ctx, input }) => lead((desk) => desk.apply(ctx.principal, input))),
 
       /** What applying to lead is measured by for the caller: whom they follow, the threshold and their venue USDC. */
-      leadEligibility: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
-        lead((desk) => desk.eligibility(ctx.principal)),
-      ),
+      leadEligibility: scopedProcedure('trade:read', { module: 'trade' })
+        .output(leadEligibilityAnswer)
+        .query(({ ctx }) => lead((desk) => desk.eligibility(ctx.principal))),
 
       /** The caller's newest lead application, or null. */
-      myLeadApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
+      myLeadApplication: scopedProcedure('trade:read', { module: 'trade' })
+        .output(myLeadApplicationAnswer)
+        .query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
 
       /** The caller's lead account once approved, or null (CB-copy-18, J-copy-bots-otc-04 #4). */
-      myLead: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.myLead(ctx.principal))),
+      myLead: scopedProcedure('trade:read', { module: 'trade' })
+        .output(myLeadAnswer)
+        .query(({ ctx }) => lead((desk) => desk.myLead(ctx.principal))),
 
       /** The caller's new-trader missions and how far each has come (CB-copy-12, J-copy-bots-otc-04 #3). */
-      leadMissions: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.missions(ctx.principal))),
+      leadMissions: scopedProcedure('trade:read', { module: 'trade' })
+        .output(leadMissionsAnswer)
+        .query(({ ctx }) => lead((desk) => desk.missions(ctx.principal))),
 
       /** The caller's own lead trades, ongoing and history, with counts (CB-copy-15, J-copy-bots-otc-04 #8). */
-      leadTrades: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.trading.trades(ctx.principal))),
+      leadTrades: scopedProcedure('trade:read', { module: 'trade' })
+        .output(leadTradesAnswer)
+        .query(({ ctx }) => lead((desk) => desk.trading.trades(ctx.principal))),
 
       /** The caller's copiers and each one's state (CB-copy-15, J-copy-bots-otc-04 #8). */
-      leadCopiers: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
-        lead((desk) => desk.trading.copiers(ctx.principal)),
-      ),
+      leadCopiers: scopedProcedure('trade:read', { module: 'trade' })
+        .output(leadCopiersAnswer)
+        .query(({ ctx }) => lead((desk) => desk.trading.copiers(ctx.principal))),
 
       /** The scopes the platform has paused now (CB-ops-03): leads by listing ref, bot types and symbols. */
-      platformPauses: scopedProcedure('trade:read', { module: 'trade' }).query(() => pauses((desk) => desk.publicPauses())),
+      platformPauses: scopedProcedure('trade:read', { module: 'trade' })
+        .output(platformPausesAnswer)
+        .query(() => pauses((desk) => desk.publicPauses())),
 
       ops: router({
         /**
@@ -2272,6 +2339,7 @@ export function createTradeRouter(
       /** Caller's follows only — product desk list. Omit limit → named refuse, never invent 50. */
       listMyFollows: scopedProcedure('trade:read', { module: 'trade' })
         .input(z.object({ limit: z.number().optional() }).optional())
+        .output(copyListMyFollowsAnswer)
         .query(({ ctx, input }) =>
           guard(async () => {
             const limit = publishedListMyFollowsLimit(input?.limit);

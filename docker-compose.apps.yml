@@ -157,17 +157,38 @@ services:
   # svc-ledger is the root of the money plane: six services call it and none of
   # them can move value without it. It owns the `ledger` JetStream stream and
   # asserts `chain_tip` exists at boot.
+  # svc-ledger's own `ledger` schema migrations, applied once by its Rust binary as its own role (svc_ledger), the way
+  # `migrate` applies every Node service's: before the service starts, never by the service at start-up.
+  svc-ledger-migrate:
+    image: intafaced/svc-ledger:dev
+    build:
+      context: .
+      dockerfile: crates/svc-ledger/Dockerfile
+    container_name: intafaced-svc-ledger-migrate
+    restart: 'no'
+    command: ['/app/svc-ledger', 'migrate']
+    environment:
+      DATABASE_URL: postgres://svc_ledger:${SVC_LEDGER_DB_PASSWORD:-svc_ledger}@postgres:5432/intafaced
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Rust binary (crates/svc-ledger), its own image, like svc-tax's and svc-academy's.
   svc-ledger:
-    <<: *app
+    image: intafaced/svc-ledger:dev
+    build:
+      context: .
+      dockerfile: crates/svc-ledger/Dockerfile
+    restart: unless-stopped
     container_name: intafaced-svc-ledger
-    command: ['node', 'services/svc-ledger/dist/index.js']
+    command: ['/app/svc-ledger']
     environment:
       <<: [*service-env, *internal-secret]
       SERVICE_NAME: svc-ledger
       HTTP_PORT: '4001'
       DATABASE_URL: postgres://svc_ledger:${SVC_LEDGER_DB_PASSWORD:-svc_ledger}@postgres:5432/intafaced
       # svc-ledger merges `authEnvSchema` for its OPERATOR surface
-      # (operator-http.ts), so this is required at boot with no default — and it
+      # (the operator doors, src/env.rs), so this is required at boot with no default — and it
       # was never set here. The service crash-looped on `JWT_ACCESS_SECRET:
       # Required` the first time its container was recreated.
       #
@@ -184,7 +205,7 @@ services:
       JWT_ISSUER: ${JWT_ISSUER:-intafaced}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
       JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
-      # Posting freeze. env.ts already names this (default true). Without compose
+      # Posting freeze. env.rs already names this (default true). Without compose
       # pass-through a host `.env` freeze after a reconcile mismatch never
       # reaches the container. Do not default posting OFF — that would halt the
       # money plane on a clean clone.
@@ -201,9 +222,15 @@ services:
       LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-detect}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4001']
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4001/health']
     depends_on:
-      <<: [*needs-schema, *needs-bus]
+      <<: *needs-bus
+      postgres:
+        condition: service_healthy
+      svc-ledger-migrate:
+        condition: service_completed_successfully
 
   # ── THE FRONT DOOR ─────────────────────────────────────────
   #

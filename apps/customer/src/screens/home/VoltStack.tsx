@@ -4,7 +4,7 @@ import { fmtUsd, Money, Skeleton, type HomePortfolio, type Loadable } from './de
 import './volt.css';
 
 /**
- * The Volt direction's money object (only under `data-direction="volt"`): the account as a stack of
+ * Volt's money object on Home: the account as a stack of
  * two cards, cash in front as matte black metal, crypto behind it as the screen's one spark of colour. Each card opens
  * its part of Money. Figures are the portfolio's own (decimal strings, never numbers); nothing on a card is made up.
  */

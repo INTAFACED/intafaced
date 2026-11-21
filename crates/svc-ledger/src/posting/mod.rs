@@ -145,6 +145,19 @@ impl Posting {
             .unwrap_or(0)
     }
 
+    /// `callerBindingCounts()`: every violation count this process holds, as `(reason, service, count)`, the service
+    /// blank when none was named.
+    pub fn binding_counts(&self) -> Vec<(&'static str, String, u64)> {
+        let c = self
+            .counts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        c.counts
+            .iter()
+            .map(|((why, service), n)| (*why, service.clone(), *n))
+            .collect()
+    }
+
     /// `addCallerBindingCount` and the door's `onViolation` warning: every violation counted; an unbound one warned
     /// first for a claimed service, then at most once a minute; the others every time.
     fn observe(&self, seen: &[Violation], mode: &str) {
@@ -421,5 +434,28 @@ impl TxRelay<'_> {
 impl Relay for TxRelay<'_> {
     fn drain(&self, store: &Store) -> Result<usize, StoreError> {
         self.publish(store, None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // `write-block.test.ts`: "wraps a store error as a typed LedgerError and passes other errors through unchanged".
+    // A ledger refusal passes through; a store error that is not a store condition is the ledger's own fault (the
+    // TypeScript rethrew the driver error, which its door answered 500, as `Fault` is).
+    #[test]
+    fn a_store_condition_is_its_typed_refusal_and_anything_else_passes_through() {
+        let disk = as_write_block(PostError::Store(StoreError::new("pg 53100", Some("53100"))));
+        assert!(
+            matches!(&disk, Failure::Ledger { code, .. } if code == errors::WRITE_BLOCKS[0]),
+            "{disk:?}"
+        );
+        let frozen = Failure::ledger(errors::FROZEN, "frozen");
+        assert_eq!(as_write_block(PostError::Refused(frozen.clone())), frozen);
+        assert_eq!(
+            as_write_block(PostError::Store(StoreError::new("pg 23505", Some("23505")))),
+            Failure::Fault
+        );
     }
 }

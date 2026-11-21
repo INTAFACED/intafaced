@@ -252,17 +252,83 @@ export function chainOf(proc) {
   return { kind, input, output, handler, guard, problems };
 }
 
-const ACCESS_OPTS = new Set(['module', 'plane', 'tier', 'person']);
+const ACCESS_OPTS = new Set(['module', 'plane', 'tier', 'person', 'ownSession', 'check']);
+
+/**
+ * Guards whose check no record field says, so their calls stay by name: each with the reason. Naming one here only ever
+ * keeps a call; it never moves one.
+ */
+const KEPT_GUARDS = new Map([
+  ['coachRunProcedure', 'checks agents:execute with its own refusal codes before the person-only check; no record field says that'],
+  ['opsProcedure', "adds svc-campaigns' ops second-factor check (requireOpsMfa); no record field says that"],
+  [
+    'jobProcedure',
+    "is a job twin's signed-service check (requireBankJobService, requireTokenJobService) with its own refusal message, not serviceProcedureFor's",
+  ],
+  ['personProcedure', 'refuses anyone but the person with no scope to name; a record has no caller for it yet'],
+  [
+    'founderProcedure',
+    "is the service's founder guard: its record mounts behind ServiceParts.founder, which the codemod's mount does not hand over yet",
+  ],
+  [
+    'founder',
+    "is the service's founder guard: its record mounts behind ServiceParts.founder, which the codemod's mount does not hand over yet",
+  ],
+]);
+
+/** What an expression stands for, through parentheses, `as const`, a guard function's bound parameters and local consts. */
+function valueOf(p, node, env, depth = 0) {
+  if (!node || depth > 12) return undefined;
+  if (
+    node.type === 'TSAsExpression' ||
+    node.type === 'TSSatisfiesExpression' ||
+    node.type === 'ParenthesizedExpression' ||
+    node.type === 'TSNonNullExpression'
+  )
+    return valueOf(p, node.expression, env, depth + 1);
+  if (node.type !== 'Identifier') return { p, node };
+  const b = bindingOf(p, node, node.name);
+  if (b.kind === 'param' && env?.has(node.name)) {
+    const bound = env.get(node.name);
+    return valueOf(bound.p, bound.node, bound.env, depth + 1);
+  }
+  if (b.kind === 'var' && b.declaration?.kind === 'const' && b.declarator.id.type === 'Identifier' && b.declarator.init)
+    return valueOf(p, b.declarator.init, undefined, depth + 1);
+  if (b.kind === 'import') {
+    const file = resolveRelative(p.file, b.from);
+    const q = file ? load(file) : undefined;
+    const d = q ? exported(q, b.imported) : undefined;
+    if (d) return valueOf(q, d, undefined, depth + 1);
+  }
+  return { p, node };
+}
+
+/** The literal an expression stands for (a string, number or boolean), or undefined. */
+function literalOf(p, node, env) {
+  const v = valueOf(p, node, env);
+  return v?.node.type === 'Literal' && ['string', 'number', 'boolean'].includes(typeof v.node.value) ? v.node.value : undefined;
+}
 
 /** The record's `access` for a guard expression, as source text, or a problem. */
-function guardOf(p, node, problems, depth = 0) {
-  if (!node || depth > 5) {
+function guardOf(p, node, problems, depth = 0, env = undefined) {
+  const kept = keptName(p, node, env);
+  if (kept) {
+    problems.push(`guard ${kept} kept by hand: it ${KEPT_GUARDS.get(kept)}`);
+    return undefined;
+  }
+  if (!node || depth > 8) {
     problems.push('guard not read');
     return undefined;
   }
+  if (node.type === 'ParenthesizedExpression' || node.type === 'TSAsExpression' || node.type === 'TSNonNullExpression')
+    return guardOf(p, node.expression, problems, depth + 1, env);
   if (node.type === 'Identifier') {
     if (node.name === 'publicProcedure') return { text: "{ caller: 'public' }", base: node };
     const b = bindingOf(p, node, node.name);
+    if (b.kind === 'param' && env?.has(node.name)) {
+      const bound = env.get(node.name);
+      return guardOf(bound.p, bound.node, problems, depth + 1, bound.env);
+    }
     if (b.kind === 'var' && b.declarator.init) return guardOf(p, b.declarator.init, problems, depth + 1);
     // contracts' protectedProcedure is signedInProcedure() with no module: the same `authed` check and nothing more.
     if (node.name === 'protectedProcedure' && b.kind === 'import' && /^@intafaced\/contracts(\/trpc)?$/.test(b.from ?? ''))
@@ -278,22 +344,60 @@ function guardOf(p, node, problems, depth = 0) {
     problems.push(`guard ${calleeName(node)}() chained: not one a record names`);
     return undefined;
   }
+  // A guard a function of the service's own returns (`operator('admin:read')`, `executeProcedure()`): read what it
+  // returns, its parameters bound to this call's arguments.
+  if (node.callee.type === 'Identifier' && !BUILDERS.has(node.callee.name)) {
+    const target = functionOf(p, node.callee, node.callee.name);
+    // Only a function that is its one returned guard: a body with any other statement may return another guard.
+    const single =
+      target &&
+      (target.fn.body?.type !== 'BlockStatement' ||
+        (target.fn.body.body.length === 1 && target.fn.body.body[0].type === 'ReturnStatement'));
+    const body = single ? returned(target.p, target.fn) : undefined;
+    if (target && !single) {
+      problems.push(`guard ${node.callee.name}() is a function with more than its returned guard: not one a record names`);
+      return undefined;
+    }
+    if (body) {
+      const bound = new Map();
+      target.fn.params.forEach((param, i) => {
+        if (param.type === 'Identifier' && node.arguments[i]) bound.set(param.name, { p, node: node.arguments[i], env });
+      });
+      return guardOf(target.p, body, problems, depth + 1, bound);
+    }
+  }
   const name = node.callee.name;
   const args = node.arguments;
-  const lit = (n) => (n?.type === 'Literal' ? JSON.stringify(n.value).replace(/^"|"$/g, '') : undefined);
+  const lit = (n) => {
+    const v = literalOf(p, n, env);
+    return v === undefined ? undefined : String(v);
+  };
   const opts = (n, allowed) => {
     if (!n) return '';
-    if (n.type !== 'ObjectExpression') return null;
+    const v = valueOf(p, n, env);
+    if (v?.node.type !== 'ObjectExpression') return null;
     const parts = [];
-    for (const prop of n.properties) {
+    for (const prop of v.node.properties) {
       const k = prop.type === 'Property' ? keyOf(prop) : undefined;
-      if (!k || !allowed.has(k) || prop.value.type !== 'Literal') return null;
-      parts.push(`${k}: ${typeof prop.value.value === 'string' ? `'${prop.value.value}'` : String(prop.value.value)}`);
+      // The service's own check (`GuardOptions.check`) is named on the record; the mount takes it from the service's parts.
+      if (k === 'check' && allowed.has(k) && prop.value.type === 'Identifier') {
+        parts.push(`check: '${prop.value.name}'`);
+        continue;
+      }
+      const value = k && allowed.has(k) ? literalOf(v.p, prop.value, v.p === p ? env : undefined) : undefined;
+      if (value === undefined) return null;
+      parts.push(`${k}: ${typeof value === 'string' ? `'${value}'` : String(value)}`);
     }
     return parts.length ? `, ${parts.join(', ')}` : '';
   };
+  const literals = (n) => {
+    const v = valueOf(p, n, env);
+    if (v?.node.type !== 'ArrayExpression') return null;
+    const out = v.node.elements.map((e) => (e ? literalOf(v.p, e, v.p === p ? env : undefined) : undefined));
+    return out.every((e) => typeof e === 'string') ? out.map((e) => `'${e}'`) : null;
+  };
   if (name === 'scopedProcedure') {
-    const scope = args[0]?.type === 'Literal' ? args[0].value : undefined;
+    const scope = literalOf(p, args[0], env);
     const rest = opts(args[1], ACCESS_OPTS);
     if (typeof scope !== 'string' || rest === null) {
       problems.push('scopedProcedure with a scope or options a record cannot copy');
@@ -318,10 +422,7 @@ function guardOf(p, node, problems, depth = 0) {
     return { text: `{ caller: 'jurisdiction', module: '${mod}'${args[1] ? `, plane: '${lit(args[1])}'` : ''} }` };
   }
   if (name === 'anyScopeProcedure') {
-    const list =
-      args[0]?.type === 'ArrayExpression' && args[0].elements.every((e) => e?.type === 'Literal')
-        ? args[0].elements.map((e) => `'${e.value}'`)
-        : null;
+    const list = literals(args[0]);
     const rest = opts(args[1], new Set(['module', 'plane']));
     if (!list || rest === null) {
       problems.push('anyScopeProcedure arguments a record cannot copy');
@@ -330,10 +431,7 @@ function guardOf(p, node, problems, depth = 0) {
     return { text: `{ caller: 'anyScope', scopes: [${list.join(', ')}]${rest} }` };
   }
   if (name === 'serviceProcedureFor') {
-    const list =
-      args[0]?.type === 'ArrayExpression' && args[0].elements.every((e) => e?.type === 'Literal')
-        ? args[0].elements.map((e) => `'${e.value}'`)
-        : null;
+    const list = literals(args[0]);
     if (!list) {
       problems.push('serviceProcedureFor arguments a record cannot copy');
       return undefined;
@@ -342,4 +440,24 @@ function guardOf(p, node, problems, depth = 0) {
   }
   problems.push(`guard ${name}() is not one a record names`);
   return undefined;
+}
+
+/** The guard builders a record names (the rest of `guardOf`); any other call is a function of the service's own. */
+const BUILDERS = new Set([
+  'scopedProcedure',
+  'signedInProcedure',
+  'publicJurisdictionProcedure',
+  'anyScopeProcedure',
+  'serviceProcedureFor',
+]);
+
+/** The name of a kept guard this expression is, or calls: `founder`, `opsProcedure`, `coachRunProcedure()`. */
+function keptName(p, node, env) {
+  const id =
+    node?.type === 'CallExpression' && node.callee.type === 'Identifier' ? node.callee : node?.type === 'Identifier' ? node : undefined;
+  if (!id || !KEPT_GUARDS.has(id.name)) return undefined;
+  const b = bindingOf(p, id, id.name);
+  // A parameter bound to an argument is read through that argument; an unbound one is the guard the name says.
+  if (b.kind === 'param' && env?.has(id.name)) return undefined;
+  return id.name;
 }

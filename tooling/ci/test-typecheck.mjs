@@ -179,9 +179,6 @@ const PINNED = {
     ],
   ],
 
-  // 1 — services/svc-ledger
-  'services/svc-ledger': [[1, 'src/s2s-http.test.ts | TS2554 | Expected 4 arguments, but got 3.']],
-
   // 0 — services/svc-notify (Wave 13 L12: spawnSync arity fixed; pin deleted)
   'services/svc-notify': [],
 
@@ -197,14 +194,10 @@ const PINNED = {
     ],
   ],
 
-  // 9 — services/svc-pay (broadcast-store TS2352 pin retired — cast via unknown)
+  // 7 — services/svc-pay (broadcast-store TS2352 pin retired — cast via unknown; rails.test.ts's read-only adapter now has its mode)
   'services/svc-pay': [
     [1, "src/ledger-client.test.ts | TS2552 | Cannot find name 'RequestInfo'. Did you mean 'RequestInit'?"],
     [4, "src/rails/posture.test.ts | TS2339 | Property 'message' does not exist on type 'Error | { txHash: string; }'."],
-    [
-      2,
-      "src/rails/rails.test.ts | TS2741 | Property 'mode' is missing in type '{ id: string; capabilities: readonly [\"authorize\"]; health: () => { healthy: boolean; latencyMs: number; lastUpdate: Date; }; authorize: (p: PaymentIntent) => Promise<RailResult>; capture: (ref: string) => Promise<RailResult>; refund: (ref: string, amount: Amount) => Promise<RailResult>; payout: (s: SettlementInstru...' but required in type 'RailAdapter'.",
-    ],
     [
       1,
       "src/router.test.ts | TS2741 | Property 'service' is missing in type '{ principal: null; region: string; requestId: string; }' but required in type 'Context'.",

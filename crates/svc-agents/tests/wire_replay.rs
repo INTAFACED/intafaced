@@ -27,6 +27,8 @@ use service_kit::server::Request;
 use service_kit::time::Instant;
 use svc_agents::db::Store;
 use svc_agents::door::{self, AgentsDoor, DoorConfig, Kind, Pre, ServiceAuth, Slice};
+use svc_agents::gateway::desk::GatewaySlice;
+use svc_agents::gateway::readiness::ReadyInput;
 
 const SECRET: &str = "an-agents-wire-replay-edge-secret-long-enough";
 const USER: &str = "11111111-1111-4111-8111-111111111111";
@@ -94,6 +96,11 @@ fn serve() -> AgentsDoor {
         env,
         now,
         store: Store::Down("svc-agents: the replay has no database".to_owned()),
+        // The replay's gateway: an empty routing table and no provider registered.
+        gateway: GatewaySlice::unwired("fixture-asset"),
+        ready: ReadyInput::unwired(),
+        metering: svc_agents::metering::Metering::unwired("USDC", 60),
+        runtime: svc_agents::runtime::Runtime::unwired(),
     })
     .unwrap()
 }

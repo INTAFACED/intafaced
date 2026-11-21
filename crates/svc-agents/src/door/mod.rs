@@ -34,6 +34,10 @@ use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
 
 use crate::db::Store;
+use crate::gateway::desk::GatewaySlice;
+use crate::gateway::readiness::{self, ReadyInput};
+use crate::metering::Metering;
+use crate::runtime::Runtime;
 
 /// A query answers GET, a mutation POST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,17 +207,6 @@ pub fn not_ported(slice: Slice) -> TrpcError {
     )
 }
 
-/// The slices' answers. Only the door's own call is served by the shell.
-fn handle(ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
-    match ctx.call.slice {
-        Slice::Door => Ok(Some(Json::obj([
-            ("ok", Json::Bool(true)),
-            ("service", Json::str("svc-agents")),
-        ]))),
-        other => Err(not_ported(other)),
-    }
-}
-
 /// How the door judges a service on the request: `createEdgeContext` with the shared secret and, when on, the
 /// per-service keys. The tRPC door binds the body (`EDGE_CONTEXT_BODY_BIND_MODE`, `require`).
 pub struct ServiceAuth {
@@ -271,6 +264,14 @@ pub struct DoorConfig {
     pub now: fn() -> Instant,
     /// The `agents` schema, opened once by the binary (`db::open`).
     pub store: Store,
+    /// The gateway slice: the routing table, the providers and the founders' desk.
+    pub gateway: GatewaySlice,
+    /// What `/ready` reports besides the gateway.
+    pub ready: ReadyInput,
+    /// The meter, its settings and what it asks outside the process (`metering`).
+    pub metering: Metering,
+    /// The runtime's own settings: the spend gate, the funds, the transcript and the grace (`runtime`).
+    pub runtime: Runtime,
 }
 
 pub struct AgentsDoor {
@@ -283,6 +284,10 @@ pub struct AgentsDoor {
     requests: RequestIds,
     edge_key: Option<EdgeKey>,
     store: Store,
+    gateway: GatewaySlice,
+    ready: ReadyInput,
+    metering: Metering,
+    runtime: Runtime,
 }
 
 /// The system clock.
@@ -322,6 +327,10 @@ impl AgentsDoor {
             requests: RequestIds::new(),
             edge_key: None,
             store: config.store,
+            gateway: config.gateway,
+            ready: config.ready,
+            metering: config.metering,
+            runtime: config.runtime,
         })
     }
 
@@ -331,9 +340,39 @@ impl AgentsDoor {
         self
     }
 
+    /// The meter every metering call and timer goes through.
+    pub fn metering(&self) -> &Metering {
+        &self.metering
+    }
+
     /// The database every slice reads and writes through.
     pub fn store(&self) -> &Store {
         &self.store
+    }
+
+    /// The gateway slice.
+    pub fn gateway(&self) -> &GatewaySlice {
+        &self.gateway
+    }
+
+    /// The slices' answers: the door's own call, the ported slices, and "not ported" for the rest.
+    fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
+        match ctx.call.slice {
+            Slice::Door => Ok(Some(Json::obj([
+                ("ok", Json::Bool(true)),
+                ("service", Json::str("svc-agents")),
+            ]))),
+            Slice::Gateway => self.gateway.handle(&self.store, ctx),
+            Slice::Metering => crate::metering::slice::handle(ctx, &self.store, &self.metering),
+            Slice::Runtime => crate::runtime::slice::handle(
+                ctx,
+                &self.store,
+                &self.gateway,
+                &self.metering,
+                &self.runtime,
+            ),
+            other => Err(not_ported(other)),
+        }
     }
 
     /// `sql.end()`: closes the pool once the server has stopped.
@@ -479,7 +518,7 @@ impl AgentsDoor {
             }
         }
 
-        handle(&Ctx {
+        self.handle_call(&Ctx {
             call,
             input,
             principal: principal.as_ref(),
@@ -500,24 +539,13 @@ impl Door for AgentsDoor {
         AgentsDoor::handle_as(self, req, request_id)
     }
 
-    /// `/ready` (`agentsReadiness`) reports the providers, the routing table and whether a completion can leave the
-    /// process: all the gateway's. Until that slice is ported the door says so with a 503, never a ready it cannot
-    /// back. `/health` is the server's own `{ ok, service }`, as `index.ts` answers it.
+    /// `/ready` (`agentsReadiness`): the providers, the routing table in force and whether a completion can leave the
+    /// process. `/health` is the server's own `{ ok, service }`, as `index.ts` answers it.
     fn status(&self, req: &Request<'_>) -> Option<Response> {
         let path = req.url.split_once('?').map_or(req.url, |(p, _)| p);
         (path == "/ready").then(|| Response {
-            status: 503,
-            body: Json::obj([
-                ("ready", Json::Bool(false)),
-                (
-                    "residual",
-                    Json::str(format!(
-                        "svc-agents in Rust: the {} slice is not ported",
-                        Slice::Gateway.name()
-                    )),
-                ),
-            ])
-            .compact(),
+            status: 200,
+            body: readiness::readiness(&self.gateway.gateway, &self.ready, (self.now)()).compact(),
         })
     }
 }

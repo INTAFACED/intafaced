@@ -2,7 +2,13 @@ import { z } from 'zod';
 import type { Scope } from '@intafaced/auth';
 import type { KycTier, ModuleId, Plane } from '@intafaced/config';
 import type { ServiceName, ServingServiceName } from './service-keys.js';
-import { portabilityFindings, REFINEMENT, SchemaNotPortableError, strictJsonSchema } from './procedure-strict-schema.js';
+import {
+  portabilityFindings,
+  REFINEMENT,
+  SchemaNotPortableError,
+  strictJsonSchema,
+  type PortabilityFinding,
+} from './procedure-strict-schema.js';
 
 /**
  * ONE WRITTEN RECORD PER CALL. A call between an app and a service, or between two services, is declared once here or in a
@@ -56,6 +62,10 @@ export type Access =
       readonly plane?: Plane;
       readonly tier?: KycTier;
       readonly person?: boolean;
+      /** The person's own session: an API key or a sub-account is refused FORBIDDEN with this code (`GuardOptions.ownSession`). */
+      readonly ownSession?: string;
+      /** The serving service's own check, by the name it hands the mount (`ServiceParts.checks`; `GuardOptions.check`). */
+      readonly check?: string;
     }
   /** The first of these scopes the caller holds (`anyScopeProcedure(scopes, guards)`): a read open to a member and an operator alike. */
   | {
@@ -153,6 +163,12 @@ export type ProcedureRecord<I extends z.ZodType = z.ZodType, O extends z.ZodType
   /** The input checks JSON Schema cannot carry, by name. */
   readonly checks?: Readonly<Record<string, InputCheck>>;
   /**
+   * The answer's own refinements JSON Schema cannot carry, by name, as `checks` names the input's: `at` is where one
+   * sits (`output`, `output.personalCap`). The schema still runs it (the mount and every caller parse with `output`);
+   * naming it makes every other implementation of the record carry it too. The export refuses an unnamed one.
+   */
+  readonly outputChecks?: Readonly<Record<string, InputCheck>>;
+  /**
    * The callers' own checks over the reply, beyond its schema, by name: a caller holding the answer to a stricter rule
    * writes it here, where every caller (`api.call`, `callHttpRecord`) runs it, rather than in one caller's copy. A reply one
    * of them refuses reads as unverified, never as data.
@@ -218,8 +234,9 @@ export function procedureJsonSchema(record: ProcedureRecord): Record<string, unk
     access: record.access,
     refusals: record.refusals,
     ...inputJsonSchema(record),
-    output: strictJsonSchema(`${record.name}.output`, record.output, 'output'),
+    output: outputJsonSchema(record),
     ...(record.checks === undefined ? {} : { checks: record.checks }),
+    ...(record.outputChecks === undefined ? {} : { outputChecks: record.outputChecks }),
     ...(record.accept === undefined
       ? {}
       : { accept: Object.fromEntries(Object.entries(record.accept).map(([name, check]) => [name, check.says])) }),
@@ -231,6 +248,42 @@ export function procedureJsonSchema(record: ProcedureRecord): Record<string, unk
   };
 }
 
+/** The refinements a record names (`checks` or `outputChecks`), by where each sits. */
+function namedAt(checks: Readonly<Record<string, InputCheck>> | undefined): Map<string, string> {
+  return new Map(
+    Object.entries(checks ?? {}).flatMap(([name, check]) =>
+      (typeof check.at === 'string' ? [check.at] : check.at).map((at) => [at, name] as const),
+    ),
+  );
+}
+
+/** What the export can't carry once the record's named refinements are set aside, and each name that names none. */
+function unnamed(findings: readonly PortabilityFinding[], named: Map<string, string>, side: string): PortabilityFinding[] {
+  const used = new Set<string>();
+  const left = findings.filter((f) => {
+    if (f.construct !== REFINEMENT || !named.has(f.at)) return true;
+    used.add(f.at);
+    return false;
+  });
+  const stale = [...named]
+    .filter(([at]) => !used.has(at))
+    .map(([at, name]) => ({ at, construct: `${side} check ${name} names no refinement here` }));
+  return [...left, ...stale];
+}
+
+/** The output side of the export: a refinement must be named in `outputChecks` at the place it sits. */
+function outputJsonSchema(record: ProcedureRecord): Record<string, unknown> {
+  const left = unnamed(portabilityFindings(record.output, 'output', 'output'), namedAt(record.outputChecks), 'output');
+  // Named from `output`, as `outputChecks` names them; reported from the record's name, as the export always has.
+  const label = `${record.name}.output`;
+  if (left.length > 0)
+    throw new SchemaNotPortableError(
+      label,
+      left.map((f) => ({ ...f, at: f.at.replace(/^output/, label) })),
+    );
+  return z.toJSONSchema(record.output, { io: 'output', unrepresentable: 'throw' });
+}
+
 /**
  * The input side of the export. No input is `input: null`. An input that may be absent as a whole is
  * `inputOptional: true` beside the schema of what it is when present, since JSON Schema has no absent document. A
@@ -240,22 +293,8 @@ function inputJsonSchema(record: ProcedureRecord): Record<string, unknown> {
   if (record.input === NO_INPUT) return { input: null };
   const optional = record.input instanceof z.ZodOptional;
   const present = record.input instanceof z.ZodOptional ? record.input.unwrap() : record.input;
-  const named = new Map(
-    Object.entries(record.checks ?? {}).flatMap(([name, check]) =>
-      (typeof check.at === 'string' ? [check.at] : check.at).map((at) => [at, name] as const),
-    ),
-  );
-  const findings = portabilityFindings(present, 'input', 'input');
-  const used = new Set<string>();
-  const left = findings.filter((f) => {
-    if (f.construct !== REFINEMENT || !named.has(f.at)) return true;
-    used.add(f.at);
-    return false;
-  });
-  const stale = [...named]
-    .filter(([at]) => !used.has(at))
-    .map(([at, name]) => ({ at, construct: `input check ${name} names no refinement here` }));
-  if (left.length > 0 || stale.length > 0) throw new SchemaNotPortableError(`${record.name}.input`, [...left, ...stale]);
+  const left = unnamed(portabilityFindings(present, 'input', 'input'), namedAt(record.checks), 'input');
+  if (left.length > 0) throw new SchemaNotPortableError(`${record.name}.input`, left);
   const schema: Record<string, unknown> = z.toJSONSchema(present, { io: 'input', unrepresentable: 'throw' });
   return optional ? { inputOptional: true, input: schema } : { input: schema };
 }

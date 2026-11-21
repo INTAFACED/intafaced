@@ -1,8 +1,7 @@
 // World: none
-// The look directions' pictures for the owner's first choice (intafaced #9188, #9227): the same real screens (Home, the
-// spot desk, Money; the real directions show Home, Money and Buy) as one new TEST person, verified and funded with TEST USDT through the real ledger, at phone
-// (390×844) and computer (1440×900), dark and light, in each direction. Every picture is the running app: a direction
-// is only the look's own switches (look.ts: `?look=`, `?accent=`, `?scheme=`; Solid surfaces from its setting).
+// Volt's pictures for the owner (intafaced #9302, #9315): the real screens (Home, Money, the simple buy and the kit page)
+// as one new TEST person, verified and funded with TEST USDT through the real ledger, at phone (390×844) and computer
+// (1440×900), dark only (the beta is dark only). Every picture is the running app with no switch: Volt is the only look.
 // Run on this checkout's own stack (`pnpm local:stack verify launch` first):
 //   LOOK_OPTIONS_OUT=<folder> pnpm exec playwright test --config tooling/scripts/look-options.config.mjs
 // It asserts only that each page answered; what it shows is for the reader.
@@ -14,32 +13,15 @@ import { fund } from '../../apps/customer/tests/real-app/stack.mjs';
 
 const out = process.env.LOOK_OPTIONS_OUT;
 
-/**
- * Today's app (dark only: it has no light values), then the directions. Solid surfaces is the look's own setting
- * (`intafaced.surfaces`).
- */
-export const DIRECTIONS = [
-  { id: 'today', query: 'look=off&accent=off', solid: false, schemes: ['dark'] },
-  { id: 'lit-blue', query: 'look=lit&accent=blue', solid: false },
-  { id: 'emerald-solid', query: 'look=lit&accent=emerald', solid: true },
-  // the real directions (intafaced #9227): each its own Home, money object, tab bar and material, and the Buy flow
-  { id: 'lit-glass', query: 'look=lit&accent=off&direction=lit-glass', solid: false, screens: ['home', 'money', 'buy'] },
-  { id: 'ember', query: 'look=lit&accent=off&direction=ember', solid: false, screens: ['home', 'money', 'buy'] },
-  // Volt, the chosen look (intafaced #9302): its three screens and its kit page, whole, then with its sheet and a toast open
-  {
-    id: 'volt',
-    query: 'look=lit&accent=off&direction=volt',
-    solid: false,
-    screens: ['home', 'money', 'buy', 'kit', 'kit-sheet', 'kit-toast'],
-  },
-];
+/** Volt, the only look: its three screens and its kit page, whole, then with its sheet and a toast open. */
+export const DIRECTIONS = [{ id: 'volt', solid: false, screens: ['home', 'money', 'buy', 'kit', 'kit-sheet', 'kit-toast'] }];
 export const SCREENS = [
   { id: 'home', path: '/home' },
   { id: 'desk', path: deskPath('BTC/USDT') },
   { id: 'money', path: '/money' },
   // The simple buy, as Home's Buy opens it, with an amount typed so its quote and its action are live.
   { id: 'buy', path: '/trade/buy', amount: '100' },
-  // The Volt kit page (intafaced #9302), opened only under Volt's switch: the whole page, then its sheet and its toast.
+  // The Volt kit page (intafaced #9302): the whole page, then its sheet and its toast.
   { id: 'kit', path: '/kit', fullPage: true },
   { id: 'kit-sheet', path: '/kit', click: '[data-kit="open-sheet"]', opens: '[data-slot="dialog-content"]' },
   { id: 'kit-toast', path: '/kit', click: '[data-kit="show-toast"]', opens: '[data-slot="toast"]' },
@@ -49,7 +31,7 @@ export const SIZES = [
   { id: 'phone', width: 390, height: 844 },
   { id: 'computer', width: 1440, height: 900 },
 ];
-export const SCHEMES = ['dark', 'light'];
+export const SCHEMES = ['dark'];
 
 const only = (name, list) => {
   const asked = process.env[name]?.split(',').filter(Boolean);
@@ -71,8 +53,7 @@ test('look options', async ({ page }) => {
   const shots = [];
   for (const d of only('LOOK_OPTIONS_DIRECTIONS', DIRECTIONS)) {
     for (const scheme of only('LOOK_OPTIONS_SCHEMES', d.schemes ?? SCHEMES)) {
-      // a direction without its own switch forgets any other direction this browser remembers
-      await page.goto(`/home?${d.query}${d.query.includes('direction=') ? '' : '&direction=off'}&scheme=${scheme}`);
+      await page.goto(`/home?scheme=${scheme}`);
       await page.evaluate((solid) => {
         if (solid) localStorage.setItem('intafaced.surfaces', 'solid');
         else localStorage.removeItem('intafaced.surfaces');

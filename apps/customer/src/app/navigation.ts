@@ -124,7 +124,18 @@ const publicSearchable = new Set([
  */
 export function searchRooms(query: string, mode: 'Personal' | 'Business', locale: UiLocale = currentPreferences().language): Room[] {
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  return rooms.filter(
+  const whole = words.join(' ');
+  // A room whose title is what was typed comes first, then one whose title starts with it, then one whose title holds
+  // every word, then a match in a description only ("repayments" holds "payments"), so a short list never loses the room
+  // that was asked for by name. The sort is stable: rooms of one rank keep the route table's order.
+  const rank = (room: Room): number => {
+    const titles = [room.title, roomTitle(room, locale)].map((title) => title.toLowerCase());
+    if (titles.some((title) => title === whole)) return 0;
+    if (titles.some((title) => title.startsWith(whole))) return 1;
+    if (titles.some((title) => words.every((word) => title.includes(word)))) return 2;
+    return 3;
+  };
+  const found = rooms.filter(
     (room) =>
       !room.hidden &&
       !room.alias &&
@@ -139,6 +150,12 @@ export function searchRooms(query: string, mode: 'Personal' | 'Business', locale
           .includes(word),
       ),
   );
+  return words.length
+    ? found
+        .map((room) => ({ room, rank: rank(room) }))
+        .sort((a, b) => a.rank - b.rank)
+        .map(({ room }) => room)
+    : found;
 }
 
 export const defaultDeskPair = 'BTC-USDT';

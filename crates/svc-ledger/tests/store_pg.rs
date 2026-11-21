@@ -4,7 +4,9 @@
 //!
 //! The migration runner's proofs are `services/svc-ledger/scripts/migrate.test.ts`, case for case; then the binary's
 //! `migrate`, the pool's session settings, the boot checks (`chain_tip`, the custody guard, the startup freeze) and
-//! `/health` and `/ready` through the kit's server routing.
+//! `/health` and `/ready` through the kit's server routing. Last, the down migrations' own guards:
+//! `src/db/durable-freeze-down.test.ts`, `src/db/outbox-down.test.ts` and `src/db/purpose-keyed-holds-down.test.ts`,
+//! case for case (`down_0002_*`, `down_0013_*`, `down_0001_*`).
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -593,4 +595,292 @@ fn health_and_ready_say_what_the_database_says() {
     assert_eq!(get(&app, "/ready"), (500, missing.clone()));
     assert_eq!(get(&app, "/health"), (500, missing));
     app.wire.end();
+}
+
+/// The two gauges on `GET /metrics` follow the latest `ok` reconciliation run in the book, as
+/// `reconcile-snapshot.test.ts`' "lastVerified, /health and the metric" case reads them; a run table that cannot be read
+/// leaves the gauges out and the scrape answers.
+#[test]
+fn metrics_gauges_follow_the_latest_ok_run_and_a_failed_read_leaves_them_out() {
+    let Some(db) = TestDb::new() else { return };
+    db.migrate(&FILES, false).unwrap();
+    let app = served(&db);
+    let scrape = |app: &App<LedgerDoor>| {
+        let a = app.route("GET", "/metrics", &[], "", "req-1");
+        assert_eq!(a.status, 200);
+        assert_eq!(
+            a.content_type,
+            service_kit::metrics::PROMETHEUS_CONTENT_TYPE
+        );
+        a.body
+    };
+    let never = scrape(&app);
+    assert!(
+        never.contains("# TYPE ledger_reconcile_last_verified_seq gauge\n"),
+        "{never}"
+    );
+    assert!(never.contains("ledger_reconcile_last_verified_seq{service=\"svc-ledger\"} 0\n"));
+    assert!(
+        never.contains(
+            "ledger_reconcile_last_verified_timestamp_seconds{service=\"svc-ledger\"} 0\n"
+        )
+    );
+
+    let mut c = db.client();
+    c.batch_execute(
+        "INSERT INTO ledger.reconcile_runs (started_at, finished_at, outcome, through_seq)
+         VALUES (now(), '2023-11-14T22:13:20.999Z', 'ok', 1),
+                (now(), '2023-11-14T22:13:21.5Z', 'incomplete', NULL)",
+    )
+    .unwrap();
+    let proved = scrape(&app);
+    assert!(
+        proved.contains("ledger_reconcile_last_verified_seq{service=\"svc-ledger\"} 1\n"),
+        "{proved}"
+    );
+    assert!(proved.contains(
+        "ledger_reconcile_last_verified_timestamp_seconds{service=\"svc-ledger\"} 1700000000\n"
+    ));
+
+    c.batch_execute("ALTER TABLE ledger.reconcile_runs RENAME TO reconcile_runs_hidden")
+        .unwrap();
+    let unread = scrape(&app);
+    assert!(
+        !unread.contains("ledger_reconcile_last_verified"),
+        "{unread}"
+    );
+    assert!(unread.contains("# TYPE intafaced_http_requests_total counter\n"));
+    app.wire.end();
+}
+
+// ── the down migrations' guards: services/svc-ledger/src/db/{durable-freeze,outbox,purpose-keyed-holds}-down.test.ts,
+// case for case ──────────────────────────────────────────────────────────────────────────────────────────────────────
+
+fn down_file(name: &str) -> &'static str {
+    FILES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, sql)| *sql)
+        .unwrap_or_else(|| panic!("no migration {name}"))
+}
+
+/// The SQLSTATE of a refused statement.
+fn sqlstate<T: std::fmt::Debug>(r: Result<T, postgres::Error>) -> String {
+    r.expect_err("the statement was refused")
+        .code()
+        .map(|c| c.code().to_owned())
+        .unwrap_or_default()
+}
+
+/// A booked schema whose freeze row is set by `set`.
+fn freeze_db(set: &str) -> Option<TestDb> {
+    let db = TestDb::new()?;
+    db.migrate(&FILES, false).unwrap();
+    db.client()
+        .batch_execute(&format!(
+            "UPDATE ledger.posting_freeze SET {set} WHERE id = true"
+        ))
+        .unwrap();
+    Some(db)
+}
+
+const THAWED: &str = "frozen = false, reason = NULL, actor = NULL";
+
+#[test]
+fn down_0002_holds_the_freeze_row_so_a_concurrent_freeze_times_out() {
+    let Some(db) = freeze_db(THAWED) else { return };
+    let mut held = db.client();
+    let mut other = db.client();
+    held.batch_execute("BEGIN").unwrap();
+    held.batch_execute(down_file("0002_durable_freeze.down.sql"))
+        .unwrap();
+    assert_eq!(
+        sqlstate(other.batch_execute(
+            "SET lock_timeout = '400ms'; UPDATE ledger.posting_freeze SET frozen = true, reason = 'race', actor = 'tester' WHERE id = true"
+        )),
+        "55P03"
+    );
+    held.batch_execute("ROLLBACK").unwrap();
+    let still = db
+        .client()
+        .query(
+            "SELECT frozen FROM ledger.posting_freeze WHERE id = true",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(still.len(), 1);
+    assert!(!still[0].get::<_, bool>(0));
+}
+
+#[test]
+fn down_0002_refuses_the_drop_while_a_freeze_is_recorded_and_leaves_the_row() {
+    let Some(db) = freeze_db("frozen = true, reason = 'halt', actor = 'ops'") else {
+        return;
+    };
+    assert_eq!(
+        sqlstate(
+            db.client()
+                .batch_execute(down_file("0002_durable_freeze.down.sql"))
+        ),
+        "P0001"
+    );
+    let rows = db
+        .client()
+        .query(
+            "SELECT frozen FROM ledger.posting_freeze WHERE id = true",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].get::<_, bool>(0));
+}
+
+#[test]
+fn down_0002_preserves_attribution_from_an_already_thawed_historical_switch() {
+    let Some(db) = freeze_db("frozen = false, reason = NULL, actor = 'historical-operator'") else {
+        return;
+    };
+    assert_eq!(
+        sqlstate(
+            db.client()
+                .batch_execute(down_file("0002_durable_freeze.down.sql"))
+        ),
+        "P0001"
+    );
+    let actor: Option<String> = db
+        .client()
+        .query_one("SELECT actor FROM ledger.posting_freeze", &[])
+        .unwrap()
+        .get(0);
+    assert_eq!(actor.as_deref(), Some("historical-operator"));
+}
+
+#[test]
+fn down_0002_drops_the_table_once_the_freeze_has_been_thawed() {
+    let Some(db) = freeze_db(THAWED) else { return };
+    db.client()
+        .batch_execute(down_file("0002_durable_freeze.down.sql"))
+        .unwrap();
+    assert_eq!(db.regclass("ledger.posting_freeze"), None);
+}
+
+/// The down file's `DO $$ … END $$;` block (`guardBlock`).
+fn guard_block(sql: &str) -> &str {
+    let start = sql.find("DO $$").expect("down migration has no DO block");
+    let end = sql.find("END $$;").expect("down migration has no DO block") + "END $$;".len();
+    &sql[start..end]
+}
+
+fn outbox_db() -> Option<TestDb> {
+    let db = TestDb::new()?;
+    db.migrate(&FILES, false).unwrap();
+    Some(db)
+}
+
+fn probe_tx(db: &TestDb, key: &str) -> String {
+    db.client()
+        .query_one(
+            "INSERT INTO ledger.ledger_tx (idempotency_key, module, reason, hash) VALUES ($1, 'ledger', 'probe', 'hash') RETURNING id::text",
+            &[&key],
+        )
+        .unwrap()
+        .get(0)
+}
+
+#[test]
+fn down_0013_holds_the_outbox_so_a_concurrent_unpublished_insert_times_out() {
+    let down = down_file("0013_tx_posted_outbox.down.sql");
+    let end = down.find("END $$;").unwrap();
+    // The statement itself: the file's comments name DROP TABLE too, so a bare "DROP TABLE" would match prose above the
+    // block and pass with the drop moved out of it.
+    let drop = down
+        .find(r#"DROP TABLE "ledger"."ledger_tx_outbox""#)
+        .unwrap();
+    assert!(drop > 0);
+    assert!(drop < end, "the drop is inside the guarded statement");
+    let Some(db) = outbox_db() else { return };
+    let id = probe_tx(&db, "l686-race");
+    let mut held = db.client();
+    let mut other = db.client();
+    held.batch_execute("BEGIN").unwrap();
+    held.batch_execute(guard_block(down)).unwrap();
+    assert_eq!(
+        sqlstate(other.batch_execute(&format!(
+            "SET lock_timeout = '400ms'; INSERT INTO ledger.ledger_tx_outbox (tx_id, payload, correlation_id) VALUES ('{id}', '{{\"entries\":[]}}'::jsonb, 'l686-race')"
+        ))),
+        "55P03"
+    );
+    held.batch_execute("ROLLBACK").unwrap();
+}
+
+#[test]
+fn down_0013_refuses_the_drop_while_an_unpublished_row_waits_and_leaves_it() {
+    let Some(db) = outbox_db() else { return };
+    let id = probe_tx(&db, "l686-unpublished");
+    db.client()
+        .batch_execute(&format!(
+            "INSERT INTO ledger.ledger_tx_outbox (tx_id, payload, correlation_id) VALUES ('{id}', '{{\"entries\":[]}}'::jsonb, 'l686-unpublished')"
+        ))
+        .unwrap();
+    assert_eq!(
+        sqlstate(
+            db.client()
+                .batch_execute(down_file("0013_tx_posted_outbox.down.sql"))
+        ),
+        "P0001"
+    );
+    assert_eq!(
+        db.count(
+            "SELECT count(*) FROM ledger.ledger_tx_outbox WHERE correlation_id = 'l686-unpublished'"
+        ),
+        1
+    );
+}
+
+#[test]
+fn down_0013_drops_the_table_once_every_outbox_row_is_published() {
+    let Some(db) = outbox_db() else { return };
+    let id = probe_tx(&db, "l686-unpublished");
+    db.client()
+        .batch_execute(&format!(
+            "INSERT INTO ledger.ledger_tx_outbox (tx_id, payload, correlation_id) VALUES ('{id}', '{{\"entries\":[]}}'::jsonb, 'l686-unpublished');
+             UPDATE ledger.ledger_tx_outbox SET published_at = now() WHERE correlation_id = 'l686-unpublished'"
+        ))
+        .unwrap();
+    db.client()
+        .batch_execute(down_file("0013_tx_posted_outbox.down.sql"))
+        .unwrap();
+    assert_eq!(db.regclass("ledger.ledger_tx_outbox"), None);
+}
+
+#[test]
+fn down_0001_zero_balance_duplicate_holds_refuse_before_the_identity_index_and_both_rows_stay() {
+    const HOLDER: &str = "0007e7f3-2e25-4dc9-88b4-146db6d491f0";
+    let Some(db) = outbox_db() else { return };
+    // Balance is the column default: the state the reversal's comment tells an operator to reach.
+    db.client()
+        .execute(
+            "INSERT INTO ledger.accounts (owner_type, owner_id, asset_id, kind, purpose) VALUES
+               ('user'::ledger.owner_type, $1, 'USDT', 'hold'::ledger.account_kind, 'order:one'),
+               ('user'::ledger.owner_type, $1, 'USDT', 'hold'::ledger.account_kind, 'withdraw:one')",
+            &[&HOLDER],
+        )
+        .unwrap();
+    let zero_holds = format!(
+        "SELECT count(*) FROM ledger.accounts WHERE owner_id = '{HOLDER}' AND asset_id = 'USDT' AND kind = 'hold' AND balance = 0"
+    );
+    assert_eq!(db.count(&zero_holds), 2);
+    let e = db
+        .client()
+        .batch_execute(down_file("0001_purpose_keyed_holds.down.sql"))
+        .expect_err("the reversal refuses");
+    // RAISE EXCEPTION without an errcode; a unique-index failure would be 23505.
+    assert_eq!(e.code().map(|c| c.code()), Some("P0001"));
+    let message = e.as_db_error().unwrap().message().to_owned();
+    assert!(message.contains("Cannot reverse 0001"), "{message}");
+    assert_eq!(db.count(&zero_holds), 2);
+    assert_eq!(
+        db.count("SELECT count(*) FROM pg_indexes WHERE schemaname = 'ledger' AND indexname = 'accounts_identity_idx'"),
+        0
+    );
 }

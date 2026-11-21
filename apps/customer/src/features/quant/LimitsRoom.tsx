@@ -1,4 +1,3 @@
-import { quantLimitsSchema } from '@intafaced/contracts/quant-algo';
 import { DataTable, Panel } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import { Read } from '../more';
@@ -7,6 +6,7 @@ import { limitsCopy } from './limits-copy';
 import { QuantRooms } from './QuantRooms';
 import { UsagePanel } from './UsagePanel';
 import './algo.css';
+import { QUANT_LIMITS_GET } from '@intafaced/contracts/quant-limits-procedures';
 
 /**
  * The developer limits page (J-algo-dev-12 #4, AL-limits-02): every limit a run of this account meets, with its value
@@ -25,7 +25,7 @@ export function LimitsRoom({ paper }: { paper: boolean }) {
 function SandboxLimitsPanel() {
   const api = useApi();
   const { t } = limitsCopy.useCopy();
-  const limits = useResource((signal) => api.query('quant', 'limits.get', undefined, quantLimitsSchema, { signal }), 'quant-limits');
+  const limits = useResource((signal) => api.call(QUANT_LIMITS_GET, undefined, { signal }), 'quant-limits');
   return (
     <Panel title={t('sandboxTitle')}>
       <section data-testid="quant-limits" aria-label={t('sandboxTitle')}>

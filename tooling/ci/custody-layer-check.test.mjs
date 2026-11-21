@@ -61,9 +61,9 @@ function sandbox() {
   for (const p of [
     'tooling/ci/custody-layer-inventory.json',
     'packages/ledger-client/src/custody-layer.ts',
-    'services/svc-ledger/src/env.ts',
-    'services/svc-ledger/src/service.ts',
-    'services/svc-ledger/src/index.ts',
+    'crates/svc-ledger/src/env.rs',
+    'crates/svc-ledger/src/main.rs',
+    'crates/svc-ledger/src/posting/mod.rs',
     'docker-compose.apps.yml',
     ...Object.keys(inventory.sites),
   ]) {
@@ -100,16 +100,24 @@ test('planted: a customer-balance posting in a service outside the inventory fai
 
 test('planted: turning the default on, or removing the runtime refusal, fails', () => {
   for (const [file, from, to] of [
-    ['services/svc-ledger/src/service.ts', "options.custodyLayer ?? 'off'", "options.custodyLayer ?? 'on'"],
-    ['services/svc-ledger/src/service.ts', "this.custodyLayer === 'off' && movesCustomerBalance(", 'false && movesCustomerBalance('],
-    ['packages/ledger-client/src/custody-layer.ts', "raw.trim() === '') return 'off'", "raw.trim() === '') return 'on'"],
     [
-      'services/svc-ledger/src/env.ts',
-      '            return z.NEVER;\n          }\n        }),',
-      "            return z.NEVER;\n          }\n        })\n        .default('on'),",
+      'crates/svc-ledger/src/posting/mod.rs',
+      'if !p.custody_layer_on && r.moves_customer_balance()',
+      'if false && r.moves_customer_balance()',
     ],
-    ['services/svc-ledger/src/index.ts', 'custodyLayer: env.LEDGER_CUSTODY_LAYER,', "custodyLayer: 'on',"],
-    ['services/svc-ledger/src/index.ts', 'await ledger.assertCustodyLayerBootable();', ''],
+    ['packages/ledger-client/src/custody-layer.ts', "raw.trim() === '') return 'off'", "raw.trim() === '') return 'on'"],
+    ['crates/svc-ledger/src/env.rs', '        return Ok("off");\n    };', '        return Ok("on");\n    };'],
+    ['crates/svc-ledger/src/env.rs', 'parse_custody_layer(o.f.get("LEDGER_CUSTODY_LAYER"))', 'Ok("on")'],
+    [
+      'crates/svc-ledger/src/main.rs',
+      '        str_of("SERVICE_NAME"),\n        env.str("LEDGER_CUSTODY_LAYER") == Some("on"),\n        EngineOptions',
+      '        str_of("SERVICE_NAME"),\n        true,\n        EngineOptions',
+    ],
+    [
+      'crates/svc-ledger/src/main.rs',
+      '    boot::assert_custody_layer_bootable(\n        door.store(),\n        env.str("LEDGER_CUSTODY_LAYER") == Some("on"),\n    )',
+      '    Ok::<(), service_kit::Failure>(())',
+    ],
     ['docker-compose.apps.yml', '${LEDGER_CUSTODY_LAYER:-off}', '${LEDGER_CUSTODY_LAYER:-on}'],
   ]) {
     const dir = sandbox();

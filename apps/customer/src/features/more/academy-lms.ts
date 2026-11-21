@@ -23,7 +23,7 @@ const ref = z.string().min(1);
 export type LessonSummary = AcademyCurriculumSummary;
 
 /** The XP Academy publishes to the rank ladder per certificate (`certXpPlane`). Only the fields the sheet reads. */
-export const certXpPlaneRow = z.object({
+const certXpPlaneRow = z.object({
   emitEnabled: z.boolean(),
   policies: z.array(z.object({ certId: ref, xpDelta: z.number().int().safe() })),
 });
@@ -41,7 +41,7 @@ export function certificateXp(plane: CertXpPlaneRow, certId: string): { kind: 'w
 
 export type CertDefinition = AcademyCertDefinition;
 /** One learning path with its published certificate, or Academy's refusal for a path with no published design. */
-export const certPathRow = z.object({
+const certPathRow = z.object({
   path: z.enum(academyPaths),
   certId: ref.nullable(),
   refusal: z.literal('academy.certificate_unpublished').nullable(),
@@ -80,7 +80,7 @@ export const certGrant = z.object({
 export type CertGrant = z.infer<typeof certGrant>;
 
 /** One lesson completion Academy lists for this account. */
-export const completionRow = z.object({ itemSlug: ref, completedAt: z.string().datetime({ offset: true }) });
+const completionRow = z.object({ itemSlug: ref, completedAt: z.string().datetime({ offset: true }) });
 export const completionPage = z.object({ items: z.array(completionRow).max(200), nextCursor: z.string().min(1).nullable() });
 export type CompletionRow = z.infer<typeof completionRow>;
 

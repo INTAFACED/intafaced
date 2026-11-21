@@ -13,6 +13,14 @@ import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
 import { TOKEN_BURNED_SUPPLY, TOKEN_LIST_PROPOSALS } from '@intafaced/contracts/token-procedures';
 import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+import { ACADEMY_HEALTH } from '@intafaced/contracts/academy-health-procedures';
+import { ACADEMY_CURRICULUM_INVENTORY } from '@intafaced/contracts/academy-curriculum-inventory-procedures';
+import { ACADEMY_CURRICULUM_DEPTH } from '@intafaced/contracts/academy-curriculum-depth-procedures';
+import { ACADEMY_CURRICULUM_IMPORT_STATUS } from '@intafaced/contracts/academy-curriculum-import-status-procedures';
+import { ACADEMY_CERT_XP_PLANE } from '@intafaced/contracts/academy-cert-xp-plane-procedures';
+import { ACADEMY_PAPER_OPS_STATUS } from '@intafaced/contracts/academy-paper-ops-status-procedures';
+import { QUANT_HEALTH } from '@intafaced/contracts/quant-health-procedures';
+import { QUANT_STUDIO_OPERATOR_LIST } from '@intafaced/contracts/quant-studio-records';
 
 /** A read whose call has a record: its module and path are the record's, never typed again here. */
 export const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
@@ -1537,8 +1545,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.health',
         title: 'Service health',
         note: 'Whether svc-academy answers.',
-        module: 'academy',
-        procedure: 'health',
+        ...readOf(ACADEMY_HEALTH),
         shape: 'record',
         columns: [bool('ok', 'Answering'), text('service', 'Service')],
         emptyText: '',
@@ -1565,8 +1572,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.inventory',
         title: 'Curriculum inventory',
         note: 'Counts of the content the service ships, against the promise made on the product (the "title target").',
-        module: 'academy',
-        procedure: 'curriculumInventory',
+        ...readOf(ACADEMY_CURRICULUM_INVENTORY),
         shape: 'record',
         columns: [
           text('contentSource', 'Content source'),
@@ -1587,8 +1593,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.depth',
         title: 'Content depth',
         note: 'How many items are long enough to be worth reading. Thin items are named, not hidden.',
-        module: 'academy',
-        procedure: 'curriculumDepth',
+        ...readOf(ACADEMY_CURRICULUM_DEPTH),
         shape: 'record',
         columns: [
           int('total', 'Items'),
@@ -1607,8 +1612,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.import',
         title: 'Import status',
         note: 'Where the content import stands, and whether the substance bar is met.',
-        module: 'academy',
-        procedure: 'curriculumImportStatus',
+        ...readOf(ACADEMY_CURRICULUM_IMPORT_STATUS),
         shape: 'record',
         columns: [
           text('contentSource', 'Content source'),
@@ -1672,8 +1676,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.cert-xp',
         title: 'XP on grant',
         note: 'Whether granting a certificate publishes XP to identity. "Off" is a deployment fact, not a ranking disagreement.',
-        module: 'academy',
-        procedure: 'certXpPlane',
+        ...readOf(ACADEMY_CERT_XP_PLANE),
         shape: 'record',
         columns: [bool('emitEnabled', 'XP publishing on'), text('publisherId', 'Publisher'), text('rankWriter', 'Rank written by')],
         emptyText: '',
@@ -1727,8 +1730,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.paper',
         title: 'Paper trading',
         note: 'Practice trading is simulated and must never read as real money.',
-        module: 'academy',
-        procedure: 'paperOpsStatus',
+        ...readOf(ACADEMY_PAPER_OPS_STATUS),
         shape: 'record',
         columns: [
           bool('enabled', 'Enabled'),
@@ -1933,8 +1935,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'quant.health',
         title: 'Service health',
         note: 'Whether svc-quant answers. Nothing about runs.',
-        module: 'quant',
-        procedure: 'health',
+        ...readOf(QUANT_HEALTH),
         shape: 'record',
         columns: [bool('ok', 'Answering'), text('service', 'Service')],
         emptyText: '',
@@ -1944,9 +1945,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'quant.strategies',
         title: 'Saved strategies',
         note: 'Every saved strategy across accounts, newest as the service orders them: name and labels only. The code and blocks are never in this read. Everything here is paper or a historical simulation; the two flags below are pinned, so a strategy claiming to be live is refused as unreadable. The service also limits this read by jurisdiction, so a console with no country may be refused.',
-        module: 'quant',
         plainName: 'saved strategies',
-        procedure: 'studio.operatorList',
+        ...readOf(QUANT_STUDIO_OPERATOR_LIST),
         input: { limit: 50 },
         shape: 'list',
         rowsKey: 'strategies',

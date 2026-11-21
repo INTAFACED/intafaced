@@ -44,6 +44,8 @@ const entry = {
   createdAt: '2026-10-17T02:00:00.000Z',
   timingKind: 'score_not_promise',
   sla: false,
+  // svc-support's answer always carries it (its queue entry schema, now the record's answer); null is no due time.
+  responseDue: null,
 };
 const get = (query = '') => GET(new Request(`http://admin.example/api/support${query}`));
 const post = (body: unknown) =>

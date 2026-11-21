@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { contractEscrowOffer, contractTermsFor, type ContractEscrowSetting } from './contract-escrow.js';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
 import { mergeRouters, router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
-import { mountRecords, type RefusalOf } from '@intafaced/contracts/procedure-mount';
+import { mountRecords, type RefusalOf, type ServiceParts } from '@intafaced/contracts/procedure-mount';
 import {
   P2P_MERCHANTS_PRESENCE,
   P2P_MODERATION,
@@ -827,6 +827,31 @@ export function createP2pRouter(
   const offerLimitsPostureValue = offerLimitsPosture(offerLimits);
 
   /**
+   * An API key reaches a `merchantApi` call only while its account is an approved merchant. Standing is read on every
+   * key request, so a suspension removes access at once. An interactive session passes. A failed standing read is sent
+   * as tRPC sends an unknown error, as the hand-written middleware sent it.
+   */
+  const merchantApi = async ({ principal }: Context): Promise<void> => {
+    if (!principal?.kid) return;
+    let record: MerchantRecord | null;
+    try {
+      record = await requireMerchants().get(principal.userId);
+    } catch (err) {
+      if (err instanceof TRPCError) throw err;
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', cause: err });
+    }
+    if (!record || !isActiveMerchant(record.status)) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'P2P API-key access requires current approved merchant standing. Use an interactive session to review or apply.',
+      });
+    }
+  };
+
+  /** The service's own guard checks, handed to the mount by the names its records give (`access.check`). */
+  const p2pParts: ServiceParts = { refusalOf: p2pRefusal, checks: { merchantApi } };
+
+  /**
    * Programme-gated P2P API procedure.
    *
    * `kid` comes from identity's verified API-key exchange. We do not mint,
@@ -837,19 +862,7 @@ export function createP2pRouter(
    * access immediately rather than waiting for a token to expire. Interactive
    * sessions remain ordinary P2P users and are not made merchant-only.
    */
-  const merchantApiProcedure = (scope: 'p2p:read' | 'p2p:write') =>
-    scopedProcedure(scope, { module: 'p2p' }).use(async ({ ctx, next }) => {
-      if (!ctx.principal.kid) return next({ ctx });
-
-      const record = await requireMerchants().get(ctx.principal.userId);
-      if (!record || !isActiveMerchant(record.status)) {
-        throw new TRPCError({
-          code: 'FORBIDDEN',
-          message: 'P2P API-key access requires current approved merchant standing. Use an interactive session to review or apply.',
-        });
-      }
-      return next({ ctx });
-    });
+  const merchantApiProcedure = (scope: 'p2p:read' | 'p2p:write') => scopedProcedure(scope, { module: 'p2p', check: merchantApi });
 
   /**
    * The owner's own instruments, mapped for the wire.
@@ -1590,27 +1603,6 @@ export function createP2pRouter(
     }),
   });
 
-  /**
-   * An API key reaches a `merchantApi` call only while its account is an approved merchant. Standing is read on every
-   * key request, so a suspension removes access at once. An interactive session passes. A failed standing read is sent
-   * as tRPC sends an unknown error, as the hand-written middleware sent it.
-   */
-  const merchantApi = async ({ principal }: Context): Promise<void> => {
-    if (!principal?.kid) return;
-    let record: MerchantRecord | null;
-    try {
-      record = await requireMerchants().get(principal.userId);
-    } catch (err) {
-      if (err instanceof TRPCError) throw err;
-      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', cause: err });
-    }
-    if (!record || !isActiveMerchant(record.status)) {
-      throw new TRPCError({
-        code: 'FORBIDDEN',
-        message: 'P2P API-key access requires current approved merchant standing. Use an interactive session to review or apply.',
-      });
-    }
-  };
   /** The signed caller of a scope-guarded record: the guard has already refused a call without one. */
   const signed = (ctx: Context): Context & { principal: Principal } => {
     if (!ctx.principal) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Not signed in' });
@@ -2565,7 +2557,7 @@ export function createP2pRouter(
         }));
       },
     },
-    p2pRefusal,
+    p2pParts,
   );
 
   return mergeRouters(fromRecords, handWritten);

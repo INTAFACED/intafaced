@@ -56,7 +56,7 @@ export interface TypedDataDocument {
 }
 
 const REJECTED_CODES = new Set([4001, 'ACTION_REJECTED']);
-function isRejection(error: unknown): boolean {
+export function isRejection(error: unknown): boolean {
   return typeof error === 'object' && error !== null && REJECTED_CODES.has((error as { code?: number | string }).code as number);
 }
 

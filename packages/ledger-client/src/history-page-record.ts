@@ -60,8 +60,8 @@ export const LEDGER_HISTORY_PAGE = defineProcedure({
   method: 'POST',
   path: '/trpc/historyPage',
   /**
-   * main derives this list from svc-ledger's recipe grant table (`door-callers.ts` READERS); copied here, held equal by
-   * svc-ledger's `door-callers.test.ts`. Escape: the record cannot derive it without moving the grant table here.
+   * The ledger readers the grant table derives (`gate/door-callers.ts` READERS); copied here, held equal by
+   * `gate/door-callers.record.test.ts` (the gate imports this record, so it can't import the gate back).
    */
   access: {
     caller: 'service',

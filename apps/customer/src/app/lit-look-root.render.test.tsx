@@ -30,7 +30,7 @@ function mount() {
   act(() => root!.render(<LitLookRoot />));
 }
 
-describe('the Lit glass access hooks at the app root', () => {
+describe('the Volt access hooks at the app root', () => {
   it('keeps data-surfaces on the root and the bar insets measured while mounted, and takes both off after', () => {
     mount();
     const html = document.documentElement;

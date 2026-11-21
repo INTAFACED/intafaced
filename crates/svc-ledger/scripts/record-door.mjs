@@ -2,7 +2,6 @@
 //
 // - `src/door/schemas.json`: the input schema each door checks before it reaches the ledger, as the tree of zod 4
 //   parts the kit's schema engine runs (`service_kit::schema`).
-// - `src/door/callers.rs`: which services may call each service door (`LEDGER_DOOR_CALLERS`).
 // - `src/errors_table.rs`: the user copy (`userCopy`) of every `ledger.*` code the TypeScript names.
 // - `tests/fixtures/input-parity.golden.json`: zod's own verdict on inputs made from each schema.
 // - `tests/fixtures/tokens.golden.json`: `verifyAccessToken`'s verdict on access tokens made to probe it.
@@ -10,7 +9,7 @@
 // - `tests/fixtures/reports.golden.jsonl`: what the `reports` slice's five doors answer on the wire (status and body)
 //   for inputs made to reach each branch of their handlers.
 // - `tests/fixtures/post-recipe.golden.jsonl`: what `handleS2sPostRecipe` answers each caller for bodies made to reach
-//   each check of the record and its two recipes: its refusal on the wire, or the post it hands the ledger.
+//   each check of the record and its recipes: its refusal on the wire, or the post it hands the ledger.
 // - `tests/fixtures/history-book.golden.json`: the posts the history slice's Postgres tests book, as the TypeScript
 //   recipes write them, so the Rust suite reads the same book the TypeScript tests read.
 //
@@ -46,7 +45,6 @@ if (process.env.TZ !== 'UTC') {
 const { z } = await import(pathToFileURL(createRequire(`${SVC}index.ts`).resolve('zod')).href);
 const ledgerClient = await import(`${ROOT}packages/ledger-client/src/types.ts`);
 const doorInputs = await import(`${SVC}door-inputs.ts`);
-const { LEDGER_DOOR_CALLERS } = await import(`${SVC}door-callers.ts`);
 const { userCopy } = await import(`${SVC}user-copy.ts`);
 const { operatorTxGetInputSchema } = await import(`${SVC}ledger/operator-tx-get.ts`);
 const { operatorTraceInputSchema } = await import(`${SVC}ledger/operator-trace.ts`);
@@ -1286,6 +1284,7 @@ try {
  */
 const POST_RECIPE_CALLERS = [
   { kind: 'bound', service: 'svc-academy' },
+  { kind: 'bound', service: 'svc-agents' },
   { kind: 'bound', service: 'svc-pay' },
   { kind: 'legacy', claimed: 'svc-academy' },
   { kind: 'legacy', claimed: null },
@@ -1318,7 +1317,7 @@ const recipeWire = (post) => ({
   ...(post.meta ? { meta: post.meta } : {}),
   ...(post.correlationId ? { correlationId: post.correlationId } : {}),
 });
-/** Each field of both recipes with values that reach every check of the record and the recipe. */
+/** Each field of both academy recipes with values that reach every check of the record and the recipe. */
 const PLACES = [
   { kind: 'treasury-wallet', walletId: 'base:ops' },
   { kind: 'treasury-wallet', walletId: 'a_b-c:9' },
@@ -1368,6 +1367,64 @@ const RECIPE_FIELDS = {
   ],
   paymentId: [`0x${'AB'.repeat(32)}`, `0x${'ab'.repeat(31)}`, `0x${'ab'.repeat(33)}`, `ab${'ab'.repeat(32)}`, '', 7, null],
 };
+/** svc-agents' usage charge: one base each, and values reaching each check of the record and the recipe. */
+const BUSINESS = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const FEE_CHARGE = {
+  chargeId: `agent.usage:${ID}:w1`,
+  userId: ID,
+  module: 'agents',
+  mode: 'asset',
+  assetId: 'USDC',
+  amount: '0.25',
+  reason: 'agents.usage.metered',
+};
+const CHARGE_EARN = {
+  module: 'agents',
+  saleId: `${ID}.w1`,
+  userId: BUSINESS,
+  memberUserId: ID,
+  assetId: 'USDC',
+  price: { perUnit: '0.25' },
+  units: '1',
+};
+const CHARGE_COLLECT = {
+  module: 'agents',
+  userId: BUSINESS,
+  to: { kind: 'partner-reserve', partnerId: 'reserve-a' },
+  paymentId: 'pay_1',
+  assetId: 'USDC',
+  amount: '0.25',
+};
+const MODULES = ['agents', 'academy', 'a', 'a'.repeat(64), 'a'.repeat(65), 'A', '-a', 'a.b', 'a:b', '', 7, null];
+const REFS = ['x', 'a.b', 'a:b', 'a b', 'r'.repeat(128), 'r'.repeat(129), '', 7, null];
+const CHARGE_FIELDS = {
+  feeCharge: {
+    chargeId: ['x', 'a:b:c', 'a b', 'c'.repeat(128), 'c'.repeat(129), '', 7, null],
+    userId: RECIPE_FIELDS.userId,
+    module: MODULES,
+    mode: ['token', '', null],
+    assetId: RECIPE_FIELDS.assetId,
+    amount: RECIPE_FIELDS.amount,
+    reason: ['fee.charged', 'A', 'a b', 'r'.repeat(64), 'r'.repeat(65), '', 7, null],
+  },
+  chargeEarn: {
+    module: MODULES,
+    saleId: [...REFS, 's'.repeat(128)],
+    userId: RECIPE_FIELDS.userId,
+    memberUserId: [BUSINESS, ...RECIPE_FIELDS.userId],
+    assetId: RECIPE_FIELDS.assetId,
+    price: [...RECIPE_FIELDS.amount.map((perUnit) => ({ perUnit })), {}, { perUnit: '1', extra: 1 }, '1', null],
+    units: [...RECIPE_FIELDS.n, '9999999999999999999'],
+  },
+  chargeCollect: {
+    module: MODULES,
+    userId: RECIPE_FIELDS.userId,
+    to: PLACES,
+    paymentId: REFS,
+    assetId: RECIPE_FIELDS.assetId,
+    amount: RECIPE_FIELDS.amount,
+  },
+};
 const RECIPE_BODIES = [
   undefined,
   null,
@@ -1406,6 +1463,39 @@ for (const [recipe, base, side] of [
   }
   RECIPE_BODIES.push({ recipe, input: { ...base, extra: 1 } });
 }
+for (const [recipe, base] of [
+  ['feeCharge', FEE_CHARGE],
+  ['chargeEarn', CHARGE_EARN],
+  ['chargeCollect', CHARGE_COLLECT],
+]) {
+  RECIPE_BODIES.push({ recipe, input: base });
+  for (const [field, values] of Object.entries(CHARGE_FIELDS[recipe])) {
+    const without = { ...base };
+    delete without[field];
+    RECIPE_BODIES.push({ recipe, input: without });
+    for (const v of values) RECIPE_BODIES.push({ recipe, input: { ...base, [field]: v } });
+  }
+  RECIPE_BODIES.push({ recipe, input: { ...base, extra: 1 } });
+}
+// The keys the record lets through but the recipe refuses as too long, and charges the book cannot hold.
+RECIPE_BODIES.push(
+  { recipe: 'chargeEarn', input: { ...CHARGE_EARN, module: 'm'.repeat(64), saleId: 's'.repeat(128) } },
+  { recipe: 'chargeEarn', input: { ...CHARGE_EARN, price: { perUnit: `${'9'.repeat(20)}.${'9'.repeat(18)}` }, units: '2' } },
+  { recipe: 'chargeEarn', input: { ...CHARGE_EARN, price: { perUnit: '0.000000000000000001' }, units: '9999999999999999999' } },
+  { recipe: 'chargeEarn', input: { ...CHARGE_EARN, price: { perUnit: '0' }, units: '5' } },
+  {
+    recipe: 'chargeCollect',
+    input: {
+      ...CHARGE_COLLECT,
+      to: { kind: 'venue-builder-account', venueId: 'v'.repeat(128) },
+      assetId: 'U'.repeat(32),
+      paymentId: 'p'.repeat(128),
+    },
+  },
+  { recipe: 'chargeCollect', input: { ...CHARGE_COLLECT, to: { kind: 'treasury-wallet', walletId: 'w' } } },
+  { recipe: 'chargeCollect', input: { ...CHARGE_COLLECT, to: { kind: 'venue-builder-account', venueId: 'venue-a' } } },
+  { recipe: 'feeCharge', input: { ...FEE_CHARGE, reason: undefined } },
+);
 
 const recipeCases = [];
 const recipeAnswers = [];
@@ -1770,15 +1860,6 @@ const books = { feeRevenue: booked(FEE_REVENUE), ownFunds: booked(OWN_FUNDS), de
 
 const HEADER = '// @generated by crates/svc-ledger/scripts/record-door.mjs from the TypeScript svc-ledger. Do not edit by hand.\n';
 const rs = (s) => JSON.stringify(s);
-const callers = Object.entries(LEDGER_DOOR_CALLERS);
-const callersRs = `${HEADER}//! Which services may call each service door (\`LEDGER_DOOR_CALLERS\`, \`services/svc-ledger/src/door-callers.ts\`). A door
-//! with no caller refuses every key.
-
-/// \`(door, callers)\`, in the TypeScript's order.
-pub const DOOR_CALLERS: [(&str, &[&str]); ${callers.length}] = [
-${callers.map(([door, list]) => `    (${rs(door)}, &[${list.map(rs).join(', ')}]),`).join('\n')}
-];
-`;
 const errorsRs = `${HEADER}//! The user copy (\`userCopy\`, \`services/svc-ledger/src/user-copy.ts\`) of every \`ledger.*\` code the TypeScript
 //! svc-ledger and \`@intafaced/ledger-client\` name, sorted. A code without catalogue copy reads as itself.
 
@@ -1789,7 +1870,6 @@ ${copy.map(([c, t]) => `    (${rs(c)}, ${rs(t)}),`).join('\n')}
 `;
 
 const outputs = [
-  [`${CRATE}src/door/callers.rs`, callersRs],
   [`${CRATE}src/errors_table.rs`, errorsRs],
   [`${CRATE}src/door/schemas.json`, `${JSON.stringify({ nodes, inputs })}\n`],
   [`${CRATE}tests/fixtures/input-parity.golden.json`, `${JSON.stringify({ verdicts, cases })}\n`],
@@ -1836,6 +1916,6 @@ for (const [file, raw] of outputs) {
   } else writeFileSync(file, text);
 }
 console.log(
-  `${callers.length} service doors, ${Object.keys(inputs).length} door inputs, ${nodes.length} schema parts, ${cases.length} input cases, ${tokenCases.length} tokens, ${envCases.length} environments, ${reportCases.length} report answers, ${recipeCases.length} postRecipe bodies, ${copy.length} codes`,
+  `${Object.keys(inputs).length} door inputs, ${nodes.length} schema parts, ${cases.length} input cases, ${tokenCases.length} tokens, ${envCases.length} environments, ${reportCases.length} report answers, ${recipeCases.length} postRecipe bodies, ${copy.length} codes`,
 );
 if (stale) process.exit(1);

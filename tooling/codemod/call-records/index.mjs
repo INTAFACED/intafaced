@@ -8,7 +8,7 @@
 //        [--file bank-deposit-procedures] [--write]
 //
 // Safe to rerun: a call already made through its record is no site, and a record already written is reused.
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
@@ -26,6 +26,7 @@ import {
 } from './ast.mjs';
 import { chainOf, procedures } from './router.mjs';
 import { closureOf, contractsExports, usedOutside } from './closure.mjs';
+import { doorOf } from './door.mjs';
 import { findSites } from './sites.mjs';
 
 const REPO = resolve(new URL('../../..', import.meta.url).pathname);
@@ -55,9 +56,12 @@ function args(argv) {
     else if (a === '--router-fn') out.routerFn = argv[++i];
     else if (a === '--json') out.json = argv[++i];
     else if (a === '--skip-file') out.skip = JSON.parse(readFileSync(argv[++i], 'utf8'));
+    else if (a === '--door') out.door = argv[++i];
+    else if (a === '--from-rev') out.fromRev = argv[++i];
     else throw new Error(`unknown argument ${a}`);
   }
   if (!out.module) throw new Error('--module is required');
+  if (Boolean(out.door) !== Boolean(out.fromRev)) throw new Error('--door and --from-rev go together');
   out.service ??= `svc-${out.module}`;
   return out;
 }
@@ -79,12 +83,16 @@ function refusalReaders(serviceDir) {
     const src = readFileSync(join(serviceDir, f), 'utf8');
     for (const m of src.matchAll(/^(export )?const (\w+): RefusalOf\b/gm))
       out.push({ name: m[2], file: join(serviceDir, f), exported: Boolean(m[1]) });
+    // The parts a router hands its mount (`const p2pParts: ServiceParts = { refusalOf, checks }`), in its own scope.
+    for (const m of src.matchAll(/^ *const (\w+): ServiceParts\b/gm)) out.push({ name: m[1], file: join(serviceDir, f), parts: true });
   }
   return out;
 }
-function readerFor(readers, file) {
+/** A record naming its service's own check (`check:`) is mounted with the parts that hand it over, in its router's file. */
+function readerFor(readers, file, access = '') {
+  if (/\bcheck: '/.test(access)) return readers.find((r) => r.parts && r.file === file);
   return (
-    readers.find((r) => r.file === file) ??
+    readers.find((r) => !r.parts && r.file === file) ??
     readers
       .filter((r) => r.exported)
       .sort((a, b) => Number(!/errors|refusal/.test(a.file)) - Number(!/errors|refusal/.test(b.file)) || a.file.length - b.file.length)[0]
@@ -99,7 +107,7 @@ const relImport = (fromFile, toFile) => {
 const contractsSpec = (file) => `@intafaced/contracts/${basename(file).replace(/\.ts$/, '')}`;
 
 /** Per file: edits, and the imports to add (`spec -> Set(names)`). */
-class Changes {
+export class Changes {
   constructor() {
     this.files = new Map();
   }
@@ -133,7 +141,7 @@ function plan(opts) {
       continue;
     }
     const arg = schemaArgOf(s);
-    const checks = arg ? answerChecks(load(s.file), arg) : [];
+    const checks = s.schema ? answerChecks(s.schema.p, s.schema.node) : arg ? answerChecks(load(s.file), arg) : [];
     if (checks.length) {
       hand.push({
         site: s,
@@ -144,7 +152,8 @@ function plan(opts) {
     if (!byPath.has(s.path)) byPath.set(s.path, []);
     byPath.get(s.path).push(s);
   }
-  const readers = refusalReaders(serviceDir);
+  const readers = opts.door ? [] : refusalReaders(serviceDir);
+  const door = opts.door ? doorOf(join(REPO, opts.door)) : undefined;
   const exportsIndex = contractsExports(REPO);
   const records = [];
   const existing = [];
@@ -172,14 +181,39 @@ function plan(opts) {
       continue;
     }
     const chain = chainOf(proc);
+    let reader = door ? undefined : readerFor(readers, proc.p.file, chain.guard?.text);
+    if (door) {
+      // The door is the wire: its kind and access stand for the router's, which only checks them against it; a guard
+      // the router writes its own way is the door's access all the same.
+      const row = door.calls.get(path);
+      chain.problems = chain.problems.filter((x) => !/^guard |^scopedProcedure /.test(x));
+      if (!row) chain.problems.push(`${opts.door} serves no call ${path}`);
+      else if (row.kind !== chain.kind) chain.problems.push(`${opts.door} serves ${path} as a ${row.kind}, the router as a ${chain.kind}`);
+      else {
+        chain.guard = { text: row.scope ? `{ caller: 'scope', scope: '${row.scope}', module: '${opts.module}' }` : "{ caller: 'public' }" };
+        try {
+          reader = { refusals: door.refusals(path) };
+        } catch (e) {
+          chain.problems.push(e.message);
+        }
+      }
+    }
     const kindMismatch = list.filter((s) => s.kind && s.kind !== chain.kind);
-    const reader = readerFor(readers, proc.p.file);
     if (chain.problems.length || !reader) {
-      const why = chain.problems.join('; ') || `${opts.service} has no refusal reader this file can import (no exported \`: RefusalOf\`)`;
+      const why =
+        chain.problems.join('; ') ||
+        (/\bcheck: '/.test(chain.guard?.text ?? '')
+          ? `${path} names its service's own check, but its router's file declares no \`: ServiceParts\` to mount it with`
+          : `${opts.service} has no refusal reader this file can import (no exported \`: RefusalOf\`)`);
       for (const s of list) hand.push({ site: s, why });
       continue;
     }
     const name = recordName(opts.module, path);
+    if (exportsIndex.has(name) && door && recordOfPath(exportsIndex.get(name), name, path)) {
+      // A door call with its record already written: the callers move to it.
+      existing.push({ path, name, file: exportsIndex.get(name), sites: list, kind: chain.kind });
+      continue;
+    }
     if (exportsIndex.has(name)) {
       for (const s of list) hand.push({ site: s, why: `contracts already exports ${name}` });
       continue;
@@ -193,13 +227,23 @@ function plan(opts) {
   return { serviceDir, procs, unread, sites, records, existing, hand };
 }
 
+/** Whether `name` in contracts `file` is the record of `path`: its `defineProcedure({ … path: '<path>' … })`. */
+function recordOfPath(file, name, path) {
+  const src = readFileSync(file, 'utf8');
+  const at = src.indexOf(`export const ${name} = defineProcedure(`);
+  if (at < 0) return false;
+  const end = src.indexOf('\n});', at);
+  return src.slice(at, end).includes(`path: '${path}',`);
+}
+
 /** The input argument of a site, and whether it is no input at all (`undefined`, `{}`, or absent). */
+const INPUT_AT = { founderCall: 4, founderEdgeCall: 4, payCall: 3, useBankRead: 1 };
 const inputArg = (s) =>
   s.shape === 'desk-read'
     ? s.inputProp?.value
     : s.shape === 'ops-entry'
       ? s.dispatchers[0].arguments[4]
-      : s.node.arguments[s.shape === 'founderCall' ? 4 : 2];
+      : s.node.arguments[INPUT_AT[s.shape] ?? 2];
 function noInput(s) {
   const a = inputArg(s);
   return !a || (a.type === 'Identifier' && a.name === 'undefined') || (a.type === 'ObjectExpression' && a.properties.length === 0);
@@ -338,6 +382,12 @@ function build(opts, planned) {
     for (const r of recs) {
       const { p, node } = r.proc;
       const { reader } = r;
+      // A door serves its records itself (its records test holds it to them): only the callers move.
+      if (opts.door) {
+        for (const s of r.sites) rewriteSite(changes, s, r.name, contractsSpec(file), !r.chain.input);
+        done.push(r);
+        continue;
+      }
       changes.edit(p.file, node.start, node.end, `mountRecord(${r.name}, ${text(p, r.chain.handler)}, ${reader.name})`);
       changes.imp(p.file, contractsSpec(file), r.name);
       changes.imp(p.file, '@intafaced/contracts/procedure-mount', 'mountRecord');
@@ -394,8 +444,19 @@ function tables(changes, planned, done) {
 function schemaArgOf(s) {
   if (s.shape === 'desk-read' || s.shape === 'ops-entry') return undefined;
   const a = s.node.arguments;
-  return s.shape === 'founderCall' ? (s.reader ? undefined : a[5]?.arguments?.[0]) : a[3];
+  if (s.shape === 'founderCall') return s.reader ? undefined : a[5]?.arguments?.[0];
+  if (s.shape === 'payCall') return s.reader ? undefined : a[4]?.arguments?.[0];
+  // useBankRead's schema is `bankReads[path]` in its own file (`s.schema`); founderEdgeCall parses nothing.
+  if (s.shape === 'useBankRead' || s.shape === 'founderEdgeCall') return undefined;
+  return a[3];
 }
+
+/** Each wrapper's record form, and what it keeps of the call after its record and input. */
+const RECORD_FORMS = {
+  founderEdgeCall: (s, a) => ({ fn: 'founderEdgeRecordCall', head: [a[0]], tail: a.slice(5) }),
+  payCall: (s, a) => (s.reader ? { fn: 'payRecordRead', head: [a[0]], tail: [a[4]] } : { fn: 'payRecordCall', head: [a[0]], tail: [] }),
+  useBankRead: (s, a) => ({ fn: 'useBankRecord', head: [], tail: a.slice(2) }),
+};
 
 // zod methods that check or change an answer beyond its shape: a record's `output` copies the router's shape, so a caller's
 // own check would be lost with its schema. Such a call stays as it is, for its check to move to `accept` by hand.
@@ -454,6 +515,11 @@ function callText(changes, s, name, takesNone) {
     const rest = [input, ...(a[4] ? [text(p, a[4])] : [])];
     return `${recv}.call(${name}, ${rest.join(', ')})`;
   }
+  if (RECORD_FORMS[s.shape]) {
+    const { fn, head, tail } = RECORD_FORMS[s.shape](s, a);
+    if (s.wrapperFrom) changes.imp(s.file, s.wrapperFrom, fn);
+    return `${fn}(${[...head.map((x) => text(p, x)), name, input, ...tail.map((x) => text(p, x))].join(', ')})`;
+  }
   // A page's own reader stays, reading the record's parsed answer into its view (`founderRecordRead`).
   const fn = s.reader ? 'founderRecordRead' : 'founderRecordCall';
   const rest = [text(p, a[0]), name, input, ...(s.reader ? [text(p, a[5])] : []), ...(a[6] ? [text(p, a[6])] : [])];
@@ -490,7 +556,7 @@ function pairs(changes, planned, done) {
 }
 
 /** One caller, rewritten to its record. */
-function rewriteSite(changes, s, name, spec, takesNone) {
+export function rewriteSite(changes, s, name, spec, takesNone) {
   const n = s.node;
   // The hand schema the caller parsed with: its types now come from the record (`retype`).
   const schemaArg = schemaArgOf(s);
@@ -589,7 +655,7 @@ function writeRecords(opts, file, recs, closure, placed, pending) {
       `  kind: '${r.chain.kind}',`,
       `  path: '${r.path}',`,
       `  access: ${r.chain.guard.text},`,
-      '  refusals: {},',
+      `  refusals: ${r.reader.refusals ? JSON.stringify(r.reader.refusals).replace(/"/g, "'").replace(/','/g, "', '").replace(/':'/g, "': '") : '{}'},`,
       `  input: ${r.chain.input ? exactInput(p, r.chain.input, lines, r.path) : 'NO_INPUT'},`,
       `  output: ${text(p, r.chain.output)},`,
       `  samples: ${r.chain.input ? "[{ verdict: 'accept', input: {} }, { verdict: 'refuse', input: 42 }]" : "[{ verdict: 'accept' }]"},`,
@@ -716,7 +782,25 @@ function write(result) {
     touched.push(file);
   }
   for (const [file, ch] of result.changes.files) if (ch.schemas) retype(file, ch.schemas);
-  for (const file of touched) pruneImports(file);
+  for (const file of touched) if (!file.startsWith(CONTRACTS)) pruneSchemas(file);
+  // A schema a moved caller imported from another file of its app may now have no importer: that file is pruned too.
+  const sources = new Set();
+  for (const file of touched) {
+    if (file.startsWith(CONTRACTS)) continue;
+    const before = importedFrom(file);
+    pruneImports(file);
+    const after = importedFrom(file);
+    for (const [name, src] of before) if (!after.has(name) && src && !touched.includes(src)) sources.add(src);
+  }
+  for (const file of touched) if (file.startsWith(CONTRACTS)) pruneImports(file);
+  for (const src of sources) {
+    const was = readFileSync(src, 'utf8');
+    pruneSchemas(src);
+    if (readFileSync(src, 'utf8') !== was) {
+      pruneImports(src);
+      touched.push(src);
+    }
+  }
   if (touched.length)
     execFileSync(join(REPO, 'node_modules/.bin/prettier'), ['--write', '--log-level', 'warn', ...touched], {
       stdio: ['ignore', 'inherit', 'inherit'],
@@ -800,6 +884,112 @@ function retype(file, schemas) {
   forget(file);
 }
 
+/**
+ * A schema value with nothing to run but zod: a name, a member of one, a literal, an object, array or function of such,
+ * and calls on `z` or on a top-level const that is itself such a schema (`z.object({...})`, `ref.nullable()`).
+ * Removing one nobody reads changes nothing.
+ */
+function pureSchema(n, schemas = new Set(['z'])) {
+  const pure = (x) => pureSchema(x, schemas);
+  if (!n) return true;
+  switch (n.type) {
+    case 'Identifier':
+    case 'Literal':
+    case 'TemplateLiteral':
+    case 'ArrowFunctionExpression':
+    case 'FunctionExpression':
+      return true;
+    case 'MemberExpression':
+      return !n.computed && pure(n.object);
+    case 'ObjectExpression':
+      return n.properties.every((x) => (x.type === 'SpreadElement' ? pure(x.argument) : !x.computed && pure(x.value)));
+    case 'ArrayExpression':
+      return n.elements.every((x) => pure(x?.type === 'SpreadElement' ? x.argument : x));
+    case 'CallExpression': {
+      let root = n.callee;
+      while (root.type === 'MemberExpression' || root.type === 'CallExpression')
+        root = root.type === 'MemberExpression' ? root.object : root.callee;
+      return (
+        root.type === 'Identifier' &&
+        schemas.has(root.name) &&
+        n.callee.type === 'MemberExpression' &&
+        pure(n.callee.object) &&
+        n.arguments.every((x) => pure(x))
+      );
+    }
+    case 'TSAsExpression':
+    case 'TSSatisfiesExpression':
+      return pure(n.expression);
+    default:
+      return false;
+  }
+}
+
+/**
+ * Removes the file's own top-level schema consts no one reads any more: a call that moved to its record no longer
+ * passes the answer schema it was handed, and the const that held it is left behind. Only a single declaration whose
+ * value is a pure schema goes, and again while removing one leaves another unread; an exported one no other file
+ * imports loses its `export` while its own file still reads it.
+ */
+export function pruneSchemas(file) {
+  for (;;) {
+    forget(file);
+    const p = load(file);
+    const edits = [];
+    const decl = (top) => {
+      const stmt = top.type === 'ExportNamedDeclaration' && top.declaration ? top.declaration : top;
+      return stmt.type === 'VariableDeclaration' && stmt.kind === 'const' && stmt.declarations.length === 1
+        ? stmt.declarations[0]
+        : undefined;
+    };
+    // The file's own schema consts, to a fixpoint: a const built on another (`ref.nullable()`) is one too.
+    const schemas = new Set(['z']);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const top of p.program.body) {
+        const d = decl(top);
+        if (d?.id.type === 'Identifier' && !schemas.has(d.id.name) && d.init?.type === 'CallExpression' && pureSchema(d.init, schemas)) {
+          schemas.add(d.id.name);
+          grew = true;
+        }
+      }
+    }
+    for (const top of p.program.body) {
+      // An exported one counts only once no other file imports it: its importers were the calls that moved.
+      const exported = top.type === 'ExportNamedDeclaration' && top.declaration;
+      const stmt = exported ? top.declaration : top;
+      if (stmt.type !== 'VariableDeclaration' || stmt.kind !== 'const' || stmt.declarations.length !== 1) continue;
+      const d = stmt.declarations[0];
+      // A zod call or an alias of a name, never a function or a literal: those may be an entry a framework reads.
+      const kind = d.init?.type;
+      if (d.id.type !== 'Identifier' || !/^(CallExpression|Identifier|MemberExpression)$/.test(kind ?? '') || !pureSchema(d.init, schemas))
+        continue;
+      if (exported && importersOf(file, d.id.name).length) continue;
+      const read = usedOutside(p, d.id.name, [{ start: top.start, end: top.end }]);
+      if (read && exported) edits.push({ start: top.start, end: stmt.start, text: '' });
+      else if (!read) edits.push({ start: statementStart(p, top), end: statementEnd(p, top), text: '' });
+    }
+    if (!edits.length) return;
+    writeFileSync(file, applyEdits(p.src, edits));
+  }
+}
+
+/** Each name a file imports from a file of its own app (`./x`, `@/x`), with that file. */
+function importedFrom(file) {
+  forget(file);
+  const p = load(file);
+  const app = file.match(/^(.*\/apps\/[^/]+)\//)?.[1];
+  const out = new Map();
+  for (const stmt of p.program.body) {
+    if (stmt.type !== 'ImportDeclaration') continue;
+    const spec = stmt.source.value;
+    const src =
+      spec.startsWith('@/') && app ? resolveRelative(join(app, 'src', 'x.ts'), `./${spec.slice(2)}`) : resolveRelative(file, spec);
+    for (const sp of stmt.specifiers ?? []) out.set(sp.local.name, src);
+  }
+  return out;
+}
+
 /** Removes named import specifiers a file no longer reads (only those: a side-effect import stays). */
 export function pruneImports(file) {
   forget(file);
@@ -826,10 +1016,33 @@ export function pruneImports(file) {
   }
 }
 
+/**
+ * A service the door now serves in Rust: its TypeScript router, read from the commit before it was deleted, gives each
+ * record's schemas (the door's inputs were generated from them, and its answers are replayed against them), written back
+ * for this run only and deleted after it.
+ */
+function withRouterFrom(opts, fn) {
+  if (!opts.fromRev) return fn();
+  const dir = join(REPO, 'services', opts.service);
+  if (existsSync(dir)) throw new Error(`${dir} exists: --from-rev reads a router the checkout no longer has`);
+  execFileSync('sh', ['-c', `git archive "$1" "services/$2" | tar -x`, 'sh', opts.fromRev, opts.service], { cwd: REPO });
+  try {
+    return fn();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 function main() {
   const opts = args(process.argv.slice(2));
+  withRouterFrom(opts, () => report(opts));
+}
+
+function report(opts) {
   const planned = plan(opts);
   const result = build(opts, planned);
+  // The router read from history is not written back: only contracts and the callers change.
+  if (opts.fromRev) for (const f of result.changes.files.keys()) if (f.startsWith(planned.serviceDir)) result.changes.files.delete(f);
   const summary = {
     service: opts.service,
     // A `? :` call is two sites, one per branch, and one call.

@@ -125,11 +125,11 @@ describe('funding recon hitch (source) — one recipe, no invented rate', () => 
     expect(tick).toMatch(/never invent/);
   });
 
-  it('router.ts / svc-ledger not recut', () => {
+  it('router.ts / svc-ledger (crates/svc-ledger) not recut', () => {
     const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
     expect(routerSrc).not.toMatch(/funding-recon/);
     expect(routerSrc).not.toMatch(/funding_recon_diverged/);
-    const ledgerDir = join(repoRoot, 'services', 'svc-ledger', 'src');
+    const ledgerDir = join(repoRoot, 'crates', 'svc-ledger', 'src');
     const ledgerFiles = readdirSync(ledgerDir, { recursive: true, encoding: 'utf8' }) as string[];
     expect(ledgerFiles.some((f) => String(f).includes('funding-recon'))).toBe(false);
   });
