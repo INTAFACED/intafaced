@@ -9,7 +9,9 @@
 //! writer, named gaps, and replay's rules over the books. Nothing here holds a book, and nothing is served from it yet:
 //! the `book` and `serve` slices add them and the binary.
 
+pub mod book;
 pub mod door;
+pub mod engine;
 pub mod env;
 pub mod errors;
 pub mod errors_table;
