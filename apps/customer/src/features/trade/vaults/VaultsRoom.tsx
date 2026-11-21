@@ -255,7 +255,7 @@ type Stage =
   | { at: 'refused'; message: string; beforeWallet: boolean }
   | { at: 'done'; amount: string; key: string; result: ActionResult; before: Figures | null; after: Figures | null; again: boolean };
 
-function MoveForm({
+export function MoveForm({
   owner,
   venue,
   vault,
@@ -279,7 +279,10 @@ function MoveForm({
   const [stage, setStage] = useState<Stage>({ at: 'idle' });
   const [problem, setProblem] = useState<string | null>(null);
   const balances = usePolled((signal) => api.balances(owner, signal), `vaults:free:${owner}`, VENUE_POLL_MS);
-  const free = freeOf(balances.data?.value);
+  // Free USDC is the venue's figure once it has answered; before then it is unknown, never a zero of ours, and a deposit
+  // can't be reviewed against it.
+  const free = balances.data ? freeOf(balances.data.value) : null;
+  const unread = direction === 'deposit' && free === null;
 
   /** The venue's figures now: free USDC, this vault's position and its lock-up end, and the transfers. */
   const figures = async (): Promise<Figures | null> => {
@@ -299,7 +302,10 @@ function MoveForm({
     }
     if (value <= 0n) return setProblem(t('badAmount', { amount }));
     // A deposit above the venue's own free figure, as it last reported it, is refused here; nothing is signed.
-    if (direction === 'deposit' && value > parseAmount(free)) return setProblem(t('tooMuch', { venue, free, amount: formatAmount(value) }));
+    if (direction === 'deposit') {
+      if (free === null) return setProblem(t('freeReading', { venue }));
+      if (value > parseAmount(free)) return setProblem(t('tooMuch', { venue, free, amount: formatAmount(value) }));
+    }
     setStage({ at: 'review', amount: formatAmount(value), key: keys.vaultMove(owner, vault.address, direction, draftId()) });
   };
 
@@ -330,8 +336,12 @@ function MoveForm({
   return (
     <section className="form-stack" data-testid="vault-move" data-direction={direction} data-vault={vault.address} aria-label={title}>
       <h3 className="dk-tab-title">{title}</h3>
-      <p className="muted" data-testid="vault-free" data-value={free}>
-        {t('freeLine', { free, venue })}
+      <p className="muted" data-testid="vault-free" data-value={free ?? ''}>
+        {free !== null
+          ? t('freeLine', { free, venue })
+          : balances.failure
+            ? t('freeFailed', { venue, detail: balances.failure.message ?? '' })
+            : t('freeReading', { venue })}
       </p>
       <Field
         label={t('amount')}
@@ -343,7 +353,7 @@ function MoveForm({
           setStage({ at: 'idle' });
         }}
       />
-      <Button data-testid="vault-review" onClick={review}>
+      <Button data-testid="vault-review" disabled={unread} onClick={review}>
         {t('review')}
       </Button>
       <Button onClick={onClose}>{t('cancel')}</Button>

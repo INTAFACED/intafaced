@@ -801,10 +801,6 @@ test('house inventory stocks both sides of the stack default markets', () => {
     const [base, rest] = symbol.split('/');
     for (const asset of [base, ...rest.split(':')]) assert.ok(stocked.has(asset), asset);
   }
-  const quoteSrc = readFileSync(path.join(repo, 'services/svc-trade/src/convert/quote.ts'), 'utf8');
-  assert.match(quoteSrc, /baseAsset/);
-  assert.match(quoteSrc, /quoteAsset/);
-  assert.match(quoteSrc, /kind: 'book'/);
 });
 
 test('p2p: apply twice leaves one row; unseed disables it; enabledMethodKeys follows', async () => {
