@@ -158,6 +158,13 @@ function main() {
     if (s.error) return { service, error: s.error };
     return { service, sites: s.sites, wouldMove: s.rewritten, records: s.records.length, left: count(s.hand.map((h) => reasonOf(h.why))) };
   });
+  // A checkout without its install (`pnpm install`) can't load the parser: every plan fails, and the totals would read 0.
+  const failed = rows.filter((r) => r.error);
+  if (failed.length === rows.length || failed.length > rows.length / 2) {
+    console.error(`the codemod could not plan ${failed.length} of ${rows.length} services (run \`pnpm install\` first):`);
+    for (const r of failed.slice(0, 5)) console.error(`  ${r.service}: ${r.error}`);
+    process.exit(1);
+  }
   let extra = {};
   if (argv.includes('--deep')) {
     try {
@@ -184,6 +191,10 @@ function main() {
       maxBuffer: 512 * 1024 * 1024,
     },
   );
+  if (ox.status !== 0 && ox.status !== 1) {
+    console.error(`oxlint did not run (exit ${ox.status}): ${(ox.stderr || '').split('\n')[0]}`);
+    process.exit(1);
+  }
   const shapes = {};
   for (const d of JSON.parse(ox.stdout || '{"diagnostics":[]}').diagnostics ?? []) {
     if (!/no-call-by-name/.test(d.code ?? '')) continue;
