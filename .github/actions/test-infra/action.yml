@@ -11,8 +11,8 @@ runs:
     # this every shard downloaded Maven 3.9.11 twice (once per package) from repo.maven.apache.org, and one network
     # drop there turned an unrelated PR red (#6860, run 40993912442). Only the archives are cached, once, outside the
     # checkout: each script still checks an archive's checksum before using it and downloads its own on a mismatch,
-    # so a changed pin or a bad entry costs a download, never a wrong JDK. The extracted trees, Maven's dependency
-    # repository (m2) and the codec jar are not cached, so CI keeps proving those build.
+    # so a changed pin or a bad entry costs a download, never a wrong JDK. The extracted trees and the codec jar are
+    # not cached, so CI keeps proving those build.
     - name: Cache the pinned JDK and Maven archives
       id: java-archives
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -45,6 +45,32 @@ runs:
             done
           done
         fi
+
+    # Each package's Maven repository (.tools/m2: the plugins and dependencies its pom.xml names). Without this every
+    # run fetched them all from Maven Central, and Central answering "Could not find artifact" for a known plugin for
+    # over a minute turned an unrelated PR red, its -U retry included (#8121, run 43227496169; #9531, run 44953598502).
+    # Keyed on the package's pom.xml, so a changed pom fetches only what is new; Maven still checks each download's
+    # checksum. Maven's records of a failed fetch (*.lastUpdated, resolver-status.properties) are never kept, so a
+    # miss is never carried into another run. actions/cache saves only when the job passes.
+    - name: Cache sbe-codec's Maven repository
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          packages/sbe-codec/.tools/m2
+          !packages/sbe-codec/.tools/m2/**/*.lastUpdated
+          !packages/sbe-codec/.tools/m2/**/resolver-status.properties
+        key: maven-repo-sbe-codec-${{ runner.os }}-${{ hashFiles('packages/sbe-codec/pom.xml') }}
+        restore-keys: maven-repo-sbe-codec-${{ runner.os }}-
+
+    - name: Cache svc-fix's Maven repository
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          services/svc-fix/.tools/m2
+          !services/svc-fix/.tools/m2/**/*.lastUpdated
+          !services/svc-fix/.tools/m2/**/resolver-status.properties
+        key: maven-repo-svc-fix-${{ runner.os }}-${{ hashFiles('services/svc-fix/pom.xml') }}
+        restore-keys: maven-repo-svc-fix-${{ runner.os }}-
 
     - name: Test environment
       shell: bash
