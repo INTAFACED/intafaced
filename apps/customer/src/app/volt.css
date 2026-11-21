@@ -125,7 +125,7 @@
   color: var(--lit-page);
   box-shadow: var(--lit-glass-shadow);
 }
-[data-direction='volt'] [data-slot='toast'] :is(p, span, div) {
+[data-direction='volt'] [data-slot='toast'] :is(p, span, div, button) {
   color: inherit;
 }
 
