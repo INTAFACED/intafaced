@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useMemo, useState } from 'react';
+import { Suspense, lazy, useMemo, useState } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
 import { clockTime } from './clock';
@@ -29,7 +29,7 @@ import {
   Loading,
 } from './deps';
 import { InfoTip } from './InfoTip';
-import { IN_PANEL, STATE_IN_COLUMN } from './panel';
+import { STATE_IN_COLUMN } from './panel';
 import { MarketsFailure, MarketsRow, MarketsSkeleton, MoversHeading, MoversRow, MoversSkeleton } from './MarketsSection';
 import { YourCrypto, YourCryptoSkeleton } from './YourCrypto';
 import { listings, topCards, topMovers } from './select';
@@ -45,18 +45,14 @@ import { HOME_LINKS } from './links';
 import { useStartedTile } from './started-data';
 import type { NeedsYouShown } from './work-list';
 import { CustomiseHome } from './CustomiseHome';
-import { LitSphere } from './LitSphere';
-import { EmberMoney } from './EmberMoney';
+import './lit-spike.css';
 import { VoltStack } from './VoltStack';
-import { lookDirection } from '../../app/look';
 import { HomeNotices } from './Notices';
 import { HomeInbox } from './HomeInbox';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { TestBuildTag } from './TestBuildTag';
-import { GlassStack } from './GlassStack';
-import './glass-stack.css';
 import { useSession } from '../../features/session/session';
 
 // Pro Home carries Trade's client; Simple Home (the default) does not load it.
@@ -110,44 +106,6 @@ function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) 
             </Button>
           ))}
     </nav>
-  );
-}
-
-function HoldingsCard({ portfolio, hidden }: { portfolio: HomePortfolio; hidden: boolean }) {
-  const { t } = homeCopy.useCopy();
-  const rows = [
-    { id: 'cash', label: t('Cash'), glyph: '$', value: portfolio.cashUsd },
-    { id: 'crypto', label: t('Crypto'), glyph: '₿', value: portfolio.cryptoUsd },
-  ] as const;
-  return (
-    <section data-testid="home-holdings" className="home-holdings" aria-label={t('Your holdings')}>
-      {rows.map((row) => (
-        <a key={row.id} data-testid="home-holdings__row" className="home-holdings__row" href={`/money#${row.id}`}>
-          <span className="home-holdings__glyph" aria-hidden="true">
-            {row.glyph}
-          </span>
-          <span className="home-holdings__label">{row.label}</span>
-          <Money data-testid="home-holdings__value" className="home-holdings__value" value={fmtUsd(row.value)} hidden={hidden} />
-          <ChevronRight size={20} aria-hidden="true" className="home-holdings__chev" />
-        </a>
-      ))}
-    </section>
-  );
-}
-
-function HoldingsSkeleton() {
-  return (
-    <section data-testid="home-holdings" className="home-holdings" aria-hidden="true">
-      {[0, 1].map((index) => (
-        <div key={index} data-testid="home-holdings__row" className="home-holdings__row">
-          <Skeleton width={32} height={32} circle className={IN_PANEL} />
-          <span className="home-holdings__label">
-            <Skeleton width={64} height={20} className={IN_PANEL} />
-          </span>
-          <Skeleton width={96} height={20} className={IN_PANEL} />
-        </div>
-      ))}
-    </section>
   );
 }
 
@@ -318,16 +276,7 @@ function HomeSimple() {
   const started = useStartedTile(portfolio, side.includes('started'));
   // What "Needs you" shows, so the inbox row is never a notice it already carries.
   const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
-  // The Ember direction (look preview only, intafaced issue 9227): the balance and the money object come first, the
-  // inbox after the actions, and the cards stand in for the holdings rows and the sphere.
-  const direction = lookDirection();
-  const ember = direction === 'ember';
-  // The Volt direction draws its card stack where the lit sphere and the holdings rows stand.
-  const volt = direction === 'volt';
-
-  // The total, its label and the actions. The Lit glass direction draws them first, above the notices; it and Ember put
-  // their money object between the total and the actions (intafaced issue 9227); everyone else sees them where they were.
-  const glass = direction === 'lit-glass';
+  // The total, its label and the actions.
   const hero = (
     <>
       <div data-testid="home-label" className="home-label">
@@ -351,8 +300,6 @@ function HomeSimple() {
       </div>
 
       {launch ? <HomeStanding status={launch} hidden={hideBalances} /> : <Balance portfolio={portfolio} hidden={hideBalances} />}
-      {glass && !launch ? <GlassStack portfolio={portfolio} hidden={hideBalances} /> : null}
-      {ember && !launch ? <EmberMoney portfolio={portfolio} hidden={hideBalances} /> : null}
       <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
     </>
   );
@@ -360,35 +307,19 @@ function HomeSimple() {
   return (
     <div data-testid="if-home" className="if-home">
       <h1 className="if-sr">{t('Home')}</h1>
-      {glass ? <div className="lg-hero">{hero}</div> : null}
       <HomeNotices />
-      {ember ? null : <HomeInbox needsYou={needsYou} />}
+      <HomeInbox needsYou={needsYou} />
       <div className="home-grid">
         <div data-testid="home-main" className="home-main">
-          {glass ? null : hero}
-          {ember ? <HomeInbox needsYou={needsYou} /> : null}
+          {hero}
           {main.map((id) => {
             switch (id) {
               case 'work':
                 return <WorkList key={id} hidden={hideBalances} onShown={setNeedsYou} />;
               case 'holdings':
-                // On the launch model the holdings are the parts of the total above, each read from its own source. The
-                // Lit glass and Ember directions draw them as their money object, in the hero.
-                return launch || glass || ember ? null : volt ? (
-                  <VoltStack key={id} portfolio={portfolio} hidden={hideBalances} />
-                ) : portfolio.status === 'loading' ? (
-                  // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't
-                  // arrive late and push the rows below it down
-                  <Fragment key={id}>
-                    <LitSphere portfolio={portfolio} hidden={hideBalances} />
-                    <HoldingsSkeleton />
-                  </Fragment>
-                ) : portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
-                  <Fragment key={id}>
-                    <LitSphere portfolio={portfolio} hidden={hideBalances} />
-                    <HoldingsCard portfolio={portfolio.data} hidden={hideBalances} />
-                  </Fragment>
-                ) : null;
+                // Volt draws the holdings as its card stack. On the launch model the holdings are the parts of the
+                // total above, each read from its own source.
+                return launch ? null : <VoltStack key={id} portfolio={portfolio} hidden={hideBalances} />;
               case 'markets':
                 return showMarkets ? (
                   <section key={id} className="home-section" aria-labelledby="home-markets-title">

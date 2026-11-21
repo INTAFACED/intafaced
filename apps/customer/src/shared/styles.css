@@ -6,8 +6,9 @@
   font-display: swap;
 }
 :root {
-  --color-positive: #c8f64a;
-  --color-negative: #f05a68;
+  /* gain and loss in Volt's own colours (lit.css); the chart's red-for-up swap is account.css's */
+  --color-positive: var(--lit-up);
+  --color-negative: var(--lit-down);
   --chart-up: var(--color-positive);
   --chart-down: var(--color-negative);
   --color-warning: #e4bf72;

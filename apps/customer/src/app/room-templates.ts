@@ -1,5 +1,5 @@
 /**
- * Which of the eight Lit glass templates (`@intafaced/ui/lit/templates`) each customer room is built from, and
+ * Which of the eight Volt kit templates (`@intafaced/ui/lit/templates`) each customer room is built from, and
  * whether it has moved onto it yet. Stage C of the redesign moves rooms one by one; done is every room migrated.
  * Seeded from the redesign's room inventory (26 Oct 2026) plus the routes it
  * missed. `room-templates.test.ts` keeps it in step with `rooms` in navigation.ts and the portal's PORTAL_ROOMS.
