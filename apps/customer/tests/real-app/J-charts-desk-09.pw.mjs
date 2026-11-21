@@ -333,11 +333,23 @@ async function chartScale() {
   };
 }
 
+/**
+ * How far a handle sits from its price's pixel, on the scale as the chart draws it now. The scale is read fresh each time:
+ * a new high or low on the market widens the axis while the step runs, which moves every level's pixel.
+ */
+async function offPrice(handle, price) {
+  const scale = await chartScale();
+  const box = await handle.boundingBox();
+  return Math.abs(box.y + box.height / 2 - scale.yOf(price));
+}
+
 test(`${J} #5 sees the alert level on the chart and drags it: the level line moves and the alert updates once`, async () => {
-  // A level the chart shows: the price the chart's own axis names a third of the way down its price pane, on the tick.
+  // A level the chart shows, with room to drag it up among the bars: the chart's axis keeps the top fifth and the
+  // bottom tenth of its price pane as margins outside the bars, and a level dropped in a margin leaves the chart when the
+  // next bar sets a new high or low. Picked at 0.6 and dropped at 0.35 of the pane, it stays among the bars.
   await page.goto(CHART);
   await expect(chartHost()).toBeVisible();
-  const level = fromCents(cents(String((await axisPriceAt(0.3)).price.toFixed(2))));
+  const level = fromCents(cents(String((await axisPriceAt(0.6)).price.toFixed(2))));
   // An active alert that does not fire during the step: crossing towards the level from the other side of the market.
   const above = cents(level) > cents(await lastText());
   const condition = above ? 'Crossing down through' : 'Crossing up through';
@@ -351,18 +363,21 @@ test(`${J} #5 sees the alert level on the chart and drags it: the level line mov
   await expect(line).toHaveCount(1);
   await expect(line).toHaveAttribute('data-price', level);
   await expect(page.getByTestId('chart-alert-row').filter({ hasText: `Alert: ${condition} ${level} USDT` })).toHaveCount(1);
+  await expect.poll(() => offPrice(line, level), { message: 'the handle sits at its price' }).toBeLessThan(3);
   const scale = await chartScale();
   const atLevel = await line.boundingBox();
-  expect(Math.abs(atLevel.y + atLevel.height / 2 - scale.yOf(level)), 'the handle sits at its price').toBeLessThan(3);
 
   // Every edit this page sends from now on.
   const edits = [];
   page.on('request', (request) => {
     if (/notify\.updateAlert\b/.test(request.url()) && request.method() === 'POST') edits.push(request.postData());
   });
-  // Drag the handle up by 40 pixels: the chart names the price it is dropped at.
+  // Drag the handle up to 0.35 of the price pane, among the bars: the chart names the price it is dropped at.
+  const pane = await pricePaneBox();
   const from = atLevel.y + atLevel.height / 2;
-  const to = from - 40;
+  const to = Math.round(pane.y + pane.height * 0.35);
+  const drag = from - to;
+  expect(drag, 'a drag, not a click').toBeGreaterThan(10);
   await page.mouse.move(atLevel.x + atLevel.width / 2, from);
   await page.mouse.down();
   await page.mouse.move(atLevel.x + atLevel.width / 2, to, { steps: 12 });
@@ -373,13 +388,12 @@ test(`${J} #5 sees the alert level on the chart and drags it: the level line mov
   expect(moved, 'the note names the price the service now holds').toBeTruthy();
   // The new price is where the handle was dropped, within a few pixels' worth of price, and above the old one.
   expect(cents(moved) > cents(level), `${moved} is above ${level}`).toBe(true);
-  expect(Math.abs(Number(moved) - (Number(level) + 40 * scale.perPixel)), 'dropped at its pixel').toBeLessThan(4 * scale.perPixel + 0.01);
+  expect(Math.abs(Number(moved) - (Number(level) + drag * scale.perPixel)), 'dropped at its pixel').toBeLessThan(4 * scale.perPixel + 0.01);
   // The line moved: one handle, at the new price and its pixel; none left at the old one.
   const movedLine = page.getByTestId('chart-alert-line').filter({ hasText: `Alert: ${condition} ${moved} USDT` });
   await expect(movedLine).toHaveCount(1);
   await expect(page.getByTestId('chart-alert-line').filter({ hasText: `Alert: ${condition} ${level} USDT` })).toHaveCount(0);
-  const atMoved = await movedLine.boundingBox();
-  expect(Math.abs(atMoved.y + atMoved.height / 2 - scale.yOf(moved)), 'the handle sits at its new price').toBeLessThan(3);
+  await expect.poll(() => offPrice(movedLine, moved), { message: 'the handle sits at its new price' }).toBeLessThan(3);
   // Once: one edit, at that price.
   await page.waitForTimeout(2_000);
   expect(edits, 'one edit was sent for one drag').toHaveLength(1);
