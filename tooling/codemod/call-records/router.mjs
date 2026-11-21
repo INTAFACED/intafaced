@@ -206,6 +206,9 @@ function guardOf(p, node, problems, depth = 0) {
     if (node.name === 'publicProcedure') return { text: "{ caller: 'public' }", base: node };
     const b = bindingOf(p, node, node.name);
     if (b.kind === 'var' && b.declarator.init) return guardOf(p, b.declarator.init, problems, depth + 1);
+    // contracts' protectedProcedure is signedInProcedure() with no module: the same `authed` check and nothing more.
+    if (node.name === 'protectedProcedure' && b.kind === 'import' && /^@intafaced\/contracts(\/trpc)?$/.test(b.from ?? ''))
+      return { text: "{ caller: 'signedIn' }", base: node };
     problems.push(`guard ${node.name} (${b.kind}) is not one a record names`);
     return undefined;
   }
