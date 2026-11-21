@@ -622,7 +622,7 @@ const mmFill = (fillId, takerId, makerOrderId, takerOrderId, qty, quoteAmount, m
   });
 const hold = (orderId, userId, assetId, value) => recipes.orderHold({ orderId, userId, assetId, amount: amt(value) });
 /** A buyback funded from a fee, its order, and a fill against one customer's ask: both suites book the same shape. */
-const buyback = (p, payer, maker, ask) => [
+const buyback = (p, payer) => [
   deposit(payer, 'USDT', '300', `${p}-bb-fee`),
   recipes.feeCharge({ chargeId: `${p}-bb-fee`, userId: payer, module: 'trade', mode: 'asset', assetId: 'USDT', amount: amt('300') }),
   recipes.sweepFeesToRewards({ windowId: `buyback:${p}-bb`, sourceModule: 'trade', assetId: 'USDT', amount: amt('300') }),
