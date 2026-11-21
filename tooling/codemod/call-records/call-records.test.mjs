@@ -406,6 +406,8 @@ test("a guard behind the service's own function or const options is copied whole
       '  const reader = scopedProcedure(opsScope, guards);',
       "  const either = (flag) => { if (flag) return scopedProcedure('admin:write'); return scopedProcedure('admin:read'); };",
       "  const opsProcedure = scopedProcedure('campaigns:ops', guards).use(({ next }) => next());",
+      '  const merchantApi = async () => {};',
+      "  const merchantApiProcedure = (scope: 'p2p:read' | 'p2p:write') => scopedProcedure(scope, { module: 'p2p', check: merchantApi });",
       '  return router({',
       "    desk: operator('admin:read').output(o).query(h),",
       '    run: executeProcedure().output(o).mutation(h),',
@@ -414,6 +416,7 @@ test("a guard behind the service's own function or const options is copied whole
       "    status: scopedProcedure('admin:read', guards).output(o).query(h),",
       '    pick: either(true).output(o).query(h),',
       '    ops: opsProcedure.output(o).query(h),',
+      "    dispute: merchantApiProcedure('p2p:write').output(o).mutation(h),",
       '  });',
       '}',
       '',
@@ -432,6 +435,8 @@ test("a guard behind the service's own function or const options is copied whole
     // Two returns may be two guards: neither is copied.
     pick: 'guard either() is a function with more than its returned guard: not one a record names',
     ops: "guard opsProcedure kept by hand: it adds svc-campaigns' ops second-factor check (requireOpsMfa); no record field says that",
+    // The service's own check is named on the record, which mounts it from the service's parts.
+    dispute: "{ caller: 'scope', scope: 'p2p:write', module: 'p2p', check: 'merchantApi' }",
   });
   const { reasonOf } = await import('./report.mjs');
   assert.equal(reasonOf(access.ops), 'guard kept by hand (named, with its reason)');

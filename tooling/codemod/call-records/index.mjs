@@ -83,12 +83,16 @@ function refusalReaders(serviceDir) {
     const src = readFileSync(join(serviceDir, f), 'utf8');
     for (const m of src.matchAll(/^(export )?const (\w+): RefusalOf\b/gm))
       out.push({ name: m[2], file: join(serviceDir, f), exported: Boolean(m[1]) });
+    // The parts a router hands its mount (`const p2pParts: ServiceParts = { refusalOf, checks }`), in its own scope.
+    for (const m of src.matchAll(/^ *const (\w+): ServiceParts\b/gm)) out.push({ name: m[1], file: join(serviceDir, f), parts: true });
   }
   return out;
 }
-function readerFor(readers, file) {
+/** A record naming its service's own check (`check:`) is mounted with the parts that hand it over, in its router's file. */
+function readerFor(readers, file, access = '') {
+  if (/\bcheck: '/.test(access)) return readers.find((r) => r.parts && r.file === file);
   return (
-    readers.find((r) => r.file === file) ??
+    readers.find((r) => !r.parts && r.file === file) ??
     readers
       .filter((r) => r.exported)
       .sort((a, b) => Number(!/errors|refusal/.test(a.file)) - Number(!/errors|refusal/.test(b.file)) || a.file.length - b.file.length)[0]
@@ -177,7 +181,7 @@ function plan(opts) {
       continue;
     }
     const chain = chainOf(proc);
-    let reader = door ? undefined : readerFor(readers, proc.p.file);
+    let reader = door ? undefined : readerFor(readers, proc.p.file, chain.guard?.text);
     if (door) {
       // The door is the wire: its kind and access stand for the router's, which only checks them against it; a guard
       // the router writes its own way is the door's access all the same.
@@ -196,7 +200,11 @@ function plan(opts) {
     }
     const kindMismatch = list.filter((s) => s.kind && s.kind !== chain.kind);
     if (chain.problems.length || !reader) {
-      const why = chain.problems.join('; ') || `${opts.service} has no refusal reader this file can import (no exported \`: RefusalOf\`)`;
+      const why =
+        chain.problems.join('; ') ||
+        (/\bcheck: '/.test(chain.guard?.text ?? '')
+          ? `${path} names its service's own check, but its router's file declares no \`: ServiceParts\` to mount it with`
+          : `${opts.service} has no refusal reader this file can import (no exported \`: RefusalOf\`)`);
       for (const s of list) hand.push({ site: s, why });
       continue;
     }
