@@ -88,6 +88,12 @@
       }
     },
     {
+      "files": ["apps/customer/src/screens/trade/desk/OrderForm.tsx", "apps/customer/src/screens/trade/desk/EditOrder.tsx"],
+      "rules": {
+        "garden/no-random-request-key": ["error", { "anyRandomUUID": true }]
+      }
+    },
+    {
       "files": ["apps/customer/src/screens/trade/copybots/*.tsx"],
       "rules": {
         "garden/no-service-sentence": "error"

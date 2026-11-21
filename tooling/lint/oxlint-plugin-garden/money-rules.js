@@ -434,9 +434,27 @@ const intoState = (prop) => {
 };
 
 const noRandomRequestKey = {
-  meta: { type: 'problem', docs: { description: 'Idempotency keys are business keys, not random values.' } },
+  meta: {
+    type: 'problem',
+    docs: { description: 'Idempotency keys are business keys, not random values.' },
+    schema: [{ type: 'object', properties: { anyRandomUUID: { type: 'boolean' } }, additionalProperties: false }],
+  },
   create(context) {
     if (isTest(context)) return {};
+    // { "anyRandomUUID": true } (an .oxlintrc.json override, for files that must never mint one, the desk's place and
+    // replace): every mention of randomUUID is a finding, whatever it feeds, a callback or a field of any name included.
+    if (context.options[0]?.anyRandomUUID) {
+      const any = (node) =>
+        context.report({ node, message: `randomUUID in a file that must never mint a random key: ${RANDOM_KEY_MESSAGE}` });
+      return {
+        Identifier(node) {
+          if (node.name === 'randomUUID') any(node);
+        },
+        Literal(node) {
+          if (node.value === 'randomUUID') any(node);
+        },
+      };
+    }
     const randomConsts = new Set(); // local consts whose value is a random key
     const pending = []; // key sites, judged at the end so a const declared further down still counts
     const site = (name, value, node) => {

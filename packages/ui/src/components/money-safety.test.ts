@@ -9,9 +9,12 @@ import { countPlanted, countRule } from '../../../../tooling/lint/count-rule.mjs
  *
  * Held by the lint rule garden/no-number-money, which judges every file under `src/` but
  * those (tooling/lint/oxlint-plugin-garden/money-rules.js): a component in a subfolder
- * (`coins/`, `lit/` and its templates) is checked the moment it is added.
+ * (`coins/`, `lit/` and its templates) is checked the moment it is added. Run strict: a disable comment
+ * for the rule counts as a finding, so a float on money cannot be silenced from inside the kit.
  */
 const RULE = 'garden/no-number-money';
+/** Planted directives are built, so the lint ratchet does not count this file's own strings as suppressions. */
+const OFF = ['oxlint', 'disable'].join('-');
 const FLOATS = [
   'export const a = (s: string) => parseFloat(s);',
   'export const b = (s: string) => Number(s);',
@@ -22,7 +25,23 @@ const FLOATS = [
 
 describe('no float arithmetic on money in the UI kit', () => {
   it('has no parseFloat, Number(), toFixed() or unary +value in any of its files', () => {
-    expect(countRule(RULE, ['packages/ui/src']).files).toEqual({});
+    const { files, checked } = countRule(RULE, ['packages/ui/src'], { strict: true });
+    expect(files).toEqual({});
+    for (const f of ['components/amount-input-logic.ts', 'components/numbers.tsx', 'primitives.tsx'])
+      expect(checked).toContain(`packages/ui/src/${f}`);
+    expect(checked.some((f) => f.startsWith('packages/ui/src/components/coins/'))).toBe(true);
+  }, 60_000);
+
+  it('counts a silenced float as a finding', () => {
+    const file = 'packages/ui/src/components/numbers.tsx';
+    const silenced = [
+      `// ${OFF}-next-line ${RULE} -- planted: a silenced copy still counts`,
+      'export const a = (s: string) => parseFloat(s);',
+      `/* ${OFF} */`,
+      'export const b = (s: string) => Number(s);',
+      '',
+    ].join('\n');
+    expect(countPlanted(RULE, { [file]: silenced }, { strict: true }).files).toEqual({ [file]: 2 });
   }, 60_000);
 
   it('judges every file in subfolders too, and leaves out only drawing code and design values', () => {

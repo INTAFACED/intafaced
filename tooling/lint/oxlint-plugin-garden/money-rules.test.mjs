@@ -55,12 +55,24 @@ test('no-number-money: the i18n formatter has no Number(), parseFloat() or parse
 test('no-random-request-key: a random client order id fires; a business key does not', skip, () => {
   const D = 'apps/customer/src/screens/trade/desk/';
   const { files } = countPlanted('garden/no-random-request-key', {
-    [`${D}OrderForm.tsx`]: 'export const draft = (m) => ({ symbol: m, clientOrderId: crypto.randomUUID() });\n',
-    [`${D}EditOrder.tsx`]:
+    [`${D}Place.tsx`]: 'export const draft = (m) => ({ symbol: m, clientOrderId: crypto.randomUUID() });\n',
+    [`${D}Edit.tsx`]:
       "import { randomUUID } from 'node:crypto';\nexport function send(api) {\n  const clientOrderId = `edit:${randomUUID()}`;\n  return api.mutate({ clientOrderId });\n}\n",
     [`${D}Clean.tsx`]:
       "import { replaceKey } from './replace-key';\nexport const draft = (o, p, a) => ({ clientOrderId: replaceKey(o.id, p, a), other: 'desk-preview' });\n",
   });
   // The const and the body field it fills are both the random key.
-  assert.deepEqual(files, { [`${D}EditOrder.tsx`]: 2, [`${D}OrderForm.tsx`]: 1 });
+  assert.deepEqual(files, { [`${D}Edit.tsx`]: 2, [`${D}Place.tsx`]: 1 });
+});
+
+test('no-random-request-key { anyRandomUUID }: in the desk place and replace any randomUUID fires; elsewhere only a key', skip, () => {
+  const D = 'apps/customer/src/screens/trade/desk/';
+  const callback = 'export const send = (f) => f(() => crypto.randomUUID());\nexport const o = { cloid: crypto.randomUUID() };\n';
+  const { files } = countPlanted('garden/no-random-request-key', {
+    [`${D}OrderForm.tsx`]: callback,
+    [`${D}EditOrder.tsx`]: callback,
+    [`${D}Other.tsx`]: callback,
+    [`${D}OrderForm.test.tsx`]: callback,
+  });
+  assert.deepEqual(files, { [`${D}EditOrder.tsx`]: 2, [`${D}OrderForm.tsx`]: 2 });
 });

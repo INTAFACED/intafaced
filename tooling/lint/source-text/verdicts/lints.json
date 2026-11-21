@@ -8,7 +8,7 @@
       "kind": "test",
       "ref": "packages/ui/src/components/money-safety.test.ts#has no parseFloat, Number(), toFixed() or unary +value in any of its files"
     },
-    "why": "garden/no-number-money now judges packages/ui/src strictly with the test's own exclusions; the test runs the rule over packages/ui/src and asserts no finding, and plants copies to show subfolders are judged and only drawing code and design values are left out."
+    "why": "garden/no-number-money now judges packages/ui/src strictly with the test's own exclusions; the test runs it strict over packages/ui/src (a disable comment for the rule, or for every rule, counts as a finding, nested configs are not read), asserts no finding and that amount-input-logic.ts, numbers.tsx, primitives.tsx and coins/ were judged, and plants copies to show subfolders are judged, only drawing code and design values are left out, and a silenced float still counts."
   },
   {
     "file": "apps/customer/src/screens/trade/desk/replace-key.test.ts",
@@ -19,7 +19,7 @@
       "kind": "test",
       "ref": "apps/customer/src/screens/trade/desk/replace-key.test.ts#the desk no longer mints a random number for a place or a replace"
     },
-    "why": "garden/no-random-request-key now judges clientOrderId; the test runs it over both files and asserts no finding, and shows a planted random id in each fires."
+    "why": "garden/no-random-request-key is set to { anyRandomUUID: true } for OrderForm.tsx and EditOrder.tsx, so any randomUUID there is a finding (in a callback, a cloid or a field of any name); the test runs it strict over both files (a disable comment counts), asserts no finding and that both were judged, and shows planted random ids in each fire, a silenced one included."
   },
   {
     "file": "apps/customer/src/screens/trade/desk/desk-shape.test.ts",
