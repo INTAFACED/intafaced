@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { type Amount, formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import type { SorCostTerms, VenueKind } from '@intafaced/venue-adapter';
@@ -494,18 +492,61 @@ describe('scanExternalCrossExchangeArb — D26-P1-X4', () => {
   });
 
   it('pins fail if house-prefer or invented mid/spread appears', () => {
-    expect(HOUSE_ARB_PREFERENCE_BPS).toBeNull();
-    expect(CROSS_EXCHANGE_DEFAULT_MID).toBeNull();
-    expect(CROSS_EXCHANGE_DEFAULT_SPREAD_BPS).toBeNull();
+    // Typed `null`, not number or Amount: widening any of these three fails the package typecheck here.
+    const housePreference: null = HOUSE_ARB_PREFERENCE_BPS;
+    const defaultMid: null = CROSS_EXCHANGE_DEFAULT_MID;
+    const defaultSpread: null = CROSS_EXCHANGE_DEFAULT_SPREAD_BPS;
+    expect([housePreference, defaultMid, defaultSpread]).toEqual([null, null, null]);
 
-    const src = readFileSync(fileURLToPath(new URL('./arbitrage.ts', import.meta.url)), 'utf8');
-    expect(src).not.toMatch(/HOUSE_ARB_PREFERENCE_BPS:\s*(number|\d+)/);
-    expect(src).not.toMatch(/CROSS_EXCHANGE_DEFAULT_MID:\s*(Amount|bigint|\d+)/);
-    expect(src).not.toMatch(/CROSS_EXCHANGE_DEFAULT_SPREAD_BPS:\s*\d+/);
-    expect(src).not.toMatch(/preferHouse|housePrefer|internalTieBreak/);
-    expect(src).not.toMatch(/syntheticMid|\(\s*bid\s*\+\s*ask\s*\)\s*\/\s*2/);
-    expect(src).not.toMatch(/DEFAULT_MID\s*=\s*(?!null)/);
-    expect(src).toContain('isHouseBookKind');
-    expect(src).toContain("'internal'");
+    // The house book is the 'internal' kind, and it is never a leg at any price: no house preference or tie-break.
+    expect(isHouseBookKind('internal')).toBe(true);
+    for (const housePrice of ['1', '99', '100', '100.5', '101', '200']) {
+      const result = scanArb({
+        symbol: 'BTC/USDT',
+        amount: amt('1'),
+        quotes: [
+          q({ venueId: 'house', kind: 'internal', price: housePrice }),
+          q({ venueId: 'a', kind: 'external-cex', price: '100' }),
+          q({ venueId: 'b', kind: 'external-cex', price: '101' }),
+        ],
+        costTermsByVenue: {
+          house: completeTerms({ feeBps: 0, expectedImpactBps: 0, transferCostBps: 0 }),
+          a: completeTerms({ feeBps: 0, expectedImpactBps: 0, transferCostBps: 0 }),
+          b: completeTerms({ feeBps: 0, expectedImpactBps: 0, transferCostBps: 0 }),
+        },
+        inventory: { prePositionedByVenue: { house: true, a: true, b: true } },
+      });
+      expect(
+        result.opportunities.map((o) => [o.buyVenueId, o.sellVenueId, o.buyKind, o.sellKind]),
+        housePrice,
+      ).toEqual([['a', 'b', 'external-cex', 'external-cex']]);
+      // Each leg is priced from its own quote, never a mid of bid and ask: zero costs leave the quoted prices as they are.
+      expect([formatAmount(result.opportunities[0]!.buyAllIn), formatAmount(result.opportunities[0]!.sellAllIn)]).toEqual(['100', '101']);
+      expect(result.refused.filter((r) => r.buyVenueId === 'house' || r.sellVenueId === 'house').map((r) => r.reason)).toEqual([
+        'internal_venue',
+      ]);
+    }
+
+    // Ranking is by all-in edge alone, largest first: a tie keeps no venue ahead of another.
+    const ranked = scanArb({
+      symbol: 'BTC/USDT',
+      amount: amt('1'),
+      quotes: [
+        q({ venueId: 'a', kind: 'external-cex', price: '100' }),
+        q({ venueId: 'b', kind: 'external-cex', price: '102' }),
+        q({ venueId: 'c', kind: 'external-cex', price: '101' }),
+      ],
+      costTermsByVenue: {
+        a: completeTerms({ feeBps: 0, expectedImpactBps: 0, transferCostBps: 0 }),
+        b: completeTerms({ feeBps: 0, expectedImpactBps: 0, transferCostBps: 0 }),
+        c: completeTerms({ feeBps: 0, expectedImpactBps: 0, transferCostBps: 0 }),
+      },
+      inventory: { prePositionedByVenue: { a: true, b: true, c: true } },
+    });
+    expect(ranked.opportunities.map((o) => [o.buyVenueId, o.sellVenueId, formatAmount(o.edgePerUnit)])).toEqual([
+      ['a', 'b', '2'],
+      ['a', 'c', '1'],
+      ['c', 'b', '1'],
+    ]);
   });
 });

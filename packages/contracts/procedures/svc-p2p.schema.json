@@ -1007,6 +1007,1680 @@
         }
       ]
     },
+    "p2p.instruments.accessLog": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "instruments.accessLog",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.access_log_limit_unset": "PRECONDITION_FAILED"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "instrumentId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "viewerId": {
+              "type": "string"
+            },
+            "viewerRole": {
+              "type": "string",
+              "enum": ["owner", "counterparty", "moderator", "other"]
+            },
+            "tradeId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "outcome": {
+              "type": "string",
+              "enum": ["revealed", "denied"]
+            },
+            "denyReason": {
+              "type": ["string", "null"]
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": ["id", "instrumentId", "viewerId", "viewerRole", "tradeId", "outcome", "denyReason", "at"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 100
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 501
+          }
+        }
+      ]
+    },
+    "p2p.instruments.create": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "instruments.create",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.instrument_kms_required": "PRECONDITION_FAILED",
+        "auth.step_up_required": "FORBIDDEN",
+        "auth.step_up_failed": "FORBIDDEN",
+        "p2p.step_up_unverifiable": "PRECONDITION_FAILED",
+        "p2p.instrument_id_required": "BAD_REQUEST",
+        "p2p.instrument_country_invalid": "BAD_REQUEST",
+        "p2p.instrument_method_unknown": "BAD_REQUEST",
+        "p2p.instrument_method_disabled": "BAD_REQUEST",
+        "p2p.instrument_schema_invalid": "BAD_REQUEST",
+        "p2p.instrument_field_missing": "BAD_REQUEST",
+        "p2p.instrument_field_undeclared": "BAD_REQUEST",
+        "p2p.instrument_field_invalid": "BAD_REQUEST",
+        "p2p.account_format_invalid": "BAD_REQUEST",
+        "p2p.holder_name_mismatch": "BAD_REQUEST",
+        "p2p.holder_name_unverified": "FORBIDDEN",
+        "p2p.holder_name_unverifiable": "PRECONDITION_FAILED",
+        "p2p.instrument_slot_taken": "CONFLICT"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "instrumentId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "methodId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "country": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 2
+          },
+          "fiatCurrency": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 3
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "details": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["instrumentId", "methodId", "country", "fiatCurrency", "details"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "methodId": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "removed"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "removedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "methodId", "country", "fiatCurrency", "label", "status", "createdAt", "updatedAt", "removedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "instrumentId": "66666666-6666-4666-8666-666666666666",
+            "methodId": "bank_transfer",
+            "country": "NG",
+            "fiatCurrency": "NGN",
+            "details": {
+              "account": "0123456789"
+            },
+            "stepUpApprovalId": "appr-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "instrumentId": "66666666-6666-4666-8666-666666666666",
+            "methodId": "bank_transfer",
+            "country": "NGA",
+            "fiatCurrency": "NGN",
+            "details": {}
+          }
+        }
+      ]
+    },
+    "p2p.instruments.list": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "instruments.list",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.instrument_list_limit_unset": "PRECONDITION_FAILED"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "includeRemoved": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            },
+            "methodId": {
+              "type": "string"
+            },
+            "country": {
+              "type": "string"
+            },
+            "fiatCurrency": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": ["active", "removed"]
+            },
+            "createdAt": {
+              "type": "string"
+            },
+            "updatedAt": {
+              "type": "string"
+            },
+            "removedAt": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": ["id", "methodId", "country", "fiatCurrency", "label", "status", "createdAt", "updatedAt", "removedAt"],
+          "additionalProperties": false
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "limit": 200
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 201
+          }
+        }
+      ]
+    },
+    "p2p.instruments.methods.list": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "instruments.methods.list",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.method_schema_list_limit_unset": "PRECONDITION_FAILED",
+        "p2p.instrument_country_invalid": "BAD_REQUEST",
+        "p2p.instrument_schema_invalid": "BAD_REQUEST",
+        "p2p.instrument_method_unknown": "BAD_REQUEST"
+      },
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "country": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 2
+          },
+          "methodId": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "methodId": {
+              "type": "string"
+            },
+            "country": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "pattern": {
+                    "type": "string"
+                  },
+                  "minLength": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "maxLength": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "sensitive": {
+                    "type": "boolean"
+                  },
+                  "help": {
+                    "type": "string"
+                  },
+                  "holderName": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["key", "label", "required"],
+                "additionalProperties": false
+              }
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "settlement": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "instant": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": ["instant"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "instant": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "windowSeconds": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": ["instant", "windowSeconds"],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "enum": ["transfer", "cash_in_person"]
+            },
+            "noteRules": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "guidance": {
+                      "type": "string"
+                    },
+                    "forbidden": {
+                      "readOnly": true,
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["guidance", "forbidden"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "cashRules": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "meetingGuidance": {
+                      "type": "string"
+                    },
+                    "proof": {
+                      "type": "string"
+                    },
+                    "releaseWindowSeconds": {
+                      "type": "number"
+                    }
+                  },
+                  "required": ["meetingGuidance", "proof", "releaseWindowSeconds"],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": ["methodId", "country", "label", "fields", "enabled", "settlement", "kind", "noteRules", "cashRules"],
+          "additionalProperties": false
+        }
+      },
+      "accept": {
+        "cashWindow": "a cash release window is a whole number of seconds"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "country": "NG",
+            "limit": 200
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "limit": 0
+          }
+        }
+      ]
+    },
+    "p2p.instruments.methods.register": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "instruments.methods.register",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance",
+        "module": "p2p"
+      },
+      "refusals": {
+        "action_approval.identity_unwired": "PRECONDITION_FAILED",
+        "action_approval.missing": "PRECONDITION_FAILED",
+        "action_approval.consume_failed": "PRECONDITION_FAILED",
+        "p2p.instrument_country_invalid": "BAD_REQUEST",
+        "p2p.instrument_schema_invalid": "BAD_REQUEST",
+        "p2p.delist_reason_required": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "methodId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "country": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "fields": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/__schema0"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "settlement": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "instant": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": ["instant"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "instant": {
+                    "type": "boolean",
+                    "const": false
+                  },
+                  "windowSeconds": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 60,
+                        "maximum": 2592000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["instant", "windowSeconds"]
+              }
+            ]
+          },
+          "noteRules": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "guidance": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "forbidden": {
+                    "readOnly": true,
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    }
+                  }
+                },
+                "required": ["guidance", "forbidden"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cashRules": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "meetingGuidance": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "proof": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1000
+                  },
+                  "releaseWindowSeconds": {
+                    "type": "integer",
+                    "minimum": 300,
+                    "maximum": 86400
+                  }
+                },
+                "required": ["meetingGuidance", "proof", "releaseWindowSeconds"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confirmOperatorId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["methodId", "country", "label", "fields"],
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "methodId": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "pattern": {
+                  "type": "string"
+                },
+                "minLength": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "maxLength": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "sensitive": {
+                  "type": "boolean"
+                },
+                "help": {
+                  "type": "string"
+                },
+                "holderName": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["key", "label", "required"],
+              "additionalProperties": false
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "settlement": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "instant": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": ["instant"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "instant": {
+                    "type": "boolean",
+                    "const": false
+                  },
+                  "windowSeconds": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["instant", "windowSeconds"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["transfer", "cash_in_person"]
+          },
+          "noteRules": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "guidance": {
+                    "type": "string"
+                  },
+                  "forbidden": {
+                    "readOnly": true,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["guidance", "forbidden"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cashRules": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "meetingGuidance": {
+                    "type": "string"
+                  },
+                  "proof": {
+                    "type": "string"
+                  },
+                  "releaseWindowSeconds": {
+                    "type": "number"
+                  }
+                },
+                "required": ["meetingGuidance", "proof", "releaseWindowSeconds"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confirmOperatorId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "methodId",
+          "country",
+          "label",
+          "fields",
+          "enabled",
+          "settlement",
+          "kind",
+          "noteRules",
+          "cashRules",
+          "confirmOperatorId"
+        ],
+        "additionalProperties": false
+      },
+      "accept": {
+        "cashWindow": "a cash release window is a whole number of seconds"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "methodId": "bank_transfer",
+            "country": "NG",
+            "label": "Bank transfer",
+            "fields": [
+              {
+                "label": "Account number",
+                "required": true,
+                "key": "example"
+              }
+            ],
+            "approvalId": "appr-1",
+            "operationId": "op-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "methodId": "bank_transfer",
+            "country": "NG",
+            "label": "Bank transfer",
+            "fields": []
+          }
+        }
+      ]
+    },
+    "p2p.instruments.methods.setEnabled": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "instruments.methods.setEnabled",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:compliance",
+        "module": "p2p"
+      },
+      "refusals": {
+        "action_approval.identity_unwired": "PRECONDITION_FAILED",
+        "action_approval.missing": "PRECONDITION_FAILED",
+        "action_approval.consume_failed": "PRECONDITION_FAILED",
+        "p2p.delist_reason_required": "BAD_REQUEST",
+        "p2p.instrument_country_invalid": "BAD_REQUEST",
+        "p2p.instrument_schema_invalid": "BAD_REQUEST",
+        "p2p.instrument_method_unknown": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "methodId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "country": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "enum": ["regulation", "provider_withdrawn", "fraud_risk", "low_demand"]
+          },
+          "confirmOperatorId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approvalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": ["methodId", "country", "enabled"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "methodId": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "pattern": {
+                  "type": "string"
+                },
+                "minLength": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "maxLength": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "sensitive": {
+                  "type": "boolean"
+                },
+                "help": {
+                  "type": "string"
+                },
+                "holderName": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["key", "label", "required"],
+              "additionalProperties": false
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "settlement": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "instant": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": ["instant"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "instant": {
+                    "type": "boolean",
+                    "const": false
+                  },
+                  "windowSeconds": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": ["instant", "windowSeconds"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["transfer", "cash_in_person"]
+          },
+          "noteRules": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "guidance": {
+                    "type": "string"
+                  },
+                  "forbidden": {
+                    "readOnly": true,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": ["guidance", "forbidden"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cashRules": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "meetingGuidance": {
+                    "type": "string"
+                  },
+                  "proof": {
+                    "type": "string"
+                  },
+                  "releaseWindowSeconds": {
+                    "type": "number"
+                  }
+                },
+                "required": ["meetingGuidance", "proof", "releaseWindowSeconds"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confirmOperatorId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "methodId",
+          "country",
+          "label",
+          "fields",
+          "enabled",
+          "settlement",
+          "kind",
+          "noteRules",
+          "cashRules",
+          "confirmOperatorId"
+        ],
+        "additionalProperties": false
+      },
+      "accept": {
+        "cashWindow": "a cash release window is a whole number of seconds"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "methodId": "bank_transfer",
+            "country": "NG",
+            "enabled": false,
+            "reason": "regulation",
+            "approvalId": "appr-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "methodId": "bank_transfer",
+            "country": "NG",
+            "enabled": false,
+            "reason": "whim"
+          }
+        }
+      ]
+    },
+    "p2p.instruments.removalImpact": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "instruments.removalImpact",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:read",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.instrument_not_found": "NOT_FOUND"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "instrumentId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["instrumentId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "instrumentId": {
+            "type": "string"
+          },
+          "methodId": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "ads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "offerId": {
+                  "type": "string"
+                },
+                "asset": {
+                  "type": "string"
+                },
+                "fiatCurrency": {
+                  "type": "string"
+                },
+                "pauses": {
+                  "type": "boolean"
+                }
+              },
+              "required": ["offerId", "asset", "fiatCurrency", "pauses"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["instrumentId", "methodId", "fiatCurrency", "ads"],
+        "additionalProperties": false
+      },
+      "accept": {
+        "ids": "the instrument id and every ad id are UUIDs, and every coin code is 1 to 16 characters"
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "instrumentId": "66666666-6666-4666-8666-666666666666"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "instrumentId": "not-a-uuid"
+          }
+        }
+      ]
+    },
+    "p2p.instruments.remove": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "instruments.remove",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.instrument_not_found": "NOT_FOUND",
+        "p2p.method_in_use": "CONFLICT",
+        "auth.step_up_required": "FORBIDDEN",
+        "auth.step_up_failed": "FORBIDDEN",
+        "p2p.step_up_unverifiable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "instrumentId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "pauseOfferIds": {
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+            }
+          }
+        },
+        "required": ["instrumentId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "methodId": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "removed"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "removedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "methodId", "country", "fiatCurrency", "label", "status", "createdAt", "updatedAt", "removedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "instrumentId": "66666666-6666-4666-8666-666666666666",
+            "stepUpApprovalId": "appr-1",
+            "pauseOfferIds": ["33333333-3333-4333-8333-333333333333"]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "instrumentId": "66666666-6666-4666-8666-666666666666",
+            "pauseOfferIds": ["not-a-uuid"]
+          }
+        }
+      ]
+    },
+    "p2p.instruments.reveal": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "instruments.reveal",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.instrument_not_found": "NOT_FOUND",
+        "p2p.instrument_kms_required": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "instrumentId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["instrumentId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "methodId": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "removed"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "removedAt": {
+            "type": ["string", "null"]
+          },
+          "details": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["id", "methodId", "country", "fiatCurrency", "label", "status", "createdAt", "updatedAt", "removedAt", "details"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "instrumentId": "66666666-6666-4666-8666-666666666666"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "p2p.instruments.revealMasked": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "instruments.revealMasked",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.instrument_not_found": "NOT_FOUND",
+        "p2p.instrument_kms_required": "PRECONDITION_FAILED",
+        "p2p.instrument_schema_invalid": "BAD_REQUEST"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "instrumentId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["instrumentId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "methodId": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "removed"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "removedAt": {
+            "type": ["string", "null"]
+          },
+          "details": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["id", "methodId", "country", "fiatCurrency", "label", "status", "createdAt", "updatedAt", "removedAt", "details"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "instrumentId": "66666666-6666-4666-8666-666666666666"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {}
+        }
+      ]
+    },
+    "p2p.instruments.update": {
+      "service": "svc-p2p",
+      "module": "p2p",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "instruments.update",
+      "access": {
+        "caller": "scope",
+        "scope": "p2p:write",
+        "module": "p2p"
+      },
+      "refusals": {
+        "p2p.instrument_kms_required": "PRECONDITION_FAILED",
+        "auth.step_up_required": "FORBIDDEN",
+        "auth.step_up_failed": "FORBIDDEN",
+        "p2p.step_up_unverifiable": "PRECONDITION_FAILED",
+        "p2p.instrument_not_found": "NOT_FOUND",
+        "p2p.instrument_method_unknown": "BAD_REQUEST",
+        "p2p.instrument_method_disabled": "BAD_REQUEST",
+        "p2p.instrument_schema_invalid": "BAD_REQUEST",
+        "p2p.instrument_field_missing": "BAD_REQUEST",
+        "p2p.instrument_field_undeclared": "BAD_REQUEST",
+        "p2p.instrument_field_invalid": "BAD_REQUEST",
+        "p2p.account_format_invalid": "BAD_REQUEST",
+        "p2p.holder_name_mismatch": "BAD_REQUEST",
+        "p2p.holder_name_unverified": "FORBIDDEN",
+        "p2p.holder_name_unverifiable": "PRECONDITION_FAILED"
+      },
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "instrumentId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "details": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "stepUpApprovalId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": ["instrumentId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "methodId": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "fiatCurrency": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "removed"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "removedAt": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "methodId", "country", "fiatCurrency", "label", "status", "createdAt", "updatedAt", "removedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "instrumentId": "66666666-6666-4666-8666-666666666666",
+            "label": "Salary account",
+            "stepUpApprovalId": "appr-1"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "instrumentId": "not-a-uuid"
+          }
+        }
+      ]
+    },
     "p2p.limits.securityChange": {
       "service": "svc-p2p",
       "module": "p2p",

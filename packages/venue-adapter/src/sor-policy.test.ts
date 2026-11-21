@@ -1,8 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { ACCEPTED_INTERNAL_PREFERENCE_BPS, capInternalPreferenceBps } from './router.js';
+import * as pkg from './index.js';
 import { describeSorRoutingPolicy, resolvesInternalPreferenceBps } from './sor-policy.js';
 
 describe('describeSorRoutingPolicy — execution.sor honesty door', () => {
@@ -28,9 +26,9 @@ describe('describeSorRoutingPolicy — execution.sor honesty door', () => {
 });
 
 describe('sor-policy public door — package export seal', () => {
-  it('index re-exports sor-policy', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const pkgIndex = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(pkgIndex).toMatch(/sor-policy/);
+  it('the package entry exports the sor policy door itself', () => {
+    expect(pkg.describeSorRoutingPolicy).toBe(describeSorRoutingPolicy);
+    expect(pkg.resolvesInternalPreferenceBps).toBe(resolvesInternalPreferenceBps);
+    expect(pkg.resolvesInternalPreferenceBps(10_000)).toBe(capInternalPreferenceBps(10_000));
   });
 });

@@ -259,6 +259,7 @@ fn doors(db: &TestDb) -> Doors {
         reconcile_statement_timeout_ms: svc_ledger::reconcile::DEFAULT_STATEMENT_TIMEOUT_MS,
         indexer_url: None,
         fetch: std::sync::Arc::new(service_kit::http::UreqFetch::new()),
+        posting: support::idle_posting(),
     })
     .unwrap();
     Doors { door, signers }

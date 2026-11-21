@@ -18,6 +18,8 @@
     reason = "a test: a failure is the point"
 )]
 
+mod support;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -251,6 +253,7 @@ fn door_with(store: Store, indexer_url: Option<&str>, fetch: Arc<dyn Fetch>) -> 
         reconcile_statement_timeout_ms: svc_ledger::reconcile::DEFAULT_STATEMENT_TIMEOUT_MS,
         indexer_url: indexer_url.map(str::to_owned),
         fetch,
+        posting: support::idle_posting(),
     })
     .unwrap()
 }

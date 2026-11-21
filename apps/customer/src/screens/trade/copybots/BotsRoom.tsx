@@ -34,6 +34,7 @@ import { TwapWizard, type BotKind } from './TwapWizard';
 import { GRID_TONE, GRID_WORD, GridRoom } from './GridRoom';
 import { WebhooksRoom } from './WebhooksRoom';
 import { SignalsRoom } from './SignalsRoom';
+import { RecurringRoom } from './RecurringBuy';
 import type { GridBot } from './api';
 import { roomRefusal } from './refusals';
 
@@ -77,7 +78,7 @@ const CATALOGUE: readonly CatalogueRow[] = [
     id: 'dca',
     name: 'Recurring buy (DCA)',
     does: 'Buys a fixed amount on a schedule',
-    needs: 'An amount, a schedule, and a recurring-order service',
+    needs: 'An amount, a schedule, and USDC on your own venue account. Set it up from a coin page.',
   },
   {
     id: 'studio',
@@ -99,28 +100,18 @@ const TYPE_LINK: Record<CatalogueRow['id'], { name: string; href: string }> = {
 
 type OpenBot = { algo: Algo | null; progress: Progress | null; failure: Failure | null };
 
-/** Why a bot type with no engine can't be set up, in the catalogue and in its own room. */
-const NOT_BUILT: Record<'dca', string> = {
-  dca: 'No recurring-order service exists. Use Convert for a single trade.',
-};
-
-/** Bot types with no engine yet: the room is reachable and says why nothing can be set up. */
-const PARKED: Record<string, { title: string; reason: string }> = {
-  [TYPE_LINK.dca.href]: { title: TYPE_LINK.dca.name, reason: NOT_BUILT.dca },
-};
-
 const UNKNOWN_KIND = { title: 'Trading bots', reason: 'No bot type has that address.' };
 
 export function BotsRoom({ path }: { path: string }) {
   const pathname = new URL(path, 'http://x').pathname.replace(/\/+$/, '');
   if (pathname === TYPE_LINK.grid.href) return <GridRoom path={path} />;
+  // The recurring buy (J-copy-bots-otc-16): its rules and their share pages.
+  if (pathname === TYPE_LINK.dca.href || pathname.startsWith(`${TYPE_LINK.dca.href}/`)) return <RecurringRoom path={path} />;
   if (pathname === '/trade/bots/webhooks') return <WebhooksRoom />;
   // The deploy wizard of a saved Quant Studio strategy (AL-live-02): `/trade/bots/new?from=<strategyId>`.
   if (pathname === '/trade/bots/new') return <LiveDeployWizard path={path} />;
   if (pathname === '/trade/bots/signals' || pathname.startsWith('/trade/bots/signals/')) return <SignalsRoom path={path} />;
-  const parked = PARKED[pathname];
-  if (parked) return <ParkedBotRoom title={parked.title} reason={parked.reason} />;
-  // Only grid and DCA have rooms of their own; any other /trade/bots/<kind> is an address with no bot type behind it.
+  // Only grid and the recurring buy have rooms of their own; any other /trade/bots/<kind> is an address with no bot type behind it.
   if (pathname.startsWith('/trade/bots/')) return <ParkedBotRoom title={UNKNOWN_KIND.title} reason={UNKNOWN_KIND.reason} />;
   return <BotsHub path={path} />;
 }
@@ -300,7 +291,9 @@ function BotsHub({ path }: { path: string }) {
       }
       return { tone: 'lime', word: gridSetup.data ? 'Ready' : 'Checking', reason: null, ready: true };
     }
-    return { tone: 'neutral', word: 'Not built', reason: NOT_BUILT.dca, ready: false };
+    // The recurring buy trades on the person's own venue account: it is set up from a coin page.
+    if (!session) return { tone: 'neutral', word: 'Sign in', reason: 'Sign in to set up a bot.', ready: false };
+    return { tone: 'lime', word: 'Ready', reason: null, ready: true };
   };
 
   // A setup link opens the wizard only where the catalogue's Set up button would, once the policy has answered; where it
@@ -360,9 +353,10 @@ function BotsHub({ path }: { path: string }) {
               {t('Set up')}
             </Button>
           );
+        // The recurring buy: its room lists the person's rules; a new one is set up from a coin page.
         return (
-          <Button variant="secondary" size={28} disabled>
-            {t('Not built')}
+          <Button size={28} disabled={!s.ready} onClick={() => navigate(TYPE_LINK.dca.href)}>
+            {t('Set up')}
           </Button>
         );
       },

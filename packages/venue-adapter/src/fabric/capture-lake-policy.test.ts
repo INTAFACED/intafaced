@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   allowsPersistenceClaim,
@@ -9,6 +6,7 @@ import {
   describeCaptureLakePolicy,
   wouldCollapseHoleToEmptyBook,
 } from './capture-lake-policy.js';
+import * as fabric from './index.js';
 
 describe('describeCaptureLakePolicy — connect.data-lake fabric honesty door', () => {
   it('states hole vs quiet-market honesty without promising a time-series store', () => {
@@ -48,9 +46,12 @@ describe('capture-lake policy enforcement', () => {
 });
 
 describe('capture-lake-policy public door — fabric export seal', () => {
-  it('fabric/index re-exports capture-lake-policy', () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const fabricIndex = readFileSync(join(here, 'index.ts'), 'utf8');
-    expect(fabricIndex).toMatch(/capture-lake-policy/);
+  it('fabric/index exports the capture-lake policy door itself', () => {
+    expect(fabric.describeCaptureLakePolicy).toBe(describeCaptureLakePolicy);
+    expect(fabric.allowsQuietMarketBook).toBe(allowsQuietMarketBook);
+    expect(fabric.wouldCollapseHoleToEmptyBook).toBe(wouldCollapseHoleToEmptyBook);
+    expect(fabric.allowsPersistenceClaim).toBe(allowsPersistenceClaim);
+    expect(fabric.CAPTURE_LAKE_RECORD_KINDS).toBe(CAPTURE_LAKE_RECORD_KINDS);
+    expect(fabric.describeCaptureLakePolicy().holeNotSyntheticEmptyBook).toBe(true);
   });
 });

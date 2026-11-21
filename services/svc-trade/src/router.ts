@@ -1,4 +1,6 @@
 import type { VenueGrid } from './grid/venue-grid.js';
+import type { RecurringBuys } from './recurring/recurring-buys.js';
+import { recurringRouter } from './recurring/router.js';
 import { builderFeeAdminRouter, type BuilderFeeReconReader } from './builder-fee/builder-fee-admin.js';
 import { agentDeskAdminRouter } from './venue/agent-desk-admin.js';
 import { quantLiveAdminRouter } from './quant/live-run/halts-admin.js';
@@ -968,6 +970,7 @@ export function createTradeRouter(
   agentDesk?: AgentDesk | null,
   quantHalts?: StrategyHaltDesk | null,
   venueGrid?: VenueGrid | null,
+  recurring?: RecurringBuys | null,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -1045,8 +1048,9 @@ export function createTradeRouter(
     venue: ownVenueActivityRouter(venueActivity),
     /** `signals.*`: chart alert webhooks (signals/router.ts); the alert intake is the public REST route. */
     signals: signalsRouter(signals),
-    /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
-    bots: router({ grid: gridRouter(grid, venueGrid) }),
+    /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`.
+     * `bots.recurring.*`: the recurring buy of a basket on the person's own venue account (recurring/router.ts). */
+    bots: router({ grid: gridRouter(grid, venueGrid), recurring: recurringRouter(recurring) }),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),
