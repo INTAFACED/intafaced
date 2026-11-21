@@ -32,6 +32,13 @@ The `assets` slice is ported. It added:
 - The kit's identity client sends a consume's replay key (`requestId`), which the asset edit sends and the freeze doors do not.
 - `tests/assets_pg.rs`: `supported-assets.pg.test.ts` case for case, and the doors of `asset-registry-doors.test.ts`, on a real Postgres.
 
+The `reports` slice is ported. It added:
+
+- `src/reports.rs`: `statementPnl`, `reportExport`, `custody`, `financeClose` and `resilience`, each answering as its TypeScript handler does. None of them posts. `statementPnl` reads the owner's balances when no lots are sent, and still refuses, because posted cash is not lots, marks or NAV. A failed read fails the call. A statement sum or product that does not fit `i128` (past about 1.7e20 units) is refused as the ledger's own fault. The TypeScript's bigint answers it, but the port never answers a wrapped or saturated figure. Custody's difference is worked out exactly.
+- The five doors' input schemas, recorded in `schemas.json`. `statementPnl`'s decimal strings carry their own error, recorded as `definedMsg` and run by the kit's `service_kit::schema`.
+- `tests/reports_parity.rs`: 1,272 answers (status and body) that the five TypeScript handlers gave to inputs reaching each branch (each distinct answer kept with up to three of its inputs), recorded by `record-door.mjs` into `tests/fixtures/reports.golden.jsonl`.
+- `tests/reports_pg.rs`: `statement-pnl-postgres.test.ts` on a real Postgres, plus a failed balance read.
+
 The `history` slice is ported. It added:
 
 - `src/history.rs`: `history` (one account's entries in `[from, to)`, refused past 10,000 rather than answered short), `historyPage` (keyset pages newest first on the entry id, the cursor `base64url("v2.<id>")`, and each line's allow-listed rail and product, the owner's own order, its fill fee and its withdrawal id) and `holdingsHistory` (the owner's holdings and what crossed its edge since `from`, per asset, reason and bucket, in one repeatable-read snapshot). Moments cross as milliseconds, the database's microseconds cut as `new Date` cuts them.

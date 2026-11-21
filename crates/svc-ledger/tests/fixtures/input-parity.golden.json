@@ -370,7 +370,139 @@
     "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"updatedAt\"],\"message\":\"Invalid input: expected string, received number\"}]",
     "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"updatedAt\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
     "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"updatedAt\"],\"message\":\"Invalid input: expected string, received array\"}]",
-    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"updatedAt\"],\"message\":\"Invalid input: expected string, received object\"}]"
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"updatedAt\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"user\",\"subaccount\",\"module\",\"house\",\"treasury\"],\"path\":[\"ownerType\"],\"message\":\"Invalid option: expected one of \\\"user\\\"|\\\"subaccount\\\"|\\\"module\\\"|\\\"house\\\"|\\\"treasury\\\"\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"ownerId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingAssetId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "ok {\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingAssetId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingAssetId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingAssetId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingAssetId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"reportingAssetId\"],\"message\":\"Too small: expected string to have >=1 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingAssetId\"],\"message\":\"Invalid input: expected string, received array\"},{\"origin\":\"array\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"reportingAssetId\"],\"message\":\"Too small: expected array to have >=1 items\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingAssetId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lots\"],\"message\":\"Invalid input: expected object, received null\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lots\"],\"message\":\"Invalid input: expected object, received number\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lots\"],\"message\":\"Invalid input: expected object, received boolean\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lots\"],\"message\":\"Invalid input: expected object, received string\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"lots\"],\"message\":\"Invalid input: expected object, received array\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"lots\",\"closed\"],\"message\":\"Invalid input: expected array, received undefined\"},{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"lots\",\"open\"],\"message\":\"Invalid input: expected array, received undefined\"}]",
+    "issues [{\"expected\":\"record\",\"code\":\"invalid_type\",\"path\":[\"marks\"],\"message\":\"Invalid input: expected record, received null\"}]",
+    "issues [{\"expected\":\"record\",\"code\":\"invalid_type\",\"path\":[\"marks\"],\"message\":\"Invalid input: expected record, received number\"}]",
+    "issues [{\"expected\":\"record\",\"code\":\"invalid_type\",\"path\":[\"marks\"],\"message\":\"Invalid input: expected record, received boolean\"}]",
+    "issues [{\"expected\":\"record\",\"code\":\"invalid_type\",\"path\":[\"marks\"],\"message\":\"Invalid input: expected record, received string\"}]",
+    "issues [{\"expected\":\"record\",\"code\":\"invalid_type\",\"path\":[\"marks\"],\"message\":\"Invalid input: expected record, received array\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"navInputs\"],\"message\":\"Invalid input: expected object, received null\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"navInputs\"],\"message\":\"Invalid input: expected object, received number\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"navInputs\"],\"message\":\"Invalid input: expected object, received boolean\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"navInputs\"],\"message\":\"Invalid input: expected object, received string\"}]",
+    "issues [{\"expected\":\"object\",\"code\":\"invalid_type\",\"path\":[\"navInputs\"],\"message\":\"Invalid input: expected object, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"navInputs\",\"cashReporting\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"nav\",\"sftp\",\"regulator\"],\"path\":[\"kind\"],\"message\":\"Invalid option: expected one of \\\"nav\\\"|\\\"sftp\\\"|\\\"regulator\\\"\"}]",
+    "ok {\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+    "issues [{\"expected\":\"boolean\",\"code\":\"invalid_type\",\"path\":[\"complete\"],\"message\":\"Invalid input: expected boolean, received null\"}]",
+    "issues [{\"expected\":\"boolean\",\"code\":\"invalid_type\",\"path\":[\"complete\"],\"message\":\"Invalid input: expected boolean, received number\"}]",
+    "issues [{\"expected\":\"boolean\",\"code\":\"invalid_type\",\"path\":[\"complete\"],\"message\":\"Invalid input: expected boolean, received string\"}]",
+    "issues [{\"expected\":\"boolean\",\"code\":\"invalid_type\",\"path\":[\"complete\"],\"message\":\"Invalid input: expected boolean, received array\"}]",
+    "issues [{\"expected\":\"boolean\",\"code\":\"invalid_type\",\"path\":[\"complete\"],\"message\":\"Invalid input: expected boolean, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"legalEntityId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"legalEntityId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"legalEntityId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"legalEntityId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"legalEntityId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"regulatorId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"regulatorId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"regulatorId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"regulatorId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"regulatorId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingPeriod\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingPeriod\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingPeriod\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingPeriod\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reportingPeriod\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"lotIds\"],\"message\":\"Invalid input: expected array, received null\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"lotIds\"],\"message\":\"Invalid input: expected array, received number\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"lotIds\"],\"message\":\"Invalid input: expected array, received boolean\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"lotIds\"],\"message\":\"Invalid input: expected array, received string\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"lotIds\"],\"message\":\"Invalid input: expected array, received object\"}]",
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"chain\",\"fiat\",\"off_exchange\",\"break\"],\"path\":[\"kind\"],\"message\":\"Invalid option: expected one of \\\"chain\\\"|\\\"fiat\\\"|\\\"off_exchange\\\"|\\\"break\\\"\"}]",
+    "ok {\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"adapterAmount\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"adapterAmount\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"adapterAmount\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"adapterAmount\"],\"message\":\"Too small: expected string to have >=1 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"adapterAmount\"],\"message\":\"Invalid input: expected string, received array\"},{\"origin\":\"array\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"adapterAmount\"],\"message\":\"Too small: expected array to have >=1 items\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"adapterAmount\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"bookAmount\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"bookAmount\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"bookAmount\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"bookAmount\"],\"message\":\"Too small: expected string to have >=1 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"bookAmount\"],\"message\":\"Invalid input: expected string, received array\"},{\"origin\":\"array\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"bookAmount\"],\"message\":\"Too small: expected array to have >=1 items\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"bookAmount\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"breakId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"breakId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"breakId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"breakId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"breakId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"firstSeenAt\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"firstSeenAt\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"firstSeenAt\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"firstSeenAt\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"firstSeenAt\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"operator\",\"auto\"],\"path\":[\"resolve\"],\"message\":\"Invalid option: expected one of \\\"operator\\\"|\\\"auto\\\"\"}]",
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"segregation\",\"close\",\"por\"],\"path\":[\"kind\"],\"message\":\"Invalid option: expected one of \\\"segregation\\\"|\\\"close\\\"|\\\"por\\\"\"}]",
+    "ok {\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"clientOwnerId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"clientOwnerId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"clientOwnerId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"clientOwnerId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"clientOwnerId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"corporateOwnerId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"corporateOwnerId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"corporateOwnerId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"corporateOwnerId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"corporateOwnerId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"periodId\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"periodId\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"periodId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"periodId\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"periodId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"recipes\"],\"message\":\"Invalid input: expected array, received null\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"recipes\"],\"message\":\"Invalid input: expected array, received number\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"recipes\"],\"message\":\"Invalid input: expected array, received boolean\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"recipes\"],\"message\":\"Invalid input: expected array, received string\"}]",
+    "issues [{\"expected\":\"array\",\"code\":\"invalid_type\",\"path\":[\"recipes\"],\"message\":\"Invalid input: expected array, received object\"}]",
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"risk\",\"split_brain\",\"slo\"],\"path\":[\"kind\"],\"message\":\"Invalid option: expected one of \\\"risk\\\"|\\\"split_brain\\\"|\\\"slo\\\"\"}]",
+    "ok {\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedLatencyMs\":\"12\",\"observedCount\":\"3\"}",
+    "ok {\"kind\":\"risk\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedLatencyMs\":\"12\",\"observedCount\":\"3\"}",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"dependency\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"dependency\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"dependency\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "ok {\"kind\":\"risk\",\"dependency\":\"\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedLatencyMs\":\"12\",\"observedCount\":\"3\"}",
+    "ok {\"kind\":\"risk\",\"dependency\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedLatencyMs\":\"12\",\"observedCount\":\"3\"}",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"dependency\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"dependency\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "ok {\"kind\":\"risk\",\"dependency\":\"matching\",\"acceptNewRisk\":true,\"observedLatencyMs\":\"12\",\"observedCount\":\"3\"}",
+    "issues [{\"code\":\"invalid_value\",\"values\":[\"ok\",\"degraded\",\"down\"],\"path\":[\"dependencyStatus\"],\"message\":\"Invalid option: expected one of \\\"ok\\\"|\\\"degraded\\\"|\\\"down\\\"\"}]",
+    "ok {\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"observedLatencyMs\":\"12\",\"observedCount\":\"3\"}",
+    "issues [{\"expected\":\"boolean\",\"code\":\"invalid_type\",\"path\":[\"acceptNewRisk\"],\"message\":\"Invalid input: expected boolean, received null\"}]",
+    "issues [{\"expected\":\"boolean\",\"code\":\"invalid_type\",\"path\":[\"acceptNewRisk\"],\"message\":\"Invalid input: expected boolean, received number\"}]",
+    "issues [{\"expected\":\"boolean\",\"code\":\"invalid_type\",\"path\":[\"acceptNewRisk\"],\"message\":\"Invalid input: expected boolean, received string\"}]",
+    "issues [{\"expected\":\"boolean\",\"code\":\"invalid_type\",\"path\":[\"acceptNewRisk\"],\"message\":\"Invalid input: expected boolean, received array\"}]",
+    "issues [{\"expected\":\"boolean\",\"code\":\"invalid_type\",\"path\":[\"acceptNewRisk\"],\"message\":\"Invalid input: expected boolean, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"observedCount\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"observedCount\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"observedCount\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "ok {\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedLatencyMs\":\"12\",\"observedCount\":\"\"}",
+    "ok {\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedLatencyMs\":\"12\",\"observedCount\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"observedCount\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"observedCount\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"observedLatencyMs\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"observedLatencyMs\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"observedLatencyMs\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "ok {\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedLatencyMs\":\"\",\"observedCount\":\"3\"}",
+    "ok {\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedLatencyMs\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"observedCount\":\"3\"}",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"observedLatencyMs\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"observedLatencyMs\"],\"message\":\"Invalid input: expected string, received object\"}]"
   ],
   "cases": [
     ["post", null, 0],
@@ -3265,6 +3397,1362 @@
       "registryAsset",
       "{\"id\":\"USDT\",\"kind\":\"crypto\",\"precision\":6,\"networks\":[{\"networkId\":\"tron\",\"label\":\"Tron (TRC-20)\"},{\"networkId\":\"ethereum\",\"label\":\"Ethereum (ERC-20)\",\"contract\":\" 0xdac17f958d2ee523a2206206994597c13d831ec7 \",\"links\":[{\"label\":\"Explorer\",\"url\":\"https://etherscan.io/token/0xdac1\"}]}],\"defaultNetworkId\":\"ethereum\",\"allowedActions\":[\"deposit\",\"withdraw\",\"trade\",\"transfer\"],\"state\":\"active\",\"revision\":1,\"updatedAt\":{}}",
       370
+    ],
+    ["statementPnl", null, 0],
+    ["statementPnl", "null", 1],
+    ["statementPnl", "7", 2],
+    ["statementPnl", "\"x\"", 3],
+    ["statementPnl", "[]", 4],
+    ["statementPnl", "{}", 371],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      6
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"},\"extra\":1}",
+      372
+    ],
+    [
+      "statementPnl",
+      "{\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      49
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":null,\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      49
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":7,\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      49
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":true,\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      49
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      49
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      49
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":[],\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      49
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":{},\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      49
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      50
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":null,\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      51
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":7,\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      52
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":true,\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      53
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      141
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      6
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":[],\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      56
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":{},\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      57
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      373
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":null,\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      374
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":7,\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      375
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":true,\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      376
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      377
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      6
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":[],\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      378
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":{},\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      379
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      6
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":null,\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      380
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":7,\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      381
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":true,\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      382
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":\"\",\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      383
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      383
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":[],\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      384
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      385
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      6
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":null,\"navInputs\":{\"cashReporting\":\"10\"}}",
+      386
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":7,\"navInputs\":{\"cashReporting\":\"10\"}}",
+      387
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":true,\"navInputs\":{\"cashReporting\":\"10\"}}",
+      388
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":\"\",\"navInputs\":{\"cashReporting\":\"10\"}}",
+      389
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"navInputs\":{\"cashReporting\":\"10\"}}",
+      389
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":[],\"navInputs\":{\"cashReporting\":\"10\"}}",
+      390
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{},\"navInputs\":{\"cashReporting\":\"10\"}}",
+      6
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"}}",
+      6
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":null}",
+      391
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":7}",
+      392
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":true}",
+      393
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":\"\"}",
+      394
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      394
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":[]}",
+      395
+    ],
+    [
+      "statementPnl",
+      "{\"ownerType\":\"user\",\"ownerId\":\"22222222-2222-4222-8222-222222222222\",\"reportingAssetId\":\"USD\",\"lots\":{\"closed\":[{\"assetId\":\"BTC\",\"costBasis\":\"100\",\"proceeds\":\"150.5\"}],\"open\":[{\"assetId\":\"ETH\",\"qtyRemaining\":\"2\",\"costBasis\":\"3000\"}]},\"marks\":{\"ETH\":\"1600.25\"},\"navInputs\":{}}",
+      396
+    ],
+    ["reportExport", null, 0],
+    ["reportExport", "null", 1],
+    ["reportExport", "7", 2],
+    ["reportExport", "\"x\"", 3],
+    ["reportExport", "[]", 4],
+    ["reportExport", "{}", 397],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"],\"extra\":1}",
+      398
+    ],
+    [
+      "reportExport",
+      "{\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      397
+    ],
+    [
+      "reportExport",
+      "{\"kind\":null,\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      397
+    ],
+    [
+      "reportExport",
+      "{\"kind\":7,\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      397
+    ],
+    [
+      "reportExport",
+      "{\"kind\":true,\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      397
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      397
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      397
+    ],
+    [
+      "reportExport",
+      "{\"kind\":[],\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      397
+    ],
+    [
+      "reportExport",
+      "{\"kind\":{},\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      397
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":null,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      399
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":7,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      400
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":\"\",\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      401
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      401
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":[],\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      402
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":{},\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      403
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":null,\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      51
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":7,\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      52
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":true,\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      53
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":[],\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      67
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":{},\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      57
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":null,\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      218
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":7,\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      219
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":true,\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      220
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":[],\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      222
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":{},\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      223
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":null,\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      404
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":7,\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      405
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":true,\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      406
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":[],\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      407
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":{},\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      408
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":null,\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      409
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":7,\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      410
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":true,\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      411
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":[],\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      412
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":{},\"reportingPeriod\":\"2026Q3\",\"lotIds\":[\"l1\"]}",
+      413
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":null,\"lotIds\":[\"l1\"]}",
+      414
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":7,\"lotIds\":[\"l1\"]}",
+      415
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":true,\"lotIds\":[\"l1\"]}",
+      416
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"lotIds\":[\"l1\"]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":[],\"lotIds\":[\"l1\"]}",
+      417
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":{},\"lotIds\":[\"l1\"]}",
+      418
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\"}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":null}",
+      419
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":7}",
+      420
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":true}",
+      421
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":\"\"}",
+      422
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      422
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":[]}",
+      6
+    ],
+    [
+      "reportExport",
+      "{\"kind\":\"regulator\",\"complete\":true,\"ownerId\":\"o\",\"accountId\":\"a\",\"legalEntityId\":\"le\",\"regulatorId\":\"r\",\"reportingPeriod\":\"2026Q3\",\"lotIds\":{}}",
+      423
+    ],
+    ["custody", null, 0],
+    ["custody", "null", 1],
+    ["custody", "7", 2],
+    ["custody", "\"x\"", 3],
+    ["custody", "[]", 4],
+    ["custody", "{}", 424],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      6
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\",\"extra\":1}",
+      425
+    ],
+    [
+      "custody",
+      "{\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      424
+    ],
+    [
+      "custody",
+      "{\"kind\":null,\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      424
+    ],
+    [
+      "custody",
+      "{\"kind\":7,\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      424
+    ],
+    [
+      "custody",
+      "{\"kind\":true,\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      424
+    ],
+    [
+      "custody",
+      "{\"kind\":\"\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      424
+    ],
+    [
+      "custody",
+      "{\"kind\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      424
+    ],
+    [
+      "custody",
+      "{\"kind\":[],\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      424
+    ],
+    [
+      "custody",
+      "{\"kind\":{},\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      424
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      6
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":null,\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      426
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":7,\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      427
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":true,\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      428
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      429
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      6
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":[],\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      430
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":{},\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      431
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      6
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":null,\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      432
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":7,\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      433
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":true,\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      434
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      435
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      6
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":[],\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      436
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":{},\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      437
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      6
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":null,\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      438
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":7,\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      439
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":true,\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      440
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      6
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      6
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":[],\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      441
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":{},\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"operator\"}",
+      442
+    ],
+    ["custody", "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"resolve\":\"operator\"}", 6],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":null,\"resolve\":\"operator\"}",
+      443
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":7,\"resolve\":\"operator\"}",
+      444
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":true,\"resolve\":\"operator\"}",
+      445
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"\",\"resolve\":\"operator\"}",
+      6
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"resolve\":\"operator\"}",
+      6
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":[],\"resolve\":\"operator\"}",
+      446
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":{},\"resolve\":\"operator\"}",
+      447
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\"}",
+      6
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":null}",
+      448
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":7}",
+      448
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":true}",
+      448
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"\"}",
+      448
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      448
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":[]}",
+      448
+    ],
+    [
+      "custody",
+      "{\"kind\":\"break\",\"adapterAmount\":\"10\",\"bookAmount\":\"9.5\",\"breakId\":\"b1\",\"firstSeenAt\":\"2026-11-01T00:00:00Z\",\"resolve\":{}}",
+      448
+    ],
+    ["financeClose", null, 0],
+    ["financeClose", "null", 1],
+    ["financeClose", "7", 2],
+    ["financeClose", "\"x\"", 3],
+    ["financeClose", "[]", 4],
+    ["financeClose", "{}", 449],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"],\"extra\":1}",
+      450
+    ],
+    [
+      "financeClose",
+      "{\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      449
+    ],
+    [
+      "financeClose",
+      "{\"kind\":null,\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      449
+    ],
+    [
+      "financeClose",
+      "{\"kind\":7,\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      449
+    ],
+    [
+      "financeClose",
+      "{\"kind\":true,\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      449
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      449
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      449
+    ],
+    [
+      "financeClose",
+      "{\"kind\":[],\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      449
+    ],
+    [
+      "financeClose",
+      "{\"kind\":{},\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      449
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":null,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      399
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":7,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      400
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":\"\",\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      401
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      401
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":[],\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      402
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":{},\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      403
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":null,\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      451
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":7,\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      452
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":true,\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      453
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":[],\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      454
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":{},\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      455
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":null,\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      456
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":7,\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      457
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":true,\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      458
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":[],\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      459
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":{},\"periodId\":\"2026-10\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      460
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":null,\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      461
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":7,\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      462
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":true,\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      463
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":[],\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      464
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":{},\"recipes\":[\"clientBalances\",\"corporateBalances\"]}",
+      465
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\"}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":null}",
+      466
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":7}",
+      467
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":true}",
+      468
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":\"\"}",
+      469
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      469
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":[]}",
+      6
+    ],
+    [
+      "financeClose",
+      "{\"kind\":\"close\",\"complete\":true,\"clientOwnerId\":\"c\",\"corporateOwnerId\":\"k\",\"periodId\":\"2026-10\",\"recipes\":{}}",
+      470
+    ],
+    ["resilience", null, 0],
+    ["resilience", "null", 1],
+    ["resilience", "7", 2],
+    ["resilience", "\"x\"", 3],
+    ["resilience", "[]", 4],
+    ["resilience", "{}", 471],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      472
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\",\"extra\":1}",
+      472
+    ],
+    [
+      "resilience",
+      "{\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      471
+    ],
+    [
+      "resilience",
+      "{\"kind\":null,\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      471
+    ],
+    [
+      "resilience",
+      "{\"kind\":7,\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      471
+    ],
+    [
+      "resilience",
+      "{\"kind\":true,\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      471
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      471
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      471
+    ],
+    [
+      "resilience",
+      "{\"kind\":[],\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      471
+    ],
+    [
+      "resilience",
+      "{\"kind\":{},\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      471
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      473
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":null,\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      474
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":7,\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      475
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":true,\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      476
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      477
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      478
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":[],\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      479
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":{},\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      480
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      481
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":null,\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      482
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":7,\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      482
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":true,\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      482
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      482
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      482
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":[],\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      482
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":{},\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      482
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      483
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":null,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      484
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":7,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      485
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      472
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":\"\",\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      486
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      486
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":[],\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      487
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":{},\"observedCount\":\"3\",\"observedLatencyMs\":\"12\"}",
+      488
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedLatencyMs\":\"12\"}",
+      6
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":null,\"observedLatencyMs\":\"12\"}",
+      489
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":7,\"observedLatencyMs\":\"12\"}",
+      490
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":true,\"observedLatencyMs\":\"12\"}",
+      491
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"\",\"observedLatencyMs\":\"12\"}",
+      492
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"observedLatencyMs\":\"12\"}",
+      493
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":[],\"observedLatencyMs\":\"12\"}",
+      494
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":{},\"observedLatencyMs\":\"12\"}",
+      495
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\"}",
+      6
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":null}",
+      496
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":7}",
+      497
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":true}",
+      498
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"\"}",
+      499
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      500
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":[]}",
+      501
+    ],
+    [
+      "resilience",
+      "{\"kind\":\"risk\",\"dependency\":\"matching\",\"dependencyStatus\":\"ok\",\"acceptNewRisk\":true,\"observedCount\":\"3\",\"observedLatencyMs\":{}}",
+      502
     ]
   ]
 }

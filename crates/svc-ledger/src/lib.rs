@@ -25,4 +25,5 @@ pub mod migrate;
 pub mod reconcile;
 pub mod reconciler;
 pub mod refines;
+pub mod reports;
 pub mod status;
