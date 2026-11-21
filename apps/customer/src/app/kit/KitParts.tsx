@@ -41,6 +41,9 @@ import { PriceChart } from '../../screens/trade/chart/PriceChart';
 import { BookPanel } from '../../screens/trade/desk/OrderBook';
 import type { DeskMarket } from '../../screens/trade/desk/market';
 import type { Candle, Loadable, TickerRow } from '../../data/types';
+// The chart and the book draw with the desk's own sheets, as on the trade desk.
+import '../../screens/trade/desk/desk.css';
+import '../../screens/trade/chart/chart.css';
 
 /**
  * The parts of the kit /kit did not show before intafaced issue 9326: type roles, form controls, overlays, the stepper,
@@ -386,7 +389,7 @@ export function Book() {
     },
   };
   return (
-    <div className="vk-book">
+    <div className="if-desk vk-book">
       <BookPanel market={MARKET} book={book} ticker={ticker} zone="UTC" onPick={() => {}} onPickPrice={() => {}} />
     </div>
   );

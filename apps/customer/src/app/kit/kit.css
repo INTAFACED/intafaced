@@ -482,7 +482,7 @@
 }
 :root .vk-rail {
   display: flex;
-  block-size: 26rem;
+  block-size: 24rem;
   overflow: hidden;
   border: 1px solid var(--lit-line);
   border-radius: var(--lit-radius-tile);
