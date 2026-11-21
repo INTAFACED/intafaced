@@ -380,7 +380,9 @@ test(`${J} #8 opens the share page: cost always shown; value reads "Not set" wit
   await expect(card).toContainText(new RegExp(`Value\\s*${priced.result.value.replace('.', '\\.')}`));
   await expect(card).toContainText(/Profit\s*-?[0-9.]+%/);
 
-  // The share sheet only offers the words to copy: no write leaves the page.
+  // The share sheet only offers the words to copy: no write leaves the page from opening it on (the reload above may
+  // refresh the session, which is the sign-in's own write, not the sheet's).
+  writes.length = 0;
   await page.getByRole('button', { name: 'Share', exact: true }).click();
   const sheet = page.getByRole('dialog', { name: 'Share your result' });
   await expect(sheet.getByTestId('recurring-share-text')).toContainText('Cost 10 USDC');
