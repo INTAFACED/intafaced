@@ -186,22 +186,24 @@ test(`${J} #2 creates it with a passkey: an address on the venue's network, labe
 
 test(`${J} #3 presses Create my wallet again, or the request is replayed: the same wallet, never a second, under the business key wallet:embedded:<personId>`, async ({
   page,
+  browser,
 }) => {
   const { who, address, walletId } = walletState();
 
-  // Pressing it again, for real: two tabs of one new TEST person, both opened before the wallet exists, so both offer
-  // Create my wallet. The first makes the wallet; the second's press gets that same wallet back, with no second passkey.
+  // Pressing it again, for real: one new TEST person on two devices, each signed in and showing the room before the
+  // wallet exists, so both offer Create my wallet. The first makes the wallet; the second's press gets that same wallet
+  // back, with no passkey made on it.
   const twice = await signUp(page, 'jwallet22again');
   const first = page;
   const firstDevice = await device(first);
-  const second = await first.context().newPage();
+  const other = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
   try {
+    const second = await other.newPage();
     const secondDevice = await device(second);
     await openRoom(first, twice);
-    // The second tab shares the first's sign-in (a second sign-in would end the first tab's session).
-    await second.goto('/wallet/embedded');
-    await expect(panel(second)).toBeVisible({ timeout: 20_000 });
+    await openRoom(second, twice);
     await expect(second.getByRole('button', { name: 'Create my wallet', exact: true })).toBeEnabled();
+    await expect(first.getByRole('button', { name: 'Create my wallet', exact: true })).toBeEnabled();
     await first.getByRole('button', { name: 'Create my wallet', exact: true }).click();
     const made = panel(first).locator('[data-embedded-address]');
     await expect(made).toHaveText(/^0x[0-9a-fA-F]{40}$/, { timeout: 20_000 });
@@ -218,7 +220,7 @@ test(`${J} #3 presses Create my wallet again, or the request is replayed: the sa
       idempotencyKey: `wallet:embedded:${twiceClient.userId}`,
     });
   } finally {
-    await second.close();
+    await other.close();
   }
 
   // A replayed create, twice at once, with another passkey, for the person of #2: the same wallet under the same business
