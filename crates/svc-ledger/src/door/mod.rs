@@ -11,8 +11,8 @@
 //!
 //! Past those the call is its slice's: [`Outcome::Owed`] names which, until the slice is ported. Ported so far:
 //! `/health` and `/ready` (the `store` slice, `crate::status`), the freeze doors (the `freeze` slice, `freeze.rs`), the
-//! history doors (the `history` slice, `history.rs`) and `/operator/reconcile` (the `reconcile` slice,
-//! `reconcile.rs`).
+//! history doors (the `history` slice, `history.rs`), `/operator/reconcile` (the `reconcile` slice, `reconcile.rs`) and
+//! the account and transaction reads (the `balances` slice, `crate::balances`).
 
 mod callers;
 mod freeze;
@@ -424,6 +424,10 @@ pub struct DoorConfig {
     pub custody: crate::reconcile::CustodyLayer,
     /// `LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS`.
     pub reconcile_statement_timeout_ms: i64,
+    /// `process.env.INDEXER_URL`: where `portfolio` reads a 0x account's chain positions.
+    pub indexer_url: Option<String>,
+    /// The wire every outgoing call goes through.
+    pub fetch: Arc<dyn service_kit::http::Fetch>,
 }
 
 /// The door.
@@ -667,6 +671,23 @@ impl LedgerDoor {
         }
     }
 
+    /// A service door's call once its input parses: the ported slices answer it, the rest are owed.
+    fn past_the_door(&self, route: &Route, door: &str, input: &Value) -> Outcome {
+        match route.slice {
+            Slice::History => Outcome::Answer(self.history_door(door, input)),
+            Slice::Balances => answer(crate::balances::respond(
+                &crate::balances::Reads {
+                    store: &self.cfg.store,
+                    indexer_url: self.cfg.indexer_url.as_deref(),
+                    fetch: self.cfg.fetch.as_ref(),
+                },
+                door,
+                input,
+            )),
+            slice => Outcome::Owed(slice),
+        }
+    }
+
     /// `registerS2sHttp`'s `authenticate`, then the door's input.
     fn service(
         &self,
@@ -722,10 +743,7 @@ impl LedgerDoor {
             Body::Parsed(j) => Value::from_json(j),
         };
         match parse(name, value) {
-            Ok(Parsed::Ok(input)) => match route.slice {
-                Slice::History => Outcome::Answer(self.history_door(door, &input)),
-                slice => Outcome::Owed(slice),
-            },
+            Ok(Parsed::Ok(input)) => self.past_the_door(route, door, &input),
             Ok(Parsed::Issues(issues)) => {
                 answer(errors::http_error(&Failure::Zod(schema::message(&issues))))
             }
