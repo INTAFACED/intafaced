@@ -103,11 +103,27 @@ const DEFINITION = {
   publicOrigin: null,
 };
 const PUBLISHED = { id: NOTICE_ID, kind: 'incident', title: 'TEST payments slow', publishedAt: '2026-10-23T10:00:00.000Z' };
+// The rest of what svc-notify sends with every notice and every definition (their records' replies), which this desk does not show.
+const NOTICE_WIRE = {
+  body: 'TEST we are looking',
+  status: 'published',
+  startsAt: null,
+  endsAt: null,
+  version: 1,
+  asset: null,
+  network: null,
+  phase: null,
+  changelog: null,
+  category: null,
+  audience: 'everyone',
+};
+const wire = (n: object) => ({ ...NOTICE_WIRE, ...n });
+const wireDefinition = (d: object) => ({ ...d, noticeCategories: null });
 const desk = () => ({
   'statusPage.subscriptions.channels': () => ok(CHANNELS),
   'statusPage.subscriptions.list': () => ok([SUBSCRIBER]),
-  'notify.notices': () => ok([PUBLISHED, { ...PUBLISHED, id: 'c', kind: 'changelog' }]),
-  'statusPage.definition': () => ok(DEFINITION),
+  'notify.notices': () => ok([wire(PUBLISHED), wire({ ...PUBLISHED, id: '44444444-4444-4444-8444-444444444444', kind: 'changelog' })]),
+  'statusPage.definition': () => ok(wireDefinition(DEFINITION)),
   'statusPage.subscriptions.deliveries': () => ok({ rows: [DELIVERY], more: false }),
 });
 

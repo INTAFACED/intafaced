@@ -9,7 +9,25 @@ const trpcError = (status: number, message: string, code: string) =>
   new Response(JSON.stringify({ error: { message, code: -32600, data: { code } } }), { status });
 const client = (fetch: typeof globalThis.fetch) => createApiClient({ fetch, token: () => 'tok' });
 const intent: WatchlistIntent = { marketIds: ['m1', 'm2'], direction: 'above', condition: 'greater_than', targetPrice: '100' };
+// The fields svc-notify sends on every alert (`priceAlertOutput`), at what a plain one-shot alert holds; a test's own
+// fields override them.
+const SENT = {
+  condition: 'crossing',
+  name: null,
+  message: null,
+  expiresAt: null,
+  updatedAt: '2026-10-17T08:00:00.000Z',
+  extras: [],
+  frequency: 'once',
+  source: 'mark',
+  fireCount: 0,
+  stopReason: null,
+  lastFiredAt: null,
+  channels: null,
+  webhookUrl: null,
+} satisfies Partial<PriceAlert>;
 const row = (marketId: string, patch: Partial<PriceAlert> = {}): PriceAlert => ({
+  ...SENT,
   id: marketId === 'm1' ? '11111111-1111-4111-8111-111111111111' : '22222222-2222-4222-8222-222222222222',
   userId: USER,
   marketId,

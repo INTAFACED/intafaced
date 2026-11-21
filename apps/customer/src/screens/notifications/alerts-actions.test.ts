@@ -6,7 +6,25 @@ import { listAlerts, type AlertIntent } from './notify-api';
 const USER = 'user-1';
 const ID = '11111111-1111-4111-8111-111111111111';
 const intent: AlertIntent = { marketId: 'market-btc', direction: 'above', targetPrice: '65000.50' };
+// The fields svc-notify sends on every alert (`priceAlertOutput`), at what a plain one-shot alert holds; a test's own
+// fields override them.
+const SENT = {
+  condition: 'crossing',
+  name: null,
+  message: null,
+  expiresAt: null,
+  updatedAt: '2026-10-17T08:00:00.000Z',
+  extras: [],
+  frequency: 'once',
+  source: 'mark',
+  fireCount: 0,
+  stopReason: null,
+  lastFiredAt: null,
+  channels: null,
+  webhookUrl: null,
+} as const;
 const row = (patch: Record<string, unknown> = {}) => ({
+  ...SENT,
   id: ID,
   userId: USER,
   marketId: 'market-btc',
