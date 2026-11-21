@@ -1,5 +1,24 @@
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError, publicProcedure } from '@intafaced/contracts';
+import {
+  BANK_GLOBAL_CANCEL,
+  BANK_GLOBAL_CORRIDORS_LIST,
+  BANK_GLOBAL_HOLD_GET,
+  BANK_GLOBAL_HOLD_UPLOAD_PROOF,
+  BANK_GLOBAL_LIST,
+  BANK_GLOBAL_PARTNER,
+  BANK_GLOBAL_QUOTE,
+  BANK_GLOBAL_RECALL,
+  BANK_GLOBAL_RECEIPT,
+  BANK_GLOBAL_RECIPIENTS_ADD,
+  BANK_GLOBAL_RECIPIENTS_LIST,
+  BANK_GLOBAL_RECIPIENTS_REMOVE,
+  BANK_GLOBAL_RECIPIENTS_VALIDATE,
+  BANK_GLOBAL_SEND,
+  GLOBAL_HOLD_STATES,
+  globalSendSchema,
+} from '@intafaced/contracts/bank-global-procedures';
+import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { InsufficientFundsError } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { BankServices } from '../bank-service.js';
@@ -51,38 +70,7 @@ const recurringView = z.object({
   nextRunAt: z.string(),
 });
 
-const sendView = z.object({
-  id: z.string(),
-  fromSpaceId: z.string(),
-  assetId: z.string(),
-  amount: amountString,
-  toCurrency: z.string(),
-  recipientId: z.string(),
-  country: z.string(),
-  deliveryMethod: z.string(),
-  status: z.enum(['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed', 'cancelled', 'returned', 'refunded']),
-  failureCode: z.string().nullable(),
-  failureBlocker: z.string().nullable(),
-  providerRef: z.string().nullable(),
-  quoteRate: z.string().nullable(),
-  quoteFee: z.string().nullable(),
-  quoteFeeAsset: z.string().nullable(),
-  quoteReceive: z.string().nullable(),
-  quoteValidUntil: z.string().nullable(),
-  quoteEta: z.string().nullable(),
-  quoteId: z.string().nullable(),
-  ledgerTxId: z.string().nullable(),
-  cancelledBy: z.enum(['customer', 'auto']).nullable(),
-  returnRef: z.string().nullable(),
-  returnedAt: z.string().nullable(),
-  refundedAt: z.string().nullable(),
-  recallReason: z.string().nullable(),
-  recallRequestedAt: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-const holdState = z.enum(['requested', 'under_review', 'released', 'cancelled']);
+const holdState = z.enum(GLOBAL_HOLD_STATES);
 const operatorHoldView = z.object({
   id: z.string(),
   sendId: z.string(),
@@ -93,13 +81,6 @@ const operatorHoldView = z.object({
   proof: z.object({ name: z.string(), type: z.string(), size: z.number(), sha256: z.string(), uploadedAt: z.string() }).nullable(),
   releasedBy: z.string().nullable(),
   createdAt: z.string(),
-});
-const customerHoldView = z.object({
-  state: holdState,
-  infoRequest: z.string().nullable(),
-  proofUploaded: z.boolean(),
-  proofLimits: z.object({ allowedTypes: z.array(z.string()), maxBytes: z.number() }).nullable(),
-  autoCancel: z.object({ state: z.enum(['unset', 'published']), hours: z.number().nullable(), at: z.string().nullable() }),
 });
 
 function guard<T>(fn: () => Promise<T>): Promise<T> {
@@ -120,6 +101,15 @@ function guard<T>(fn: () => Promise<T>): Promise<T> {
     throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Bank operation failed', cause: err });
   });
 }
+
+/**
+ * The refusal `guard` sent, read by its code: a personal-pay refusal or a bank refusal it passed on, for the records'
+ * strict mount (`@intafaced/contracts/procedure-mount`).
+ */
+const personalPayRefusal: RefusalOf = (err) =>
+  err instanceof TRPCError && (err.cause instanceof PersonalPayError || err.cause instanceof BankError)
+    ? { code: err.cause.code, error: err }
+    : undefined;
 
 async function requireStepUp(
   stepUp: StepUpGate,
@@ -303,134 +293,41 @@ export function createBillsRouter(bank: Pick<BankServices, 'bills' | 'spaces'>, 
 export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'globalHolds' | 'spaces'>, stepUp: StepUpGate) {
   return router({
     /** Whether a TEST stand-in answers global sends on this deployment, and its label; null standIn means it does not. */
-    partner: scopedProcedure('bank:read', { module: 'bank' })
-      .output(z.object({ standIn: z.string().nullable() }))
-      .query(() => bank.globalSend.partner()),
+    partner: mountRecord(BANK_GLOBAL_PARTNER, () => bank.globalSend.partner(), personalPayRefusal),
     corridors: router({
-      list: scopedProcedure('bank:read', { module: 'bank' })
-        .output(
-          z.array(
-            z.object({
-              country: z.string(),
-              currency: z.string(),
-              deliveryMethods: z.array(z.string()),
-              minAmount: z.string().nullable(),
-              maxAmount: z.string().nullable(),
-              cutOffTime: z.string().nullable(),
-              /** On a SWIFT corridor, who bears the banks' charges as the partner answers it (SHA, OUR, BEN); null when it gave none. */
-              swiftCharges: z.enum(['SHA', 'OUR', 'BEN']).nullable(),
-              /** The delivery methods a payout partner pays out on; a send on any other is refused before anything is posted. */
-              payoutMethods: z.array(z.string()),
-            }),
-          ),
-        )
-        .query(() => guard(() => bank.globalSend.corridors())),
+      list: mountRecord(BANK_GLOBAL_CORRIDORS_LIST, () => guard(() => bank.globalSend.corridors()), personalPayRefusal),
     }),
     recipients: router({
-      validate: scopedProcedure('bank:read', { module: 'bank' })
-        .input(z.object({ account: z.string().min(1).max(64), bic: z.string().max(11).optional() }).strict())
-        .output(
-          z.object({
-            format: z.enum(['valid', 'invalid']),
-            formatKind: z.enum(['iban', 'ifsc', 'account_number']).nullable(),
-            normalized: z.string().nullable(),
-            bicLookup: z.discriminatedUnion('status', [
-              z.object({ status: z.literal('not_requested') }),
-              z.object({ status: z.literal('invalid'), code: z.literal('bank.global_bic_format_invalid') }),
-              z.object({
-                status: z.literal('refused'),
-                code: z.literal('bank.global_bic_directory_unset'),
-                blocker: z.literal('socket.psp-partners'),
-              }),
-              z.object({ status: z.literal('unmatched') }),
-              z.object({ status: z.literal('matched'), bic: z.string(), bankName: z.string() }),
-            ]),
-          }),
-        )
-        .query(({ input }) => guard(() => bank.globalSend.validateRecipient(input))),
-      add: scopedProcedure('bank:write', { module: 'bank' })
-        .input(
-          z
-            .object({
-              idempotencyKey: idString,
-              name: z.string().min(1).max(140),
-              account: z.string().min(1).max(64),
-              country: z.string().length(2),
-              bic: z.string().max(11).optional(),
-              label: z.string().max(64).optional(),
-            })
-            .strict(),
-        )
-        .output(
-          z.object({
-            id: z.string(),
-            label: z.string().nullable(),
-            name: z.string(),
-            account: z.string(),
-            accountKind: z.enum(['iban', 'ifsc', 'account_number']),
-            bic: z.string().nullable(),
-            country: z.string(),
-            createdAt: z.string(),
-          }),
-        )
-        .mutation(({ ctx, input }) => guard(() => bank.globalSend.addRecipient({ userId: ctx.principal.userId, ...input }))),
-      list: scopedProcedure('bank:read', { module: 'bank' })
-        .input(z.object({ limit: limitField }).strict())
-        .output(
-          z.array(
-            z.object({
-              id: z.string(),
-              label: z.string().nullable(),
-              name: z.string(),
-              account: z.string(),
-              accountKind: z.enum(['iban', 'ifsc', 'account_number']),
-              bic: z.string().nullable(),
-              country: z.string(),
-              createdAt: z.string(),
-            }),
-          ),
-        )
-        .query(({ ctx, input }) => guard(() => bank.globalSend.listRecipients({ userId: ctx.principal.userId, limit: input.limit }))),
-      remove: scopedProcedure('bank:write', { module: 'bank' })
-        .input(z.object({ recipientId: z.string().guid(), idempotencyKey: idString }).strict())
-        .output(z.object({ removed: z.literal(true) }))
-        .mutation(({ ctx, input }) => guard(() => bank.globalSend.removeRecipient({ userId: ctx.principal.userId, ...input }))),
+      validate: mountRecord(
+        BANK_GLOBAL_RECIPIENTS_VALIDATE,
+        ({ input }) => guard(() => bank.globalSend.validateRecipient(input)),
+        personalPayRefusal,
+      ),
+      add: mountRecord(
+        BANK_GLOBAL_RECIPIENTS_ADD,
+        ({ ctx, input }) => guard(() => bank.globalSend.addRecipient({ userId: ctx.principal.userId, ...input })),
+        personalPayRefusal,
+      ),
+      list: mountRecord(
+        BANK_GLOBAL_RECIPIENTS_LIST,
+        ({ ctx, input }) => guard(() => bank.globalSend.listRecipients({ userId: ctx.principal.userId, limit: input.limit })),
+        personalPayRefusal,
+      ),
+      remove: mountRecord(
+        BANK_GLOBAL_RECIPIENTS_REMOVE,
+        ({ ctx, input }) => guard(() => bank.globalSend.removeRecipient({ userId: ctx.principal.userId, ...input })),
+        personalPayRefusal,
+      ),
     }),
     /** Takes a quote and locks it: a write, since the lock is kept until the provider's valid-until. */
-    quote: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ asset: z.string().min(1).max(16), amount: amountString, toCurrency: z.string().min(3).max(8) }).strict())
-      .output(
-        z.object({
-          quoteId: z.string().guid(),
-          lockedAt: z.string(),
-          rate: amountString,
-          fee: amountString,
-          feeAsset: z.string(),
-          receiveAmount: amountString,
-          validUntil: z.string(),
-          eta: z.string(),
-        }),
-      )
-      .mutation(({ ctx, input }) => guard(() => bank.globalSend.quote({ userId: ctx.principal.userId, ...input }))),
-    send: scopedProcedure('bank:write', { module: 'bank' })
-      .input(
-        z
-          .object({
-            idempotencyKey: idString,
-            fromSpaceId: z.string().guid(),
-            amount: amountString,
-            toCurrency: z.string().min(3).max(8),
-            recipientId: z.string().guid(),
-            country: z.string().length(2),
-            deliveryMethod: z.string().min(1).max(64),
-            compliance: z.record(z.string().max(64), z.string().max(200)).optional(),
-            quoteId: z.string().guid().optional(),
-            stepUpApprovalId: stepUpApprovalField,
-          })
-          .strict(),
-      )
-      .output(sendView)
-      .mutation(({ ctx, input }) =>
+    quote: mountRecord(
+      BANK_GLOBAL_QUOTE,
+      ({ ctx, input }) => guard(() => bank.globalSend.quote({ userId: ctx.principal.userId, ...input })),
+      personalPayRefusal,
+    ),
+    send: mountRecord(
+      BANK_GLOBAL_SEND,
+      ({ ctx, input }) =>
         guard(async () => {
           const space = await ownedSpace(bank, ctx.principal.userId, input.fromSpaceId);
           const binding = globalSendStepUp({
@@ -449,20 +346,21 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
           await requireStepUp(stepUp, ctx.principal, binding, input.stepUpApprovalId);
           return bank.globalSend.send({ userId: ctx.principal.userId, ...input });
         }),
-      ),
-    list: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ limit: limitField, cursor: z.string().min(1).max(512).optional() }).strict())
-      .output(z.object({ items: z.array(sendView), nextCursor: z.string().nullable() }))
-      .query(({ ctx, input }) =>
+      personalPayRefusal,
+    ),
+    list: mountRecord(
+      BANK_GLOBAL_LIST,
+      ({ ctx, input }) =>
         guard(async () => {
           // The owner's auto-cancel window is applied before the customer reads their sends.
           await bank.globalHolds.expireOverdue({ userId: ctx.principal.userId });
           return bank.globalSend.list({ userId: ctx.principal.userId, ...input });
         }),
-      ),
+      personalPayRefusal,
+    ),
     get: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ id: z.string().guid() }).strict())
-      .output(sendView)
+      .output(globalSendSchema)
       .query(({ ctx, input }) =>
         guard(async () => {
           await bank.globalSend.get(ctx.principal.userId, input.id);
@@ -471,44 +369,36 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         }),
       ),
     /** Cancel a send while it is on hold with nothing posted (BK-xfer-08). Nothing moves, so no step-up. */
-    cancel: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ id: z.string().guid() }).strict())
-      .output(sendView)
-      .mutation(({ ctx, input }) => guard(() => bank.globalHolds.cancel(ctx.principal.userId, input.id))),
+    cancel: mountRecord(
+      BANK_GLOBAL_CANCEL,
+      ({ ctx, input }) => guard(() => bank.globalHolds.cancel(ctx.principal.userId, input.id)),
+      personalPayRefusal,
+    ),
     /** Ask for a send that left to come back (wrong person or wrong details). Nothing moves, so no step-up. */
-    recall: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ id: z.string().guid(), reason: z.string().min(1).max(500) }).strict())
-      .output(sendView)
-      .mutation(({ ctx, input }) => guard(() => bank.globalSend.recall({ userId: ctx.principal.userId, ...input }))),
+    recall: mountRecord(
+      BANK_GLOBAL_RECALL,
+      ({ ctx, input }) => guard(() => bank.globalSend.recall({ userId: ctx.principal.userId, ...input })),
+      personalPayRefusal,
+    ),
     /** The signed receipt of a send that left: its text, SHA-256, signature and ledger transaction id. */
-    receipt: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ id: z.string().guid() }).strict())
-      .output(
-        z.object({ fileName: z.string(), text: z.string(), ledgerTxId: z.string(), sha256: z.string(), signature: z.string() }).strict(),
-      )
-      .query(({ ctx, input }) => guard(() => bank.globalSend.receipt(ctx.principal.userId, input.id))),
+    receipt: mountRecord(
+      BANK_GLOBAL_RECEIPT,
+      ({ ctx, input }) => guard(() => bank.globalSend.receipt(ctx.principal.userId, input.id)),
+      personalPayRefusal,
+    ),
     /** The owner's auto-cancel rule for a send on hold, as the tracker shows it. */
     autoCancelRule: scopedProcedure('bank:read', { module: 'bank' })
       .output(z.object({ state: z.enum(['unset', 'published']), hours: z.number().nullable() }).strict())
       .query(() => guard(async () => bank.globalHolds.autoCancelRule())),
     hold: router({
-      get: scopedProcedure('bank:read', { module: 'bank' })
-        .input(z.object({ id: z.string().guid() }).strict())
-        .output(customerHoldView)
-        .query(({ ctx, input }) => guard(() => bank.globalHolds.forCustomer(ctx.principal.userId, input.id))),
-      uploadProof: scopedProcedure('bank:write', { module: 'bank' })
-        .input(
-          z
-            .object({
-              id: z.string().guid(),
-              name: z.string().min(1).max(200),
-              type: z.string().min(3).max(100),
-              contentBase64: z.string().min(4).max(40_000_000),
-            })
-            .strict(),
-        )
-        .output(customerHoldView)
-        .mutation(({ ctx, input }) =>
+      get: mountRecord(
+        BANK_GLOBAL_HOLD_GET,
+        ({ ctx, input }) => guard(() => bank.globalHolds.forCustomer(ctx.principal.userId, input.id)),
+        personalPayRefusal,
+      ),
+      uploadProof: mountRecord(
+        BANK_GLOBAL_HOLD_UPLOAD_PROOF,
+        ({ ctx, input }) =>
           guard(() =>
             bank.globalHolds.uploadProof({
               userId: ctx.principal.userId,
@@ -518,7 +408,8 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
               contentBase64: input.contentBase64,
             }),
           ),
-        ),
+        personalPayRefusal,
+      ),
     }),
     ops: router({
       /** The TEST stand-in's own record of a send it paid out (local stack only): what it converted, and how many times. */
@@ -540,7 +431,7 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         .query(({ input }) => guard(async () => bank.globalSend.standInPayout(input.sendId))),
       holds: scopedProcedure('admin:read', { module: 'bank' })
         .input(z.object({ limit: limitField }).strict())
-        .output(z.array(operatorHoldView.extend({ send: sendView.extend({ userId: z.string() }) })))
+        .output(z.array(operatorHoldView.extend({ send: globalSendSchema.extend({ userId: z.string() }) })))
         .query(({ input }) => guard(() => bank.globalHolds.queue(input))),
       hold: scopedProcedure('admin:compliance', { module: 'bank' })
         .input(
@@ -561,11 +452,11 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         .mutation(({ input }) => guard(() => bank.globalHolds.requestInfo(input))),
       release: scopedProcedure('admin:compliance', { module: 'bank' })
         .input(z.object({ sendId: z.string().guid() }).strict())
-        .output(sendView)
+        .output(globalSendSchema)
         .mutation(({ ctx, input }) => guard(() => bank.globalHolds.release({ sendId: input.sendId, operatorId: ctx.principal.userId }))),
       linkReference: scopedProcedure('admin:compliance', { module: 'bank' })
         .input(z.object({ sendId: z.string().guid(), reference: z.string().min(6).max(64) }).strict())
-        .output(z.object({ linked: z.literal(true), send: sendView }))
+        .output(z.object({ linked: z.literal(true), send: globalSendSchema }))
         .mutation(({ ctx, input }) =>
           guard(() =>
             bank.globalHolds.linkReference({ sendId: input.sendId, reference: input.reference, operatorId: ctx.principal.userId }),
@@ -626,25 +517,25 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         .query(() => guard(() => bank.globalSend.opsSummary())),
       failed: scopedProcedure('admin:read', { module: 'bank' })
         .input(z.object({ limit: limitField }).strict())
-        .output(z.array(sendView.extend({ userId: z.string() })))
+        .output(z.array(globalSendSchema.extend({ userId: z.string() })))
         .query(({ input }) => guard(() => bank.globalSend.opsFailed(input))),
       get: scopedProcedure('admin:read', { module: 'bank' })
         .input(z.object({ id: z.string().guid() }).strict())
-        .output(sendView.extend({ userId: z.string() }))
+        .output(globalSendSchema.extend({ userId: z.string() }))
         .query(({ input }) => guard(() => bank.globalSend.opsGet(input.id))),
       recalls: scopedProcedure('admin:read', { module: 'bank' })
         .input(z.object({ limit: limitField }).strict())
-        .output(z.array(sendView.extend({ userId: z.string() })))
+        .output(z.array(globalSendSchema.extend({ userId: z.string() })))
         .query(({ input }) => guard(() => bank.globalSend.opsRecalls(input))),
       /** The rail sent a send back: record it with the rail's reference. Nothing posts. */
       recordReturn: scopedProcedure('admin:compliance', { module: 'bank' })
         .input(z.object({ sendId: z.string().guid(), returnRef: z.string().min(1).max(128) }).strict())
-        .output(sendView.extend({ userId: z.string() }))
+        .output(globalSendSchema.extend({ userId: z.string() }))
         .mutation(({ ctx, input }) => guard(() => bank.globalSend.recordReturn({ ...input, operatorId: ctx.principal.userId }))),
       /** Refund a returned send to its sender, once, by a different operator from the one who recorded the return. */
       refundReturn: scopedProcedure('admin:compliance', { module: 'bank' })
         .input(z.object({ sendId: z.string().guid() }).strict())
-        .output(sendView.extend({ userId: z.string() }))
+        .output(globalSendSchema.extend({ userId: z.string() }))
         .mutation(({ ctx, input }) =>
           guard(() => bank.globalSend.refundReturn({ sendId: input.sendId, operatorId: ctx.principal.userId })),
         ),

@@ -57,6 +57,10 @@ const trade = (blocker: Blocker = null): Trade => ({
   escrowedAt: '2026-10-24T12:00:01.000Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   paymentValidation: { blocker },
 });
 

@@ -5,31 +5,28 @@ import {
   QUANT_LIVE_PLAN_UNSUPPORTED,
   QuantError,
 } from '../errors.js';
-import {
-  publicJurisdictionProcedure,
-  quantLiveCheckInputSchema,
-  quantLiveCheckSchema,
-  quantLiveDeployInputSchema,
-  router,
-} from '@intafaced/contracts';
+import { router } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { QUANT_LIVE_CHECK, QUANT_LIVE_DEPLOY } from '@intafaced/contracts/quant-live-procedures';
 import { withQuantSpan } from '../tracing.js';
-import { z } from 'zod';
-import { toTrpc, accountField, type QuantCore } from './core.js';
+import { quantRefusal, toTrpc, type QuantCore } from './core.js';
 
+/** `quant.live.*`, mounted from its records (`@intafaced/contracts/quant-live-procedures`). */
 export function liveRoutes(core: QuantCore) {
   const { liveCheckOf, accountOf } = core;
   return router({
     /** The deploy wizard's compile check of one version: what it would place live and whether it can. Writes nothing. */
-    check: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantLiveCheckInputSchema.extend(accountField))
-      .output(quantLiveCheckSchema)
-      .query(async ({ input, ctx }) => {
+    check: mountRecord(
+      QUANT_LIVE_CHECK,
+      async ({ input, ctx }) => {
         try {
           return await liveCheckOf(accountOf(ctx, input.accountId), input.strategyId, input.strategyVersion);
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
 
     /**
      * Deploy (AL-live-02; J-algo-dev-06 #7). With the platform's live switch off it refuses `quant.live_disabled` and
@@ -38,10 +35,9 @@ export function liveRoutes(core: QuantCore) {
      * run after it are absent from this service (J-algo-dev-06 #8 builds them), so it refuses `quant.live_deploy_unavailable`
      * and still writes nothing. No money moves on any path.
      */
-    deploy: publicJurisdictionProcedure('quant', 'fiat')
-      .input(quantLiveDeployInputSchema.extend(accountField))
-      .output(z.never())
-      .mutation(async ({ input, ctx }) =>
+    deploy: mountRecord(
+      QUANT_LIVE_DEPLOY,
+      async ({ input, ctx }) =>
         withQuantSpan('quant.live.deploy', { language: 'none' }, async () => {
           try {
             const check = await liveCheckOf(accountOf(ctx, input.accountId), input.strategyId, input.strategyVersion);
@@ -66,6 +62,7 @@ export function liveRoutes(core: QuantCore) {
             toTrpc(err);
           }
         }),
-      ),
+      quantRefusal,
+    ),
   });
 }

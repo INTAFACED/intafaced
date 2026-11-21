@@ -41,6 +41,10 @@ const trade = (status: Trade['status'] = 'fiat_sent', escrowedAt: string | null 
   escrowedAt,
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   mismatch: null,
 });
 /** A pay client whose own-case read answers `own` (none by default). */

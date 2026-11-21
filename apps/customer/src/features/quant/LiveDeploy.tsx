@@ -1,12 +1,8 @@
-import {
-  quantLiveCheckSchema,
-  quantStrategyDetailSchema,
-  type QuantLiveCheck,
-  type QuantLiveOrderType,
-} from '@intafaced/contracts/quant-algo';
+import { quantStrategyDetailSchema, type QuantLiveCheck, type QuantLiveOrderType } from '@intafaced/contracts/quant-algo';
+import { QUANT_LIVE_CHECK, QUANT_LIVE_DEPLOY } from '@intafaced/contracts/quant-live-procedures';
+import { QUANT_STUDIO_GET } from '@intafaced/contracts/quant-studio-procedures';
 import { useState } from 'react';
-import { z } from 'zod';
-import type { ApiResult } from '../../shared/api';
+import { parsesAs, type ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
 import { Read, Select } from '../more';
@@ -58,7 +54,7 @@ function Wizard({ strategyId }: { strategyId: string }) {
   const api = useApi();
   const { t } = liveDeployCopy.useCopy();
   const read = useResource(
-    (signal) => api.query('quant', 'studio.get', { id: strategyId }, quantStrategyDetailSchema, { signal }),
+    (signal) => api.call(QUANT_STUDIO_GET, { id: strategyId }, { signal, accept: parsesAs(quantStrategyDetailSchema) }),
     `quant-live-deploy:${strategyId}`,
   );
   const [version, setVersion] = useState<string | null>(null);
@@ -99,13 +95,13 @@ function VersionDeploy({ strategyId, version }: { strategyId: string; version: n
   const [refusal, setRefusal] = useState<Failed | null>(null);
   // The live switch as the service reads it now, before any check is run.
   const status = useResource(
-    (signal) => api.query('quant', 'live.check', { strategyId, strategyVersion: version }, quantLiveCheckSchema, { signal }),
+    (signal) => api.call(QUANT_LIVE_CHECK, { strategyId, strategyVersion: version }, { signal }),
     `quant-live-status:${strategyId}:${version}`,
   );
   async function runCheck() {
     setChecking(true);
     setCheckFailure(null);
-    const res = await api.query('quant', 'live.check', { strategyId, strategyVersion: version }, quantLiveCheckSchema);
+    const res = await api.call(QUANT_LIVE_CHECK, { strategyId, strategyVersion: version });
     setChecking(false);
     if (res.ok) setCheck(res.data);
     else setCheckFailure(res);
@@ -114,7 +110,7 @@ function VersionDeploy({ strategyId, version }: { strategyId: string; version: n
     if (deploying) return;
     setDeploying(true);
     setRefusal(null);
-    const res = await api.mutate('quant', 'live.deploy', { strategyId, strategyVersion: version, amount: amount.trim() }, z.never());
+    const res = await api.call(QUANT_LIVE_DEPLOY, { strategyId, strategyVersion: version, amount: amount.trim() });
     setDeploying(false);
     if (!res.ok) setRefusal(res);
   }
