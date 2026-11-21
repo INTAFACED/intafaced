@@ -15,6 +15,7 @@ import {
   rtlLocales,
 } from './locales.js';
 import { AmountFormatError, formatDate, formatMoney, formatNumber, formatPercent, formatRelativeTime } from './format.js';
+import * as formatModule from './format.js';
 import {
   MissingMessageError,
   MissingParamError,
@@ -372,6 +373,51 @@ describe('formatMoney — decimal strings, never floats', () => {
     for (const pattern of [/parseFloat\s*\(/, /parseInt\s*\(/, /(?<![.\w])Number\s*\(/]) {
       expect(code, String(pattern)).not.toMatch(pattern);
     }
+  });
+
+  it('converts no amount through a float on any formatting path', () => {
+    // Comments may name the hazard. The code may not call it: `Number` survives only as its static guards
+    // (`Number.isNaN`). Every float door is swapped for a counting one while each formatter runs.
+    const calls: string[] = [];
+    const real = { Number: globalThis.Number, parseFloat: globalThis.parseFloat, parseInt: globalThis.parseInt };
+    const counted = (name: string, fn: (...args: never[]) => unknown) =>
+      function (this: unknown, ...args: never[]) {
+        calls.push(name);
+        return fn.apply(this, args);
+      };
+    globalThis.Number = new Proxy(real.Number, {
+      apply: (target, self, args) => (calls.push('Number()'), Reflect.apply(target, self, args)),
+      construct: (target, args) => (calls.push('new Number()'), Reflect.construct(target, args)),
+      get: (target, key) =>
+        key === 'parseFloat' || key === 'parseInt' ? counted(`Number.${key}`, Reflect.get(target, key)) : Reflect.get(target, key),
+    });
+    globalThis.parseFloat = counted('parseFloat', real.parseFloat) as typeof parseFloat;
+    globalThis.parseInt = counted('parseInt', real.parseInt) as typeof parseInt;
+    const out: unknown[] = [];
+    try {
+      out.push(
+        formatModule.formatMoney(LEDGER_PRECISION, 'USD', 'en', { maxFractionDigits: 18 }),
+        formatModule.formatMoney('-1234.5', 'EUR', 'de'),
+        formatModule.formatMoney('2.675', 'JPY', 'fr'),
+        formatModule.formatMoneyToParts(LEDGER_PRECISION, 'KWD', 'en'),
+        formatModule.formatNumber(LEDGER_PRECISION, 'en', { maxFractionDigits: 18 }),
+        formatModule.formatNumber(1234.5, 'de'),
+        formatModule.formatNumber(12345678901234567890n, 'en'),
+        formatModule.formatNumberToParts('0.000000000000000001', 'en', { maxFractionDigits: 18 }),
+        formatModule.formatCompact('1234567.891', 'en'),
+        formatModule.formatCompactToParts('-98765.4321', 'fr'),
+        formatModule.formatPercent('0.123456789012345678', 'en', { maxFractionDigits: 6 }),
+        formatModule.formatPercent(0.5, 'de'),
+        formatModule.formatPercentToParts('-0.0025', 'en'),
+      );
+    } finally {
+      globalThis.Number = real.Number;
+      globalThis.parseFloat = real.parseFloat;
+      globalThis.parseInt = real.parseInt;
+    }
+    expect(calls, 'a formatter converted through a float').toEqual([]);
+    expect(out[0]).toBe('$1,234.123456789012345678');
+    expect(out[4]).toContain('123456789012345678');
   });
 
   it('rounds display precision half-up on the digit string, not through a float', () => {
