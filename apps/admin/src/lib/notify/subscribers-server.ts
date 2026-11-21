@@ -1,13 +1,5 @@
 import 'server-only';
-import {
-  founderCall,
-  type FounderCallContext,
-  type FounderCallResult,
-  partFrom,
-  type PartLabels,
-  explainRefusal,
-  founderRecordRead,
-} from '@/lib/desk';
+import { type FounderCallContext, type FounderCallResult, partFrom, type PartLabels, explainRefusal, founderRecordRead } from '@/lib/desk';
 import { readDefinition } from './status-model';
 import {
   readChannels,
@@ -27,6 +19,7 @@ import {
   NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_DELIVERIES,
   NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_RESEND,
   NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_IMPORT,
+  NOTIFY_STATUS_PAGE_CONFIGURE,
 } from '@intafaced/contracts/notify-status-page-procedures';
 
 /**
@@ -109,5 +102,5 @@ export async function setSafeguards(
   ctx: FounderCallContext,
   input: { challengeBits: number | null; subscribeRatePerHour: number | null; expectedRevision: number; reason: string },
 ) {
-  return reply(await founderCall(ctx, 'notify', 'statusPage.configure', 'POST', input, readDefinition), 'safeguards saved');
+  return reply(await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_CONFIGURE, input, readDefinition), 'safeguards saved');
 }

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { defineProcedure, NO_INPUT } from './procedure.js';
-import { noticeCategorySchema, statusPageSchema, statusReadingInputSchema } from './status-page.js';
+import { noticeCategorySchema, statusPageSchema, statusReadingInputSchema, statusPageConfigureInputSchema } from './status-page.js';
 
 // Written by tooling/codemod/call-records from the router; edit freely, the codemod only appends.
 /** svc-notify `statusPage.*`, one record per call: svc-notify mounts each (`mountRecord`) and every app caller calls it by its record. */
@@ -408,5 +408,52 @@ export const NOTIFY_STATUS_PAGE_SUBSCRIPTIONS_IMPORT = defineProcedure({
   samples: [
     { verdict: 'accept', input: { source: 'USDC', emails: ['USDC'] } },
     { verdict: 'refuse', input: 42 },
+  ],
+});
+
+export const NOTIFY_STATUS_PAGE_CONFIGURE = defineProcedure({
+  ...base,
+  name: 'notify.statusPage.configure',
+  kind: 'mutation',
+  path: 'statusPage.configure',
+  access: { caller: 'scope', scope: 'admin:write', module: 'notify' },
+  refusals: {},
+  checks: {
+    'status.component_duplicate': { at: 'input', says: 'no two components share an id' },
+    'status.category_duplicate': { at: 'input', says: 'no two notice categories share an id' },
+  },
+  input: statusPageConfigureInputSchema,
+  output: definitionOutput,
+  samples: [
+    { verdict: 'accept', input: { expectedRevision: 0, reason: 'TEST' } },
+    {
+      verdict: 'accept',
+      input: { expectedRevision: 1, reason: 'TEST', components: [{ id: 'payments', name: 'Payments', group: null, source: null }] },
+    },
+    { verdict: 'refuse', input: { reason: 'TEST' } },
+    {
+      verdict: 'refuse',
+      input: {
+        expectedRevision: 1,
+        reason: 'TEST',
+        components: [
+          { id: 'payments', name: 'Payments', group: null, source: null },
+          { id: 'payments', name: 'Payments again', group: null, source: null },
+        ],
+      },
+      by: 'status.component_duplicate',
+    },
+    {
+      verdict: 'refuse',
+      input: {
+        expectedRevision: 1,
+        reason: 'TEST',
+        noticeCategories: [
+          { id: 'billing', name: 'Billing' },
+          { id: 'billing', name: 'Billing again' },
+        ],
+      },
+      by: 'status.category_duplicate',
+    },
   ],
 });

@@ -1,7 +1,6 @@
 import 'server-only';
 import { type StatusPageConfigureInput, type StatusReadingInput } from '@intafaced/contracts';
 import {
-  founderCall,
   type FounderCallContext,
   type FounderCallResult,
   partFrom,
@@ -15,6 +14,7 @@ import {
   NOTIFY_STATUS_PAGE_DEFINITION,
   NOTIFY_STATUS_PAGE_READ,
   NOTIFY_STATUS_PAGE_RECORD,
+  NOTIFY_STATUS_PAGE_CONFIGURE,
 } from '@intafaced/contracts/notify-status-page-procedures';
 
 /**
@@ -70,7 +70,7 @@ function reply<T>(result: FounderCallResult<T>, what: 'configured' | 'recorded')
 }
 
 export async function configureStatusPage(ctx: FounderCallContext, input: StatusPageConfigureInput) {
-  return reply(await founderCall(ctx, 'notify', 'statusPage.configure', 'POST', input, readDefinition), 'configured');
+  return reply(await founderRecordRead(ctx, NOTIFY_STATUS_PAGE_CONFIGURE, input, readDefinition), 'configured');
 }
 
 export async function recordStatusReading(ctx: FounderCallContext, input: StatusReadingInput) {

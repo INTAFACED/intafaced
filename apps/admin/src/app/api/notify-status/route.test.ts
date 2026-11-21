@@ -136,7 +136,7 @@ describe('status page desk BFF', () => {
 
   it('sends a definition change from the revision read, with its reason', async () => {
     configure();
-    const c = upstream({ 'statusPage.configure': () => ok({ ...DEFINITION, revision: 4 }) });
+    const c = upstream({ 'statusPage.configure': () => ok(wireDefinition({ ...DEFINITION, revision: 4 })) });
     const change = {
       op: 'configure',
       components: DEFINITION.components,

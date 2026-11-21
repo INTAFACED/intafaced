@@ -1,6 +1,6 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
-import { founderCall, type FounderCallContext, partFrom, founderRecordRead } from '@/lib/desk';
+import { type FounderCallContext, partFrom, founderRecordRead } from '@/lib/desk';
 import { NOTIFY, anyData, loadPublishApprovals, reply } from './incidents-server';
 import {
   readAnnouncements,
@@ -11,7 +11,7 @@ import {
   type NoticesDeskView,
 } from './notices-model';
 import { NOTIFY_OPERATOR_NOTICES, NOTIFY_DRAFT_NOTICE, NOTIFY_NOTICE_AUDIENCES } from '@intafaced/contracts/notify-notify-procedures';
-import { NOTIFY_STATUS_PAGE_DEFINITION } from '@intafaced/contracts/notify-status-page-procedures';
+import { NOTIFY_STATUS_PAGE_DEFINITION, NOTIFY_STATUS_PAGE_CONFIGURE } from '@intafaced/contracts/notify-status-page-procedures';
 
 /**
  * The announcement desk as the signed-in founder. svc-notify holds the announcements (`notify.operatorNotices`, drafts
@@ -83,12 +83,14 @@ export async function setCategories(
   input: { list: readonly NoticeCategory[] | null; expectedRevision: number; reason: string },
 ) {
   return reply(
-    await founderCall(
+    await founderRecordRead(
       ctx,
-      'notify',
-      'statusPage.configure',
-      'POST',
-      { noticeCategories: input.list, expectedRevision: input.expectedRevision, reason: input.reason.trim() },
+      NOTIFY_STATUS_PAGE_CONFIGURE,
+      {
+        noticeCategories: input.list === null ? null : [...input.list],
+        expectedRevision: input.expectedRevision,
+        reason: input.reason.trim(),
+      },
       anyData,
     ),
     input.list === null ? 'categories cleared' : 'categories saved',

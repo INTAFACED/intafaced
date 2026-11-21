@@ -7532,6 +7532,387 @@
         }
       ]
     },
+    "notify.statusPage.configure": {
+      "service": "svc-notify",
+      "module": "notify",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "statusPage.configure",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "notify"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "components": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9-]{1,39}$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "group": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["id", "name", "group", "source"],
+              "additionalProperties": false
+            }
+          },
+          "componentCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stalenessSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 604800
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "uptimeDays": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 90
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "challengeBits": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 32
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subscribeRatePerHour": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "noticeCategories": {
+            "anyOf": [
+              {
+                "minItems": 1,
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{1,39}$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60
+                    }
+                  },
+                  "required": ["id", "name"],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483646
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": ["expectedRevision", "reason"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "group": {
+                  "type": ["string", "null"]
+                },
+                "source": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["id", "name", "group", "source"],
+              "additionalProperties": false
+            }
+          },
+          "componentCap": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stalenessSeconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "uptimeDays": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "challengeBits": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subscribeRatePerHour": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "noticeCategories": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{1,39}$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60
+                    }
+                  },
+                  "required": ["id", "name"],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": ["string", "null"]
+          },
+          "publicOrigin": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "components",
+          "componentCap",
+          "stalenessSeconds",
+          "uptimeDays",
+          "challengeBits",
+          "subscribeRatePerHour",
+          "noticeCategories",
+          "revision",
+          "updatedAt",
+          "publicOrigin"
+        ],
+        "additionalProperties": false
+      },
+      "checks": {
+        "status.component_duplicate": {
+          "at": "input",
+          "says": "no two components share an id"
+        },
+        "status.category_duplicate": {
+          "at": "input",
+          "says": "no two notice categories share an id"
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "expectedRevision": 0,
+            "reason": "TEST"
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "expectedRevision": 1,
+            "reason": "TEST",
+            "components": [
+              {
+                "id": "payments",
+                "name": "Payments",
+                "group": null,
+                "source": null
+              }
+            ]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "reason": "TEST"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "status.component_duplicate",
+          "input": {
+            "expectedRevision": 1,
+            "reason": "TEST",
+            "components": [
+              {
+                "id": "payments",
+                "name": "Payments",
+                "group": null,
+                "source": null
+              },
+              {
+                "id": "payments",
+                "name": "Payments again",
+                "group": null,
+                "source": null
+              }
+            ]
+          }
+        },
+        {
+          "verdict": "refuse",
+          "by": "status.category_duplicate",
+          "input": {
+            "expectedRevision": 1,
+            "reason": "TEST",
+            "noticeCategories": [
+              {
+                "id": "billing",
+                "name": "Billing"
+              },
+              {
+                "id": "billing",
+                "name": "Billing again"
+              }
+            ]
+          }
+        }
+      ]
+    },
     "notify.statusPage.definition": {
       "service": "svc-notify",
       "module": "notify",

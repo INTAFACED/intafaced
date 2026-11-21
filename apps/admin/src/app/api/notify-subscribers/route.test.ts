@@ -203,7 +203,7 @@ describe('subscriber desk BFF', () => {
 
   it('saves the safeguards from the revision read, blank as blank', async () => {
     configure();
-    const c = upstream({ 'statusPage.configure': () => ok({ ...DEFINITION, revision: 8 }) });
+    const c = upstream({ 'statusPage.configure': () => ok(wireDefinition({ ...DEFINITION, revision: 8 })) });
     const change = {
       op: 'safeguards',
       challengeBits: 8,

@@ -2,9 +2,7 @@ import { z } from 'zod';
 import {
   router,
   publicProcedure,
-  scopedProcedure,
   TRPCError,
-  statusPageConfigureInputSchema,
   statusPageSchema,
   statusBadgeInputSchema,
   statusBadgeSchema,
@@ -37,6 +35,7 @@ import {
   NOTIFY_STATUS_PAGE_MAINTENANCE_MOVE,
   NOTIFY_STATUS_PAGE_READ,
   NOTIFY_STATUS_PAGE_RECORD,
+  NOTIFY_STATUS_PAGE_CONFIGURE,
 } from '@intafaced/contracts/notify-status-page-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
 import { notifyRefusal } from '../record-refusal.js';
@@ -182,17 +181,17 @@ export function statusPageRouter(deps?: StatusPageDeps) {
       notifyRefusal,
     ),
 
-    configure: scopedProcedure('admin:write', { module: 'notify' })
-      .input(statusPageConfigureInputSchema)
-      .output(definitionOutput)
-      .mutation(({ ctx, input }) =>
+    configure: mountRecord(
+      NOTIFY_STATUS_PAGE_CONFIGURE,
+      ({ ctx, input }) =>
         call(async ({ book, publicOrigin }) =>
           definitionOutput.parse({
             ...(await book.configure({ input, by: ctx.principal.userId, at: now().toISOString() })),
             publicOrigin: originOrNull(publicOrigin),
           }),
         ),
-      ),
+      notifyRefusal,
+    ),
 
     /**
      * Incident templates (SP-status-02): founders only, like the definition. Nothing is seeded, so an empty list is the
