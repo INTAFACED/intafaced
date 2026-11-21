@@ -7,6 +7,10 @@ import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, TextArea } from './common';
 import { AcademyProgrammeOverview, type ProgrammeAction } from './AcademyProgrammeOverview';
 import { AcademyCourseProgrammes } from './AcademyCourseProgrammes';
+import { ACADEMY_SEASONS } from '@intafaced/contracts/academy-seasons-procedures';
+import { ACADEMY_STANDINGS } from '@intafaced/contracts/academy-standings-procedures';
+import { ACADEMY_WITHDRAW_RESIDENCY } from '@intafaced/contracts/academy-withdraw-residency-procedures';
+import { ACADEMY_APPLY_RESIDENCY } from '@intafaced/contracts/academy-apply-residency-procedures';
 const uuid = z.string().guid(),
   residency = z.object({
     id: uuid,
@@ -18,15 +22,6 @@ const uuid = z.string().guid(),
     decidedAt: z.string().nullable(),
     decidedBy: uuid.nullable(),
     decisionNote: z.string().nullable(),
-  }),
-  season = z.object({
-    id: uuid,
-    slug: z.string(),
-    title: z.string(),
-    status: z.enum(['scheduled', 'live', 'frozen', 'ended']),
-    rulesSummary: z.string(),
-    startsAt: z.string(),
-    endsAt: z.string().nullable(),
   });
 export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
   const api = useApi(),
@@ -51,20 +46,11 @@ export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
         ),
       `residencies:${userId}:${limit}`,
     ),
-    seasons = useResource(
-      (signal) => api.query('academy', 'seasons', { limit }, z.array(season), { signal }),
-      `seasons:${userId}:${limit}`,
-    ),
+    seasons = useResource((signal) => api.call(ACADEMY_SEASONS, { limit }, { signal }), `seasons:${userId}:${limit}`),
     standings = useResource(
       (signal) =>
         selected
-          ? api.query(
-              'academy',
-              'standings',
-              { seasonId: selected, limit },
-              z.array(z.object({ seasonId: uuid, userId: uuid, score: z.number().int(), updatedAt: z.string(), rank: z.number().int() })),
-              { signal },
-            )
+          ? api.call(ACADEMY_STANDINGS, { seasonId: selected, limit }, { signal })
           : Promise.resolve({ ok: true as const, data: [] }),
       `standings:${userId}:${selected}:${limit}`,
     );
@@ -106,7 +92,7 @@ export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
                                   {r.cohortSlug}.
                                 </p>
                               ),
-                              run: () => api.mutate('academy', 'withdrawResidency', { id: r.id }, residency),
+                              run: () => api.call(ACADEMY_WITHDRAW_RESIDENCY, { id: r.id }),
                               done: mine.reload,
                             })
                           }
@@ -196,7 +182,7 @@ export function AcademyProgrammes({ action }: { action: ProgrammeAction }) {
                   ]}
                 />
               ),
-              run: () => api.mutate('academy', 'applyResidency', { cohortSlug: cohort, statement }, residency),
+              run: () => api.call(ACADEMY_APPLY_RESIDENCY, { cohortSlug: cohort, statement }),
               done: mine.reload,
             });
           }}

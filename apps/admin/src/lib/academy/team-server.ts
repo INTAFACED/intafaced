@@ -27,7 +27,11 @@ import {
   founderRecordRead,
 } from '@/lib/desk';
 import type { ModerationView, TeamDeskReply, TeamView } from './team-model';
-import { ACADEMY_ADMIN_ACADEMY_ROLES } from '@intafaced/contracts/academy-admin-records';
+import {
+  ACADEMY_ADMIN_ACADEMY_ROLES,
+  ACADEMY_ADMIN_MODERATION_QUEUE,
+  ACADEMY_ADMIN_COURSE_TEAM,
+} from '@intafaced/contracts/academy-admin-records';
 import { ACADEMY_ADMIN_COURSES } from '@intafaced/contracts/academy-admin-procedures';
 
 /**
@@ -73,7 +77,7 @@ const coursesOf = (ctx: FounderCallContext) => founderRecordRead(ctx, ACADEMY_AD
 
 export async function loadModeration(ctx: FounderCallContext, courseId: string | null): Promise<ModerationView> {
   const [queue, courses] = await Promise.all([
-    founderCall(ctx, 'academy', 'admin.moderationQueue', 'GET', { courseId, limit: ACADEMY_MODERATION_LIST_MAX }, readQueue),
+    founderRecordRead(ctx, ACADEMY_ADMIN_MODERATION_QUEUE, { courseId, limit: ACADEMY_MODERATION_LIST_MAX }, readQueue),
     coursesOf(ctx),
   ]);
   return {
@@ -86,7 +90,7 @@ export async function loadModeration(ctx: FounderCallContext, courseId: string |
 
 export async function loadTeam(ctx: FounderCallContext, courseId: string | null): Promise<TeamView> {
   const [team, roles, courses] = await Promise.all([
-    founderCall(ctx, 'academy', 'admin.courseTeam', 'GET', { courseId }, readTeam),
+    founderRecordRead(ctx, ACADEMY_ADMIN_COURSE_TEAM, { courseId }, readTeam),
     founderRecordRead(ctx, ACADEMY_ADMIN_ACADEMY_ROLES, undefined, readRoles),
     coursesOf(ctx),
   ]);
