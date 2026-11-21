@@ -17,7 +17,7 @@ function block(selector: string): Record<string, string> {
   const at = roles.indexOf(`\n${selector} {`);
   expect(at, selector).toBeGreaterThan(-1);
   const body = roles.slice(roles.indexOf('{', at) + 1, roles.indexOf('\n}', at));
-  return Object.fromEntries([...body.matchAll(/(--[a-z0-9-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim().toLowerCase()]));
+  return Object.fromEntries([...body.matchAll(/(--[a-z0-9-]+):\s*([^;]+);/g)].map((m) => [m[1], (m[2] ?? '').trim().toLowerCase()]));
 }
 
 describe('Volt is the default and only look, dark, with no flag', () => {
