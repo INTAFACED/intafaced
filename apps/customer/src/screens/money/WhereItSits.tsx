@@ -1,15 +1,15 @@
 import { Badge } from '@intafaced/ui';
 import { DataTable, Page, Panel } from '../../shared/ui';
-import { displayAmount } from '../../shared/money';
+import { displayAmount, parseAmount } from '../../shared/money';
 import { networkLabel } from '../../features/protocol/blockers';
 import { APP_CHAIN_ID } from '../../features/protocol/wallet/eip1193';
 import { WalletProvider } from '../../features/protocol/wallet/WalletProvider';
 import { WalletBar, useAsOfText, useOwner } from '../../features/trade/venue/VenueKit';
 import type { VenueUp } from '../../features/trade/venue-api';
 import { usePreferences } from '../../shared/preferences';
-import { shortOrderId, type VenueRow, type WalletRead } from './where-it-sits';
+import { shortOrderId, type WalletRead } from './where-it-sits';
 import { whereCopy } from './where-it-sits-copy';
-import { useStanding, type PartnerRead } from './standing-data';
+import { useStanding, venueTotals, type PartnerRead, type VenueRead } from './standing-data';
 import type { ValuedPart } from './standing';
 import { StandingTotal, dollars } from './StandingTotal';
 import { Button, isHiddenPath, navigate } from './deps';
@@ -128,8 +128,21 @@ function QuickActions({ t }: { t: T }) {
  * to the cent, its share of the total, and the source that reports it, with a link to the records behind the figure.
  * An asset with no published price shows "No price published" for its price and value and no share, never a zero.
  */
-function ValueCells({ valued, asset, source, t }: { valued: ValuedPart | undefined; asset: string; source: string; t: T }) {
-  const row = valued?.rows.find((r) => r.asset === asset);
+function ValueCells({
+  valued,
+  asset,
+  rowKey,
+  source,
+  t,
+}: {
+  valued: ValuedPart | undefined;
+  asset: string;
+  /** A row the source holds apart from its plain balance of `asset` (a vault position); none: the plain balance. */
+  rowKey?: string;
+  source: string;
+  t: T;
+}) {
+  const row = valued?.rows.find((r) => r.asset === asset && r.key === rowKey);
   const href = valued ? `${balanceEntriesHref(asset)}?source=${valued.id}` : null;
   return (
     <>
@@ -224,18 +237,11 @@ function WalletSource({
   );
 }
 
-function VenueSource({
-  status,
-  read,
-  valued,
-  t,
-}: {
-  status: VenueUp;
-  read: Polled<{ asOf: string; rows: VenueRow[] }>;
-  valued: ValuedPart | undefined;
-  t: T;
-}) {
+function VenueSource({ status, read, valued, t }: { status: VenueUp; read: Polled<VenueRead>; valued: ValuedPart | undefined; t: T }) {
   const data = read.data;
+  const vaults = data?.vaults.read ? data.vaults.holdings.positions : [];
+  const totals = data ? venueTotals(data) : null;
+  const venueName = status.venue.displayName;
   return (
     <Panel title={t('Venue title', { venue: status.venue.displayName })}>
       <section data-testid="source-venue" data-source="venue" aria-label={t('Venue title', { venue: status.venue.displayName })}>
@@ -252,9 +258,9 @@ function VenueSource({
           <p role="alert">{t('Venue read failed', { detail: read.failure.message ?? '' })}</p>
         ) : !data ? (
           <p className="muted">{t('Reading')}</p>
-        ) : data.rows.length === 0 ? (
+        ) : data.rows.length === 0 && vaults.length === 0 ? (
           <p className="muted">{t('Venue empty')}</p>
-        ) : (
+        ) : data.rows.length === 0 ? null : (
           <DataTable
             label={t('Venue title', { venue: status.venue.displayName })}
             headers={[t('Asset'), t('Free'), t('Locked'), t('Total'), t('Can withdraw'), ...VALUE_HEADERS.map((h) => t(h))]}
@@ -305,6 +311,54 @@ function VenueSource({
             ))}
           </DataTable>
         )}
+        {data && vaults.length > 0 ? (
+          <div data-testid="source-venue-vaults">
+            <h3>{t('Vaults title')}</h3>
+            <DataTable
+              label={t('Vaults title')}
+              headers={[t('Vault'), t('Asset'), t('Amount'), t('Lock-up ends'), ...VALUE_HEADERS.map((h) => t(h))]}
+            >
+              {vaults.map((p) => (
+                <tr key={p.vault} data-vault={p.vault} data-asset={p.asset}>
+                  <td>{p.name}</td>
+                  <td>{p.asset}</td>
+                  <td data-cell="amount" data-value={p.equity}>
+                    {displayAmount(p.equity)}
+                  </td>
+                  <td data-cell="ends" data-value={p.lockUpEndsAt}>
+                    {new Date(p.lockUpEndsAt).toLocaleString()}
+                  </td>
+                  <ValueCells
+                    valued={valued}
+                    asset={p.asset}
+                    rowKey={`vault:${p.vault}`}
+                    source={t('Source venue vault', { venue: venueName })}
+                    t={t}
+                  />
+                </tr>
+              ))}
+            </DataTable>
+          </div>
+        ) : null}
+        {data && !data.vaults.read ? (
+          <p className="muted" data-testid="source-venue-vaults-unread">
+            {t('Vaults unread', { venue: venueName, detail: data.vaults.detail })}
+          </p>
+        ) : null}
+        {totals ? (
+          <p
+            data-testid="source-venue-account-value"
+            data-asset={totals.asset}
+            data-venue={totals.venue}
+            data-parts={totals.parts}
+            data-adds-up={parseAmount(totals.venue) === parseAmount(totals.parts) ? 'true' : 'false'}
+          >
+            {t('Account value', { venue: venueName, amount: displayAmount(totals.venue), asset: totals.asset })}{' '}
+            {parseAmount(totals.venue) === parseAmount(totals.parts)
+              ? t('Parts add up', { amount: displayAmount(totals.parts), asset: totals.asset })
+              : t('Parts differ', { amount: displayAmount(totals.parts), asset: totals.asset, venue: venueName })}
+          </p>
+        ) : null}
       </section>
     </Panel>
   );
