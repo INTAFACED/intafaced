@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ActivityItem } from '../../data/activity';
 import { NO_FILTERS } from './activity-filter';
-import { keepLine, oneList, partnerLines, product, unanswerable, venueLines, walletLines } from './activity-sources';
+import { keepLine, oneList, partnerLines, product, typeOf, unanswerable, venueLines, walletLines } from './activity-sources';
 
 const ME = '0x00000000000000000000000000000000000000aa';
 const OTHER = '0x00000000000000000000000000000000000000bb';
@@ -96,9 +96,47 @@ describe('venueLines', () => {
     expect(line!.detail).toEqual({
       kind: 'trade',
       side: 'buy',
+      order: null,
+      convert: null,
       quote: { asset: 'USDC', amount: '60' },
       fee: { asset: 'USDC', amount: '0.042', rebate: false },
     });
+  });
+
+  it('a fill of an order a conversion placed is a convert, filed under convert, with what it converted from and to', () => {
+    const fill = {
+      symbol: 'BTC-USDC',
+      side: 'buy' as const,
+      price: '60000',
+      amount: '0.0001',
+      venueFee: '0',
+      builderFee: '0',
+      feeAsset: 'USDC',
+      filledAt: '2026-11-14T00:00:00.000Z',
+    };
+    const lines = venueLines(
+      [
+        { ...fill, fillId: 'c1', venueClientOrderId: '0xconvert' },
+        { ...fill, fillId: 't1', venueClientOrderId: '0xtrade' },
+      ],
+      [],
+      'TEST venue',
+      [{ venueClientOrderId: '0xconvert', from: 'USDC', to: 'BTC' }],
+    );
+    expect(lines.map((l) => [l.ref, l.kind, typeOf(l.kind)])).toEqual([
+      ['c1', 'convert', 'convert'],
+      ['t1', 'trade', 'trade'],
+    ]);
+    expect(lines[0]!.detail).toMatchObject({ kind: 'trade', order: '0xconvert', convert: { from: 'USDC', to: 'BTC' } });
+    expect(lines[1]!.detail).toMatchObject({ order: '0xtrade', convert: null });
+  });
+
+  it('every kind is filed under one of the six types the list names', () => {
+    expect(
+      (['trade', 'convert', 'deposit', 'withdrawal', 'transfer_in', 'transfer_out', 'space_move', 'fee', 'earn', 'other'] as const).map(
+        typeOf,
+      ),
+    ).toEqual(['trade', 'convert', 'deposit', 'withdrawal', 'transfer', 'transfer', 'transfer', 'other', 'other', 'other']);
   });
 
   it('a maker rebate larger than the builder fee reads as a rebate', () => {

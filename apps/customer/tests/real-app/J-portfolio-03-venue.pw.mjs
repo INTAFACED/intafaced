@@ -10,24 +10,29 @@ import { installTestWallet, testWalletKey } from './test-wallet.mjs';
 import { setPartner } from './partner.mjs';
 import { otherTraderKey, otherTraderRun, testVenue, venueAccount, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
-// J-portfolio-03 #1 on the launch model (OWNER 226; docs/roadmap/journeys.json; project-state operation-zero/modules/
-// portfolio/acceptance/journeys.md): "Opens /money/activity" / "Every movement from the wallet, venues and partner in one
-// list (trade, deposit, withdrawal, earn, convert, transfer, other), each labelled with its source, in plain words with
-// signed amounts and local time". INTAFACED holds none of this person's money: with svc-trade's user-venue door on for
+// J-portfolio-03 #1 and #4 on the launch model (OWNER 226; docs/roadmap/journeys.json; project-state
+// operation-zero/modules/portfolio/acceptance/journeys.md). #1: "Opens /money/activity" / "Every movement from the wallet,
+// venues and partner in one list (trade, deposit, withdrawal, convert, transfer, other), each labelled with its source, in
+// plain words with signed amounts and local time". #4: "Opens an entry" / "Both legs of a venue fill, and any hold and
+// release, as one linked group by the venue's reference; from a purchase, a link to /coin/:asset". Earn in #1's list is
+// Later (the custodial branch, row d119). INTAFACED holds none of this person's money: with svc-trade's user-venue door on for
 // this file (venueForThisFile), the list is what each place holding it reports, and every expected line is read from that
 // place's own record, never from the page: the TEST chain's indexer for the wallet, the stack's TEST venue simulator for
 // the venue account, and the TEST partner bank's record (svc-bank `activity.list`, the lines carrying the partner's name).
-// The other steps, on our own ledger's feed (the custodial branch, "Later" in the journey's Money line), are
+// The other steps, and #1 and #4 on our own ledger's feed (the custodial branch, "Later" in the journey's Money line), are
 // J-portfolio-03.pw.mjs's.
 //
 // TEST setup (beforeAll, not a step), so every source has moved money:
 // - wallet: TEST USD minted into the TEST wallet on the TEST chain (`fund <address> venue`), then a TEST USD transfer
 //   from that wallet to the venue's published deposit address, signed by the wallet's own key;
-// - venue: that deposit, which the venue sees and credits after its confirmations, and one TEST buy of BTC the wallet's
-//   key signs on the venue, filled against a sell another TEST trader rests there first;
+// - venue: that deposit, which the venue sees and credits after its confirmations, one TEST buy of BTC the wallet's key
+//   signs on the venue, filled against a sell another TEST trader rests there first, and one TEST conversion of USDC to
+//   BTC (Convert on the person's own venue account, J-cex-spot-11: one venue order the wallet's key signs), filled
+//   against a second sell that trader rests;
 // - partner: the person's bank money moved to the TEST partner bank (`testPartner.set({ custody: 'off' })`) and TEST
 //   USDT paid in there (`testPartner.fund`), then TEST USDT paid out to the person's own bank account
-//   (`testPartner.spend` kind payout).
+//   (`testPartner.spend` kind payout), and a TEST fee the partner charges (`testPartner.spend` kind fee): a movement that
+//   is none of the named types, so "other".
 // The ledger is read before and after: none of this is posted on it, and the list shows none of its lines.
 const J = 'J-portfolio-03';
 const SYMBOL = 'BTC-USDC';
@@ -39,6 +44,12 @@ const BUY = { amount: '0.0005', price: '60100' };
 const PARTNER_IN = '25';
 /** A TEST payout from the partner account to the person's own bank account (`testPartner.spend` kind payout): a withdrawal. */
 const PARTNER_OUT = '7';
+/** A TEST fee the partner charges on the account (`testPartner.spend` kind fee): an "other" movement. */
+const PARTNER_FEE = '1.5';
+/** The TEST conversion: USDC spent on BTC through the venue's Convert, against a second TEST sell resting at BUY.price. */
+const CONVERT = { spend: '13', rests: '0.0002' };
+/** The six types #1's list files every movement under, as its words name them. */
+const TYPES = ['trade', 'deposit', 'withdrawal', 'convert', 'transfer', 'other'];
 const run = journeyState(`${J}-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
@@ -211,6 +222,61 @@ test.beforeAll(async ({ browser }) => {
     expect(bought.definite && bought.accepted, JSON.stringify(bought)).toBe(true);
     await expect.poll(async () => (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.length).toBe(1);
 
+    // Venue: one TEST conversion of USDC to BTC, against a second sell the other TEST trader rests at the same price. A
+    // quote holds nothing; accepting it prepares its one venue order, which the wallet's key signs and the door sends once.
+    const restedAgain = await otherTraderRun(seller, {
+      kind: 'place_order',
+      symbol: SYMBOL,
+      side: 'sell',
+      type: 'limit',
+      amount: CONVERT.rests,
+      price: BUY.price,
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: `order:${seller}:pf3-cvt-${randomBytes(4).toString('hex')}`,
+      builderFee: null,
+    });
+    expect(restedAgain.definite && restedAgain.accepted, JSON.stringify(restedAgain)).toBe(true);
+    const quote = await session.post('/api/v1/venue/convert/quote', {
+      owner,
+      from: 'USDC',
+      to: 'BTC',
+      amount: CONVERT.spend,
+      quoteKey: `pf3v-${randomBytes(6).toString('hex')}`,
+    });
+    expect(quote.status, JSON.stringify(quote.body).slice(0, 400)).toBe(200);
+    expect(quote.body).toMatchObject({ from: 'USDC', to: 'BTC', side: 'buy', held: false });
+    const accepted = await session.post('/api/v1/venue/convert/accept', { owner, quoteId: quote.body.quoteId });
+    expect(accepted.status, JSON.stringify(accepted.body).slice(0, 400)).toBe(200);
+    const typed = accepted.body.prepared.typedData;
+    const converted = await session.post('/api/v1/venue/convert/submit', {
+      actionKey: accepted.body.actionKey,
+      signature: {
+        digest: accepted.body.prepared.digest,
+        signature: await key.signTypedData({
+          domain: typed.domain,
+          types: typed.types,
+          primaryType: typed.primaryType,
+          message: typed.message,
+        }),
+        signedBy: owner,
+      },
+    });
+    expect(converted.status, JSON.stringify(converted.body).slice(0, 400)).toBe(200);
+    const convertOrder = accepted.body.prepared.venueClientOrderId;
+    expect(convertOrder, 'the conversion names its venue order').toBeTruthy();
+    await expect
+      .poll(
+        async () =>
+          (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.filter(
+            (f) => f.venueClientOrderId === convertOrder,
+          ).length,
+        {
+          timeout: 30_000,
+        },
+      )
+      .toBeGreaterThan(0);
+
     // Partner: the person's bank money at the TEST partner bank, with TEST USDT paid in there.
     await setPartner(who, { custody: 'off' });
     const tag = `${process.env.JOURNEY_RUN_ID ?? 'local'}${session.userId}`.replace(/[^A-Za-z0-9-]/g, '').slice(-40);
@@ -225,7 +291,15 @@ test.beforeAll(async ({ browser }) => {
     });
     expect(paidOut.status, JSON.stringify(paidOut.body)).toBe(200);
     expect(paidOut.body.result.data).toMatchObject({ label: PARTNER_BANK, amount: PARTNER_OUT });
-    run.write({ ledgerStart, txHash: txHash.toLowerCase() });
+    const charged = await session.post('/api/bank/trpc/testPartner.spend', {
+      spendId: `pf3v-fee-${tag}`.slice(0, 64),
+      assetId: 'USDT',
+      amount: PARTNER_FEE,
+      kind: 'fee',
+    });
+    expect(charged.status, JSON.stringify(charged.body)).toBe(200);
+    expect(charged.body.result.data).toMatchObject({ label: PARTNER_BANK, amount: PARTNER_FEE });
+    run.write({ ledgerStart, txHash: txHash.toLowerCase(), convertOrder });
   } finally {
     await page.close();
   }
@@ -235,7 +309,7 @@ test(`${J} #1 opens /money/activity on the launch model: every movement from the
   page,
 }) => {
   test.setTimeout(240_000);
-  const { account: who, walletKey, owner, ledgerStart, txHash } = state();
+  const { account: who, walletKey, owner, ledgerStart, txHash, convertOrder } = state();
   const { displayName: venueName } = await venueInfo();
 
   // Each source's own record of what moved.
@@ -257,7 +331,10 @@ test(`${J} #1 opens /money/activity on the launch model: every movement from the
   expect(sentOut.ref).toBe(txHash);
   const fills = (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value;
   const deposits = (await venueRecord(owner, '/deposits')).value;
-  expect(fills).toHaveLength(1);
+  // The buy's one fill, and the conversion's fills: the venue names the conversion's order on each of them.
+  const converts = fills.filter((f) => f.venueClientOrderId === convertOrder);
+  expect(converts.length, 'the venue filled the conversion').toBeGreaterThan(0);
+  expect(fills.length - converts.length, 'the venue filled the buy once').toBe(1);
   expect(deposits.map((d) => [d.txHash.toLowerCase(), d.amount, d.status])).toEqual([[txHash, DEPOSIT, 'credited']]);
   const partner = await partnerRecord(who);
   for (const line of partner) expect(line.heldAt.label).toBe(PARTNER_BANK);
@@ -317,14 +394,16 @@ test(`${J} #1 opens /money/activity on the launch model: every movement from the
       at: d.seenAt,
       label: venueLabel,
     });
+  // A fill of the conversion's order is a convert, named for what it converted; the buy's fill is a trade.
   for (const f of fills) {
     const [base, quote] = f.symbol.split('-');
     const paid = decimal((units(f.price) * units(f.amount) + SCALE - 1n) / SCALE);
     const fee = units(f.venueFee) + units(f.builderFee);
     const feeText = fee === 0n ? '' : ` · ${fee < 0n ? 'Rebate' : 'Fee'} ${shown(decimal(fee < 0n ? -fee : fee))} ${f.feeAsset}`;
+    const converted = f.venueClientOrderId === convertOrder;
     await rowSays('venue', f.fillId, {
-      kind: 'trade',
-      title: `${f.side === 'buy' ? 'Bought' : 'Sold'} ${base}`,
+      kind: converted ? 'convert' : 'trade',
+      title: converted ? `Converted ${quote} to ${base}` : `${f.side === 'buy' ? 'Bought' : 'Sold'} ${base}`,
       amount: `${f.side === 'buy' ? '+' : '−'}${shown(f.amount)} ${base}`,
       at: f.filledAt,
       label: venueLabel,
@@ -332,14 +411,15 @@ test(`${J} #1 opens /money/activity on the launch model: every movement from the
     });
   }
   // Partner: each move it reports, named with the partner.
-  // The partner reports exactly the pay-in (a deposit) and the payout (a withdrawal) of this setup.
+  // The partner reports exactly the pay-in (a deposit), the payout (a withdrawal) and the fee of this setup.
   expect(partner.map((p) => [p.kind, p.direction, p.amount, p.asset]).sort()).toEqual(
     [
       ['deposit', 'in', PARTNER_IN, 'USDT'],
       ['withdrawal', 'out', PARTNER_OUT, 'USDT'],
+      ['fee', 'out', PARTNER_FEE, 'USDT'],
     ].sort(),
   );
-  const PARTNER_TITLE = { deposit: 'Deposit', withdrawal: 'Withdrawal' };
+  const PARTNER_TITLE = { deposit: 'Deposit', withdrawal: 'Withdrawal', fee: 'Fee' };
   for (const p of partner)
     await rowSays('partner', p.txId, {
       kind: p.kind,
@@ -348,6 +428,13 @@ test(`${J} #1 opens /money/activity on the launch model: every movement from the
       at: p.postedAt,
       label: `Your account at ${PARTNER_BANK}`,
     });
+
+  // Every movement is filed under one of the six types the list names, and each of the six is here: the wallet's
+  // transfers, the venue's deposit, trade and convert, the partner's deposit, withdrawal and its fee (other).
+  const typeOf = (kind) => ({ transfer_in: 'transfer', transfer_out: 'transfer', fee: 'other' })[kind] ?? kind;
+  const typed = await rows.evaluateAll((els) => els.map((el) => [el.getAttribute('data-kind'), el.getAttribute('data-type')]));
+  for (const [kind, type] of typed) expect(type, `a ${kind} line's type`).toBe(typeOf(kind));
+  expect([...new Set(typed.map(([, type]) => type))].sort()).toEqual([...TYPES].sort());
 
   // One list, newest first across the sources.
   const times = await rows.locator('time').evaluateAll((els) => els.map((el) => Date.parse(el.getAttribute('datetime'))));
@@ -377,6 +464,72 @@ test(`${J} #1 opens /money/activity on the launch model: every movement from the
   const partnerSum = sum(await amountsOf('partner'));
   expect(partnerSum.USDT).toBe(partner.reduce((acc, p) => acc + (p.direction === 'in' ? 1n : -1n) * units(p.amount), 0n));
   expect(await (await api(who)).balances()).toEqual(ledgerStart);
+});
+
+test(`${J} #4 opens an entry on the launch model: both legs of a venue fill, and any hold and release, as one linked group by the venue's reference, and from a purchase a link to the coin`, async ({
+  page,
+  stepPicture,
+}) => {
+  test.setTimeout(240_000);
+  const { account: who, walletKey, owner, convertOrder } = state();
+  // The venue's own record of the buy: its one fill, the order it filled, and the order's state.
+  const fills = (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value;
+  const bought = fills.filter((f) => f.venueClientOrderId !== convertOrder);
+  expect(bought).toHaveLength(1);
+  const [fill] = bought;
+  expect(fill.side).toBe('buy');
+  expect(fill.venueClientOrderId, 'the venue names the order the fill belongs to').toBeTruthy();
+  const order = (await venueRecord(owner, '/order-history')).value
+    .map((r) => r.order)
+    .filter((o) => o.venueClientOrderId === fill.venueClientOrderId);
+  expect(order.map((o) => o.status)).toEqual(['filled']);
+  // The order was sent to fill at once or not at all, so the venue holds nothing for it: none is left resting.
+  expect((await venueRecord(owner, '/open-orders')).value.filter((o) => o.venueClientOrderId === fill.venueClientOrderId)).toEqual([]);
+  const [base, quote] = fill.symbol.split('-');
+  const paid = decimal((units(fill.price) * units(fill.amount) + SCALE - 1n) / SCALE);
+  const fee = units(fill.venueFee) + units(fill.builderFee);
+  const legs = [
+    ['Received', `+${shown(fill.amount)} ${base}`],
+    ['Paid', `−${shown(paid)} ${quote}`],
+    ...(fee === 0n
+      ? []
+      : [[fee < 0n ? 'Rebate' : 'Fee', `${fee < 0n ? '+' : '−'}${shown(decimal(fee < 0n ? -fee : fee))} ${fill.feeAsset}`]]),
+  ];
+
+  await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
+  await signIn(page, who);
+  await page.goto('/money/activity');
+  const list = page.getByTestId('activity-by-source');
+  await expect(list).toBeVisible({ timeout: 30_000 });
+  await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
+  const row = list.locator(`[data-testid="money-act"][data-source="venue"][data-ref="${fill.fillId}"]`);
+  await expect(row).toHaveCount(1, { timeout: 30_000 });
+
+  // Opening the fill shows its parts as one group, under the venue's references for the fill and its order.
+  const open = row.getByRole('button', { name: `Bought ${base}`, exact: true });
+  await expect(open).toHaveAttribute('aria-expanded', 'false');
+  await open.click();
+  await expect(open).toHaveAttribute('aria-expanded', 'true');
+  const parts = list.getByRole('region', { name: 'Parts of this fill', exact: true });
+  await expect(parts).toHaveCount(1);
+  await expect(parts.locator('[data-label="fill-reference"]')).toHaveText(`Fill reference ${fill.fillId}`);
+  await expect(parts.locator('[data-label="order-reference"]')).toHaveText(`Order reference ${fill.venueClientOrderId}`);
+  // Both legs, and the fee when the venue took one, each as the venue records it; no hold or release, as the venue holds
+  // nothing for an order that filled at once.
+  const shownParts = parts.getByTestId('money-act__part');
+  await expect(shownParts).toHaveCount(legs.length);
+  for (const [i, [part, amount]] of legs.entries()) {
+    await expect(shownParts.nth(i).locator('td').first()).toHaveText(part);
+    await expect(shownParts.nth(i).locator('[data-direction]')).toHaveText(amount);
+  }
+  await expect(parts).not.toContainText(/hold|release/i);
+
+  // From a purchase, a link to the coin bought.
+  const coin = parts.getByRole('link', { name: `See ${base} history`, exact: true });
+  await expect(coin).toHaveAttribute('href', `/coin/${base}`);
+  await stepPicture();
+  await coin.click();
+  await expect(page).toHaveURL(new RegExp(`/coin/${base}($|[/?#])`));
 });
 
 test.afterAll(async () => {

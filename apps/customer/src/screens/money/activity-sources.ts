@@ -19,7 +19,26 @@ type Zone = Preferences['timeZone'];
  */
 
 export type SourceKind = 'wallet' | 'venue' | 'partner';
-export type LineKind = 'trade' | 'deposit' | 'withdrawal' | 'transfer_in' | 'transfer_out' | 'space_move' | 'fee' | 'earn' | 'other';
+export type LineKind =
+  'trade' | 'convert' | 'deposit' | 'withdrawal' | 'transfer_in' | 'transfer_out' | 'space_move' | 'fee' | 'earn' | 'other';
+
+/** The type a line is filed under (J-portfolio-03 #1: trade, deposit, withdrawal, convert, transfer, other). */
+export type LineType = 'trade' | 'deposit' | 'withdrawal' | 'convert' | 'transfer' | 'other';
+
+const TYPE_OF: Record<LineKind, LineType> = {
+  trade: 'trade',
+  convert: 'convert',
+  deposit: 'deposit',
+  withdrawal: 'withdrawal',
+  transfer_in: 'transfer',
+  transfer_out: 'transfer',
+  space_move: 'transfer',
+  fee: 'other',
+  earn: 'other',
+  other: 'other',
+};
+
+export const typeOf = (kind: LineKind): LineType => TYPE_OF[kind];
 export type LineState = 'completed' | 'confirming' | 'not_credited' | 'failed';
 
 export interface SourceLine {
@@ -43,6 +62,10 @@ export interface SourceLine {
     | {
         kind: 'trade';
         side: 'buy' | 'sell';
+        /** The venue's client id of the order the fill belongs to, as the venue reports it (null when it names none). */
+        order: string | null;
+        /** A fill of a conversion (J-cex-spot-11): what it converted from and to, as the venue's conversion record names. */
+        convert: { from: string; to: string } | null;
         quote: { asset: string; amount: string };
         fee: { asset: string; amount: string; rebate: boolean } | null;
       }
@@ -102,6 +125,7 @@ export function walletLines(rows: readonly IndexedTx[], network: string): Source
 
 export interface VenueFillRead {
   fillId: string;
+  venueClientOrderId?: string | null;
   symbol: string;
   side: 'buy' | 'sell';
   price: string;
@@ -142,20 +166,36 @@ function sides(symbol: string, feeAsset: string): { base: string; quote: string 
   return { base, quote: !quote || quote === 'PERP' ? feeAsset : quote };
 }
 
+/** A conversion as the venue's convert history records it: the order it placed, and what it converted from and to. */
+export interface VenueConversionRead {
+  venueClientOrderId: string | null;
+  from: string;
+  to: string;
+}
+
 /**
  * The venue's lines: one per fill (what was bought or sold, with what was paid or got and the fee, as the venue records
- * them), and one per deposit the venue has seen (credited, still confirming, or not credited and why).
+ * them), and one per deposit the venue has seen (credited, still confirming, or not credited and why). A fill of an
+ * order a conversion placed (its client id is the conversion's) is a convert, not a trade.
  */
-export function venueLines(fills: readonly VenueFillRead[], deposits: readonly VenueDepositRead[], venue: string): SourceLine[] {
+export function venueLines(
+  fills: readonly VenueFillRead[],
+  deposits: readonly VenueDepositRead[],
+  venue: string,
+  conversions: readonly VenueConversionRead[] = [],
+): SourceLine[] {
+  const converts = new Map(conversions.flatMap((c) => (c.venueClientOrderId ? [[c.venueClientOrderId, c] as const] : [])));
   const out: SourceLine[] = [];
   for (const fill of fills) {
     const { base, quote } = sides(fill.symbol, fill.feeAsset);
     const fee = parseAmount(fill.venueFee) + parseAmount(fill.builderFee);
+    const order = fill.venueClientOrderId ?? null;
+    const conversion = order ? converts.get(order) : undefined;
     out.push({
       id: `venue:fill:${fill.fillId}`,
       source: 'venue',
       sourceName: venue,
-      kind: 'trade',
+      kind: conversion ? 'convert' : 'trade',
       direction: fill.side === 'buy' ? 'in' : 'out',
       asset: base,
       amount: fill.amount,
@@ -165,6 +205,8 @@ export function venueLines(fills: readonly VenueFillRead[], deposits: readonly V
       detail: {
         kind: 'trade',
         side: fill.side,
+        order,
+        convert: conversion ? { from: conversion.from, to: conversion.to } : null,
         quote: { asset: quote, amount: product(fill.price, fill.amount) },
         fee: fee === 0n ? null : { asset: fill.feeAsset, amount: formatAmount(fee < 0n ? -fee : fee), rebate: fee < 0n },
       },
