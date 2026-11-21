@@ -27,11 +27,25 @@ Each slice of svc-matching's move to Rust starts here, in a fresh thread. `servi
   - `tests/engine_calls.rs`: `mass-cancel`, `close-position`, `l3-queue`, `post-only-market`, `reduce-only-market`, `core-tif`, `reconcile.test.ts`.
   - Each file's tests not ported say why at the top: they test a later slice's door or wrapper, a helper no door calls, or what a Rust type already holds (a required depth window, a required snapshot cadence, a TIF that is an enum).
   - Where the Rust differs:
-    - The book holds every order type `book.ts` holds, but the door serves only this slice's orders. A submit naming a stop or trigger, an expiry date, an OCO, a bracket or a trail is owed by `triggers`; an iceberg, peg, all-or-none or auction by `liquidity`; a strike, expiry, combo or legs by `spreads`.
-    - A cold start stops, rather than rebuild a book without the module that reads it, on a journalled order with such a part, a `mark`, a `spread_list`, or an in-flight mutation the journal never resolved (the `liquidity` slice's fence).
+    - The book holds every order type `book.ts` holds, but the door serves only this slice's orders. A submit naming a stop or trigger, an expiry date, an OCO, a bracket or a trail is owed by `triggers`; an iceberg, peg, all-or-none or auction by `liquidity`. Options and combos are served (`spreads`).
+    - A cold start stops, rather than rebuild a book without the module that reads it, on a journalled order with such a part, a `mark`, or an in-flight mutation the journal never resolved (the `liquidity` slice's fence).
     - The market modes are read back from the journal and gate every submit and amend; the doors that switch them are the `venue` slice's. The hold check and admission gates are the `serve` slice's, and the `open_surveillance` evidence records `surveillance-persist.ts` appends are the `venue` slice's.
     - SBE links no encoder: `/depth/sbe` and `?format=sbe` answer the TypeScript's 409 `matching.sbe_unavailable` without its Java bridge.
     - The mass cancel is cod-fence's, as the TypeScript serves it: it journals `mass_cancel` and then cancels each order. In maintenance every cancel is refused live, but replay of that record cancels them; the port keeps this, and it is the `venue` slice's to settle.
+- **Options, combos and spreads** (`src/book/order_book/option.rs`, `combo.rs`, `spread_book.rs`, `src/book/spread.rs`, the engine's listings, `src/approval.rs`, `src/door/spreads.rs`): the replay owes them nothing (`WIRE_REPLAY_STRICT=spreads`), and the TypeScript tests are ported test for test:
+  - `tests/options.rs`: `option`, `option-amend-price`, `option-cancel`, `option-expire`, `option-replace`, `option.router`.
+  - `tests/combos.rs`: `combo-book`, `option-combo`, `option-combo.router`.
+  - `tests/spreads.rs`: `spread-book`, `spread-core-refuse`, `spread-fill-publisher`, `spread.router`.
+  - Each file's tests not ported say why at the top.
+  - Where the Rust differs:
+    - The TypeScript installs each layer on `OrderBook`'s prototype and keeps its rows in a `WeakMap` beside the book. Here the book's `submit` runs the spread, combo and option layers over the core book, outermost first, and each layer's rows are the book's own fields. As in the TypeScript they are not part of the book's durable state.
+    - A spread lists exactly two legs as a type (`[SpreadLegDefinition; 2]`).
+    - Products and quotients are formed in 256 bits (`mul_div`); a sum past an i128 refuses as a value past `MAX_AMOUNT` does.
+    - A spread fill whose legs no longer price after the rehearsal priced them is `EngineError::Invariant`, where the TypeScript throws; nothing is announced.
+    - `spreadFills` is `EngineParts::spread_fills`: `spreadFilled` goes out on the engine's bus.
+    - An amend carries no unknown field (`EngineAmend` is a struct), so `unsupportedAmendField` has nothing to refuse.
+    - A spread leg the ledger's hold check holds closed (`holdHalted`) is the `serve` slice's to read.
+    - The identity client that spends an approval at `IDENTITY_URL` is the `serve` slice's to wire into the binary; the door takes any `ApprovalConsumer`, and without one it is `Unwired`, which refuses.
 - **The journal** (`src/journal/`):
   - `tests/journal_codec.rs`: 870 records against `encode`'s own bytes, every kind with each optional field absent and set to each kind of JSON value, 23 of them refused as `encode` refuses; and 23 bodies against `decodeAll` (torn, broken and blank lines). `scripts/record-journal.mjs` writes `tests/fixtures/journal-codec.golden.ndjson`; its `--check` fails when it is stale.
   - `tests/journal_file.rs`: `journal.test.ts` test for test, its children run as this test binary under the same `RLIMIT_FSIZE` launcher.
@@ -98,6 +112,6 @@ Events go out on the bus from `engine.ts`: `orderAccepted`, `orderFilled`, `orde
 - `triggers` (after `book`): stop, stop-limit and take-profit orders, trailing stops and `POST /markets/:marketId/mark`, OCO and brackets, good-till-date expiry
 - `liquidity` (after `book`): iceberg, peg, all-or-none, IFM, the auction and its uncross, liquidity, `POST /markets/:marketId/mass-quote` with MMP
 - `venue` (after `book`): `POST /markets/:marketId/halt`, `/resume`, `/reduce-only`, `/reduce-only/resume`, `/post-only`, `/post-only/resume`, `/prelaunch`, `/open`, `/expire`, `/delist`, `POST /halt-all`, `/resume-all` with the identity approval they spend, the halt law, `POST /session/dead` and cancel-on-disconnect, `GET /surveillance/cases`, `POST /surveillance/adjudicate`, `/fine`
-- `spreads` (after `book`): `GET /spreads`, `GET /spreads/:spreadId/book`, `POST /spreads/:spreadId/list`, `POST /spreads/:spreadId/orders`, the combo and option books, and `spreadFilled`
+- `spreads` (after `book`): `GET /spreads`, `GET /spreads/:spreadId/book`, `POST /spreads/:spreadId/list`, `POST /spreads/:spreadId/orders`, the combo and option books, and `spreadFilled`. Ported: `src/book/spread.rs`, `src/book/order_book/{option,combo,spread_book}.rs`, `src/approval.rs`, `src/door/spreads.rs`
 - `rulebook` (after `book`): `GET /rulebook`, `GET /rulebook/versions`, `POST /operator/rulebook/check`, `POST /operator/rulebook/publish`, and the rulebook and certificate refusals in the engine
 - `operator` (after `venue`): `GET /operator/in-flight`, `POST /operator/halt`, `/resume`, `/halt-all`, `/resume-all` with their idempotency keys
