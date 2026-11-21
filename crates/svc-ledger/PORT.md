@@ -85,9 +85,15 @@ The `posting` slice is ported, not served yet (the switch is its own item). It a
 - `tests/posting_pg.rs`: the intent and its relay, a failed publish and its retry, the freeze and the custody switch, on a real Postgres.
 - `tests/conformance/`: the TypeScript's own database tests against the binary (`run.mjs`). The ledger conformance suite through the TypeScript door and the Rust one; the four binding files (`*-binding.pg.test.ts`) unmodified on the Rust door; the engine's Postgres tests (`ledger/`) with every post sent through each door. It needs Postgres, NATS and `cargo build -p svc-ledger`; CI does not run it yet.
 
+The `controls` slice is ported, not served yet (the switch is its own item). It added:
+
+- `src/controls/`: `mod.rs` defines, updates, lists and runs a control (`reconciliation-controls.ts`), opening the run's row before any source is read and finishing a started one on retry; `schedule.rs` the periods and due instants (`reconciliation-schedule.ts`); `judge.rs` the pure verdicts; `sources.rs` the outside side (`reconciliation-sources.ts`): the whole book, one rail's statement, and svc-pay's open items, signed as svc-ledger. An amount is a scaled `i128`, so a sum past its range answers ERROR, where the TypeScript's `bigint` would keep counting.
+- `src/door/controls.rs`: the four operator doors; their inputs and the replies they check are recorded in `src/door/schemas.json`. The tick runs the due controls after its staleness check (`reconciler.rs`), and one that throws pages and freezes nothing. `reconciliationEvaluations` now reads its runs through `controls::to_run`.
+- `tests/controls_pg.rs`: `reconciliation-controls.pg.test.ts` case for case on a real Postgres, each case in its own database, its outside sources a local HTTP server. The tRPC router case runs through the operator door. The feed case and `transactionsExist` stay in `tests/ops_reads_pg.rs`.
+- `tests/controls_sources.rs`: `reconciliation-sources.test.ts`; the tick hook case of `reconciliation-controls.test.ts` is in `tests/reconcile_tick.rs`, its schedule cases in `src/controls/schedule.rs`.
+
 Left to later slices:
 
-- The tick's due-controls run (`runDueReconciliationControls`) is `controls`'s.
 - `/metrics` is in no slice yet. The switch needs it, since Prometheus scrapes it; the `ledger_reconcile_last_verified_*` gauges come with it.
 
 ## What the shell holds, and how it is proved

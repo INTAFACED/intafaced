@@ -254,6 +254,7 @@ fn door_with(store: Store, indexer_url: Option<&str>, fetch: Arc<dyn Fetch>) -> 
         indexer_url: indexer_url.map(str::to_owned),
         fetch,
         posting: support::idle_posting(),
+        reconciliation_sources: std::sync::Arc::new(svc_ledger::controls::sources::Unset),
     })
     .unwrap()
 }

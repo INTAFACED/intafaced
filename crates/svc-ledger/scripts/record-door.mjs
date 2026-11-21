@@ -63,6 +63,7 @@ const { verifyAccessToken } = await import(`${ROOT}packages/auth/src/tokens.ts`)
 const { ledgerFeeRevenueInputSchema } = await import(`${ROOT}packages/contracts/src/ledger-fee-revenue.ts`);
 const { restoreWatermarkReadInputSchema } = await import(`${ROOT}packages/contracts/src/ops-restore-watermarks.ts`);
 const reconciliation = await import(`${ROOT}packages/contracts/src/ledger-reconciliation.ts`);
+const payContracts = await import(`${ROOT}packages/contracts/src/pay-custody-deposit.ts`);
 const statementPnl = await import(`${SVC}ledger/statement-pnl-reproduce.ts`);
 const reportExport = await import(`${SVC}ledger/report-export.ts`);
 const custody = await import(`${SVC}ledger/custody-adapters.ts`);
@@ -125,6 +126,30 @@ const INPUTS = {
 const OUTPUTS = {
   controlRun: reconciliation.reconciliationControlRunSchema,
   evaluationFeed: reconciliation.reconciliationEvaluationFeedSchema,
+  // `reconciliation-controls.ts` parses each stored row it reads, and each reply before it answers.
+  controlView: reconciliation.reconciliationControlViewSchema,
+  controlRunList: reconciliation.reconciliationControlRunListSchema,
+  controlAccountSet: reconciliation.reconciliationAccountSetSchema,
+  controlSchedule: reconciliation.reconciliationScheduleSchema,
+  controlThreshold: reconciliation.reconciliationThresholdSchema,
+  controlTolerance: reconciliation.reconciliationToleranceSchema,
+  // `reconciliation-sources.ts`: what an outside read must be before it is a balance, and svc-pay's open items.
+  railSnapshot: reconciliation.railBalanceSnapshotSchema,
+  railStatement: reconciliation.railStatementSchema,
+  reconcilingItem: reconciliation.reconciliationReconcilingItemSchema,
+  openItemsInput: payContracts.payCustodyRailOpenItemsInputSchema,
+  openItemsPage: payContracts.payCustodyOpenItemsReplySchema,
+};
+
+/**
+ * The reconciliation control doors (`operator-http.ts`): each parses its body, or `{}` when it is absent. Recorded after
+ * the replies above, so the input golden only grows at its end and every earlier case keeps its verdict's number.
+ */
+const CONTROL_INPUTS = {
+  controlDefine: reconciliation.defineReconciliationControlInputSchema,
+  controlUpdate: reconciliation.updateReconciliationControlInputSchema,
+  controlRunInput: reconciliation.runReconciliationControlInputSchema,
+  controlRuns: reconciliation.listReconciliationControlRunsInputSchema,
 };
 
 /** Refines, by their source as tsx loads it: the Rust door runs each by this name (`src/refines.rs`). */
@@ -132,6 +157,8 @@ const REFINES = {
   'q=>!q.from||!q.to||Date.parse(q.from)<Date.parse(q.to)': 'from_before_to',
   'v=>BigInt(v)<=INT8_MAX': 'seq_within_int8',
   'r=>r>=1': 'revision_set',
+  'value=>Object.keys(value.byAsset).length>0': 'threshold_has_assets',
+  'v=>!/^-0(\\.0+)?$/.test(v)': 'not_negative_zero',
 };
 /** `superRefine`s, by the schema that carries them (their check's source is zod's own wrapper). */
 const SUPER_REFINES = new Map([
@@ -141,6 +168,10 @@ const SUPER_REFINES = new Map([
   [servedLedgerClient.accountRefSchema, 'owner_id_space'],
   // The same check and message as `accountRefSchema`'s, on the page's own strict object.
   [historyPageInputSchema, 'owner_id_space'],
+  // An account set over one rail names its boundary itself, and a query names at least one predicate.
+  [reconciliation.operatorAccountSetSchema._zod.def.options[1], 'rail_boundary'],
+  // A lifecycle move travels alone, with its approval; the approval ids ride with nothing else.
+  [reconciliation.updateReconciliationControlInputSchema, 'lifecycle_alone'],
 ]);
 
 const ids = new Map();
@@ -200,7 +231,7 @@ function check(c, owner) {
 }
 
 /** The one transform the doors use: `(s) => s.trim()` on a string, as tsx prints it. */
-const TRIM_TRANSFORMS = new Set(['(s) => s.trim()', 's=>s.trim()']);
+const TRIM_TRANSFORMS = new Set(['(s) => s.trim()', 's=>s.trim()', '(value) => value.trim()', 'value=>value.trim()']);
 
 /**
  * A pipe. `z.string().transform((s) => s.trim())` is recorded as the string with `trim` as its one check: the same
@@ -295,7 +326,9 @@ function build(s) {
   }
 }
 
-const inputs = Object.fromEntries(Object.entries({ ...INPUTS, ...OUTPUTS }).map(([door, schema]) => [door, node(schema)]));
+const inputs = Object.fromEntries(
+  Object.entries({ ...INPUTS, ...OUTPUTS, ...CONTROL_INPUTS }).map(([door, schema]) => [door, node(schema)]),
+);
 
 // ── zod's verdicts ─────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -428,6 +461,28 @@ const VALID = {
   transactionsExist: { txIds: [ID, ID.toUpperCase()] },
   reconciliationEvaluations: { after: { finishedAt: '2026-01-01T00:00:00.123456Z', id: ID }, limit: 500 },
   restoreWatermark: { asOf: '2026-01-01T00:00:00+08:00' },
+  controlDefine: {
+    template: 'outside_balance',
+    explanation: 'TEST rail boundary',
+    labels: ['  rail  '],
+    schedule: { cadence: 'weekly', isoWeekday: 1, hour: 0, minute: 30 },
+    severity: 'critical',
+    tolerance: { default: '0', byAsset: { USDT: '0.5' } },
+    margin: '1.5',
+    accountSet: { mode: 'query', rail: 'crypto-native', kind: 'available', assetId: 'USDT' },
+    reason: '  TEST reconciliation reason  ',
+    activate: true,
+  },
+  controlUpdate: { controlId: ID, reason: 'TEST reconciliation reason', severity: 'info', activate: false },
+  controlRunInput: {
+    controlId: ID,
+    asOf: '2026-01-01T00:00:00+02:00',
+    margin: '0',
+    reason: 'TEST reconciliation reason',
+    approvalId: 'a1',
+    operationId: 'o1',
+  },
+  controlRuns: { controlId: ID, limit: 2 },
 };
 const RUN = {
   id: ID,
@@ -449,6 +504,61 @@ const RUN = {
 };
 const { accounts: _accounts, ...EVALUATED } = RUN;
 VALID.controlRun = RUN;
+VALID.controlView = {
+  id: ID,
+  builtin: false,
+  template: 'threshold',
+  checkKind: { status: 'unset' },
+  state: 'active',
+  explanation: '',
+  labels: ['rail'],
+  schedule: { status: 'set', value: { cadence: 'daily', hour: 1, minute: 0 }, period: 'day' },
+  severity: { status: 'set', value: 'info' },
+  tolerance: { status: 'set', default: '0', byAsset: {} },
+  margin: { status: 'unset' },
+  accountSet: { mode: 'explicit', accountIds: [ID] },
+  threshold: { status: 'set', bound: 'min', byAsset: { USDT: '0' } },
+  version: 2,
+};
+VALID.controlRunList = { controlId: ID, total: 1, runs: [RUN] };
+VALID.controlAccountSet = { mode: 'query', ownerType: 'user', ownerIdPrefix: ' abc ', purpose: '', assetId: 'USDT' };
+VALID.controlSchedule = { cadence: 'monthly', day: 31, hour: 0, minute: 0 };
+VALID.controlThreshold = { bound: 'max', byAsset: { USDT: '1000' } };
+VALID.controlTolerance = { default: '0', byAsset: { BTC: '0.00000001' } };
+VALID.railSnapshot = { source: 'rail', asOf: '2026-01-01T00:00:00.000Z', balances: [{ assetId: 'USDT', amount: '-7' }] };
+VALID.railStatement = { ...VALID.railSnapshot, rail: 'crypto-native' };
+VALID.reconcilingItem = RUN.reconcilingItems[0];
+VALID.openItemsInput = { rail: 'crypto-native', offset: 0, limit: 200 };
+VALID.openItemsPage = {
+  items: [
+    {
+      depositId: 'dep-1',
+      kind: 'reversal_unfunded',
+      userId: ID,
+      assetId: 'USDT',
+      networkId: 'ethereum',
+      txHash: '0xtest',
+      outputIndex: 0,
+      amount: '1',
+      signedAmount: '-1',
+      status: 'needs_review',
+      reason: 'reversal_unfunded',
+      detectedAt: '2026-01-01T00:00:00.000Z',
+    },
+  ],
+  total: 1,
+  sums: [
+    {
+      networkId: 'ethereum',
+      assetId: 'USDT',
+      held: '0',
+      heldCount: 0,
+      reversalUnfunded: '1',
+      reversalUnfundedCount: 1,
+      net: '-1',
+    },
+  ],
+};
 VALID.evaluationFeed = {
   evaluations: [{ run: EVALUATED, finishedAt: '2026-01-01T00:00:00.123456Z', severity: { status: 'set', value: 'critical' } }],
   next: { finishedAt: '2026-01-01T00:00:00.123456Z', id: ID },
@@ -623,6 +733,85 @@ const EXTRA = {
     { after: { finishedAt: '2026-01-01T00:00:00Z', id: ID, x: 1 }, limit: 1 },
   ],
   restoreWatermark: [{ asOf: '2026-01-01' }, { asOf: '2026-01-01T00:00:00Z', x: 1 }],
+  controlDefine: [
+    { ...VALID.controlDefine, accountSet: { mode: 'query', rail: 'crypto-native', ownerType: 'treasury' } },
+    { ...VALID.controlDefine, accountSet: { mode: 'query', rail: 'crypto-native', ownerIdPrefix: 'rail:' } },
+    { ...VALID.controlDefine, accountSet: { mode: 'query', rail: 'crypto-native', kind: 'hold' } },
+    { ...VALID.controlDefine, accountSet: { mode: 'query' } },
+    { ...VALID.controlDefine, accountSet: { mode: 'query', ownerIdPrefix: '   ' } },
+    { ...VALID.controlDefine, accountSet: { mode: 'query', purpose: '' } },
+    { ...VALID.controlDefine, accountSet: { mode: 'query', rail: 'Crypto' } },
+    { ...VALID.controlDefine, accountSet: { mode: 'explicit', accountIds: [ID] } },
+    { ...VALID.controlDefine, accountSet: { mode: 'explicit', accountIds: [] } },
+    { ...VALID.controlDefine, accountSet: { mode: 'all' } },
+    { ...VALID.controlDefine, threshold: { bound: 'min', byAsset: {} } },
+    { ...VALID.controlDefine, threshold: { bound: 'max', byAsset: { USDT: '10', usdt: '1' } } },
+    { ...VALID.controlDefine, threshold: { bound: 'max', byAsset: { USDT: '-1' } } },
+    { ...VALID.controlDefine, schedule: { cadence: 'hourly', minute: 60 } },
+    { ...VALID.controlDefine, schedule: { cadence: 'daily', hour: 1, minute: 0, isoWeekday: 1 } },
+    { ...VALID.controlDefine, schedule: { cadence: 'monthly', day: 31, hour: 23, minute: 59 } },
+    { ...VALID.controlDefine, schedule: { cadence: 'yearly' } },
+    { ...VALID.controlDefine, tolerance: {} },
+    { ...VALID.controlDefine, tolerance: { default: '01' } },
+    { ...VALID.controlDefine, tolerance: { default: '1.0000000000000000001' } },
+    { ...VALID.controlDefine, margin: '1e3' },
+    { ...VALID.controlDefine, labels: Array(17).fill('l') },
+    { ...VALID.controlDefine, labels: ['   '] },
+    { ...VALID.controlDefine, reason: ' eleven chars ' },
+    { ...VALID.controlDefine, reason: `  ${'r'.repeat(500)}  ` },
+  ],
+  controlUpdate: [
+    { controlId: ID, reason: 'TEST reconciliation reason', lifecycle: 'pause', approvalId: 'a1', operationId: 'o1' },
+    { controlId: ID, reason: 'TEST reconciliation reason', lifecycle: 'pause' },
+    { controlId: ID, reason: 'TEST reconciliation reason', lifecycle: 'retire', approvalId: 'a1' },
+    { controlId: ID, reason: 'TEST reconciliation reason', lifecycle: 'resume', approvalId: 'a1', operationId: 'o1', activate: true },
+    {
+      controlId: ID,
+      reason: 'TEST reconciliation reason',
+      lifecycle: 'pause',
+      approvalId: 'a1',
+      operationId: 'o1',
+      severity: 'info',
+      labels: [],
+    },
+    { controlId: ID, reason: 'TEST reconciliation reason', severity: 'info', approvalId: 'a', operationId: 'o' },
+    { controlId: ID, reason: 'TEST reconciliation reason', operationId: 'o' },
+    { controlId: ID, reason: 'TEST reconciliation reason', lifecycle: 'thaw', approvalId: 'a1', operationId: 'o1' },
+    { controlId: ID, reason: 'TEST reconciliation reason', accountSet: { mode: 'all' } },
+    { controlId: ID, reason: 'TEST reconciliation reason', explanation: 'e'.repeat(2001) },
+  ],
+  controlRunInput: [
+    { ...VALID.controlRunInput, asOf: '2026-01-01T00:00:00' },
+    { ...VALID.controlRunInput, asOf: '2026-01-01' },
+    { ...VALID.controlRunInput, asOf: undefined, margin: undefined },
+    { ...VALID.controlRunInput, operationId: 'o'.repeat(129) },
+  ],
+  controlView: [
+    { ...VALID.controlView, version: 0 },
+    { ...VALID.controlView, accountSet: { mode: 'all' }, checkKind: { status: 'set', value: 'chain' } },
+    { ...VALID.controlView, schedule: { status: 'set', value: { cadence: 'hourly', minute: 0 } } },
+  ],
+  controlAccountSet: [{ mode: 'all' }, { mode: 'all', x: 1 }, { mode: 'nope' }, { mode: 'query', rail: 'r', kind: 'available' }],
+  controlSchedule: [
+    { cadence: 'hourly', minute: 59 },
+    { cadence: 'weekly', isoWeekday: 8, hour: 0, minute: 0 },
+  ],
+  railStatement: [
+    { ...VALID.railStatement, asOf: '2026-01-01T00:00:00' },
+    { ...VALID.railStatement, balances: [{ assetId: 'USDT', amount: '-0.5' }] },
+  ],
+  openItemsPage: [
+    { ...VALID.openItemsPage, sums: [{ ...VALID.openItemsPage.sums[0], net: '-0' }] },
+    { ...VALID.openItemsPage, items: [{ ...VALID.openItemsPage.items[0], detectedAt: '2026-01-01T00:00:00+00:00' }] },
+    { ...VALID.openItemsPage, items: [{ ...VALID.openItemsPage.items[0], txHash: '0x a' }] },
+  ],
+  controlRuns: [
+    { controlId: ID },
+    { controlId: ID, limit: 0 },
+    { controlId: ID, limit: 501 },
+    { controlId: ID, limit: 1.5 },
+    { controlId: 'x' },
+  ],
   controlRun: [
     { ...RUN, reconcilingItems: undefined },
     { ...RUN, assets: [{ ...RUN.assets[0], observed: '01' }] },
@@ -672,7 +861,7 @@ function probes(door) {
 const verdicts = [];
 const verdictIndex = new Map();
 const cases = [];
-for (const [door, schema] of Object.entries({ ...INPUTS, ...OUTPUTS })) {
+for (const [door, schema] of Object.entries({ ...INPUTS, ...OUTPUTS, ...CONTROL_INPUTS })) {
   for (const input of probes(door)) {
     const text = JSON.stringify(input) ?? null;
     const v = verdict(schema, input, text);

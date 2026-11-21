@@ -12,6 +12,7 @@ use service_kit::json::Json;
 use service_kit::telemetry::Logger;
 use service_kit::time::Instant;
 
+use crate::controls::ScheduleFailed;
 use crate::db::{Store, StoreError};
 use crate::freeze::{self, Command, FREEZE_ATTRIBUTED, FreezeRelay};
 use crate::reconcile::{
@@ -38,6 +39,8 @@ pub struct Reconciler<'a> {
     pub statement_timeout_ms: i64,
     /// The wall clock in milliseconds.
     pub now_ms: fn() -> i64,
+    /// The operator controls' outside side, for the tick's due-controls run; none runs no controls.
+    pub controls: Option<&'a dyn crate::controls::sources::Sources>,
 }
 
 fn coded(message: impl Into<String>, code: &str) -> StoreError {
@@ -221,6 +224,10 @@ pub trait TickLedger {
     fn consecutive_incomplete(&self) -> Option<Result<i64, StoreError>> {
         None
     }
+    /// `runDueReconciliationControls`: the operator controls that have fallen due, and each one that failed.
+    fn run_due_controls(&self) -> Option<Result<Vec<ScheduleFailed>, String>> {
+        None
+    }
 }
 
 impl TickLedger for Reconciler<'_> {
@@ -273,6 +280,14 @@ impl TickLedger for Reconciler<'_> {
 
     fn consecutive_incomplete(&self) -> Option<Result<i64, StoreError>> {
         Some(reconcile::count_consecutive_incomplete(self.store))
+    }
+
+    fn run_due_controls(&self) -> Option<Result<Vec<ScheduleFailed>, String>> {
+        let sources = self.controls?;
+        Some(
+            crate::controls::run_due(self.store, sources)
+                .map_err(|e| crate::controls::message_of(&e)),
+        )
     }
 }
 
@@ -485,6 +500,20 @@ pub fn tick(
         }
     }
     report_when_stale(ledger, log, state, options);
+    match ledger.run_due_controls() {
+        None => {}
+        // One control that failed leaves its period unrun; the next tick retries it.
+        Some(Ok(failed)) => {
+            for f in failed {
+                eprintln!("{}", f.line());
+            }
+        }
+        Some(Err(e)) => log.log(
+            "fatal",
+            vec![("err", Json::str(e))],
+            "LEDGER RECONCILIATION CONTROLS TICK FAILED — posting unchanged",
+        ),
+    }
     Ok(())
 }
 
