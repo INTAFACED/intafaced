@@ -381,3 +381,18 @@ test('portable: an answer refinement with a message is named in the record, once
     [', outputChecks: { view_cap_holds: { at: ["output.personalCap", "output.sharedCap"], says: "a cap is never zero" } }'],
   );
 });
+
+test("portable: a service's wire replay samples a JSON-value schema as main's z.unknown(), once, in either sampler", async () => {
+  const { withReplayJson } = await import('./portable.mjs');
+  for (const head of [
+    'function sample(schema: Schema | undefined, defs: Record<string, Schema>, depth = 0): Json {',
+    'function sample(schema: unknown, depth = 0): unknown {',
+  ]) {
+    const src = ['const x = 1;', head, '  return null;', '}', ''].join('\n');
+    const once = withReplayJson(src);
+    assert.ok(once.includes(`${head}\n  if (acceptsAnyJson(schema)) return null;\n  return null;`));
+    assert.ok(once.includes('function acceptsAnyJson(schema: unknown): boolean'));
+    assert.equal(withReplayJson(once), once);
+  }
+  assert.equal(withReplayJson('const y = 2;\n'), undefined);
+});

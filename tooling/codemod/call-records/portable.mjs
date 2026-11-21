@@ -280,6 +280,7 @@ const jsonValueFrom = (file) =>
 export function plan(skipped, recordFiles) {
   const edits = new Map();
   const left = [];
+  const replays = new Set();
   const add = (q, edit, needs) => {
     if (!edits.has(q.file)) edits.set(q.file, { edits: new Map(), needs: new Set() });
     const f = edits.get(q.file);
@@ -310,6 +311,10 @@ export function plan(skipped, recordFiles) {
         continue;
       }
       const r = target ? fix(target, f.construct) : { why: 'the codemod cannot follow the schema to it' };
+      if (r.needs === 'jsonValueSchema') {
+        const svc = /service: '(svc-[a-z-]+)'/.exec(start.q.src)?.[1];
+        if (svc) replays.add(svc);
+      }
       if (r.edit) add(r.q, r.edit, r.needs);
       else left.push({ record: name, at: f.at, why: r.why });
     }
@@ -319,7 +324,55 @@ export function plan(skipped, recordFiles) {
       } else add(start.q, { start: start.prop.end, end: start.prop.end, text: `, outputChecks: ${checksText(named)}` });
     }
   }
-  return { edits, left };
+  return { edits, left, replays };
+}
+
+/**
+ * The wire replay of a service whose records now read `jsonValueSchema` where main had `z.unknown()`: its request
+ * sampler reads a schema that accepts any JSON value as main's `{}` read, `null`, so it sends main's requests and still
+ * compares every answer byte for byte. Without it the sampler takes the first JSON kind (`"x"`), a request main never
+ * sent.
+ */
+const REPLAY_LINE = '  if (acceptsAnyJson(schema)) return null;';
+const REPLAY_HELPER = `
+/**
+ * \`jsonValueSchema\` (z.json()) as JSON Schema: a choice of every JSON kind. Main had \`z.unknown()\` there (\`{}\`), which
+ * the sampler read as null; this reads the same, so the replay sends main's request (tooling/codemod/call-records/portable.mjs).
+ */
+function acceptsAnyJson(schema: unknown): boolean {
+  if (typeof schema !== 'object' || schema === null) return false;
+  const options = (schema as { anyOf?: unknown }).anyOf;
+  if (!Array.isArray(options)) return false;
+  const kinds = new Set(options.map((o: unknown) => (typeof o === 'object' && o !== null ? (o as { type?: unknown }).type : undefined)));
+  return ['string', 'number', 'boolean', 'null', 'array', 'object'].every((k) => kinds.has(k));
+}
+`;
+export function withReplayJson(src) {
+  if (src.includes('function acceptsAnyJson(')) return src;
+  const m = /^function sample\([^)]*\)[^{]*\{\n/m.exec(src);
+  if (!m) return undefined;
+  const at = m.index + m[0].length;
+  return `${src.slice(0, at)}${REPLAY_LINE}\n${src.slice(at).trimEnd()}\n${REPLAY_HELPER}`;
+}
+
+function writeReplays(services) {
+  const out = [];
+  for (const svc of services) {
+    const file = join(REPO, 'services', svc, 'src/wire-replay.test.ts');
+    let src;
+    try {
+      src = readFileSync(file, 'utf8');
+    } catch {
+      continue;
+    }
+    const next = withReplayJson(src);
+    if (next === undefined) throw new Error(`${relative(REPO, file)}: no \`function sample(\` to teach jsonValueSchema`);
+    if (next !== src) {
+      writeFileSync(file, next);
+      out.push(relative(REPO, file));
+    }
+  }
+  return out;
 }
 
 function write(edits) {
@@ -350,11 +403,15 @@ function main() {
   const i = argv.indexOf('--unportable');
   const skipped = JSON.parse(readFileSync(argv[i + 1], 'utf8'));
   const files = argv.filter((a, j) => j !== i && j !== i + 1 && !a.startsWith('--')).map((f) => resolve(f));
-  const { edits, left } = plan(skipped, files);
-  if (argv.includes('--write')) write(edits);
+  const { edits, left, replays } = plan(skipped, files);
+  const replayFiles = argv.includes('--write') ? (write(edits), writeReplays(replays)) : [];
   console.log(
     JSON.stringify(
-      { fixed: [...edits.values()].reduce((n, f) => n + f.edits.size, 0), files: [...edits.keys()].map((f) => relative(REPO, f)), left },
+      {
+        fixed: [...edits.values()].reduce((n, f) => n + f.edits.size, 0),
+        files: [...[...edits.keys()].map((f) => relative(REPO, f)), ...replayFiles],
+        left,
+      },
       null,
       2,
     ),
