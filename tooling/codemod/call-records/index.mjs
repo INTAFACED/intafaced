@@ -233,6 +233,37 @@ function build(opts, planned) {
         return build(opts, { ...planned, records: planned.records.filter((r) => good.includes(r) || recordFile(opts, r.path) !== file) });
       }
     }
+    // Two different declarations under one name (svc-bank's routers each keep their own `amountString`, some with a
+    // message, some without) cannot land in one file. Keep the records whose helpers agree; the rest go back to their
+    // router, named, and a rerun places them beside their own record, where the name is free.
+    const keyOfMoved = (m) => (m.q ? `${m.q.file}#${m.name}` : `inline#${m.name}`);
+    const clashing = (moved, seen = new Map()) =>
+      moved.find((m) => {
+        if (seen.has(m.name) && seen.get(m.name) !== keyOfMoved(m)) return true;
+        seen.set(m.name, keyOfMoved(m));
+        return false;
+      });
+    if (clashing(closure.moved)) {
+      const keep = [];
+      const seen = new Map();
+      for (const r of recs) {
+        const c = closureOf(
+          REPO,
+          roots.filter((x) => x.where.startsWith(`${r.path} `)),
+        );
+        const trial = new Map(seen);
+        const bad = clashing(c.moved, trial);
+        if (bad && keep.length) {
+          for (const site of r.sites)
+            planned.hand.push({ site, why: `helper ${bad.name} clashes with another ${bad.name} in this record file: a rerun places it` });
+          continue;
+        }
+        keep.push(r);
+        for (const [k, v] of trial) seen.set(k, v);
+      }
+      groups.set(file, keep);
+      return build(opts, { ...planned, records: planned.records.filter((r) => keep.includes(r) || recordFile(opts, r.path) !== file) });
+    }
     // Each moved declaration lands once: in the service's shared schema file, or, when its name is taken there by
     // another declaration, with all of this file's new ones in the record file itself.
     const shared = join(CONTRACTS, `${opts.module}-call-schemas.ts`);
@@ -248,7 +279,12 @@ function build(opts, planned) {
     const taken = schemaNames.get(shared);
     const keyOf = (m) => (m.q ? `${m.q.file}#${m.name}` : `inline#${m.name}`);
     const fresh = closure.moved.filter((m) => !movedTo.has(keyOf(m)));
-    const clash = fresh.some((m) => taken.has(m.name) && taken.get(m.name) !== keyOf(m));
+    const clash =
+      fresh.some((m) => taken.has(m.name) && taken.get(m.name) !== keyOf(m)) ||
+      // A helper this group reads from a record file, under a name the shared file already gives another helper.
+      closure.moved.some(
+        (m) => !fresh.includes(m) && movedTo.get(keyOf(m)) !== shared && taken.has(m.name) && taken.get(m.name) !== keyOf(m),
+      );
     const target = clash ? file : shared;
     for (const m of fresh) {
       movedTo.set(keyOf(m), target);
@@ -256,8 +292,16 @@ function build(opts, planned) {
     }
     const placed = closure.moved.map((m) => ({ name: m.name, file: movedTo.get(keyOf(m)) }));
     created.set(file, writeRecords(opts, file, recs, { ...closure, moved: target === file ? fresh : [] }, placed, created.get(file)));
-    if (target === shared && fresh.length)
-      created.set(shared, writeSchemas(opts, shared, { ...closure, moved: fresh }, created.get(shared)));
+    if (target === shared && fresh.length) {
+      // A helper this group sends to the shared file may read one an earlier group kept beside its own record (a name
+      // clash put it there): the shared file imports it from that record file.
+      const fromRecords = new Map();
+      for (const m of closure.moved) {
+        const home = movedTo.get(keyOf(m));
+        if (home && home !== shared && !fresh.includes(m)) fromRecords.set(m.name, home);
+      }
+      created.set(shared, writeSchemas(opts, shared, { ...closure, moved: fresh, fromRecords }, created.get(shared)));
+    }
     // Moved declarations: their old home imports them from contracts.
     for (const m of fresh) {
       if (m.inline || !m.q) continue;
@@ -451,6 +495,7 @@ function writeSchemas(opts, file, closure, pending) {
       `${c.typeOnly ? 'type ' : ''}${c.imported === local ? local : `${c.imported} as ${local}`}`,
     );
   for (const [spec, names] of closure.fromPackages) for (const n of names) if (!(spec === 'zod' && n === 'z')) imp(spec, n);
+  for (const [name, home] of closure.fromRecords ?? []) imp(`./${basename(home).replace(/\.ts$/, '.js')}`, name);
   const decls = closure.moved.map((m) => `${m.inline ? m.text.replace(/\nconst /, '\nexport const ') : m.text}\n`).join('\n');
   if (fresh) {
     const head = [...imports].map(([spec, names]) => `import { ${[...names].join(', ')} } from '${spec}';`).join('\n');
