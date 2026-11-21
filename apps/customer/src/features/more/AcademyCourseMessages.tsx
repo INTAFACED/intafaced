@@ -1,10 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { z } from 'zod';
 import {
   ACADEMY_COURSE_MESSAGES_LIST_MAX,
-  academyCourseConversationSchema,
-  academyCourseConversationSummarySchema,
-  academySendCourseMessageResultSchema,
   type AcademyCourseConversation as Conversation,
 } from '@intafaced/contracts/academy-course-messages';
 import type { ApiResult } from '../../shared/api';
@@ -17,6 +13,9 @@ import { academyCodeOf, academyRefusalText } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyMessagesHref, formatMoment } from './academy-lms';
 import { AcademyRefusal } from './AcademyLmsParts';
+import { ACADEMY_SEND_COURSE_MESSAGE } from '@intafaced/contracts/academy-send-course-message-procedures';
+import { ACADEMY_COURSE_CONVERSATIONS } from '@intafaced/contracts/academy-course-conversations-procedures';
+import { ACADEMY_OPEN_COURSE_CONVERSATION } from '@intafaced/contracts/academy-open-course-conversation-procedures';
 
 /**
  * Message the course team (AC-rooms-04). A course page carries the contact form; the Rooms tab links to the reader's
@@ -58,12 +57,7 @@ function useSend(courseSlug: string) {
     setSending(true);
     setOutcome(null);
     try {
-      const sent = await api.mutate(
-        'academy',
-        'sendCourseMessage',
-        { courseSlug, body, clientRequestId: request.current },
-        academySendCourseMessageResultSchema,
-      );
+      const sent = await api.call(ACADEMY_SEND_COURSE_MESSAGE, { courseSlug, body, clientRequestId: request.current });
       if (sent.ok) {
         setOutcome({ kind: 'done', conversationId: sent.data.conversationId });
         request.current = newRequest();
@@ -164,8 +158,7 @@ export function AcademyCourseInbox() {
   const { t } = copy.useCopy();
   const { language } = usePreferences();
   const inbox = useResource(
-    (signal) =>
-      api.query('academy', 'courseConversations', { limit: INBOX_PAGE }, z.array(academyCourseConversationSummarySchema), { signal }),
+    (signal) => api.call(ACADEMY_COURSE_CONVERSATIONS, { limit: INBOX_PAGE }, { signal }),
     `course-inbox:${userId}`,
   );
   return (
@@ -193,7 +186,7 @@ export function AcademyCourseInbox() {
                         <span className="academy-lms-chip" data-status={row.unread ? 'open' : 'recorded'}>
                           {row.unread ? t('teamMessagesUnread') : t('teamMessagesRead')}
                         </span>
-                        <span>{t('teamMessagesLast', { when: formatMoment(row.lastMessageAt.toISOString(), language) })}</span>
+                        <span>{t('teamMessagesLast', { when: formatMoment(row.lastMessageAt, language) })}</span>
                       </div>
                     </div>
                   </li>
@@ -218,18 +211,11 @@ export function AcademyCourseConversation({ conversationId }: { conversationId: 
   useEffect(() => {
     let live = true;
     // Opening is a write (it marks the conversation read), so it is a mutation, run once per open or re-read.
-    void api
-      .mutate(
-        'academy',
-        'openCourseConversation',
-        { conversationId, limit: ACADEMY_COURSE_MESSAGES_LIST_MAX },
-        academyCourseConversationSchema,
-      )
-      .then((opened) => {
-        if (!live) return;
-        if (opened.ok) setState({ kind: 'ready', data: opened.data });
-        else setState((prev) => (prev.kind === 'ready' ? prev : { kind: 'failed', failure: opened }));
-      });
+    void api.call(ACADEMY_OPEN_COURSE_CONVERSATION, { conversationId, limit: ACADEMY_COURSE_MESSAGES_LIST_MAX }).then((opened) => {
+      if (!live) return;
+      if (opened.ok) setState({ kind: 'ready', data: opened.data });
+      else setState((prev) => (prev.kind === 'ready' ? prev : { kind: 'failed', failure: opened }));
+    });
     return () => {
       live = false;
     };
@@ -255,7 +241,7 @@ export function AcademyCourseConversation({ conversationId }: { conversationId: 
                   <div className="academy-lms-stack">
                     <div data-testid="academy-lms-meta" className="academy-lms-meta">
                       <strong>{message.from === 'learner' ? t('teamMessagesFromYou') : t('teamMessagesFromTeam')}</strong>
-                      <span>{formatMoment(message.sentAt.toISOString(), language)}</span>
+                      <span>{formatMoment(message.sentAt, language)}</span>
                     </div>
                     <p lang="und" className="academy-discussion-body">
                       {message.body}

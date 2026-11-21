@@ -1157,6 +1157,7 @@ fn run_input<'a>(session: &'a str, request: &'a str, task: &'a str) -> RunInput<
         request_id: request,
         task,
         asset_id: "IFC",
+        provenance_of: None,
     }
 }
 
