@@ -22,6 +22,8 @@ import {
   type TypedDataDocument,
 } from './eip1193';
 
+/** How long a remembered wallet has to answer `eth_accounts` (it never prompts) before the room is shown disconnected. */
+export const RESTORE_TIMEOUT_MS = 5_000;
 /** Remembered only to restore the same wallet without a prompt. Storage may be absent or blocked; the page works without it. */
 const REMEMBER_KEY = 'if.web3.wallet';
 function remembered(store: Pick<Storage, 'getItem'> | undefined): string | null {
@@ -85,7 +87,8 @@ export type SequenceResult =
 /** How long a step may wait to be mined before the next one is given up (the person's wallet still holds the first). */
 const STEP_MINED_TIMEOUT_MS = 120_000;
 
-export type WalletStatus = 'disconnected' | 'connecting' | 'connected';
+/** `restoring`: a remembered wallet is being asked, without a prompt, whether it is still authorised; nothing inside renders. */
+export type WalletStatus = 'restoring' | 'disconnected' | 'connecting' | 'connected';
 export interface WalletState {
   status: WalletStatus;
   wallets: DiscoveredWallet[];
@@ -142,6 +145,20 @@ const Context = createContext<WalletApi>(empty);
 /** Outside a provider (a server render, a test) the wallet is simply not connected. */
 export const useWallet = (): WalletApi => useContext(Context);
 
+/** What sits behind a wallet: nothing renders until a remembered wallet has answered, so no control offers Connect first. */
+export function WalletGate({ children }: { children: ReactNode }) {
+  const { status } = useWallet();
+  const { language } = usePreferences();
+  const { t } = walletCopy.forLocale(language);
+  return status === 'restoring' ? (
+    <p className="muted" role="status" aria-busy="true" data-wallet="restoring">
+      {t('restoring')}
+    </p>
+  ) : (
+    children
+  );
+}
+
 interface PendingSequence {
   sequence: Sequence;
   account: string;
@@ -195,23 +212,29 @@ interface Pending {
  * `scope` names the room the provider serves. The Web3 frame keeps one provider across its rooms, so the connection
  * outlasts a move between them; a sheet still open when the room changes is cancelled, as nothing in it was sent.
  * `chainId` is the network the room signs on: the app's own (APP_CHAIN_ID) unless the room names another, as a venue
- * desk does with the chain its venue's signatures name.
+ * desk does with the chain its venue's signatures name. `gate={false}` leaves the gate to the frame, which places `WalletGate`
+ * around its room and keeps its own bar.
  */
 export function WalletProvider({
   children,
   discovery = true,
   scope,
   chainId: configured = APP_CHAIN_ID,
+  gate = true,
 }: {
   children: ReactNode;
   discovery?: boolean;
+  gate?: boolean;
   scope?: string;
   chainId?: number;
 }) {
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   const [wallets, setWallets] = useState<DiscoveredWallet[]>([]);
-  const [status, setStatus] = useState<WalletStatus>('disconnected');
+  const store = useMemo(browserStore, []);
+  const [status, setStatus] = useState<WalletStatus>(() => (remembered(store) ? 'restoring' : 'disconnected'));
+  // Every wallet this page will see has answered discovery: the request was made once the page had loaded.
+  const [discovered, setDiscovered] = useState(!discovery);
   const [connected, setConnected] = useState<DiscoveredWallet | null>(null);
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
@@ -219,12 +242,24 @@ export function WalletProvider({
   const [pending, setPending] = useState<Pending | null>(null);
   const [sequence, setSequence] = useState<PendingSequence | null>(null);
   const [idleMinutes, setIdleMinutes] = useState<number | null>(null);
-  const store = useMemo(browserStore, []);
   const restored = useRef(false);
 
   useEffect(() => {
-    if (!discovery || typeof window === 'undefined') return;
-    return discoverWallets(window, setWallets);
+    if (!discovery || typeof window === 'undefined') {
+      setDiscovered(true);
+      return;
+    }
+    const stop = discoverWallets(window, setWallets);
+    if (document.readyState === 'complete') {
+      setDiscovered(true);
+      return stop;
+    }
+    const loaded = () => setDiscovered(true);
+    window.addEventListener('load', loaded, { once: true });
+    return () => {
+      window.removeEventListener('load', loaded);
+      stop();
+    };
   }, [discovery]);
 
   const adopt = useCallback((wallet: DiscoveredWallet, accounts: unknown, chain: unknown) => {
@@ -272,21 +307,37 @@ export function WalletProvider({
 
   // A wallet that is still authorised comes back without a prompt (eth_accounts never asks).
   useEffect(() => {
-    if (restored.current || status !== 'disconnected') return;
+    if (restored.current || status !== 'restoring') return;
     const rdns = remembered(store);
     const wallet = rdns ? wallets.find((entry) => entry.info.rdns === rdns) : undefined;
-    if (!wallet) return;
+    if (!wallet) {
+      if (discovered) setStatus('disconnected');
+      return;
+    }
     restored.current = true;
+    let answered = false;
+    const unanswered = setTimeout(() => {
+      answered = true;
+      setStatus('disconnected');
+    }, RESTORE_TIMEOUT_MS);
     void (async () => {
       try {
         const accounts = await wallet.provider.request({ method: 'eth_accounts' });
-        if (!firstAddress(accounts)) return remember(store, null);
-        adopt(wallet, accounts, await wallet.provider.request({ method: 'eth_chainId' }));
+        const chain = firstAddress(accounts) ? await wallet.provider.request({ method: 'eth_chainId' }) : null;
+        if (answered) return;
+        if (!firstAddress(accounts)) {
+          remember(store, null);
+          return setStatus('disconnected');
+        }
+        adopt(wallet, accounts, chain);
       } catch {
-        /* the wallet will be asked again when the person presses Connect */
+        if (!answered) setStatus('disconnected');
+      } finally {
+        answered = true;
+        clearTimeout(unanswered);
       }
     })();
-  }, [wallets, status, store, adopt]);
+  }, [wallets, discovered, status, store, adopt]);
 
   // A move to another room cancels a sheet that is still open: the room that asked for it is gone.
   const scopeRef = useRef(scope);
@@ -543,7 +594,7 @@ export function WalletProvider({
   };
   return (
     <Context.Provider value={api}>
-      {children}
+      {gate ? <WalletGate>{children}</WalletGate> : children}
       {sequence && (
         <SequenceSheet
           sequence={sequence.sequence}

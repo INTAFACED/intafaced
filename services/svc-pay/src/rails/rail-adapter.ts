@@ -1,4 +1,5 @@
 import type { Amount } from '@intafaced/ledger-client';
+import type { SendDepth } from './chain-port.js';
 
 /**
  * RailAdapter — the §6.1 adapter interface.
@@ -171,6 +172,12 @@ export interface PaymentIntent {
   /** Merchant's reference for the buyer — opaque to us and to the rail. */
   readonly customerRef?: string;
   readonly metadata?: Readonly<Record<string, string>>;
+  /**
+   * Launch money model (OWNER 226): the business's own receiving address for this payment, derived from the key it gave.
+   * A rail that takes crypto watches this address instead of deriving one of ours; nobody here can move what lands there.
+   * Absent: the custodial layer, where the rail gives an address we control.
+   */
+  readonly receiveAt?: string;
 }
 
 /**
@@ -970,9 +977,11 @@ export interface RailAdapter {
   /**
    * W-withdraw-06: on a rail whose payout is final only at a depth (a chain), how deep the send of this instruction is now.
    * Present, a send out of the platform on this rail settles only once that reaches the owner's settle depth
-   * (`PAY_WITHDRAW_MIN_CONFIRMATIONS`); `null` means the rail cannot say, and the hold stays. Absent, the rail's acceptance is final (ENGINE W-4).
+   * (`PAY_WITHDRAW_MIN_CONFIRMATIONS`); `null` means the rail cannot say, and the hold stays. `{ reverted: true, depth }` is a
+   * send the chain mined and reverted: nothing left, and at the settle depth its hold goes back. Absent, the rail's acceptance
+   * is final (ENGINE W-4).
    */
-  payoutDepth?(s: SettlementInstruction): Promise<number | null>;
+  payoutDepth?(s: SettlementInstruction): Promise<SendDepth>;
 
   /**
    * Verify and parse an inbound webhook.

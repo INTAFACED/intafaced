@@ -44,10 +44,10 @@ export function identityApprovalBook(
         requestId: input.operationId,
       });
       const payload = JSON.stringify(body);
-      let row: ActionApproval;
+      const target = `${url.replace(/\/$/, '')}/trpc/actionApproval.consume`;
+      let res: Response;
       try {
-        const target = `${url.replace(/\/$/, '')}/trpc/actionApproval.consume`;
-        const res = await fetch(target, {
+        res = await fetch(target, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
@@ -56,6 +56,13 @@ export function identityApprovalBook(
           body: payload,
           signal: AbortSignal.timeout(2_000),
         });
+      } catch {
+        // No answer (a timeout or a refused connection) says nothing about the approval: the write is refused, and the
+        // caller is told identity did not answer, never that the approval does not match.
+        return { ok: false, code: 'approval_unavailable' };
+      }
+      let row: ActionApproval;
+      try {
         if (!res.ok) {
           const text = await res.text().catch(() => '');
           if (text.includes('consumed')) return { ok: false, code: 'approval_reused' };

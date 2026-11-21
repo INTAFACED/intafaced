@@ -23,7 +23,7 @@ function deps(overrides: Partial<ProtocolRouterDeps> = {}): ProtocolRouterDeps {
     ammFactoryAddress: () => '0x0000000000000000000000000000000000000000',
     swapSlippageBps: () => null,
     ...overrides,
-  } as unknown as ProtocolRouterDeps;
+  } as ProtocolRouterDeps;
 }
 
 describe('protocol.gasPrice', () => {
@@ -67,7 +67,7 @@ describe('protocol.gasPrice', () => {
               priorityFeeWei: null,
             };
           },
-        } as unknown as ProtocolRouterDeps['chain'],
+        } as ProtocolRouterDeps['chain'],
       }),
     );
     await expect(router.createCaller(anonymous()).gasPrice()).resolves.toMatchObject({

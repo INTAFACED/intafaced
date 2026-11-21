@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { kycTradingChecksResultSchema, kycTradingChecksSchema } from '@intafaced/contracts/identity-kyc-trading-checks';
-import { countryOptions } from '../public/sign-up';
-import { useSession } from '../session/session';
+import { countryOptions } from '../public';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { verificationTradingCopy as copy } from './verification-trading-copy';
@@ -145,7 +145,7 @@ export function VerificationTradingChecks({ disabled, onDone }: { disabled: bool
         {refused ? (
           words ? (
             <p className="failure" role="alert" data-code={refused.code ?? undefined}>
-              <Copy k={words} />
+              {words === 'regionBlocked' ? t('regionBlocked', { country: chosenName }) : <Copy k={words} />}
             </p>
           ) : (
             <div role="alert" data-code={refused.code ?? undefined}>

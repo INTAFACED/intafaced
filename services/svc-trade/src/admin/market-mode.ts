@@ -10,6 +10,7 @@
  * first record. A halt stays matching's own door (`local-test-gates.mjs halt`); delisting stays the listing write.
  * No ledger write recipe is imported here: a mode change never moves money.
  */
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
@@ -89,7 +90,7 @@ type Row = { id: string; symbol: string; kind: string; status: string };
 export class MarketModeAdmin {
   constructor(private readonly deps: MarketModeDeps) {}
 
-  private async market(sql: Sql, symbol: string, lock = false): Promise<Row> {
+  private async market(sql: Queryable, symbol: string, lock = false): Promise<Row> {
     const [row] = lock
       ? await sql<
           Row[]
@@ -103,7 +104,7 @@ export class MarketModeAdmin {
    * The last transition, by the same order the lifecycle read uses. A latest row that does not parse, or one left
    * partial or unknown, is not read as OPEN: the lifecycle read refuses it as recovery-required, and so does this door.
    */
-  private async latest(sql: Sql, marketId: string): Promise<MarketTransitionRecord | null> {
+  private async latest(sql: Queryable, marketId: string): Promise<MarketTransitionRecord | null> {
     const [row] = await sql<Array<{ transition: unknown }>>`
       SELECT transition FROM trade.market_lifecycle_evidence
        WHERE market_id = ${marketId} AND evidence_kind = 'TRANSITION'
@@ -148,8 +149,7 @@ export class MarketModeAdmin {
     // One transaction, holding the market row: the stale check, the approval and the write see the same last state,
     // so two approved changes against the same mode cannot both land. If the write then fails, the approval is spent
     // and nothing changed; the operators approve again.
-    return this.deps.sql.begin(async (txn) => {
-      const tx = txn as unknown as Sql;
+    return this.deps.sql.begin(async (tx) => {
       const market = await this.market(tx, input.symbol, true);
       if (market.kind !== 'spot') {
         throw new TradeOpsError('trade.market_mode_unsupported', `${market.symbol} is a ${market.kind} market; this door sets spot modes`);

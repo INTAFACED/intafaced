@@ -16,7 +16,6 @@ import { isHiddenPath } from '../../src/app/feature-registry.ts';
 // - #5: svc-support's help search matches an article's id and keys, not the title a person reads, so typing the title
 //   lists nothing under Help.
 // - #6: the header search sends no search-miss count (kind `search_miss`) when nothing is found.
-// - #7: in Business mode the header search does not look up merchant payments by id.
 const J = 'J-home-ia-02';
 const RUN = Date.now().toString(36);
 const UNBUILT = { timeout: 5_000 };
@@ -35,7 +34,7 @@ test.beforeAll(async ({ browser }) => {
   await page.close();
 });
 
-const mainNav = (page) => page.getByRole('navigation', { name: 'Main navigation' });
+const mainNav = (page) => page.getByRole('navigation', { name: 'Main navigation', exact: true });
 
 /** The rows of one top-bar door's dropdown, as { href, group } (group is the Advanced heading when the row sits under it). */
 async function dropdown(page, door) {
@@ -80,7 +79,7 @@ async function withOpsValueBlank(key, fn) {
 
 /** Type into the header search and return its open results panel. */
 async function search(page, words) {
-  const box = page.getByRole('combobox', { name: 'Search markets' });
+  const box = page.getByRole('combobox', { name: 'Search markets', exact: true });
   await box.fill(words);
   const panel = page.getByTestId('tb-search-panel');
   await expect(panel).toBeVisible();
@@ -90,7 +89,7 @@ async function search(page, words) {
 /** Pick Simple or Pro in Settings (a choice kept on this device). */
 async function chooseLayout(page, mode) {
   await page.goto('/view');
-  const option = page.getByRole('group', { name: 'Default view' }).getByRole('button', { name: mode, exact: true });
+  const option = page.getByRole('group', { name: 'Default view', exact: true }).getByRole('button', { name: mode, exact: true });
   await option.click();
   await expect(option).toHaveAttribute('aria-pressed', 'true');
   await page.goto('/home');
@@ -208,9 +207,9 @@ test(`${J} #1 the top bar has five doors with full dropdowns, the same five on t
 
   // On a phone the same five doors sit in the bottom bar, in the same order, More included.
   await page.setViewportSize({ width: 390, height: 844 });
-  const phoneBar = page.getByRole('navigation', { name: 'Customer doors on phone' });
+  const phoneBar = page.getByRole('navigation', { name: 'Customer doors on phone', exact: true });
   await expect(phoneBar.getByRole('link')).toHaveText(DOORS);
-  await phoneBar.getByRole('link', { name: 'More' }).click();
+  await phoneBar.getByRole('link', { name: 'More', exact: true }).click();
   await expect(page).toHaveURL(/\/more$/);
 });
 
@@ -257,11 +256,11 @@ test(`${J} #2 More and All services list every room from the one route table, wi
   await signIn(page, who);
   await page.goto('/more');
   const main = page.locator('main');
-  await expect(main.getByRole('heading', { level: 1, name: 'More' })).toBeVisible();
+  await expect(main.getByRole('heading', { level: 1, name: 'More', exact: true })).toBeVisible();
 
   // All services: one link for every room of the route table that is a page of its own, under its group, and nothing else.
   const index = main.locator('section[aria-labelledby="more-all-services"]');
-  await expect(index.getByRole('heading', { name: 'All services' })).toBeVisible();
+  await expect(index.getByRole('heading', { name: 'All services', exact: true })).toBeVisible();
   const expected = new Map();
   for (const room of rooms.filter(ownPage)) {
     const group = groupOf(room);
@@ -293,7 +292,7 @@ test(`${J} #2 More and All services list every room from the one route table, wi
 
   // Web3: /dex, /chain and /protocol are tiles in the Web3 section, each naming its blockers, and are listed under Web3.
   const web3 = main.locator('section[aria-labelledby="more-web3"]');
-  await expect(web3.getByRole('heading', { name: 'Web3' })).toBeVisible();
+  await expect(web3.getByRole('heading', { name: 'Web3', exact: true })).toBeVisible();
   const web3Index = index.locator('section[aria-labelledby="more-index-Web3"]');
   for (const { href, name, words } of WEB3) {
     const tile = web3.locator(`a[href="${href}"]`);
@@ -335,7 +334,7 @@ test(`${J} #3 typing "earn" in the header search shows Money > Earn, and Enter o
   await expect(row).toContainText('Earn');
   // The first page row is Earn; Enter opens the active row.
   await expect(panel.getByRole('option').first()).toContainText('Earn');
-  await page.getByRole('combobox', { name: 'Search markets' }).press('Enter');
+  await page.getByRole('combobox', { name: 'Search markets', exact: true }).press('Enter');
   await expect(page).toHaveURL(/\/bank\/earn/);
 });
 
@@ -459,18 +458,48 @@ async function call(route, token, body) {
   return json.result.data;
 }
 
+// #7's Business-only rooms: the route table's rooms marked `business` that a search can offer, Merchant home aside.
+const businessOnly = rooms.filter(
+  (room) =>
+    room.business &&
+    room.path !== '/pay/merchant' &&
+    !room.alias &&
+    !room.hidden &&
+    room.area !== 'team' &&
+    !/[:*]/.test(room.path) &&
+    !isHiddenPath(room.path),
+);
+
+/** A header search once its answers are in: Help has answered (it is always offered) and nothing is still loading. */
+async function settledSearch(page, words) {
+  const panel = await search(page, words);
+  await expect(panel.getByRole('option', { name: 'Open Help', exact: true })).toBeVisible();
+  await expect(panel.getByRole('status').filter({ hasText: /^(Searching Help|Finding markets|Looking up the payment)/ })).toHaveCount(0);
+  return panel;
+}
+
+/** A room's row under Pages: its title and where it lives ("Pay > Payouts"), as the search shows it. */
+const pageRow = (panel, room) =>
+  panel
+    .getByRole('option')
+    .filter({ has: panel.page().getByText(room.title, { exact: true }) })
+    .filter({ hasText: `${room.door} > ${room.title}` });
+
 test(`${J} #7 in Business mode a merchant payment id finds the payment; in Personal mode Business-only rooms are absent from search`, async ({
   browser,
   page,
 }) => {
-  test.setTimeout(600_000);
-  // Personal: Business-only rooms such as Payouts are not offered. The search has settled once Help has answered.
+  test.setTimeout(900_000);
+  // Personal: no Business-only room is offered. Every one is searched by its own title: the route table's Business rooms
+  // a search can offer at all (no alias, detail route, hidden page or founder desk). Merchant home is left out: it is not
+  // Business-only, it is how a Personal account finds the merchant set-up (navigation.ts searchRooms).
+  expect(businessOnly.length, 'the route table has Business-only rooms to search for').toBeGreaterThan(20);
   await signIn(page, who);
   await page.goto('/home');
-  const personal = await search(page, 'payouts');
-  await expect(personal.getByRole('option', { name: 'Open Help', exact: true })).toBeVisible();
-  await expect(personal.getByRole('status').filter({ hasText: 'Searching Help' })).toHaveCount(0);
-  await expect(personal.getByRole('option', { name: /Payouts/ })).toHaveCount(0);
+  for (const room of businessOnly) {
+    const personal = await settledSearch(page, room.title);
+    await expect(pageRow(personal, room), `${room.path} is absent in Personal`).toHaveCount(0);
+  }
 
   // Business: a verified TEST merchant takes one TEST card payment, and its owner, in a browser of its own, switches to a
   // TEST business profile.
@@ -506,7 +535,7 @@ test(`${J} #7 in Business mode a merchant payment id finds the payment; in Perso
       spendThreshold: '10',
     });
     await owner.goto('/home');
-    await owner.getByRole('button', { name: 'Account menu' }).click();
+    await owner.getByRole('button', { name: 'Account menu', exact: true }).click();
     await owner
       .getByTestId('profile-business')
       .filter({ hasText: `TEST Search ${RUN}` })
@@ -515,9 +544,12 @@ test(`${J} #7 in Business mode a merchant payment id finds the payment; in Perso
     // The merchant portal has no header search; Home does, and the profile stays Business.
     await owner.goto('/home');
 
-    // Business rooms are offered now, and the payment is found by its id and opens its record.
-    const business = await search(owner, 'payouts');
-    await expect(business.getByRole('option', { name: /Payouts/ }).first()).toBeVisible();
+    // The same searches in Business offer every one of those rooms, so their absence above was the mode's doing, and the
+    // payment is found by its id and opens its record.
+    for (const room of businessOnly) {
+      const business = await settledSearch(owner, room.title);
+      await expect(pageRow(business, room), `${room.path} is offered in Business`).toBeVisible();
+    }
     const found = await search(owner, payment.id);
     const row = found.getByRole('option').filter({ hasText: payment.id });
     await expect(row).toBeVisible(UNBUILT);
@@ -534,22 +566,38 @@ test(`${J} #8 a deep link while signed out: public rooms open, private rooms ask
   test.setTimeout(120_000);
   const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
-  // Public rooms open as they are.
-  for (const path of ['/help', '/trade']) {
-    await page.goto(path);
-    await expect(page).toHaveURL(new RegExp(`${path}$`));
-    await expect(page.getByText('Sign in to continue')).toHaveCount(0);
-  }
+  // Public rooms open as they are, with their own content: Help's heading and answer search, the Markets list's rows.
+  const main = page.getByRole('main');
+  await page.goto('/help');
+  await expect(page).toHaveURL(/\/help$/);
+  await expect(main.getByRole('heading', { level: 1, name: 'How can we help?', exact: true })).toBeVisible();
+  await expect(main.getByRole('textbox', { name: 'Search answers', exact: true })).toBeVisible();
+  await expect(page.getByText('Sign in to continue')).toHaveCount(0);
+  await page.goto('/trade');
+  await expect(page).toHaveURL(/\/trade$/);
+  const markets = page.getByRole('grid', { name: 'Markets', exact: true });
+  await expect(markets).toBeVisible();
+  await expect(
+    markets
+      .getByRole('row')
+      .filter({ has: page.getByTestId('mkt-name__ticker') })
+      .first(),
+  ).toBeVisible();
+  await expect(page.getByText('Sign in to continue')).toHaveCount(0);
   // A private room, with its query, asks to sign in and then opens exactly that room.
   const target = '/money?asset=BTC';
   await page.goto(target);
   await expect(page.getByText('Sign in to continue')).toBeVisible();
-  await page.locator('main').getByRole('link', { name: 'Sign in' }).click();
+  await page.locator('main').getByRole('link', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/login\?redirect=/);
   await page.fill('input[name=identifier]', who.email);
   await page.fill('input[name=password]', who.password);
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page).toHaveURL(new RegExp(`${target.replace('?', '\\?')}$`));
   await expect(page.getByText('Sign in to continue')).toHaveCount(0);
+  // It is the Money room itself, signed in: its actions show, and no sign-in form or link is left.
+  await expect(main.getByRole('navigation', { name: 'Actions', exact: true })).toBeVisible();
+  await expect(page.locator('input[name=password]')).toHaveCount(0);
+  await expect(main.getByRole('link', { name: 'Sign in', exact: true })).toHaveCount(0);
   await context.close();
 });

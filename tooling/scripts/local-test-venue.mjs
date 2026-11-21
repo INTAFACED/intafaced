@@ -18,12 +18,13 @@
  * environment.
  *
  *   node tooling/scripts/local-test-venue.mjs   (TEST_VENUE_HOST, TEST_VENUE_PORT, TEST_VENUE_CHAIN_ID, APP_ENV,
- *                                                TEST_VENUE_RPC_URL, TEST_VENUE_DEPOSIT_TOKEN)
+ *                                                TEST_VENUE_RPC_URL, TEST_VENUE_DEPOSIT_TOKEN, TEST_VENUE_ID)
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { TEST_CHAIN_ID } from './local-test-chain.mjs';
+import { STACK_PORTS } from './local-test-facts.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** The built simulator. The stack builds it with svc-trade (a dev dependency there); a bare run says how to build it. */
@@ -38,6 +39,20 @@ export function testVenueChainId(raw) {
   if (text === '') return TEST_APP_CHAIN_ID;
   if (!/^[1-9][0-9]{0,15}$/.test(text)) throw new Error(`TEST_VENUE_CHAIN_ID must be a positive whole number, got ${JSON.stringify(raw)}`);
   return Number(text);
+}
+
+/**
+ * The TEST venue's id from `TEST_VENUE_ID`: blank is the simulator's own default (`test-venue-sim`), anything else must be
+ * `test-venue-sim-` and 4 to 16 lower-case letters or digits. The journeys give each file a venue of its own under a fresh
+ * id (apps/customer/tests/real-app/world-restore.mjs `ownVenueFor`), so what svc-trade and the ledger keep by venue id
+ * (listings, builder-fee versions, the builder-fee receivable) is that file's own as well. Returns null for the default.
+ */
+export function testVenueId(raw) {
+  const text = (raw ?? '').trim();
+  if (text === '') return null;
+  if (!/^test-venue-sim-[a-z0-9]{4,16}$/.test(text))
+    throw new Error(`TEST_VENUE_ID must be test-venue-sim- and 4 to 16 lower-case letters or digits, got ${JSON.stringify(raw)}`);
+  return text;
 }
 
 /**
@@ -64,6 +79,8 @@ export function userVenueCount(raw) {
  * The second TEST venue (J-derivatives-28): its own id and name, and a deeper TEST ladder (5 BTC a level against the first
  * venue's 1), so one order the first venue's shown depth can't fill at its shown price has a venue that can.
  */
+/** TEST: the most orders the first TEST venue takes in one signed action. */
+export const FIRST_TEST_VENUE_ORDERS_PER_ACTION = 10;
 export const SECOND_TEST_VENUE = { id: 'test-venue-sim-b', displayName: 'TEST venue simulator B', levelSize: '5' };
 
 /**
@@ -86,6 +103,9 @@ export const TEST_VENUE_DEPOSIT_TERMS = { minimum: '5', confirmations: 3, networ
  */
 export const TEST_VENUE_DEPOSIT_EXPLORER = '/chain/tx/';
 
+/** The least time ahead the first TEST venue takes a scheduled cancel (J-cex-spot-07): 5 s, as Hyperliquid's own rule. TEST. */
+export const FIRST_TEST_VENUE_SCHEDULED_CANCEL_MIN_LEAD_MS = 5_000;
+
 /**
  * The deposit route for this venue, or null when the TEST chain or its token is not given. Its chain is the stack's TEST
  * chain (anvil, TEST_APP_CHAIN_ID), whatever chain the venue's signing domain names (TEST_VENUE_CHAIN_ID).
@@ -105,14 +125,26 @@ export function testVenueDepositRoute({ rpcUrl, token }) {
   };
 }
 
-/** Start the TEST venue and seed it, and, with a TEST chain, its deposit watcher. Resolves with the server and its URL. */
-export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '', depositToken = '', second = false }) {
+/**
+ * Start the TEST venue and seed it, and, with a TEST chain, its deposit watcher. Resolves with the server and its URL.
+ * `id` (testVenueId) names the venue; the second venue is then `<id>-b`. Null keeps the simulator's defaults.
+ */
+export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '', depositToken = '', second = false, id = null }) {
   if (!fs.existsSync(VENUE_SIM_DIST)) {
     throw new Error(`${path.relative(REPO, VENUE_SIM_DIST)} is not built: pnpm --filter @intafaced/venue-sim... build`);
   }
   const sim = await import(pathToFileURL(VENUE_SIM_DIST).href);
   const deposit = second ? null : testVenueDepositRoute({ rpcUrl, token: depositToken });
-  const which = second ? { id: SECOND_TEST_VENUE.id, displayName: SECOND_TEST_VENUE.displayName } : {};
+  // The first TEST venue takes several orders in one signed action, as the venue it stands for does (J-derivatives-03 #9);
+  // the second takes one order per signature, so the app's other branch runs against a venue too.
+  const which = second
+    ? { id: id ? `${id}-b` : SECOND_TEST_VENUE.id, displayName: SECOND_TEST_VENUE.displayName }
+    : {
+        ...(id ? { id } : {}),
+        ordersPerAction: FIRST_TEST_VENUE_ORDERS_PER_ACTION,
+        // The first TEST venue has a scheduled cancel, as the venue it stands for does (J-cex-spot-07): at least 5 s ahead.
+        scheduledCancelMinLeadMs: FIRST_TEST_VENUE_SCHEDULED_CANCEL_MIN_LEAD_MS,
+      };
   const started = await sim.startTestVenueServer({ host, port, appEnv, chainId, deposit, ...which });
   const seeded = await sim.seedTestVenue(started.sim, second ? { levelSize: SECOND_TEST_VENUE.levelSize } : {});
   const log = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
@@ -125,12 +157,13 @@ export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '',
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   serveTestVenue({
     host: process.env.TEST_VENUE_HOST ?? '127.0.0.1',
-    port: Number(process.env.TEST_VENUE_PORT ?? '14560'),
+    port: Number(process.env.TEST_VENUE_PORT ?? STACK_PORTS['test-venue']),
     // The RAW value: unset, blank and anything but dev or test refuse.
     appEnv: process.env.APP_ENV,
     chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
     rpcUrl: process.env.TEST_VENUE_RPC_URL,
     depositToken: process.env.TEST_VENUE_DEPOSIT_TOKEN,
+    id: testVenueId(process.env.TEST_VENUE_ID),
   }).catch((err) => {
     process.stderr.write(`test-venue: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);

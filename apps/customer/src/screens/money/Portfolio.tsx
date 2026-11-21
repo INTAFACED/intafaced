@@ -15,7 +15,6 @@ import {
   fmtAmount,
   fmtChangeLine,
   fmtPct,
-  fmtUsd,
   HeroNumber,
   isHiddenPath,
   Money,
@@ -27,7 +26,6 @@ import {
   StateBlock,
   toFixedString,
   useMarkets,
-  type BalanceEntry,
   type Loadable,
   type MarketRow,
 } from './deps';
@@ -58,6 +56,7 @@ import { fmtCoinPrice } from './price-text';
 import { ValuationNote } from './ValuationNote';
 import { HoldingsChange } from './HoldingsChange';
 import { savePreferences, usePreferences } from '../../shared/preferences';
+import { lookDirection } from '../../app/look';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -180,7 +179,8 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
           <span data-part="cash">
             {t('Cash')} <Money value={value(view.cashUsd)} hidden={hidden} />
           </span>
-          {' · '}
+          {/* the Ember direction draws the two parts as cards, side by side (look preview only, issue 9227) */}
+          {lookDirection() === 'ember' ? null : ' · '}
           <span data-part="crypto">
             {t('Crypto')} <Money value={value(view.cryptoUsd)} hidden={hidden} />
           </span>
@@ -210,8 +210,6 @@ export function isSmall(row: MoneyRow): boolean {
   const value = dec(row.usdValue);
   return value !== null && value < SCALE;
 }
-
-type Balances = Loadable<Record<string, BalanceEntry>>;
 
 function Colgroup({ pro }: { pro: boolean }) {
   return (

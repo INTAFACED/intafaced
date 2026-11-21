@@ -5,8 +5,9 @@
  * A window is published like any notice: the author asks identity for an approval bound to the exact draft (reminder
  * offsets included), a different founder approves it, and the founder who asked publishes it.
  */
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 import type { PublishApproval } from './incidents-model';
+import { isRecord } from '@intafaced/contracts/guards';
 
 export const MAINTENANCE_STATES = ['scheduled', 'in_progress', 'verifying', 'completed', 'cancelled'] as const;
 export type MaintenanceState = (typeof MAINTENANCE_STATES)[number];
@@ -50,7 +51,6 @@ export interface MaintenanceDeskView {
   readonly asOf: string;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
 const strOrNull = (v: unknown): v is string | null => v === null || typeof v === 'string';
 const ints = (v: unknown): v is number[] => Array.isArray(v) && v.every((x) => Number.isInteger(x));
 const strings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');

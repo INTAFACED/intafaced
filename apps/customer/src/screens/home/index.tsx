@@ -26,7 +26,6 @@ import {
   useTickers,
   type Loadable,
   type HomePortfolio,
-  type TickerRow,
   Loading,
 } from './deps';
 import { InfoTip } from './InfoTip';
@@ -38,6 +37,8 @@ import { Watchlist } from './Watchlist';
 import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
+import { useRecentActivityLimit } from './recent-activity-limit';
+import { HomeStanding, launchStanding, useLaunchVenue } from './HomeStanding';
 import { WorkList } from './WorkList';
 import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
@@ -45,12 +46,17 @@ import { useStartedTile } from './started-data';
 import type { NeedsYouShown } from './work-list';
 import { CustomiseHome } from './CustomiseHome';
 import { LitSphere } from './LitSphere';
+import { EmberMoney } from './EmberMoney';
+import { VoltStack } from './VoltStack';
+import { lookDirection } from '../../app/look';
 import { HomeNotices } from './Notices';
 import { HomeInbox } from './HomeInbox';
 import { useHomeLayout } from './tiles-data';
 import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { TestBuildTag } from './TestBuildTag';
+import { GlassStack } from './GlassStack';
+import './glass-stack.css';
 import { useSession } from '../../features/session/session';
 
 // Pro Home carries Trade's client; Simple Home (the default) does not load it.
@@ -250,6 +256,9 @@ function HomeSimple() {
   const movers = useMovers(6);
   const { userId } = useSession();
   const activity = useActivity();
+  const activityLimit = useRecentActivityLimit();
+  // The launch model (OWNER 226): with the user-venue door on, the total is where the person stands, as Assets shows it.
+  const launch = launchStanding(useLaunchVenue(), portfolio);
   const { favorites, isFavorite, toggle } = useFavorites(userId);
   const favoriting = useMemo(() => ({ isFavorite, toggle }), [isFavorite, toggle]);
 
@@ -309,42 +318,65 @@ function HomeSimple() {
   const started = useStartedTile(portfolio, side.includes('started'));
   // What "Needs you" shows, so the inbox row is never a notice it already carries.
   const [needsYou, setNeedsYou] = useState<NeedsYouShown | null>(null);
+  // The Ember direction (look preview only, intafaced issue 9227): the balance and the money object come first, the
+  // inbox after the actions, and the cards stand in for the holdings rows and the sphere.
+  const direction = lookDirection();
+  const ember = direction === 'ember';
+  // The Volt direction draws its card stack where the lit sphere and the holdings rows stand.
+  const volt = direction === 'volt';
+
+  // The total, its label and the actions. The Lit glass direction draws them first, above the notices; it and Ember put
+  // their money object between the total and the actions (intafaced issue 9227); everyone else sees them where they were.
+  const glass = direction === 'lit-glass';
+  const hero = (
+    <>
+      <div data-testid="home-label" className="home-label">
+        <span>{t('Est. total value')}</span>
+        <button
+          type="button"
+          className="home-eye"
+          onClick={() => savePreferences({ hideBalances: !hideBalances })}
+          aria-label={hideBalances ? t('Show balances') : t('Hide balances')}
+        >
+          {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+        </button>
+        <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
+        {isHiddenPath('/money') ? null : (
+          <a className="home-tile-link" href="/money">
+            {t('Assets')}
+            <ChevronRight size={14} aria-hidden="true" />
+          </a>
+        )}
+        <CustomiseHome home={home} mode="simple" />
+      </div>
+
+      {launch ? <HomeStanding status={launch} hidden={hideBalances} /> : <Balance portfolio={portfolio} hidden={hideBalances} />}
+      {glass && !launch ? <GlassStack portfolio={portfolio} hidden={hideBalances} /> : null}
+      {ember && !launch ? <EmberMoney portfolio={portfolio} hidden={hideBalances} /> : null}
+      <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
+    </>
+  );
 
   return (
     <div data-testid="if-home" className="if-home">
       <h1 className="if-sr">{t('Home')}</h1>
+      {glass ? <div className="lg-hero">{hero}</div> : null}
       <HomeNotices />
-      <HomeInbox needsYou={needsYou} />
+      {ember ? null : <HomeInbox needsYou={needsYou} />}
       <div className="home-grid">
         <div data-testid="home-main" className="home-main">
-          <div data-testid="home-label" className="home-label">
-            <span>{t('Est. total value')}</span>
-            <button
-              type="button"
-              className="home-eye"
-              onClick={() => savePreferences({ hideBalances: !hideBalances })}
-              aria-label={hideBalances ? t('Show balances') : t('Hide balances')}
-            >
-              {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
-            </button>
-            <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
-            {isHiddenPath('/money') ? null : (
-              <a className="home-tile-link" href="/money">
-                {t('Assets')}
-                <ChevronRight size={14} aria-hidden="true" />
-              </a>
-            )}
-            <CustomiseHome home={home} mode="simple" />
-          </div>
-
-          <Balance portfolio={portfolio} hidden={hideBalances} />
-          <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
+          {glass ? null : hero}
+          {ember ? <HomeInbox needsYou={needsYou} /> : null}
           {main.map((id) => {
             switch (id) {
               case 'work':
                 return <WorkList key={id} hidden={hideBalances} onShown={setNeedsYou} />;
               case 'holdings':
-                return portfolio.status === 'loading' ? (
+                // On the launch model the holdings are the parts of the total above, each read from its own source. The
+                // Lit glass and Ember directions draw them as their money object, in the hero.
+                return launch || glass || ember ? null : volt ? (
+                  <VoltStack key={id} portfolio={portfolio} hidden={hideBalances} />
+                ) : portfolio.status === 'loading' ? (
                   // the sphere's section keeps its place while the holdings load (no split, no figures), so it doesn't
                   // arrive late and push the rows below it down
                   <Fragment key={id}>
@@ -387,7 +419,7 @@ function HomeSimple() {
                   </section>
                 ) : null;
               case 'activity':
-                return <RecentActivity key={id} activity={activity} hidden={hideBalances} />;
+                return <RecentActivity key={id} activity={activity} limit={activityLimit} hidden={hideBalances} />;
               case 'learn':
                 return <LearnStrip key={id} />;
               default:
@@ -406,7 +438,7 @@ function HomeSimple() {
           <aside data-testid="home-side" className="home-side">
             {side.map((id) =>
               id === 'your-crypto' ? (
-                portfolio.status === 'loading' ? (
+                launch ? null : portfolio.status === 'loading' ? (
                   <YourCryptoSkeleton key={id} />
                 ) : portfolio.status === 'ready' || portfolio.status === 'empty' ? (
                   <YourCrypto key={id} holdings={portfolio.status === 'ready' ? portfolio.data.holdings : []} hidden={hideBalances} />

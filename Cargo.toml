@@ -1,0 +1,32 @@
+# The Rust workspace: every crate lives under crates/ and inherits the lints below. `pnpm rust:check` runs what CI's
+# Rust job runs (format, clippy with warnings as errors, tests); `pnpm rust:fmt` formats. This file is a gate file:
+# loosening a lint or a profile line needs the CI review.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.100"
+publish = false
+
+[workspace.lints.rust]
+# forbid, not deny: no crate can lower it with an attribute.
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+# A service never crashes on a bad input: it returns a typed error (tests may unwrap: clippy.toml).
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+todo = "deny"
+unimplemented = "deny"
+# Money is never a float: amounts are integers in minor units or a decimal type.
+float_arithmetic = "deny"
+# A suppressed lint says why, on its line.
+allow_attributes_without_reason = "deny"
+
+[profile.release]
+# An arithmetic overflow stops the process instead of wrapping a number silently.
+overflow-checks = true

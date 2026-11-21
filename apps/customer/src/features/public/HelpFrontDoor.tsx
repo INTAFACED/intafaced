@@ -3,9 +3,9 @@ import { supportAwaitingMineSchema } from '@intafaced/contracts/support-awaiting
 import { contractProcedure, readContract } from '../../shared/contract-call';
 import { useResource } from '../../shared/resource';
 import { Button } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { helpCopy as copy } from './help-copy';
-import { supportNewHref, supportRequestHref } from '../more/support-desk';
+import { supportNewHref, supportRequestHref } from '../more';
 
 const awaitingMine = contractProcedure('support', 'awaitingMine', { output: supportAwaitingMineSchema });
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useReducer, type FormEvent } from 'react';
 import { Button, Field } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { MAX_INPUT_LENGTH, singleFlight } from '../../shared/password';
 import { passwordCopy } from '../../shared/password-copy';
 import { changeIssue, changeReducer, changedSchema, initialChange } from './change-password';

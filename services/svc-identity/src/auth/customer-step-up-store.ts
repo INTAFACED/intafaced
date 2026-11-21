@@ -2,6 +2,7 @@
  * Pending customer step-up rows and the mint/consume audit.
  * The spendable approval stays on action_approvals.
  */
+import type { Queryable } from '@intafaced/db';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 
@@ -79,7 +80,7 @@ function fromDb(row: DbRow): CustomerStepUpRow {
 export class SqlCustomerStepUpStore {
   constructor(private readonly sql: Sql) {}
 
-  async insert(row: CustomerStepUpRow, db: Sql = this.sql): Promise<void> {
+  async insert(row: CustomerStepUpRow, db: Queryable = this.sql): Promise<void> {
     await db`
       INSERT INTO customer_step_ups (
         challenge_id, user_id, session_id, scope, purpose, amount, target, payload_hash,
@@ -92,14 +93,14 @@ export class SqlCustomerStepUpStore {
     `;
   }
 
-  async lock(challengeId: string, db: Sql): Promise<CustomerStepUpRow | null> {
+  async lock(challengeId: string, db: Queryable): Promise<CustomerStepUpRow | null> {
     const rows = await db<DbRow[]>`
       SELECT ${db.unsafe(COLS)} FROM customer_step_ups WHERE challenge_id = ${challengeId} LIMIT 1 FOR UPDATE
     `;
     return rows[0] ? fromDb(rows[0]) : null;
   }
 
-  async countSince(userId: string, since: Date, db: Sql): Promise<{ readonly count: number; readonly oldest: Date | null }> {
+  async countSince(userId: string, since: Date, db: Queryable): Promise<{ readonly count: number; readonly oldest: Date | null }> {
     const rows = await db<Array<{ n: string; oldest: Date | null }>>`
       SELECT count(*)::text AS n, min(created_at) AS oldest
       FROM customer_step_ups
@@ -108,7 +109,7 @@ export class SqlCustomerStepUpStore {
     return { count: Number(rows[0]?.n ?? '0'), oldest: rows[0]?.oldest ?? null };
   }
 
-  async markMinted(challengeId: string, approvalId: string, at: Date, db: Sql): Promise<boolean> {
+  async markMinted(challengeId: string, approvalId: string, at: Date, db: Queryable): Promise<boolean> {
     const rows = await db<Array<{ challenge_id: string }>>`
       UPDATE customer_step_ups
       SET status = 'minted', approval_id = ${approvalId}, minted_at = ${at}
@@ -118,7 +119,7 @@ export class SqlCustomerStepUpStore {
     return rows.length === 1;
   }
 
-  async markExpired(challengeId: string, db: Sql = this.sql): Promise<void> {
+  async markExpired(challengeId: string, db: Queryable = this.sql): Promise<void> {
     await db`
       UPDATE customer_step_ups SET status = 'expired'
       WHERE challenge_id = ${challengeId} AND status = 'pending'
@@ -132,7 +133,7 @@ export class SqlCustomerStepUpStore {
     return rows[0] ? fromDb(rows[0]) : null;
   }
 
-  async audit(event: StepUpAuditEvent, db: Sql = this.sql): Promise<void> {
+  async audit(event: StepUpAuditEvent, db: Queryable = this.sql): Promise<void> {
     await db`
       INSERT INTO step_up_audit (
         audit_id, event, challenge_id, approval_id, user_id, session_id, scope, purpose, amount, target, created_at

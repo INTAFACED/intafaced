@@ -4,7 +4,7 @@ import type { ApiClient, ApiResult } from '../../shared/api';
 import { defineCopy } from '../../shared/i18n';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 
 const copy = defineCopy('api-key-usage', {
   title: 'Usage',

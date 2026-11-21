@@ -1,3 +1,4 @@
+import { LEDGER_HISTORY_PAGE } from '@intafaced/ledger-client/history-page';
 import { z } from 'zod';
 import { AuthError, type Principal } from '@intafaced/auth';
 import {
@@ -43,14 +44,7 @@ import {
   unwiredApprovalConsumer,
   type ActionApprovalConsumer,
 } from './ledger/action-approval-consume.js';
-import {
-  HISTORY_PRODUCTS,
-  HISTORY_RAILS,
-  parseHistoryDoorInput,
-  parseHistoryPageInput,
-  parseHistoryRange,
-  serializeHistoryPage,
-} from './ledger/history.js';
+import { parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { applyCallerBinding, type CallerBindingOptions, type PostCaller } from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
@@ -455,34 +449,9 @@ export function createLedgerRouter(
      * like `history`, through `registerS2sHttp` (`/trpc/historyPage`).
      */
     historyPage: serviceProcedureFor(LEDGER_DOOR_CALLERS.historyPage)
+      // From the door's record: main's hand copy of this output lacked `withdrawalId`, which the served route sends.
       .input(z.unknown())
-      .output(
-        z.object({
-          entries: z.array(
-            z.object({
-              txId: z.string(),
-              module: z.string(),
-              reason: z.string(),
-              direction: z.enum(['debit', 'credit']),
-              /** Decimal string. Money never crosses as a `number`. */
-              amount: z.string(),
-              postedAt: z.string(),
-              assetId: z.string(),
-              /** `ledger_entries.id` (bigserial) as a decimal string. */
-              entryId: z.string(),
-              /** `meta.rail` when allow-listed (see `HISTORY_RAILS`), else null. */
-              rail: z.enum(HISTORY_RAILS).nullable(),
-              /** `meta.product` when allow-listed (see `HISTORY_PRODUCTS`), else null. */
-              product: z.enum(HISTORY_PRODUCTS).nullable(),
-              /** The page owner's own trade order this line belongs to (hold, amend, release, fill), else null. */
-              orderId: z.string().min(1).max(128).nullable(),
-              /** Decimal string: the fee taken from the owner's receiving line of a fill (`0` when none), else null. */
-              fee: z.string().nullable(),
-            }),
-          ),
-          nextCursor: z.string().nullable(),
-        }),
-      )
+      .output(LEDGER_HISTORY_PAGE.output)
       .query(async ({ input }) => {
         try {
           return serializeHistoryPage(await ledger.historyPage(parseHistoryPageInput(input)));

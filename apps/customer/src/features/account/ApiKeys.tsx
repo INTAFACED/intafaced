@@ -1,12 +1,14 @@
-import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import type { ApiKeyRecord } from '@intafaced/contracts/api-keys';
 import type { ApiResult } from '../../shared/api';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, Failure, Field, Loading } from '../../shared/ui';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { changeRefusal, readDeveloperKeys, readKeySubaccounts, revokeDeveloperKey } from './developer-keys-api';
 import { OrgKeys } from './OrgKeys';
+import { ApiVersionPanel } from './ApiVersionPanel';
+import { RevokeAllKeys } from './ApiKeysRevokeAll';
 import './security.css';
 import './api-keys.css';
 
@@ -198,6 +200,13 @@ export function ApiKeys() {
                   : t('capUsed', { live: resource.data.cap.live, limit: resource.data.cap.limit })}
             </p>
           </section>
+          <RevokeAllKeys
+            liveKeys={resource.data.keys.filter((key) => stateOf(key, now) === 'stateActive').length}
+            onDone={() => {
+              setNotice(null);
+              reload();
+            }}
+          />
           {resource.data.keys.length === 0 ? (
             <p role="status">{t('empty')}</p>
           ) : (
@@ -282,6 +291,7 @@ export function ApiKeys() {
           )}
         </>
       )}
+      <ApiVersionPanel />
       <OrgKeys at={at} />
       <ConnectedApps />
       {sheet && <RevokeSheet sheet={sheet} onClose={() => !sheet.busy && setSheet(null)} onSubmit={(reason) => void revoke(reason)} />}

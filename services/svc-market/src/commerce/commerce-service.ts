@@ -1,5 +1,6 @@
+import type { ListingReviewState } from '@intafaced/contracts/market-procedures';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   formatAmount,
   IDEMPOTENCY_CONFLICT_CODE,
@@ -126,9 +127,6 @@ export type ListingSort = 'newest' | 'priceAsc' | 'priceDesc' | 'title';
  * The public catalogue only ever holds approved sellers' live listings, so a public row reads `approved`; the seller's
  * own list shows every state. A rejected or suspended seller's state reaches only that seller (see `eligibilityFor`).
  */
-export const LISTING_REVIEW_STATES = ['in_review', 'approved', 'rejected', 'suspended', 'taken_down'] as const;
-export type ListingReviewState = (typeof LISTING_REVIEW_STATES)[number];
-
 export function listingReviewState(
   listingStatus: ListingStatus,
   vendorStatus: 'applied' | 'approved' | 'rejected' | 'suspended',
@@ -1601,7 +1599,12 @@ export class CommerceService {
     );
   }
 
-  private async maxAccessUntilExcluding(sql: Sql, listingId: string, buyerId: string, exceptPurchaseId: string): Promise<Date | null> {
+  private async maxAccessUntilExcluding(
+    sql: Queryable,
+    listingId: string,
+    buyerId: string,
+    exceptPurchaseId: string,
+  ): Promise<Date | null> {
     const [row] = await sql<Array<{ until: Date | null }>>`
       SELECT max(access_until) AS until
         FROM market.purchases

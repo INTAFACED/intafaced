@@ -37,7 +37,10 @@ const entry = {
 let viewer: string | null = owner;
 let resources: Resource<unknown>[] = [];
 let call = 0;
-vi.mock('../session/session', () => ({ useSession: () => ({ api: {}, userId: viewer }) }));
+vi.mock('../session', async (original) => ({
+  ...(await original<typeof import('../session')>()),
+  useSession: () => ({ api: {}, userId: viewer }),
+}));
 vi.mock('../../shared/resource', async (original) => ({
   ...(await original<typeof import('../../shared/resource')>()),
   // Overview order is mode, entries, policy, changes; a detail renders one resource.

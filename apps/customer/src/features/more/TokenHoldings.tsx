@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { TOKEN_LIST_STAKES } from '@intafaced/contracts/token-procedures';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
@@ -19,16 +19,6 @@ import {
 } from './token-holdings';
 import { tokenHoldingsCopy } from './token-holdings-copy';
 
-const stakeRowSchema = z.object({
-  id: z.string().guid(),
-  userId: z.string().guid(),
-  amount: z.string(),
-  tier: z.enum(['flex', 'm3', 'm12']),
-  startedAt: z.string(),
-  unlocksAt: z.string().nullable(),
-  status: z.enum(['pending', 'active', 'unstaking', 'closed']),
-});
-
 /** Holdings summary, unlock calendar, stake ticket and export. */
 export function TokenHoldings() {
   const api = useApi();
@@ -40,13 +30,7 @@ export function TokenHoldings() {
   const [exported, setExported] = useState<boolean | null>(null);
   const stakes = useResource(
     (signal) =>
-      api.query(
-        'token',
-        'listStakes',
-        { status: 'all', limit: 200 },
-        z.array(stakeRowSchema).refine((rows) => rows.every((row) => row.userId === userId)),
-        { signal },
-      ),
+      api.call(TOKEN_LIST_STAKES, { status: 'all', limit: 200 }, { signal, accept: (rows) => rows.every((row) => row.userId === userId) }),
     `token-holdings:${userId}`,
   );
   const show = (value: string) => (hideBalances ? t('hidden') : displayAmount(value));

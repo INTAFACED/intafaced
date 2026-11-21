@@ -69,7 +69,7 @@ describe('Trading settings', () => {
 
   it('reads a bad stored list as blank instead of dropping the other preferences', () => {
     savePreferences({ upColor: 'red' });
-    expect(() => savePreferences({ quickSizes: ['x'] as unknown as string[] })).not.toThrow();
+    expect(() => savePreferences({ quickSizes: ['x'] as string[] })).not.toThrow();
     expect(currentPreferences().quickSizes).toEqual([]);
     expect(currentPreferences().upColor).toBe('red');
     savePreferences({ upColor: 'green' });

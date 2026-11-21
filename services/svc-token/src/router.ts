@@ -9,6 +9,24 @@ import {
   TRPCError,
   type StepUpCheck,
 } from '@intafaced/contracts';
+import {
+  tokenAmountSchema as amountString,
+  tokenBallotSchema as ballotWire,
+  tokenPowerHistorySchema,
+  tokenProposalClosedSchema,
+  tokenProposalDetailSchema,
+  tokenProposalIdSchema as proposalIdWire,
+  tokenProposalKindSchema as proposalKind,
+  tokenProposalPowerSchema,
+  tokenProposalStatusSchema as proposalStatus,
+  tokenProposalViewSchema as proposalOutput,
+  tokenStakeTierSchema as stakeTier,
+  tokenStakeViewSchema as stakeOutput,
+  tokenVoteChoiceSchema as voteChoice,
+  tokenVoteMessageSchema,
+  tokenVoteSchema,
+  tokenVotingTypeSchema as votingType,
+} from '@intafaced/contracts/token-governance';
 import { InsufficientFundsError, LedgerError, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { hasScope } from '@intafaced/auth';
 import {
@@ -40,10 +58,22 @@ import { publishedStakeTiers, stakingAssetPublication } from './terms.js';
 import { requireTokenJobService } from './job-hmac.js';
 import { DELEGATION_BLOCKER, refuseDelegation, unavailableDelegation } from './delegation.js';
 import { userCopy } from './user-copy.js';
-import { BALLOT_BPS, MAX_CHOICES, VOTING_TYPES, type ChoiceTally } from './ballot-tally.js';
+import { MAX_CHOICES, type ChoiceTally } from './ballot-tally.js';
 import type { SnapshotSeal } from './governance-vote.js';
 import { voteMessage } from './vote-signature.js';
 import { feeDiscountSchedulePayload } from './economics/staking.js';
+import { mountTokenRecord } from './record-mount.js';
+import {
+  TOKEN_ACCESS_OF,
+  TOKEN_BUYBACK_RUNS,
+  TOKEN_BURNED_SUPPLY,
+  TOKEN_EMISSION_SCHEDULE,
+  TOKEN_LIST_STAKES,
+  TOKEN_REVENUE_SHARE_HISTORY,
+  TOKEN_TREASURY,
+  tokenHistoryInputSchema,
+  tokenPayoutHistorySchema,
+} from '@intafaced/contracts/token-procedures';
 import { createLaunchRouter, type LaunchRouterOptions } from './launch/router.js';
 import type { LaunchService } from './launch/launch-service.js';
 
@@ -104,89 +134,6 @@ export {
  * Say so wherever these are described. An operator mutation is not a flywheel.
  */
 
-/** Money crosses the wire as a decimal string. Always. Never a number. */
-const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an unsigned decimal string (max 18dp)');
-
-const stakeTier = z.enum(['flex', 'm3', 'm12']);
-
-const stakeOutput = z.object({
-  id: z.string().guid(),
-  userId: z.string().guid(),
-  amount: amountString,
-  tier: stakeTier,
-  startedAt: z.string(),
-  unlocksAt: z.string().nullable(),
-  status: z.enum(['pending', 'active', 'unstaking', 'closed']),
-});
-
-/**
- * Page size is optional so an omit reaches the named refuse
- * (`token.history_list_limit_unset`) instead of a Zod "Required".
- * Blank is not 50. Cursor omit is the first page.
- */
-const historyInput = z
-  .object({
-    limit: z.number().int().min(1).max(200).optional(),
-    cursor: z.string().min(1).max(512).optional(),
-  })
-  .default({});
-
-const payoutHistoryOutput = z.object({
-  items: z.array(
-    z.object({
-      windowId: z.string(),
-      amount: amountString.nullable(),
-      assetId: z.string().nullable(),
-      ledgerTxId: z.string().nullable(),
-      reason: z.literal('ledger_tx_unread').nullable(),
-    }),
-  ),
-  nextCursor: z.string().nullable(),
-});
-
-const proposalKind = z.enum(['listing', 'fee_param', 'curriculum', 'grant']);
-const proposalStatus = z.enum(['draft', 'open', 'passed', 'rejected', 'executed', 'cancelled', 'closed_ranked']);
-const voteChoice = z.enum(['for', 'against', 'abstain']);
-const votingType = z.enum(VOTING_TYPES);
-const choiceIndex = z
-  .number()
-  .int()
-  .min(0)
-  .max(MAX_CHOICES - 1);
-/** A non-basic ballot (MC-token-03). The service checks it against the proposal's type and choices. */
-const ballotWire = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('abstain') }).strict(),
-  z.object({ kind: z.literal('pick'), choices: z.array(choiceIndex).min(1).max(MAX_CHOICES) }).strict(),
-  z
-    .object({
-      kind: z.literal('split'),
-      parts: z
-        .array(z.object({ choice: choiceIndex, bps: z.number().int().min(1).max(BALLOT_BPS) }).strict())
-        .min(1)
-        .max(MAX_CHOICES),
-    })
-    .strict(),
-]);
-const snapshotOutput = z.object({ count: z.number().int().nonnegative(), total: z.string(), hash: z.string() });
-const choiceTallyOutput = z.object({
-  totals: z.array(z.string()),
-  abstainWeight: z.string(),
-  participatingWeight: z.string(),
-  voterCount: z.number().int().nonnegative(),
-  ranking: z.array(z.number().int().nonnegative()),
-  rounds: z.array(z.array(z.string())).nullable(),
-});
-
-/** Stored id `gov:proposal:<space>:<author>:<n>`. Not a client uuid. */
-const proposalIdWire = z.string().min(1).max(512);
-
-const proposalCountsOutput = z.object({
-  votes: z.number().int().nonnegative(),
-  for: z.number().int().nonnegative(),
-  against: z.number().int().nonnegative(),
-  abstain: z.number().int().nonnegative(),
-});
-
 /** A whole number of milliseconds as a decimal string; the door checks its range. */
 const msWire = z.string().regex(/^\d{1,15}$/);
 const governanceRole = z.enum(GOVERNANCE_ROLES);
@@ -200,42 +147,12 @@ function settingsToWire(s: GovernanceSettings) {
   return { votingDelayMs: s.votingDelayMs?.toString() ?? null, votingPeriodMs: s.votingPeriodMs?.toString() ?? null, revision: s.revision };
 }
 
-const proposalOutput = z.object({
-  id: proposalIdWire,
-  kind: proposalKind,
-  body: z.record(z.string(), z.unknown()),
-  status: proposalStatus,
-  opensAt: z.string(),
-  closesAt: z.string(),
-  createdAt: z.string(),
-  title: z.string().nullable(),
-  bodyMd: z.string().nullable(),
-  discussionLink: z.string().nullable(),
-  businessKey: z.string().nullable(),
-  authorId: z.string().nullable(),
-  revision: z.number().int().nonnegative(),
-  votingType,
-  choices: z.array(z.string()).nullable(),
-  snapshot: snapshotOutput.nullable(),
-  ranking: z.array(z.number().int().nonnegative()).nullable(),
-  cancel: z.object({ reason: z.string(), at: z.string() }).nullable(),
-  counts: proposalCountsOutput,
-});
-
 const proposalAccessCode = z.enum([
   'token.proposer_rule_unset',
   'token.proposal_limit_unset',
   'token.proposal_not_allowed',
   'token.proposal_limit_reached',
 ]);
-
-const tallyOutput = z.object({
-  forWeight: z.string(),
-  againstWeight: z.string(),
-  abstainWeight: z.string(),
-  totalWeight: z.string(),
-  voterCount: z.number().int().nonnegative(),
-});
 
 export interface TokenRouterOptions {
   /**
@@ -516,27 +433,18 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
-    accessOf: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({}).optional())
-      .output(
-        z.object({
-          staked: z.string(),
-          tier: z.string(),
-          feeDiscountBps: z.number().int(),
-        }),
-      )
-      .query(async ({ ctx }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-          const access = await token.accessOf(userId);
-          return {
-            staked: formatAmount(access.staked),
-            tier: access.tier.name,
-            feeDiscountBps: access.feeDiscountBps,
-          };
-        }),
-      ),
+    accessOf: mountTokenRecord(TOKEN_ACCESS_OF, async ({ ctx }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        const access = await token.accessOf(userId);
+        return {
+          staked: formatAmount(access.staked),
+          tier: access.tier.name,
+          feeDiscountBps: access.feeDiscountBps,
+        };
+      }),
+    ),
 
     terms: scopedProcedure('token:read', { module: 'token' })
       .output(
@@ -656,30 +564,14 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
-    listStakes: scopedProcedure('token:read', { module: 'token' })
-      .input(
-        z
-          .object({
-            status: z.enum(['active', 'closed', 'pending', 'all']).default('active'),
-            /**
-             * Page size. Optional here so omit reaches the service named
-             * refuse (`token.stakes_list_limit_unset`) instead of a Zod
-             * "Required" that looks like a typo. Blank is not 50; pass 50
-             * explicitly when that is the page you want.
-             */
-            limit: z.number().int().min(1).max(200).optional(),
-          })
-          .default({ status: 'active' }),
-      )
-      .output(z.array(stakeOutput))
-      .query(async ({ ctx, input }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-          const stakes = await token.listStakes(userId, input.status, input.limit);
-          return stakes.map(stakeToWire);
-        }),
-      ),
+    listStakes: mountTokenRecord(TOKEN_LIST_STAKES, async ({ ctx, input }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        const stakes = await token.listStakes(userId, input.status, input.limit);
+        return stakes.map(stakeToWire);
+      }),
+    ),
 
     // ── Emissions ──────────────────────────────────────────────────────────
 
@@ -703,34 +595,11 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       .output(z.object({ epoch: z.number().int().nonnegative() }))
       .query(async () => guard(async () => ({ epoch: await token.nextEmissionEpoch() }))),
 
-    emissionSchedule: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({ count: z.number().int().min(1).max(200).optional() }).default({}))
-      .output(
-        z.object({
-          params: z
-            .object({
-              initialEpochReward: amountString,
-              halvingIntervalEpochs: z.number().int().positive(),
-              maxSupply: amountString,
-            })
-            .nullable(),
-          epochs: z
-            .array(
-              z.object({
-                epoch: z.number().int().nonnegative(),
-                reward: amountString,
-              }),
-            )
-            .nullable(),
-          missing: z.string().nullable(),
-          reason: z.enum(['token.params_unset', 'token.params_missing', 'token.params_invalid']).nullable(),
-        }),
-      )
-      .query(({ input }) => guard(async () => token.emissionSchedule(input.count))),
+    emissionSchedule: mountTokenRecord(TOKEN_EMISSION_SCHEDULE, ({ input }) => guard(async () => token.emissionSchedule(input.count))),
 
     yieldHistory: scopedProcedure('token:read', { module: 'token' })
-      .input(historyInput)
-      .output(payoutHistoryOutput)
+      .input(tokenHistoryInputSchema)
+      .output(tokenPayoutHistorySchema)
       .query(({ ctx, input }) =>
         guard(async () => {
           const userId = ctx.principal.userId;
@@ -739,19 +608,16 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         }),
       ),
 
-    revenueShareHistory: scopedProcedure('token:read', { module: 'token' })
-      .input(historyInput)
-      .output(payoutHistoryOutput)
-      .query(({ ctx, input }) =>
-        guard(async () => {
-          const userId = ctx.principal.userId;
-          if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-          return token.revenueShareHistory(userId, input.limit, input.cursor);
-        }),
-      ),
+    revenueShareHistory: mountTokenRecord(TOKEN_REVENUE_SHARE_HISTORY, ({ ctx, input }) =>
+      guard(async () => {
+        const userId = ctx.principal.userId;
+        if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+        return token.revenueShareHistory(userId, input.limit, input.cursor);
+      }),
+    ),
 
     myVotes: scopedProcedure('token:read', { module: 'token' })
-      .input(historyInput)
+      .input(tokenHistoryInputSchema)
       .output(
         z.object({
           items: z.array(
@@ -1105,70 +971,24 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
      * Null on those sums, and a null `lastBuyback`, means no rows, not zero.
      * Does not price the token and does not post a new recipe.
      */
-    treasury: scopedProcedure('token:read', { module: 'token' })
-      .output(
-        z.object({
-          minted: amountString.nullable(),
-          burned: amountString,
-          bought: amountString.nullable(),
-          toRewards: amountString.nullable(),
-          distributed: amountString.nullable(),
-          lastBuyback: z
-            .object({
-              bought: amountString,
-              burned: amountString,
-              toRewards: amountString,
-              executedAt: z.string().datetime({ offset: true }),
-            })
-            .nullable(),
-        }),
-      )
-      .query(({ ctx }) => {
-        if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-        return guard(() => token.treasuryView());
-      }),
+    treasury: mountTokenRecord(TOKEN_TREASURY, ({ ctx }) => {
+      if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+      return guard(() => token.treasuryView());
+    }),
 
-    buybackRuns: scopedProcedure('token:read', { module: 'token' })
-      .input(z.object({ limit: z.number().int().min(1).max(200) }))
-      .output(
-        z.object({
-          job: z.enum(['set', 'unset']),
-          runs: z.array(
-            z.object({
-              id: z.string().min(1),
-              bought: amountString,
-              burned: amountString,
-              toRewards: amountString,
-              executedAt: z.string().datetime({ offset: true }),
-              windowFrom: z.string().datetime({ offset: true }),
-              windowTo: z.string().datetime({ offset: true }),
-            }),
-          ),
-          rate: z
-            .object({
-              buybackBps: z.number().int().min(0).max(10_000),
-              burnSplitBps: z.number().int().min(0).max(10_000),
-            })
-            .nullable(),
-          missing: z.string().nullable(),
-          reason: z.enum(['token.params_unset', 'token.params_missing', 'token.params_invalid']).nullable(),
-        }),
-      )
-      .query(({ ctx, input }) => {
-        if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-        return guard(async () => {
-          const read = await token.buybackRuns(input.limit);
-          return { job: buybackJobSet && read.rate ? ('set' as const) : ('unset' as const), ...read };
-        });
-      }),
+    buybackRuns: mountTokenRecord(TOKEN_BUYBACK_RUNS, ({ ctx, input }) => {
+      if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
+      return guard(async () => {
+        const read = await token.buybackRuns(input.limit);
+        return { job: buybackJobSet && read.rate ? ('set' as const) : ('unset' as const), ...read };
+      });
+    }),
 
-    burnedSupply: scopedProcedure('token:read')
-      .output(z.object({ burned: amountString }))
-      .query(async () =>
-        guard(async () => ({
-          burned: formatAmount(await token.burnedSupply()),
-        })),
-      ),
+    burnedSupply: mountTokenRecord(TOKEN_BURNED_SUPPLY, async () =>
+      guard(async () => ({
+        burned: formatAmount(await token.burnedSupply()),
+      })),
+    ),
 
     // ── Governance — ballots + close tally (§4.3) ──────────────────────────
     //
@@ -1402,18 +1222,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
             .optional(),
         }),
       )
-      .output(
-        z.object({
-          id: z.string().guid(),
-          proposalId: proposalIdWire,
-          userId: z.string().guid(),
-          weight: z.string(),
-          choice: voteChoice.nullable(),
-          ballot: ballotWire.nullable(),
-          castAt: z.string(),
-          signedBy: z.string(),
-        }),
-      )
+      .output(tokenVoteSchema)
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const userId = ctx.principal.userId;
@@ -1445,7 +1254,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
      */
     voteMessage: scopedProcedure('token:read', { module: 'token' })
       .input(z.object({ proposalId: proposalIdWire, choice: voteChoice.optional(), ballot: ballotWire.optional() }))
-      .output(z.object({ message: z.string() }))
+      .output(tokenVoteMessageSchema)
       .query(({ ctx, input }) => {
         const userId = ctx.principal.userId;
         if (!userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
@@ -1479,7 +1288,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
 
     getProposal: scopedProcedure('token:read')
       .input(z.object({ proposalId: proposalIdWire }))
-      .output(proposalOutput.extend({ tally: tallyOutput, choiceTally: choiceTallyOutput.nullable() }))
+      .output(tokenProposalDetailSchema)
       .query(async ({ input }) =>
         guard(async () => {
           const detail = await token.getProposal(input.proposalId);
@@ -1499,13 +1308,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
 
     closeProposal: scopedProcedure('token:stake', { module: 'token' })
       .input(z.object({ proposalId: proposalIdWire }))
-      .output(
-        proposalOutput.extend({
-          tally: tallyOutput,
-          choiceTally: choiceTallyOutput.nullable(),
-          execute: z.literal('token.governance_execute_unwired').nullable(),
-        }),
-      )
+      .output(tokenProposalClosedSchema)
       .mutation(async ({ input }) =>
         guard(async () => {
           const closed = await token.closeProposal({ proposalId: input.proposalId });
@@ -1532,25 +1335,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
     votingPower: router({
       ofProposal: scopedProcedure('token:read', { module: 'token' })
         .input(z.object({ proposalId: proposalIdWire }))
-        .output(
-          z.object({
-            proposalId: proposalIdWire,
-            power: z.string(),
-            reason: z.enum(['no_stake_at_creation', 'not_measured']).nullable(),
-            takenAt: z.string().nullable(),
-            /** Who may vote: the minimum power, or the typed code every vote is refused with. */
-            rule: z.object({ minPower: z.string().nullable(), code: z.string().nullable() }),
-            /**
-             * Every vote is signed. `available: false` with its code when no identity is configured; when true,
-             * whether the account has a linked wallet is identity's answer at cast time.
-             */
-            signing: z.object({
-              required: z.literal(true),
-              available: z.boolean(),
-              code: z.literal('token.signed_vote_unavailable').nullable(),
-            }),
-          }),
-        )
+        .output(tokenProposalPowerSchema)
         .query(async ({ ctx, input }) =>
           guard(async () => {
             const userId = ctx.principal.userId;
@@ -1569,7 +1354,7 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
         ),
       history: scopedProcedure('token:read', { module: 'token' })
         .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).default({}))
-        .output(z.array(z.object({ proposalId: proposalIdWire, title: z.string().nullable(), takenAt: z.string(), power: z.string() })))
+        .output(tokenPowerHistorySchema)
         .query(async ({ ctx, input }) =>
           guard(async () => {
             const userId = ctx.principal.userId;

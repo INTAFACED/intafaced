@@ -38,7 +38,7 @@ describe('null chainSource refuses serving', () => {
 });
 
 describe('unread holding is absent and named', () => {
-  it('refuses book/position/fills when no chain is wired — not empty arrays or null', async () => {
+  it('refuses book and positions when no chain is wired — not empty arrays or null', async () => {
     const store = new MemoryProjectionStore(CHAIN_ID);
     const indexer = new Indexer({
       source: new NullChainSource(CHAIN_ID),
@@ -62,26 +62,18 @@ describe('unread holding is absent and named', () => {
     const status = await caller.status();
     expect(status.chainSource).toBe('null');
     expect(status.lastError).toBeNull();
-    await expect(caller.health()).resolves.toMatchObject({ ok: true, service: 'svc-indexer' });
 
     await expect(caller.book({ market: 'IFC-USD', depth: 50 })).rejects.toMatchObject({
       code: 'SERVICE_UNAVAILABLE',
       message: expect.stringMatching(/indexer\.chain_not_configured/),
     });
-    await expect(caller.position({ market: 'IFC-USD', account: ACCOUNT })).rejects.toMatchObject({
+    await expect(caller.positions({ account: ACCOUNT, limit: 2 })).rejects.toMatchObject({
       code: 'SERVICE_UNAVAILABLE',
       message: 'indexer.chain_not_configured',
     });
-    await expect(caller.positions({ account: ACCOUNT, limit: 2 })).rejects.toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
-    });
-    await expect(caller.fills({ market: 'IFC-USD', limit: 100 })).rejects.toMatchObject({
-      code: 'SERVICE_UNAVAILABLE',
-    });
-    await expect(caller.markets({ limit: 2 })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
   });
 
-  it('a readable chain still returns null for a missing position — that is no holding, not unread', async () => {
+  it('a readable chain still returns no row for an account with no position — that is no holding, not unread', async () => {
     const store = new MemoryProjectionStore(CHAIN_ID);
     const source = new MemoryChainSource(CHAIN_ID);
     source.append([
@@ -112,9 +104,7 @@ describe('unread holding is absent and named', () => {
       chainSource: 'memory',
     }).createCaller(anonymous());
 
-    await expect(caller.position({ market: 'IFC-USD', account: ACCOUNT })).resolves.toMatchObject({
-      size: '-1.5',
-    });
-    await expect(caller.position({ market: 'IFC-USD', account: EMPTY_ACCOUNT })).resolves.toBeNull();
+    await expect(caller.positions({ account: ACCOUNT, limit: 2 })).resolves.toMatchObject([{ market: 'IFC-USD', size: '-1.5' }]);
+    await expect(caller.positions({ account: EMPTY_ACCOUNT, limit: 2 })).resolves.toEqual([]);
   });
 });

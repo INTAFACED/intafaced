@@ -24,7 +24,19 @@ const directory: MarketDirectory = {
 };
 
 function raw(symbol: string, last: string): RawTicker {
-  return { symbol, last, change24h: null, changePct24h: null, high: null, low: null, volume: null, quoteVolume: null };
+  return {
+    symbol,
+    last,
+    change24h: null,
+    changePct24h: null,
+    high: null,
+    low: null,
+    volume: null,
+    quoteVolume: null,
+    bid: null,
+    ask: null,
+    spread: null,
+  };
 }
 
 function build(opts: { tickers?: RawTicker[] | Error; candles?: WireCandle[] | Error; now?: () => number } = {}) {

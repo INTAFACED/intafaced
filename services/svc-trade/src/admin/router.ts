@@ -3,11 +3,13 @@
  * Writes are `admin:write`. Procedures exist even when the service is
  * unwired: they refuse `trade_ops_admin_unconfigured`.
  */
+import { FEED_GAP_WINDOW_MAX_MINUTES } from './feed-health.js';
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { AuthError } from '@intafaced/auth';
 import { TradeOpsError } from './common.js';
 import { SETTABLE_MARKET_MODES } from './market-mode.js';
+import { parseChartFeedAction } from './chart-feed-controls.js';
 import type { TradeOpsAdmin } from './service.js';
 
 const limit = z.number().int().min(1).max(200);
@@ -38,6 +40,7 @@ const chartOwnerValueSet = z.discriminatedUnion('key', [
   chartCountSet('drawingCap', 10_000),
   chartCountSet('brushPointCap', 100_000),
   chartCountSet('delayedBoundarySeconds', 86_400),
+  chartCountSet('staleAgeSeconds', 86_400),
   chartCountSet('renderBudgetMs', 60_000),
   chartCountSet('orderProtectionBps', 10_000),
   chartCountSet('queueFillWindowSeconds', 86_400),
@@ -53,6 +56,21 @@ const chartOwnerValueSet = z.discriminatedUnion('key', [
     })
     .strict(),
 ]);
+
+/** One chart feed change (J-charts-desk-19): the action as a tagged union; a source name only on a switch. */
+const chartFeedChange = z
+  .object({
+    symbol: z.string().trim().min(1).max(64),
+    action: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('switch_source'), to: z.string().trim().min(1).max(32) }).strict(),
+      z.object({ kind: z.literal('disable') }).strict(),
+      z.object({ kind: z.literal('enable') }).strict(),
+      z.object({ kind: z.literal('delist_with_history') }).strict(),
+    ]),
+    expectedVersion: versionText,
+    reason,
+  })
+  .strict();
 
 const limits = z
   .object({
@@ -120,13 +138,14 @@ function fail(error: unknown): never {
     // A malformed venue symbol (trade.venue_symbol_invalid) is BAD_REQUEST; only a well-formed unknown one is NOT_FOUND.
     const code =
       error.code === 'order_not_found' ||
+      error.code === 'venue_order_not_found' ||
       error.code === 'position_not_found' ||
       error.code === 'export_not_found' ||
       error.code === 'market_not_found' ||
       error.code === 'vip_application_not_found' ||
       error.code === 'trade.venue_market_unknown'
         ? 'NOT_FOUND'
-        : error.code === 'trade.user_venue_off'
+        : error.code === 'trade.user_venue_off' || error.code === 'approval_unavailable' || error.code === 'trade.venue.venue_down'
           ? 'SERVICE_UNAVAILABLE'
           : 'BAD_REQUEST';
     throw new TRPCError({ code, message: error.message, cause: error });
@@ -169,6 +188,10 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       get: operator
         .input(z.object({ orderId: id }).strict())
         .query(({ ctx, input }) => ready().getOrder(ctx.principal, input.orderId).catch(fail)),
+      /** J-cex-spot-18 #1: one customer's routed order, read from the venue by the customer's own address; audited. */
+      venueGet: operator
+        .input(z.object({ accountId: z.string().trim().min(1).max(128), venueClientOrderId: z.string().trim().min(1).max(66) }).strict())
+        .query(({ ctx, input }) => ready().getVenueOrder(ctx.principal, input).catch(fail)),
       list: operator
         .input(
           z.object({
@@ -514,11 +537,41 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
         .input(z.object({ market: id, reason, approvalId, clientRequestId }).strict())
         .mutation(({ ctx, input }) => ready().futuresContracts.premarketConvert(ctx.principal, input).catch(fail)),
     }),
+    feedHealth: router({
+      list: operator.query(({ ctx }) => ready().feedHealth.list(ctx.principal).catch(fail)),
+      market: operator
+        .input(
+          z
+            .object({
+              symbol: z.string().trim().min(1).max(64),
+              gapWindowMinutes: z.number().int().min(1).max(FEED_GAP_WINDOW_MAX_MINUTES),
+            })
+            .strict(),
+        )
+        .query(({ ctx, input }) => ready().feedHealth.market(ctx.principal, input).catch(fail)),
+    }),
     chartOwnerValues: router({
       get: operator.query(({ ctx }) => ready().chartOwnerValues.get(ctx.principal).catch(fail)),
       set: operatorWrite
         .input(chartOwnerValueSet)
         .mutation(({ ctx, input }) => ready().chartOwnerValues.set(ctx.principal, input).catch(fail)),
+    }),
+    // J-charts-desk-19 #2 #3 #4: a market's chart feed source and state, each change by two operators; its journal and export.
+    chartFeedControls: router({
+      list: operator.query(({ ctx }) => ready().chartFeedControls.list(ctx.principal).catch(fail)),
+      prepare: operatorWrite.input(chartFeedChange).query(({ ctx, input }) =>
+        Promise.resolve()
+          .then(() => ready().chartFeedControls.prepare(ctx.principal, { ...input, action: parseChartFeedAction(input.action) }))
+          .catch(fail),
+      ),
+      run: operatorWrite.input(chartFeedChange.extend({ approvalId, operationId: clientRequestId }).strict()).mutation(({ ctx, input }) =>
+        Promise.resolve()
+          .then(() => ready().chartFeedControls.apply(ctx.principal, { ...input, action: parseChartFeedAction(input.action) }))
+          .catch(fail),
+      ),
+      export: operator
+        .input(z.object({ from: z.string().max(64).nullish(), to: z.string().max(64).nullish() }).strict())
+        .mutation(({ ctx, input }) => ready().chartFeedControls.export(ctx.principal, input).catch(fail)),
     }),
     venueMarkets: router({
       list: operator.query(({ ctx }) => venueDesk().list(ctx.principal).catch(fail)),

@@ -20,7 +20,7 @@
  * before the write.
  */
 import { scopedProcedure } from '@intafaced/contracts';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { BankError } from '../errors.js';
@@ -220,7 +220,7 @@ export class AssetPauseService {
     }));
   }
 
-  private async history(sql: Sql, assetId: string, revision: number): Promise<HistoryRow | null> {
+  private async history(sql: Queryable, assetId: string, revision: number): Promise<HistoryRow | null> {
     const rows = await sql<HistoryRow[]>`
       SELECT asset_id, revision, borrow_paused, supply_paused, reason, approved_by
         FROM bank.asset_pause_history WHERE change_key = ${pauseChangeKey(assetId, revision)}

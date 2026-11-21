@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -85,6 +85,37 @@ describe('the enforcement field is answered for every flag', () => {
   });
 });
 
+/**
+ * Where a service reads its boot-time env: `src/env.ts` for a Node service, the `"NAME"` string
+ * constants in `crates/<service>/src/env.rs` for a Rust service (svc-academy, svc-tax), and for the
+ * one Java service (svc-fix, no env.ts) the `"NAME"` string constants in its main sources.
+ */
+function bootEnvSource(service: string): string {
+  const envRs = join(REPO_ROOT, 'crates', service, 'src', 'env.rs');
+  if (existsSync(envRs)) {
+    // Only string constants outside comments count: a comment naming the variable is not a switch.
+    const code = readFileSync(envRs, 'utf8').replace(/\/\/.*$/gm, '');
+    return (code.match(/"[A-Z][A-Z0-9_]*"/g) ?? []).join('\n');
+  }
+  const envTs = join(SERVICES_DIR, service, 'src', 'env.ts');
+  try {
+    return readFileSync(envTs, 'utf8');
+  } catch {
+    const javaRoot = join(SERVICES_DIR, service, 'src', 'main', 'java');
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+      for (const name of readdirSync(dir)) {
+        const full = join(dir, name);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (name.endsWith('.java')) files.push(full);
+      }
+    };
+    walk(javaRoot);
+    // Only string constants count: a comment naming the variable is not a switch.
+    return files.flatMap((f) => readFileSync(f, 'utf8').match(/"[A-Z][A-Z0-9_]*"/g) ?? []).join('\n');
+  }
+}
+
 describe('a declared gate exists in the service that is said to hold it', () => {
   /**
    * The half that catches a lie in the flattering direction: the registry
@@ -106,8 +137,7 @@ describe('a declared gate exists in the service that is said to hold it', () => 
       return;
     }
 
-    const envFile = join(SERVICES_DIR, enforcement.service, 'src', 'env.ts');
-    const source = readFileSync(envFile, 'utf8');
+    const source = bootEnvSource(enforcement.service);
 
     expect(source, `${key} claims ${enforcement.envVar} on ${enforcement.service}, and that file does not declare it`).toContain(
       enforcement.envVar,

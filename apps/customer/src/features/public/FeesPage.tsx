@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
+import { VenueFees } from './VenueFees';
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
 import type { Loadable } from '../../data/types';
 import { bpsAsPercent, publicFeesFetcher, rowFor, type PublicFeeRow, type PublicFeeSchedule } from './fees';
 import { feesCopy } from './fees-copy';
-import './public-pages.css';
+import '../../shared/public-pages.css';
 
 /**
  * /fees: the published spot fee schedule for anyone, signed in or not (SP-fees-vip-02, J-cex-spot-10 #2). One table per
@@ -17,10 +18,10 @@ export function FeesPage() {
     () => env.poller.source<PublicFeeSchedule | null>('public-fees', publicFeesFetcher(env.api), { intervalMs: 60_000 }),
     [env],
   );
-  return <FeesView load={useSource(source)} />;
+  return <FeesView load={useSource(source)} venue={<VenueFees />} />;
 }
 
-export function FeesView({ load }: { load: Loadable<PublicFeeSchedule | null> }) {
+export function FeesView({ load, venue }: { load: Loadable<PublicFeeSchedule | null>; venue?: ReactNode }) {
   const copy = feesCopy.useCopy();
   return (
     <div className="pub-page" data-room="fees">
@@ -34,6 +35,7 @@ export function FeesView({ load }: { load: Loadable<PublicFeeSchedule | null> })
           </a>
         </p>
       </header>
+      {venue}
       {load.status === 'loading' ? <p role="status">{copy.t('loading')}</p> : null}
       {load.status === 'error' ? (
         <p role="alert">

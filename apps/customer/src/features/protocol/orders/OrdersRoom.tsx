@@ -4,7 +4,7 @@ import { Button, DataTable, EmptyState, Page, Panel } from '../../../shared/ui';
 import { currentPreferences, usePreferences } from '../../../shared/preferences';
 import type { ApiResult } from '../../../shared/api';
 import { stamp } from '../../../screens/money/time';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { useWallet } from '../wallet/WalletProvider';
 import { ordersCopy, type OrdersTranslate } from './copy';

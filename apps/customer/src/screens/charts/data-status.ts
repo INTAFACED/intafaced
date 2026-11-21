@@ -72,6 +72,11 @@ export interface StatusInputs {
   candles: Loadable<unknown>;
   /** The newest executed trade's time in epoch ms (server clock), or null when the market has none. */
   lastTrade: Loadable<number | null>;
+  /**
+   * The newest trade time this page last read for the market (epoch ms, server clock), kept after the tape stops answering,
+   * so a down or stale feed still names its last tick. Never used to call the chart live.
+   */
+  lastTradeSeenMs?: number | null;
   /** The candle poll interval in ms; a read older than two intervals (and a second of slack) is stale. */
   pollIntervalMs: number;
 }
@@ -136,7 +141,7 @@ function feedOf(candles: Loadable<unknown>, pollIntervalMs: number, now: number)
 
 export function dataStatus(input: StatusInputs): DataStatus {
   const { now, serverClock, owner, lifecycle, bookHalt, candles, lastTrade, pollIntervalMs } = input;
-  const lastTradeMs = lastTrade.status === 'ready' ? lastTrade.data : null;
+  const lastTradeMs = lastTrade.status === 'ready' ? lastTrade.data : (input.lastTradeSeenMs ?? null);
   const offsetMs = serverClock.status === 'ready' ? serverClock.data : null;
   const serverNow = offsetMs === null ? null : now + offsetMs;
   const ageSeconds = lastTradeMs === null || serverNow === null ? null : Math.max(0, Math.floor((serverNow - lastTradeMs) / 1000));
@@ -158,6 +163,12 @@ export function dataStatus(input: StatusInputs): DataStatus {
 
   // Whether the market may be traded decides first: a market whose state or book is not read, halted or not open is never live.
   const refusal = tradeRefusal(lifecycle, bookHalt, now);
+  // Our own stream's outage reads Down or Stale (the journey's Outside line): when the candles have stopped too, an unread
+  // market state or book is the same outage, so the chip names the feed's state and order entry stays refused.
+  if (refusal?.code === 'lifecycle_unavailable' || refusal?.code === 'book_unavailable') {
+    if (feed === 'down') return result('down', 'refused');
+    if (feed === 'stale') return result('stale', 'refused');
+  }
   if (refusal !== null) {
     if (refusal.code === 'loading') return result('loading', 'refused');
     if (refusal.code === 'lifecycle_unavailable') return result('lifecycle_unavailable', 'refused');

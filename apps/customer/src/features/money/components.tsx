@@ -3,13 +3,13 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
-import { useApi, useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
 import { Button, Dialog, EmptyState, Failure, Field, Loading } from '../../shared/ui';
 import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import { bankReads, bankWriteForReview, type BankRead, type BankWrite } from './contracts';
-import { createMoneyClient, type Space, type TransferDraft } from './client';
+import { createMoneyClient, readSpaces, type Space, type TransferDraft } from './client';
 import {
   clearPendingOutcome,
   originalRecordRefs,
@@ -19,7 +19,7 @@ import {
 } from './pending-outcomes';
 import { settleRefusal } from './money-refusal-copy';
 import { StepUpConfirm } from './StepUpConfirm';
-import type { StepUpBegin } from '../account/security-step-up';
+import type { StepUpBegin } from '../account';
 
 export const PAGE_SIZE = 50;
 export const amount = (value: string | null | undefined, asset: string) =>
@@ -43,6 +43,14 @@ export function useBankRead<K extends BankRead>(procedure: K, input: unknown, en
     },
     `${userId}:${procedure}:${JSON.stringify(input)}:${enabled}`,
   );
+}
+/** The person's spaces, by the `spaces.list` record and Money's row check (`readSpaces`). */
+export function useSpaces(limit: number) {
+  const { api, userId } = useSession();
+  return useResource<Space[]>(async (signal) => {
+    if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
+    return readSpaces(api, limit, signal);
+  }, `${userId}:spaces.list:${limit}`);
 }
 export function ResourceView<T>({
   resource,
@@ -234,6 +242,15 @@ export function scheduleWindowIssue(input: Record<string, unknown>): string | nu
 const outputNames: Record<string, string> = {
   get ledgerTxId() {
     return copyText('components.ledger.transaction');
+  },
+  get partnerMoveId() {
+    return copyText('components.partner.move');
+  },
+  get heldBy() {
+    return copyText('components.held.by');
+  },
+  get ledgerPosting() {
+    return copyText('components.ledger.posting');
   },
   get drawLedgerTxId() {
     return copyText('components.draw.transaction');

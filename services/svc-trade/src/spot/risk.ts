@@ -223,6 +223,54 @@ export function assertMarketOpen(market: Market, at: Date): void {
 }
 
 /**
+ * A new listing's opening window (J-cex-spot-14 #7, SP-markets-data-02): until `openingWindowEndsAt`, the book takes
+ * limit orders only. A market order, and a stop of either kind (a conditional order turns into a market or limit order
+ * the moment it triggers, inside the window), is refused with `trade.opening_window`, before any hold. A window that
+ * has ended, or a market with none, restricts nothing. `at` is the request's one clock read, as for `assertMarketOpen`.
+ */
+export function assertOutsideOpeningWindow(market: Pick<Market, 'symbol' | 'openingWindowEndsAt'>, type: string, at: Date): void {
+  const ends = market.openingWindowEndsAt;
+  if (!(ends instanceof Date) || Number.isNaN(ends.getTime()) || at.getTime() >= ends.getTime()) return;
+  if (type === 'limit') return;
+  throw new TradeError(
+    `${market.symbol} is in its opening window until ${ends.toISOString()}: only limit orders are taken`,
+    'trade.opening_window',
+  );
+}
+
+/**
+ * The higher-risk zone (J-cex-spot-14 #7, SP-markets-data-02): a zone market is flagged, capped and disclosed. It takes
+ * limit orders only (a market order or a stop is refused with `trade.higher_risk_zone`), each worth at most the owner's
+ * `zoneOrderCap` in the quote asset (`trade.zone_cap_exceeded` above it). The cap is an owner value: while it is unset
+ * the market takes no order at all (`trade.zone_setting_unset`), never an uncapped one. All before any hold. `price` is
+ * the order's limit price, null for a type that has none.
+ */
+export function assertZoneOrder(
+  market: Pick<Market, 'symbol' | 'quoteAsset' | 'zone' | 'zoneOrderCap'>,
+  order: { readonly type: string; readonly price: Amount | null; readonly qty: Amount },
+): void {
+  if (market.zone !== 'higher_risk') return;
+  const cap = market.zoneOrderCap;
+  if (cap == null) {
+    throw new TradeError(
+      `${market.symbol} is in the higher-risk zone and its order cap is not set: no order is taken`,
+      'trade.zone_setting_unset',
+    );
+  }
+  const { type, price, qty } = order;
+  if (type !== 'limit' || price === null) {
+    throw new TradeError(`${market.symbol} is in the higher-risk zone: only limit orders are taken`, 'trade.higher_risk_zone');
+  }
+  const value = mul(price, qty, 'ceil');
+  if (value > cap) {
+    throw new TradeError(
+      `order value ${formatAmount(value)} ${market.quoteAsset} is over the higher-risk zone cap of ${formatAmount(cap)} ${market.quoteAsset}`,
+      'trade.zone_cap_exceeded',
+    );
+  }
+}
+
+/**
  * SOCKET §13 — stop and take-profit orders.
  *
  * The engine already matches `stop` and `stop_limit`, and the public contract

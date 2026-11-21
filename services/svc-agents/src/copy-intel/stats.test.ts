@@ -10,7 +10,6 @@ import {
   intelLeaderCount,
   intelSkippedCount,
   intelBoardCard,
-  intelStatusLine,
   parseIntelStatusLine,
   intelStatusLineMatches,
   intelExportHeader,

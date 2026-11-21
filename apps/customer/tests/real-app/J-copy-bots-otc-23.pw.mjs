@@ -215,7 +215,10 @@ test(`${J} #3 creates a TWAP with random size on, a fixed seed and a trigger pri
   await box.getByLabel('Start when the price reaches').fill(trigger);
 
   await page.getByRole('button', { name: 'Review schedule' }).click();
-  const sizes = await page.getByRole('alertdialog').getByRole('list', { name: 'Slice sizes' }).getByRole('listitem').allInnerTexts();
+  // The dialog reads the sizes from the service after it opens ("Reading the slice sizes…"), so wait for the list.
+  const slices = page.getByRole('alertdialog').getByRole('list', { name: 'Slice sizes' }).getByRole('listitem');
+  await expect(slices).toHaveCount(10);
+  const sizes = await slices.allInnerTexts();
   expect(sizes.length).toBe(10);
   const sum = sizes.reduce((acc, s) => acc + toUnits(s.replace(/[^\d.]/g, '')), 0n);
   expect(sum).toBe(toUnits('0.003'));
@@ -263,6 +266,10 @@ test(`${J} #3 creates a TWAP with random size on, a fixed seed and a trigger pri
   expect(restarted.status).toBe('active');
   expect(restarted.awaitingTrigger).toBe(true);
   expect(restarted.children).toHaveLength(0);
+  // The room shows it too: its next 10 s read after the restart replaces the read the restart broke.
+  await expect(schedules(page).getByText('Could not read', { exact: true })).toHaveCount(0, { timeout: 30_000 });
+  // The value cell also holds the trigger price as its hint, so the words are matched as a part.
+  await expect(detail(page).getByText(/Waiting for the trigger price/)).toBeVisible({ timeout: 30_000 });
   run.write({ triggered: id });
 });
 
@@ -1156,4 +1163,45 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     await clearIfc(trader);
     if (restart) throw restart;
   }
+});
+
+test(`${J} #10 with the venue-submit port unset, opens the iceberg live door: the venue-submit notice; nothing is sent`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const trader = state('trader');
+  // This build has no venue submit port to set (IcebergTab.tsx: the live door is drawn switched off), so it is unset.
+  const before = { open: (await openOrders(trader)).map((o) => o.id).sort(), funds: await funds(trader) };
+  await signIn(page, trader);
+  await page.goto('/execution');
+  await page.getByRole('tablist', { name: 'Execution sections' }).getByRole('tab', { name: 'Iceberg', exact: true }).click();
+  const box = page.getByRole('region', { name: 'New iceberg' });
+  await box.getByRole('combobox', { name: 'Market', exact: true }).click();
+  await page.getByRole('option', { name: /^BTC\/USDT(?:,|$)/ }).click();
+  // A valid iceberg, so the only thing between it and a live venue is the door.
+  const { bid } = await bestPrices();
+  await box.getByLabel('Total size (BTC)').fill('0.003');
+  await box.getByLabel('Display size (BTC)').fill('0.001');
+  await box.getByLabel('Limit price').fill(String(toUnits(bid) / toUnits('1')));
+  await expect(box.getByRole('button', { name: 'Review iceberg' })).toBeEnabled();
+  // From here, every write the page makes is recorded.
+  const writes = [];
+  page.on('request', (r) => {
+    if (r.method() !== 'GET' && r.method() !== 'OPTIONS' && new URL(r.url()).pathname.startsWith('/api/'))
+      writes.push(`${r.method()} ${r.url()}`);
+  });
+  const door = box.getByRole('button', { name: 'Send to a live venue' });
+  await expect(door).toBeVisible();
+  await expect(door).toBeDisabled();
+  await expect(
+    box.getByText('Sending an iceberg to a live venue needs an authorised venue submit port. It is switched off in this build.'),
+  ).toBeVisible();
+  // Pressing it anyway sends nothing: the browser drops a click on a disabled button, and the page has no other route.
+  await door.click({ force: true });
+  await page.waitForTimeout(2_000);
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  expect(writes).toEqual([]);
+  // Nothing rests, nothing is held: the service's own record is as it was.
+  expect((await openOrders(trader)).map((o) => o.id).sort()).toEqual(before.open);
+  expect(await funds(trader)).toEqual(before.funds);
 });

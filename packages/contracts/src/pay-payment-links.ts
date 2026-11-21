@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 import { payAmountStringSchema, payAssetCodeSchema, payMerchantIdSchema, payTimestampSchema } from './merchant-control.js';
 import { payListCursorSchema, payListSearchSchema, payPageSchema } from './pay-merchant-reads.js';
 
@@ -73,7 +74,7 @@ export const payLinkListInputSchema = z
     limit: pageLimitSchema,
     cursor: payListCursorSchema.optional(),
     search: payListSearchSchema.optional(),
-    assetId: z.string().trim().min(1).max(16).optional(),
+    assetId: assetIdSchema.trim().min(1).max(16).optional(),
     from: payTimestampSchema.optional(),
     to: payTimestampSchema.optional(),
     active: z.boolean().optional(),

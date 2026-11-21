@@ -34,7 +34,7 @@ import { testWalletKey } from './test-wallet.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
-import { api, ORIGIN } from './stack.mjs';
+import { api, ORIGIN, STACK_PORTS } from './stack.mjs';
 import { testVenue, venueAccount, venueForThisFile, venueInfo, venueRecord } from './venue.mjs';
 
 // J-dex-protocol-08, in the running app (docs/roadmap/journeys.json): keep my wallet safe with approvals, session keys,
@@ -171,7 +171,7 @@ const REPO = fileURLToPath(new URL('../../../../', import.meta.url));
 async function protocolDb(run) {
   const ctx = await makeContext({ log: () => undefined });
   const postgres = createRequire(nodePath.join(REPO, 'services', 'svc-protocol', 'package.json'))('postgres');
-  const port = ctx.marker.ports.postgres ?? 15460;
+  const port = ctx.marker.ports.postgres ?? STACK_PORTS.postgres;
   const sql = postgres(`postgres://svc_protocol:${encodeURIComponent(ctx.secrets.pgService)}@127.0.0.1:${port}/intafaced_local_test`, {
     max: 1,
     onnotice: () => {},

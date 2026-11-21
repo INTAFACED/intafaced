@@ -1,15 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Badge } from '@intafaced/ui';
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { Badge, Checkbox } from '@intafaced/ui';
 import { Button, DataTable } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { displayAmount } from '../../../shared/money';
-import { useSession } from '../../session/session';
-import { StepUpConfirm } from '../../money/StepUpConfirm';
-import { WalletProvider, useWallet } from '../../protocol/wallet/WalletProvider';
-import { usePolled } from '../../protocol/wallet/use-polled';
+import { formatAmount, mul, parseAmount } from '@intafaced/money-math';
+import { useSession } from '../../session';
+import { WalletProvider, usePolled, useWallet } from '../../protocol';
 import {
-  canonicalDecimal,
-  draftId,
   keys,
   venueApi,
   walletTypedData,
@@ -25,10 +22,10 @@ import {
   type VenueOrder,
   type VenueOutcome,
   type VenueUp,
-  type VenueWithdrawal,
 } from '../venue-api';
 import type { VenueMode } from '../use-venue-mode';
 import { venueCopy } from './venue-copy';
+import { feeShown } from './fee-rates';
 
 type T = ReturnType<typeof venueCopy.useCopy>['t'];
 
@@ -112,7 +109,7 @@ export function VenueFrame({ mode, children }: { mode: Extract<VenueMode, { mode
 export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title: ReactNode; feeLine?: ReactNode }) {
   const { t } = venueCopy.useCopy();
   return (
-    <header className="dk-panel" data-testid="venue-header" aria-label={t('Venue')}>
+    <header className="dk-panel dk-venue-head" data-testid="venue-header" aria-label={t('Venue')}>
       <h1 className="dk-tab-title">
         {title} <TestMark test={status.test} />
       </h1>
@@ -214,6 +211,35 @@ export function heldKeys(owner: string) {
   };
 }
 
+/**
+ * The person's own tags on the orders this page placed, by the venue's client id (J-cex-spot-03 #9). The venue stores no
+ * tag, so the tag is kept beside the order key in this browser session and shown on the order and its fills.
+ */
+export function heldTags(owner: string) {
+  const name = `if.venue.tags.${owner}`;
+  const memory = new Map<string, string>();
+  const read = (): Record<string, string> => {
+    try {
+      const raw = sessionStorage.getItem(name);
+      const parsed: unknown = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {};
+    } catch {
+      return Object.fromEntries(memory);
+    }
+  };
+  return {
+    get: (clientOrderId: string): string | undefined => read()[clientOrderId] ?? memory.get(clientOrderId),
+    set(clientOrderId: string, tag: string) {
+      memory.set(clientOrderId, tag);
+      try {
+        sessionStorage.setItem(name, JSON.stringify({ ...read(), [clientOrderId]: tag }));
+      } catch {
+        /* blocked storage: the page keeps it */
+      }
+    },
+  };
+}
+
 /** How long back the desk reads fills: the venue keeps them; a week covers any session. */
 const FILLS_WINDOW_MS = 7 * 24 * 3_600_000;
 
@@ -263,9 +289,12 @@ export type RunAction = (
 /** The business key the door stores an intent under (user-venue-door.ts `businessKey`). */
 function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
   if (intent.kind === 'place_order') return intent.clientOrderKey;
+  if (intent.kind === 'place_orders') return intent.actionKey;
   if (intent.kind === 'withdraw') return intent.withdrawalKey;
   if (intent.kind === 'cancel_order') return actionKey ?? keys.cancel(intent.clientOrderKey);
   if (intent.kind === 'market_margin_transfer') return intent.moveKey;
+  if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode') return intent.changeKey;
+  if (intent.kind === 'spot_perps_transfer') return intent.moveKey;
   return actionKey ?? '';
 }
 
@@ -360,9 +389,10 @@ export function useVenueActions(owner: string | null) {
    * signature: with no signature kept on this page, it is `run` again, which reads the stored answer.
    */
   const resend = useCallback(
-    async (intent: VenueIntent, opts: { actionKey?: string; venueId?: string } = {}): Promise<ActionResult> => {
+    async (intent: VenueIntent, opts: { actionKey?: string; venueId?: string; signature?: KeptSignature } = {}): Promise<ActionResult> => {
       const key = keyOf(intent, opts.actionKey);
-      const kept = signatures.current.get(key);
+      // The signature this page made, or one the page kept for the key across a reload (J-cex-spot-02 #4): the same bytes.
+      const kept = signatures.current.get(key) ?? opts.signature;
       if (!kept) return run(intent, opts);
       const prepared = await venue.prepare({
         owner: owner ?? '',
@@ -375,7 +405,9 @@ export function useVenueActions(owner: string | null) {
     },
     [owner, venue, run, submitSigned],
   );
-  return { run, resend };
+  /** The signed bytes this page holds for a key, if any: what a resend after a reload sends again. */
+  const keptSignature = useCallback((key: string): KeptSignature | undefined => signatures.current.get(key), []);
+  return { run, resend, keptSignature };
 }
 
 /** The words for one action's result. An order's outcome names its status on the venue. */
@@ -515,7 +547,21 @@ export function BalancesPanel({ balances, test }: { balances: AsOf<VenueBalance[
   );
 }
 
-export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> | null; test: boolean; symbol?: string }) {
+export function FillsTable({
+  fills,
+  test,
+  symbol,
+  tagOf,
+  withTotal = false,
+}: {
+  fills: AsOf<VenueFill[]> | null;
+  test: boolean;
+  symbol?: string;
+  /** Given, each row also has its total, price times size in the quote asset (Activity, Trades: J-cex-spot-06 #8). */
+  withTotal?: boolean;
+  /** The person's own tag on an order, by client id; given, the table has a Tag column. */
+  tagOf?: (clientOrderId: string) => string | undefined;
+}) {
   const { t } = venueCopy.useCopy();
   const asOfText = useAsOfText();
   const rows = (fills?.value ?? []).filter((f) => !symbol || f.symbol === symbol);
@@ -533,11 +579,13 @@ export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> |
             t('Side'),
             t('Price'),
             t('Amount'),
+            ...(withTotal ? [t('Total')] : []),
             t('Role'),
             t('Venue fee'),
             t('Our builder fee'),
             t('Fee asset'),
             t('Realised result'),
+            ...(tagOf ? [t('Tag')] : []),
           ]}
         >
           {rows.map((f) => (
@@ -551,9 +599,14 @@ export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> |
               <td className="numeric" data-cell="amount">
                 {displayAmount(f.amount)}
               </td>
+              {withTotal ? (
+                <td className="numeric" data-cell="total">
+                  {displayAmount(fillTotal(f))} {f.symbol.split('-')[1] ?? ''}
+                </td>
+              ) : null}
               <td data-cell="role">{word(t, 'role', f.role)}</td>
               <td className="numeric" data-cell="venue-fee">
-                {f.venueFee}
+                <VenueFeeCell amount={f.venueFee} />
               </td>
               <td className="numeric" data-cell="builder-fee">
                 {f.builderFee}
@@ -562,6 +615,7 @@ export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> |
               <td className="numeric" data-cell="realised">
                 {f.realisedPnl === null ? t('Not known') : f.realisedPnl}
               </td>
+              {tagOf ? <td data-cell="tag">{f.venueClientOrderId ? (tagOf(f.venueClientOrderId) ?? '') : ''}</td> : null}
             </tr>
           ))}
         </DataTable>
@@ -569,6 +623,28 @@ export function FillsTable({ fills, test, symbol }: { fills: AsOf<VenueFill[]> |
       <AsOfLine asOf={fills?.asOf ?? null} />
     </div>
   );
+}
+
+/**
+ * The venue's fee on one fill as it charged it (J-cex-spot-10 #4): "Zero fee" where it charged none, and a fee below zero
+ * as the venue's rebate paid to the person, never a negative fee.
+ */
+function VenueFeeCell({ amount }: { amount: string }) {
+  const { t } = venueCopy.useCopy();
+  const shown = feeShown(amount);
+  if (shown.kind === 'zero') return <span data-fee="zero">{t('Fill zero fee')}</span>;
+  if (shown.kind === 'rebate')
+    return (
+      <span data-fee="rebate" data-rebate={shown.value}>
+        {t('Fill venue rebate', { amount: shown.value })}
+      </span>
+    );
+  return <>{amount}</>;
+}
+
+/** A fill's total: its price times its size, exact (both are the venue's decimals). */
+export function fillTotal(f: VenueFill): string {
+  return formatAmount(mul(parseAmount(f.price), parseAmount(f.amount), 'half-up'));
 }
 
 /**
@@ -582,12 +658,21 @@ export function OrdersTable({
   onCancel,
   cancelled,
   filled = [],
+  tagOf,
+  onEdit,
+  select,
 }: {
   orders: AsOf<VenueOrder[]> | null;
   test: boolean;
   onCancel: (order: VenueOrder) => void;
   cancelled: VenueOrder[];
   filled?: VenueOrder[];
+  /** The person's own tag on an order, by client id; given, the table has a Tag column. */
+  tagOf?: (clientOrderId: string) => string | undefined;
+  /** Given, each resting order has an Edit button (J-cex-spot-05 #2, #4). */
+  onEdit?: (order: VenueOrder) => void;
+  /** Given, the table has a Select column for a batch cancel (J-cex-spot-05 #6), by client id. */
+  select?: { selected: ReadonlySet<string>; onToggle: (clientOrderId: string) => void; label: (id: string) => string; header: string };
 }) {
   const { t } = venueCopy.useCopy();
   const open = orders?.value ?? [];
@@ -602,13 +687,46 @@ export function OrdersTable({
       ) : (
         <DataTable
           label={t('Open orders')}
-          headers={[t('Market'), t('Side'), t('Type'), t('Price'), t('Amount'), t('Filled'), t('Locked'), t('Status'), '']}
+          headers={[
+            ...(select ? [select.header] : []),
+            t('Market'),
+            t('Side'),
+            t('Type'),
+            t('Time in force'),
+            t('Price'),
+            t('Amount'),
+            t('Filled'),
+            t('Locked'),
+            t('Status'),
+            ...(tagOf ? [t('Tag')] : []),
+            '',
+          ]}
         >
           {rows.map((o) => (
             <tr key={o.venueClientOrderId ?? o.venueOrderId ?? `${o.symbol}:${o.price}`} data-client-order-id={o.venueClientOrderId ?? ''}>
-              <td>{o.symbol}</td>
+              {select ? (
+                <td data-cell="select">
+                  {o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
+                    <Checkbox
+                      aria-label={select.label(o.venueClientOrderId)}
+                      checked={select.selected.has(o.venueClientOrderId)}
+                      onCheckedChange={() => select.onToggle(o.venueClientOrderId!)}
+                    />
+                  ) : null}
+                </td>
+              ) : null}
+              <td>
+                {o.venueClientOrderId ? (
+                  <a className="text-link" data-testid="venue-order-link" href={`/trade/orders/${o.venueClientOrderId}`}>
+                    {o.symbol}
+                  </a>
+                ) : (
+                  o.symbol
+                )}
+              </td>
               <td>{word(t, 'side', o.side)}</td>
               <td>{word(t, 'type', o.type)}</td>
+              <td data-cell="tif">{word(t, 'tif', o.timeInForce)}</td>
               <td className="numeric" data-cell="price">
                 {displayAmount(o.price)}
               </td>
@@ -622,7 +740,15 @@ export function OrdersTable({
                 {displayAmount(o.locked)} {o.lockedAsset}
               </td>
               <td data-cell="status">{word(t, 'status', o.status)}</td>
+              {tagOf ? <td data-cell="tag">{o.venueClientOrderId ? (tagOf(o.venueClientOrderId) ?? '') : ''}</td> : null}
               <td>
+                {onEdit && o.venueClientOrderId && (o.status === 'open' || o.status === 'partially_filled') ? (
+                  <>
+                    <Button variant="secondary" onClick={() => onEdit(o)} aria-label={t('Edit order', { id: o.venueClientOrderId })}>
+                      {t('Edit')}
+                    </Button>{' '}
+                  </>
+                ) : null}
                 {o.venueClientOrderId && o.status !== 'filled' ? (
                   <Button variant="secondary" onClick={() => onCancel(o)}>
                     {o.status === 'canceled' ? t('Cancel again') : t('Cancel')}
@@ -635,141 +761,5 @@ export function OrdersTable({
       )}
       <AsOfLine asOf={orders?.asOf ?? null} />
     </div>
-  );
-}
-
-/**
- * Withdraw from the venue account to the connected wallet: a fresh step-up first (identity's `trade.step_up.venue.withdraw`,
- * bound to the key, account, asset, amount and destination), then the door prepares it and the wallet signs. A refused
- * step-up stops it before the wallet is asked. The venue's withdrawal is then read by its nonce: pending, then done, with
- * its fee or "not known".
- */
-export function WithdrawPanel({ owner, balances, test }: { owner: string; balances: AsOf<VenueBalance[]> | null; test: boolean }) {
-  const { t } = venueCopy.useCopy();
-  const venue = useVenueApi();
-  const { run } = useVenueActions(owner);
-  const assets = balances?.value.map((b) => b.asset) ?? [];
-  const [asset, setAsset] = useState<string>('');
-  const [amount, setAmount] = useState('');
-  const [draft, setDraft] = useState<string | null>(null);
-  const [result, setResult] = useState<ActionResult | null>(null);
-  const [busy, setBusy] = useState(false);
-  const chosen = asset || assets[0] || '';
-  let canonical: string | null = null;
-  try {
-    canonical = amount.trim() ? canonicalDecimal(amount) : null;
-  } catch {
-    canonical = null;
-  }
-  const withdrawalKey = draft ? keys.withdraw(owner, draft) : null;
-  const nonce = result?.kind === 'outcome' && result.outcome.accepted ? result.nonce : result?.kind === 'unknown' ? result.nonce : null;
-  const tracked = usePolled(
-    (signal) => (nonce ? venue.withdrawal(owner, nonce, signal) : Promise.resolve(null)),
-    `w:${owner}:${nonce}`,
-    VENUE_POLL_MS,
-  );
-
-  async function send(stepUpApprovalId: string | null) {
-    if (!withdrawalKey || !canonical || busy) return;
-    setBusy(true);
-    const answer = await run(
-      { kind: 'withdraw', asset: chosen, amount: canonical, destination: owner, withdrawalKey },
-      { stepUpApprovalId },
-    );
-    setBusy(false);
-    setResult(answer);
-  }
-
-  return (
-    <section className="dk-panel form-stack" aria-label={t('Withdraw')} data-testid="venue-withdraw">
-      <h2 className="dk-tab-title">
-        {t('Withdraw')} <TestMark test={test} />
-      </h2>
-      <label className="field">
-        <span>{t('Withdraw asset')}</span>
-        <select
-          value={chosen}
-          onChange={(e) => {
-            setAsset(e.target.value);
-            setDraft(null);
-            setResult(null);
-          }}
-        >
-          {assets.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="field">
-        <span>{t('Withdraw amount')}</span>
-        <input
-          inputMode="decimal"
-          value={amount}
-          onChange={(e) => {
-            setAmount(e.target.value);
-            setDraft(null);
-            setResult(null);
-          }}
-        />
-      </label>
-      <p>
-        {t('Destination')}: <span className="numeric">{owner}</span>
-      </p>
-      {draft === null ? (
-        <Button disabled={!canonical || !chosen} onClick={() => setDraft(draftId())}>
-          {t('Review withdrawal')}
-        </Button>
-      ) : result === null && withdrawalKey && canonical ? (
-        <StepUpConfirm
-          request={() => ({
-            scope: 'trade.step_up.venue.withdraw',
-            purpose: 'venue.withdraw',
-            target: withdrawalKey,
-            amount: canonical!,
-            fields: { withdrawalKey, owner, subAccount: '', asset: chosen, amount: canonical!, destination: owner },
-          })}
-          words={{
-            why: t('Withdraw step up why'),
-            code: t('Authenticator code'),
-            codeHint: t('Authenticator hint'),
-            codeShort: t('Enter six'),
-            noFactor: t('No factor'),
-            sendWithout: t('Send without'),
-          }}
-          disabled={busy}
-          onApproved={(id) => void send(id)}
-        />
-      ) : null}
-      {busy ? <p className="muted">{t('Waiting wallet')}</p> : null}
-      <OutcomeLine result={result} owner={owner} />
-      {tracked.data?.value ? <WithdrawalLine withdrawal={tracked.data.value} asOf={tracked.data.asOf} /> : null}
-    </section>
-  );
-}
-
-function WithdrawalLine({ withdrawal, asOf }: { withdrawal: VenueWithdrawal; asOf: string }) {
-  const { t } = venueCopy.useCopy();
-  return (
-    <dl className="protocol-facts" data-testid="venue-withdrawal" data-status={withdrawal.status}>
-      <div>
-        <dt>{t('Withdrawal status')}</dt>
-        <dd>{word(t, 'withdrawal', withdrawal.status)}</dd>
-      </div>
-      <div>
-        <dt>{t('Amount')}</dt>
-        <dd className="numeric">
-          {displayAmount(withdrawal.amount)} {withdrawal.asset}
-        </dd>
-      </div>
-      <div>
-        <dt>{t('Withdrawal fee')}</dt>
-        <dd className="numeric" data-cell="fee">
-          <Known value={withdrawal.fee} />
-        </dd>
-      </div>
-      <AsOfLine asOf={asOf} />
-    </dl>
   );
 }

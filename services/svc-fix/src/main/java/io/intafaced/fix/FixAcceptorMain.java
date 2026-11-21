@@ -10,47 +10,52 @@ import java.util.Map;
  */
 public final class FixAcceptorMain {
     public static void main(String[] args) throws Exception {
-        Map<String, String> env = System.getenv();
-        SessionConfigResult parsed = FixAcceptorConfig.fromOwnerEnv(env);
-        if (!parsed.ok) {
-            System.err.print(parsed.errorCode + ": " + parsed.errorMessage);
+        Started started = start(System.getenv());
+        if (!started.ok) {
+            System.err.print(started.errorCode + ": " + started.errorMessage);
             System.exit(2);
             return;
+        }
+        try (Running ignored = started.running) {
+            Thread.currentThread().join();
+        }
+    }
+
+    /**
+     * Builds and starts svc-fix from its environment, the one composition the process runs: the order-entry and
+     * drop-copy acceptors, the drop-copy ingest listener, and the adapter's health and status on that listener. A
+     * setting that refuses returns its code and message, with nothing left running.
+     */
+    public static Started start(Map<String, String> env) throws Exception {
+        SessionConfigResult parsed = FixAcceptorConfig.fromOwnerEnv(env);
+        if (!parsed.ok) {
+            return Started.refuse(parsed.errorCode, parsed.errorMessage);
         }
         SessionConfigResult dropCopy = FixDropCopyConfig.requireIndependent(env, parsed.config);
         if (!dropCopy.ok) {
-            System.err.print(dropCopy.errorCode + ": " + dropCopy.errorMessage);
-            System.exit(2);
-            return;
+            return Started.refuse(dropCopy.errorCode, dropCopy.errorMessage);
         }
         DropCopyIngestConfig.Result ingest = DropCopyIngestConfig.fromOwnerEnv(env);
         if (!ingest.ok) {
-            System.err.print(ingest.errorCode + ": " + ingest.errorMessage);
-            System.exit(2);
-            return;
+            return Started.refuse(ingest.errorCode, ingest.errorMessage);
         }
         ServiceKeys.Inbound s2s;
         try {
             s2s = ServiceKeys.inboundFromEnv(env, ServiceAuth.SERVICE_NAME);
         } catch (ServiceKeys.KeyError e) {
-            System.err.print("s2s_unconfigured: " + e.getMessage());
-            System.exit(2);
-            return;
+            return Started.refuse("s2s_unconfigured", e.getMessage());
         }
         String secret = env.get(ServiceAuth.SECRET_ENV);
         if (!ServiceAuth.secretReady(secret) && (s2s == null || !s2s.keypairOnly())) {
-            System.err.print(
-                    "service_auth_unconfigured: INTERNAL_SERVICE_SECRET is blank; svc-fix does not accept unsigned drop-copy fills");
-            System.exit(2);
-            return;
+            return Started.refuse(
+                    "service_auth_unconfigured",
+                    "INTERNAL_SERVICE_SECRET is blank; svc-fix does not accept unsigned drop-copy fills");
         }
         MatchingSubmitPort matching;
         try {
             matching = MatchingSubmitPort.fromEnv(env);
         } catch (ServiceKeys.KeyError e) {
-            System.err.print("s2s_unconfigured: " + e.getMessage());
-            System.exit(2);
-            return;
+            return Started.refuse("s2s_unconfigured", e.getMessage());
         }
         DropCopyHub hub = new DropCopyHub();
         FixSessionApplication orderApp = new FixSessionApplication(new FixGatewayAdapter(), matching, hub);
@@ -58,41 +63,105 @@ public final class FixAcceptorMain {
         DropCopyIngest.Result ingestStarted =
                 DropCopyIngest.start(ingest.config.port, dropCopy.config.productBegin, secret, hub, s2s);
         if (!ingestStarted.ok) {
-            System.err.print(ingestStarted.errorCode + ": " + ingestStarted.errorMessage);
-            System.exit(2);
-            return;
+            return Started.refuse(ingestStarted.errorCode, ingestStarted.errorMessage);
         }
-        FixAcceptorConfig.StoreResult orderStore = FixAcceptorConfig.storeFromEnv(env);
-        if (!orderStore.ok) {
-            System.err.print(orderStore.errorCode + ": " + orderStore.errorMessage);
-            System.exit(2);
-            return;
-        }
-        FixDropCopyConfig.StoreResult store = FixDropCopyConfig.storeFromEnv(env);
-        if (!store.ok) {
-            System.err.print(store.errorCode + ": " + store.errorMessage);
-            System.exit(2);
-            return;
-        }
-        try (FixAcceptor orderEntry = FixAcceptor.start(parsed.config, orderApp, orderStore.path);
-                FixDropCopyAcceptor dropAcceptor = FixDropCopyAcceptor.start(dropCopy.config, dropApp, store.path);
-                DropCopyIngest ingestIgnored = ingestStarted.ingest) {
+        DropCopyIngest listener = ingestStarted.ingest;
+        FixAcceptor orderEntry = null;
+        FixDropCopyAcceptor dropAcceptor = null;
+        try {
+            FixAcceptorConfig.StoreResult orderStore = FixAcceptorConfig.storeFromEnv(env);
+            if (!orderStore.ok) {
+                listener.close();
+                return Started.refuse(orderStore.errorCode, orderStore.errorMessage);
+            }
+            FixDropCopyConfig.StoreResult store = FixDropCopyConfig.storeFromEnv(env);
+            if (!store.ok) {
+                listener.close();
+                return Started.refuse(store.errorCode, store.errorMessage);
+            }
+            orderEntry = FixAcceptor.start(parsed.config, orderApp, orderStore.path);
+            dropAcceptor = FixDropCopyAcceptor.start(dropCopy.config, dropApp, store.path);
             // The adapter's own status on the ingest listener: its sessions and the CompID map it submits with.
             Map<String, String> compIdAccounts =
                     MatchingSubmitPort.readCompIdAccountMap(env.get(MatchingSubmitPort.COMPID_ACCOUNT_JSON_ENV));
-            ingestStarted.ingest.mount(AdapterStatus.HEALTH_PATH, AdapterStatus.health());
-            ingestStarted.ingest.mount(
+            FixAcceptor orderSessions = orderEntry;
+            FixDropCopyAcceptor dropSessions = dropAcceptor;
+            listener.mount(AdapterStatus.HEALTH_PATH, AdapterStatus.health());
+            listener.mount(
                     AdapterStatus.PATH,
                     AdapterStatus.handler(
                             () -> {
                                 java.util.List<AdapterStatus.SessionRow> rows = new java.util.ArrayList<>(
-                                        AdapterStatus.rows(AdapterStatus.ORDER_ENTRY, orderEntry.sessions(), compIdAccounts));
-                                rows.addAll(AdapterStatus.rows(AdapterStatus.DROP_COPY, dropAcceptor.sessions(), null));
+                                        AdapterStatus.rows(AdapterStatus.ORDER_ENTRY, orderSessions.sessions(), compIdAccounts));
+                                rows.addAll(AdapterStatus.rows(AdapterStatus.DROP_COPY, dropSessions.sessions(), null));
                                 return AdapterStatus.json(rows, compIdAccounts, java.time.Instant.now());
                             },
                             env.get(AdapterStatus.SECRET_ENV),
                             s2s));
-            Thread.currentThread().join();
+            return Started.ok(new Running(orderEntry, dropAcceptor, listener));
+        } catch (Exception | Error e) {
+            listener.close();
+            if (dropAcceptor != null) {
+                dropAcceptor.close();
+            }
+            if (orderEntry != null) {
+                orderEntry.close();
+            }
+            throw e;
+        }
+    }
+
+    /** What {@link #start} returns: a running svc-fix, or the code and message of the setting that refused. */
+    public static final class Started {
+        public final boolean ok;
+        public final Running running;
+        public final String errorCode;
+        public final String errorMessage;
+
+        private Started(boolean ok, Running running, String errorCode, String errorMessage) {
+            this.ok = ok;
+            this.running = running;
+            this.errorCode = errorCode;
+            this.errorMessage = errorMessage;
+        }
+
+        static Started ok(Running running) {
+            return new Started(true, running, null, null);
+        }
+
+        static Started refuse(String code, String message) {
+            return new Started(false, null, code, message);
+        }
+    }
+
+    /** A running svc-fix. Closing it stops the listener, then the drop-copy acceptor, then the order-entry one. */
+    public static final class Running implements AutoCloseable {
+        private final FixAcceptor orderEntry;
+        private final FixDropCopyAcceptor dropCopy;
+        private final DropCopyIngest listener;
+
+        Running(FixAcceptor orderEntry, FixDropCopyAcceptor dropCopy, DropCopyIngest listener) {
+            this.orderEntry = orderEntry;
+            this.dropCopy = dropCopy;
+            this.listener = listener;
+        }
+
+        /** The HTTP port of the ingest listener, which also serves the health and the status. */
+        public int httpPort() {
+            return listener.port();
+        }
+
+        @Override
+        public void close() {
+            try {
+                listener.close();
+            } finally {
+                try {
+                    dropCopy.close();
+                } finally {
+                    orderEntry.close();
+                }
+            }
         }
     }
 }

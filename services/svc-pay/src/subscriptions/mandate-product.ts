@@ -282,12 +282,12 @@ export function assertChargeTracesToMandate(input: {
 /** Bounded dunning — same operational bound as the cycle engine. Not invent rates. */
 export function mandateDunningBound(): {
   maxAttemptsPerCycle: number;
-  then: 'stall_named';
+  afterLimit: 'stall_named';
   stallReason: 'arrears';
 } {
   return {
     maxAttemptsPerCycle: MAX_ATTEMPTS_PER_CYCLE,
-    then: 'stall_named',
+    afterLimit: 'stall_named',
     stallReason: 'arrears',
   };
 }

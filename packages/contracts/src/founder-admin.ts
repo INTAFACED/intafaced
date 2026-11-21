@@ -563,6 +563,10 @@ const webhookItemSchema = z
     status: z.enum(['active', 'disabled']),
     disabledReason: z.string().nullable(),
     consecutiveFailures: z.number().int().min(0),
+    /** The event types it is subscribed to (J-developer-10). */
+    eventTypes: z.array(z.string().min(1).max(128)).max(16),
+    /** While a rolled secret still signs beside the new one: when it stops. */
+    previousSecretUntil: payTimestampSchema.nullable(),
     createdAt: payTimestampSchema,
     updatedAt: payTimestampSchema,
   })
@@ -573,7 +577,7 @@ const deliveryItemSchema = z
     id: z.string().guid(),
     endpointId: z.string().guid(),
     eventType: z.string().min(1).max(128),
-    status: z.enum(['pending', 'delivered', 'failed', 'dead']),
+    status: z.enum(['pending', 'delivered', 'failed', 'dead', 'unknown']),
     attempts: z.number().int().min(0),
     lastStatusCode: z.number().int().nullable(),
     createdAt: payTimestampSchema,

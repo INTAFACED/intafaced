@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { assetIdSchema } from './asset-id.js';
 
 /** The classes of data a tool touches; the first use of each by an agent asks the person's consent (AG-guardrails-01). */
 export const OWN_AGENT_DATA_CLASSES = ['own_data', 'market_data', 'draft_write', 'live_write'] as const;
@@ -77,7 +78,7 @@ export const ownAgentLimitsSchema = z.object({
   effectivePerSession: z.string().nullable(),
   /** The owner's overage grace: how much usage may stay unpaid and runs still start. Null is blank: none at all. */
   overageGrace: z.string().nullable(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
 });
 export type OwnAgentLimits = z.infer<typeof ownAgentLimitsSchema>;
 
@@ -90,7 +91,7 @@ export type OwnAgentSession = z.infer<typeof ownAgentSessionSchema>;
 export const ownAgentRunResultSchema = z.object({
   text: z.string(),
   cost: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   inputTokens: z.number().int(),
   outputTokens: z.number().int(),
 });
@@ -107,7 +108,7 @@ const ownAgentRunRowBase = {
   task: z.string().nullable(),
   refusalCode: z.string().nullable(),
   cost: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   occurredAt: z.string(),
   /**
    * The words' parameters of a refused run, as its action row keeps them (the method, figure, source and as-of time of
@@ -180,7 +181,7 @@ export const ownAgentUsageWindowSchema = z.object({
   state: z.enum(['open', 'unpaid', 'settled']),
   amount: z.string().nullable(),
   chargeKey: z.string().nullable(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   openedAt: z.string(),
 });
 export type OwnAgentUsageWindow = z.infer<typeof ownAgentUsageWindowSchema>;
@@ -197,7 +198,7 @@ export const ownAgentUsageDaySchema = z.object({
   task: z.string(),
   amount: z.string(),
   windows: z.number().int().positive(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
 });
 export type OwnAgentUsageDay = z.infer<typeof ownAgentUsageDaySchema>;
 
@@ -527,7 +528,7 @@ export type OwnAgentLiveEngine = (typeof OWN_AGENT_LIVE_ENGINES)[number];
 
 /** One row of a test run's log, in the order it happened; every row is labelled TEST. */
 export const ownAgentTestLogRowSchema = z.object({
-  step: z.enum(['asked', 'answered', 'blocked', 'decided', 'billed']),
+  step: z.enum(['asked', 'answered', 'blocked', 'decided', 'remembered', 'not_remembered', 'billed']),
   text: z.string(),
   label: z.literal('TEST'),
 });
@@ -537,7 +538,7 @@ export type OwnAgentTestLogRow = z.infer<typeof ownAgentTestLogRowSchema>;
 export const ownAgentValuePayloadSchema = z.object({
   /** Canonical decimal string, never a number. */
   amount: z.string().regex(/^[0-9]+(\.[0-9]+)?$/),
-  assetId: z.string().min(1).max(12),
+  assetId: assetIdSchema.min(1).max(12),
   destination: z.string().min(1).max(120),
 });
 export type OwnAgentValuePayload = z.infer<typeof ownAgentValuePayloadSchema>;
@@ -560,13 +561,91 @@ export const ownAgentTestGuardSchema = z.object({
 });
 export type OwnAgentTestGuard = z.infer<typeof ownAgentTestGuardSchema>;
 
+/**
+ * THE AGENT'S MEMORY (AG-builder-02; J-agents-09 #1-#4). A run writes a remembered item only through an explicit
+ * `remember` step the person sees in the run's log, never by copying a transcript:
+ * - `remembered`: the item was written, with this run as its source;
+ * - `off`: the person switched memory off for this agent, so nothing was written;
+ * - `refused`: the item looked like an account number, a key, a secret or a balance, refused `agents.memory_item_refused`,
+ *   and nothing was written. The refused text is never echoed back.
+ */
+export const OWN_AGENT_MEMORY_OUTCOMES = ['remembered', 'off', 'refused'] as const;
+export const ownAgentRunMemorySchema = z.object({
+  outcome: z.enum(OWN_AGENT_MEMORY_OUTCOMES),
+  /** The item written, when it was. */
+  itemId: z.string().uuid().nullable(),
+  text: z.string().nullable(),
+  code: z.string().nullable(),
+});
+export type OwnAgentRunMemory = z.infer<typeof ownAgentRunMemorySchema>;
+
+/** One remembered item: its text and the run that remembered it. Only the agent's owner ever reads it. */
+export const ownAgentMemoryItemSchema = z.object({
+  id: z.string().uuid(),
+  text: z.string(),
+  sourceRunId: z.string().uuid(),
+  createdAt: z.string(),
+});
+export type OwnAgentMemoryItem = z.infer<typeof ownAgentMemoryItemSchema>;
+
+/** `own.memory.get`: whether the agent remembers between runs for this person, and what it remembers, newest first. */
+export const ownAgentMemorySchema = z.object({
+  enabled: z.boolean(),
+  items: z.array(ownAgentMemoryItemSchema),
+});
+export type OwnAgentMemory = z.infer<typeof ownAgentMemorySchema>;
+
+export const ownAgentMemoryClearSchema = z.object({ id: z.string().min(1).max(64), itemId: z.string().uuid() });
+export const ownAgentMemorySetEnabledSchema = z.object({ id: z.string().min(1).max(64), enabled: z.boolean() });
+
+/**
+ * WHAT IS KEPT AND FOR HOW LONG (AG-guardrails-04; J-agents-09 #5). Each kind of record svc-agents keeps for a person's
+ * agent, with the owner's retention period in days, or null when the owner has stored none: the page reads "not set",
+ * and a write that needs the period refuses `agents.retention_unset`. No period is ever invented.
+ */
+export const OWN_AGENT_RETENTION_KINDS = ['action_log', 'memory', 'transcripts', 'approvals', 'usage'] as const;
+export type OwnAgentRetentionKind = (typeof OWN_AGENT_RETENTION_KINDS)[number];
+export const ownAgentPrivacySchema = z.object({
+  periods: z.array(z.object({ kind: z.enum(OWN_AGENT_RETENTION_KINDS), days: z.number().int().positive().nullable() })),
+  /** Whether the person keeps the full text of the agent's runs; on only while a transcript period is set. */
+  keepTranscripts: z.boolean(),
+  memoryEnabled: z.boolean(),
+});
+export type OwnAgentPrivacy = z.infer<typeof ownAgentPrivacySchema>;
+export const ownAgentKeepTranscriptsSchema = z.object({ id: z.string().min(1).max(64), keep: z.boolean() });
+
+/**
+ * SHARING THE AGENT WITH ITS CO-OWNERS, AND THE PRIVACY CHECK FIRST (AG-guardrails-04; J-agents-09 #6). The check lists
+ * the private context a share would make visible to the agent's co-owners; a share that exposes any of it is refused
+ * `agents.privacy.confirm_required` until the person confirms it. Nothing is shared before then.
+ */
+export const OWN_AGENT_SHARE_EXPOSURES = ['transcripts', 'memory'] as const;
+export const ownAgentShareCheckInputSchema = z.object({
+  id: z.string().min(1).max(64),
+  includeTranscripts: z.boolean(),
+  includeMemory: z.boolean(),
+});
+export const ownAgentShareCheckSchema = z.object({
+  exposes: z.array(z.enum(OWN_AGENT_SHARE_EXPOSURES)),
+  coOwners: z.number().int().nonnegative(),
+});
+export type OwnAgentShareCheck = z.infer<typeof ownAgentShareCheckSchema>;
+export const ownAgentShareSetSchema = ownAgentShareCheckInputSchema.extend({ confirmed: z.boolean() });
+export const ownAgentShareSchema = z.object({
+  shared: z.boolean(),
+  includeTranscripts: z.boolean(),
+  includeMemory: z.boolean(),
+  sharedAt: z.string().nullable(),
+});
+export type OwnAgentShare = z.infer<typeof ownAgentShareSchema>;
+
 const testRunBase = {
   id: z.string().uuid(),
   requestId: z.string(),
   /** Always `test`: a test run is never a live run. */
   mode: z.literal('test'),
   cost: z.literal('0'),
-  assetId: z.string(),
+  assetId: assetIdSchema,
   label: z.literal('TEST'),
   createdAt: z.string(),
 };
@@ -607,6 +686,8 @@ export const ownAgentTestRunSchema = z.discriminatedUnion('kind', [
     /** The output schema the reply had to meet, or null. */
     outputSchema: z.string().nullable(),
     guard: ownAgentTestGuardSchema,
+    /** What the run did with a request to remember something (AG-builder-02), or null when it asked for none. */
+    memory: ownAgentRunMemorySchema.nullable(),
   }),
 ]);
 export type OwnAgentTestRun = z.infer<typeof ownAgentTestRunSchema>;
@@ -673,7 +754,7 @@ export const ownAgentAnalyticsSchema = z.object({
   /** Null when test runs are left out. */
   testRuns: z.number().int().nonnegative().nullable(),
   cost: z.string(),
-  assetId: z.string(),
+  assetId: assetIdSchema,
 });
 export type OwnAgentAnalytics = z.infer<typeof ownAgentAnalyticsSchema>;
 
@@ -877,3 +958,114 @@ export const ownAgentReviewCheckSchema = z.object({
   engine: z.enum(OWN_AGENT_ASSISTANT_ENGINES).nullable(),
 });
 export type OwnAgentReviewCheck = z.infer<typeof ownAgentReviewCheckSchema>;
+
+/**
+ * Schedules and event triggers of a person's own agent (AG-sessions-02, J-agents-07 #1 to #4). A schedule runs the agent
+ * once, or again every interval the person set; a trigger runs it when one of the person's own events arrives. Each
+ * occurrence or event is at most one run, metered against the person's caps for the agent like any run. A blank cap per
+ * run is kept blank: every occurrence of it is skipped `agents.schedule_blocked`, with its reason shown.
+ */
+export const OWN_AGENT_SCHEDULE_REPEATS = ['once', 'repeat'] as const;
+export const OWN_AGENT_SCHEDULE_STATES = ['active', 'completed', 'cancelled'] as const;
+export const OWN_AGENT_AUTO_RUN_STATES = ['claimed', 'ran', 'skipped', 'refused', 'failed'] as const;
+/** The events a trigger may start from: subjects declared in packages/events that name their owner. */
+export const OWN_AGENT_TRIGGER_SUBJECTS = ['trade.fill.settled'] as const;
+export const OWN_AGENT_TRIGGER_STATES = ['active', 'cancelled'] as const;
+export const OWN_AGENT_AUTOMATION_LIMITS = { ask: 2000, list: 50 } as const;
+
+/** One occurrence of a schedule, or one event of a trigger: at most one run, keyed by its business key. */
+export const ownAgentAutoRunSchema = z.object({
+  id: z.string().uuid(),
+  runKey: z.string(),
+  ordinal: z.number().int().nullable(),
+  eventId: z.string().nullable(),
+  dueAt: z.string(),
+  state: z.enum(OWN_AGENT_AUTO_RUN_STATES),
+  /** The refusal or skip code: `agents.schedule_blocked` for a skip, the run's own refusal code for a refused run. */
+  code: z.string().nullable(),
+  /** Why an occurrence was skipped (`agents.schedule.cap_per_run_unset`, `agents.spend.cap_unset`, ...), or null. */
+  reasonCode: z.string().nullable(),
+  sessionId: z.string().uuid().nullable(),
+  /** How many runs of the agent this occurrence made, read from the agent's own run record: never more than one. */
+  runs: z.number().int().min(0),
+  /** How many workers woke for this occurrence. */
+  wakes: z.number().int().min(1),
+  cost: z.string().nullable(),
+  assetId: assetIdSchema,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type OwnAgentAutoRun = z.infer<typeof ownAgentAutoRunSchema>;
+
+export const ownAgentScheduleSchema = z.object({
+  id: z.string().uuid(),
+  agentId: z.string().uuid(),
+  repeat: z.enum(OWN_AGENT_SCHEDULE_REPEATS),
+  intervalMinutes: z.number().int().nullable(),
+  perRunCap: z.string().nullable(),
+  ask: z.string(),
+  state: z.enum(OWN_AGENT_SCHEDULE_STATES),
+  /** When the next occurrence is due; null once the schedule is completed or cancelled: nothing further runs. */
+  nextDueAt: z.string().nullable(),
+  createdAt: z.string(),
+  recent: z.array(ownAgentAutoRunSchema),
+});
+export type OwnAgentSchedule = z.infer<typeof ownAgentScheduleSchema>;
+
+/** The owner's cadence values, as this deployment has them; blank refuses a new schedule `agents.schedule_cadence_unset`. */
+export const ownAgentCadenceSchema = z.object({
+  minIntervalMinutes: z.number().int().nullable(),
+  dailyLimit: z.number().int().nullable(),
+});
+export type OwnAgentCadence = z.infer<typeof ownAgentCadenceSchema>;
+
+export const ownAgentSchedulesSchema = z.object({
+  cadence: ownAgentCadenceSchema,
+  schedules: z.array(ownAgentScheduleSchema),
+});
+export type OwnAgentSchedules = z.infer<typeof ownAgentSchedulesSchema>;
+
+/**
+ * `own.schedules.create` input, as the person typed it. A repeating schedule with a blank interval refuses
+ * `agents.schedule.min_interval_unset` and stores nothing; one below the owner's minimum refuses
+ * `agents.schedule.interval_below_minimum`. The same create key again is the same schedule.
+ */
+export const ownAgentScheduleCreateSchema = z.object({
+  id: z.string().min(1).max(64),
+  createKey: z.string().min(8).max(200),
+  repeat: z.enum(OWN_AGENT_SCHEDULE_REPEATS),
+  intervalMinutes: z.string().max(16),
+  perRunCap: z.string().max(64),
+  ask: z.string().max(OWN_AGENT_AUTOMATION_LIMITS.ask),
+});
+
+/** One delivery of an event to a trigger: the first runs, a redelivery of the same event id is ignored. */
+export const ownAgentTriggerDeliverySchema = z.object({
+  eventId: z.string(),
+  envelopeId: z.string(),
+  redelivered: z.boolean(),
+  receivedAt: z.string(),
+});
+export type OwnAgentTriggerDelivery = z.infer<typeof ownAgentTriggerDeliverySchema>;
+
+export const ownAgentTriggerSchema = z.object({
+  id: z.string().uuid(),
+  agentId: z.string().uuid(),
+  subject: z.enum(OWN_AGENT_TRIGGER_SUBJECTS),
+  perRunCap: z.string().nullable(),
+  ask: z.string(),
+  state: z.enum(OWN_AGENT_TRIGGER_STATES),
+  createdAt: z.string(),
+  runs: z.array(ownAgentAutoRunSchema),
+  deliveries: z.array(ownAgentTriggerDeliverySchema),
+});
+export type OwnAgentTrigger = z.infer<typeof ownAgentTriggerSchema>;
+
+/** `own.triggers.create` input. A subject not offered refuses `agents.trigger_subject_invalid`. */
+export const ownAgentTriggerCreateSchema = z.object({
+  id: z.string().min(1).max(64),
+  createKey: z.string().min(8).max(200),
+  subject: z.string().max(200),
+  perRunCap: z.string().max(64),
+  ask: z.string().max(OWN_AGENT_AUTOMATION_LIMITS.ask),
+});

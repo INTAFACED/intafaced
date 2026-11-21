@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * The support staff roster and availability, as the console reads and sets it.
  *
@@ -24,7 +25,6 @@ export interface StaffPolicyView {
   readonly heartbeatWindowSeconds: number | null;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
 const isText = (v: unknown): v is string => typeof v === 'string' && v !== '';
 const isTime = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
 const nullableTime = (v: unknown): v is string | null => v === null || isTime(v);

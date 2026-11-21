@@ -226,6 +226,57 @@ export function cardProgrammeFundingProcedure(bank: BankServices, guard: Guard) 
 }
 
 /**
+ * The pay-from reconciliation (J-bank-29 #8): per asset, the spend and open holds the card partner reports against what
+ * the app showed, each line "matches" or "break", and every hold that does not agree as its own break row. Read only.
+ */
+export function cardPayFromReconciliationProcedure(bank: BankServices, guard: Guard) {
+  const signed = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
+  const figures = z.object({ spend: signed, open: signed });
+  return scopedProcedure('admin:read')
+    .output(
+      z.object({
+        test: z.boolean(),
+        partnerReports: z.boolean(),
+        lines: z.array(
+          z.object({
+            assetId: z.string(),
+            kind: z.enum(['spend', 'open_holds']),
+            app: signed,
+            partner: signed,
+            status: z.enum(['matches', 'break']),
+          }),
+        ),
+        breaks: z.array(
+          z.object({
+            authorizationRef: z.string(),
+            assetId: z.string(),
+            reason: z.enum(['not_reported', 'differs']),
+            app: figures,
+            partner: figures.nullable(),
+          }),
+        ),
+      }),
+    )
+    .query(() =>
+      guard(async () => {
+        const v = await bank.cards.payFromReconciliation();
+        const both = (f: { spend: Amount; open: Amount }) => ({ spend: signedAmount(f.spend), open: signedAmount(f.open) });
+        return {
+          test: v.test,
+          partnerReports: v.partnerReports,
+          lines: v.lines.map((l) => ({ ...l, app: signedAmount(l.app), partner: signedAmount(l.partner) })),
+          breaks: v.breaks.map((b) => ({ ...b, app: both(b.app), partner: b.partner ? both(b.partner) : null })),
+        };
+      }),
+    );
+}
+
+/** A figure that may fall below zero (a break can), as a decimal string. */
+function signedAmount(a: Amount): string {
+  return a < 0n ? `-${formatAmount(-a)}` : formatAmount(a);
+}
+
+/**
  * One programme funding instruction to the card partner (J-bank-26 #6): fund, defund, or set auto reload, where the
  * partner offers it. Treasury, MFA, a reason, and a second founder's approval bound to the kind, amount and threshold,
  * consumed only after the partner's offer is checked. A replay of the same client request id returns the first answer.

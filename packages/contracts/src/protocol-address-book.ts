@@ -54,13 +54,10 @@ export const WALLET_GROUP_MEMBERS_MAX = 256;
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
 /**
  * Text of 1 to `max` characters counted as code points, the way the service and the database CHECK (`char_length`)
- * count them. zod's `.max` counts UTF-16 units, so an emoji label the service stored would fail its own read.
+ * count them. zod's `.max` counts UTF-16 units, so an emoji label the service stored would fail its own read. A
+ * Unicode-mode pattern counts code points in every language the record is exported to, where a refinement would not travel.
  */
-const codePoints = (max: number) =>
-  z
-    .string()
-    .min(1)
-    .refine((text) => [...text].length <= max, { message: `at most ${max} characters` });
+const codePoints = (max: number) => z.string().regex(new RegExp(`^[\\s\\S]{1,${max}}$`, 'u'));
 const id = z.string().uuid();
 const isoTime = z.string().datetime();
 const session = z.string().min(1).max(2048);

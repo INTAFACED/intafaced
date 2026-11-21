@@ -490,7 +490,7 @@ describe("identity's mail door", () => {
     const fetchFn = (async (url: string, init: RequestInit) => {
       calls.push({ url, init });
       return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
     return { calls, fetchFn };
   }
 
@@ -522,7 +522,7 @@ describe("identity's mail door", () => {
   it('is unavailable when identity does not answer', async () => {
     const fetchFn = (async () => {
       throw new TypeError('fetch failed');
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
     await expect(
       createIdentityApprovalMail('http://identity.test', 'a-bank-approval-mail-test-secret-long-enough', fetchFn).send(request),
     ).rejects.toMatchObject({

@@ -3,7 +3,7 @@ import { Button } from '../../shared/ui';
 import { classifyRefusal } from '../../data/refusal-codes';
 import { refusalCopy } from '../../data/refusals';
 import { displayAmount } from '../../shared/money';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { CopyButton } from '../../screens/account/CopyButton';
 import { QrCode } from '../../screens/pay/QrCode';
 import type { Resource } from '../../shared/resource';

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
-import type { DeskRequest } from '@/lib/desk/approval-packet';
-import type { FounderCallContext } from '@/lib/desk/founder-call';
+import type { DeskRequest, FounderCallContext } from '@/lib/desk';
 import { governanceExecute } from './server';
 
 const ctx: FounderCallContext = {

@@ -1,5 +1,7 @@
+import type { Queryable } from '@intafaced/db';
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
+import { MAX_PRESENCE_WINDOWS, PRESENCE_MODES, TODO_KINDS } from '@intafaced/contracts/p2p-procedures';
 import { P2pError, type OfferRecord } from './p2p-service.js';
 
 /**
@@ -10,7 +12,6 @@ import { P2pError, type OfferRecord } from './p2p-service.js';
  * answers the same results and changes nothing.
  */
 
-export const PRESENCE_MODES = ['online', 'offline', 'scheduled'] as const;
 export type PresenceMode = (typeof PRESENCE_MODES)[number];
 
 /** A weekly window: ISO day (1 Monday … 7 Sunday), from `start` up to `end` ("24:00" is the end of the day). */
@@ -31,8 +32,6 @@ export interface Presence {
   updatedAt: Date | null;
 }
 
-/** Most windows one schedule may hold: four a day. */
-export const MAX_PRESENCE_WINDOWS = 28;
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const minutes = (hhmm: string): number => (hhmm === '24:00' ? 1440 : Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3)));
@@ -70,7 +69,7 @@ interface PresenceRow {
 }
 
 /** Reads a person's presence; no row is online. */
-export async function readPresence(sql: Sql, userId: string): Promise<Presence> {
+export async function readPresence(sql: Queryable, userId: string): Promise<Presence> {
   const [row] = await sql<PresenceRow[]>`
     SELECT mp.mode, mp.timezone, mp.windows, mp.updated_at,
            p2p.maker_on_board(mp.user_id, now()) AS on_board,
@@ -131,7 +130,6 @@ export async function setPresence(
   return readPresence(sql, userId);
 }
 
-export const TODO_KINDS = ['payment_required', 'release_required', 'counterparty_action', 'dispute_open'] as const;
 export type TodoKind = (typeof TODO_KINDS)[number];
 
 export interface TodoItem {

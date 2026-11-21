@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { TokenError } from './token-service.js';
 
 /**
@@ -35,7 +35,7 @@ export interface GovernanceMove {
   at: Date;
 }
 
-export async function readGovernanceSettings(sql: Sql): Promise<GovernanceSettings> {
+export async function readGovernanceSettings(sql: Queryable): Promise<GovernanceSettings> {
   const rows = await sql<Array<{ voting_delay_ms: string | null; voting_period_ms: string | null; revision: number }>>`
     SELECT voting_delay_ms::text, voting_period_ms::text, revision FROM token.governance_settings WHERE id = 1
   `;
@@ -86,7 +86,7 @@ type SettingsVerdict = { kind: 'write'; ordinal: number } | { kind: 'replay'; se
 
 /** Where a change at `expectedRevision` lands: a new move, a retry of the move already written, or stale. */
 async function settingsVerdict(
-  sql: Sql,
+  sql: Queryable,
   input: { votingDelayMs: bigint | null; votingPeriodMs: bigint | null; expectedRevision: number },
   lock: boolean,
 ): Promise<SettingsVerdict> {
@@ -197,7 +197,7 @@ type RoleVerdict = { kind: 'write'; from: GovernanceRole | null; ordinal: number
 
 /** Where a role move at `expectedRevision` lands: a new move, a retry of the move already written, or a refusal. */
 async function roleVerdict(
-  sql: Sql,
+  sql: Queryable,
   input: { userId: string; role: GovernanceRole | null; expectedRevision: number; actorId: string },
   lock: boolean,
 ): Promise<RoleVerdict> {

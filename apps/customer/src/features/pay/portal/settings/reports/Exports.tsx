@@ -13,7 +13,7 @@ import { useUrlParam } from '../../hooks';
 import { newRequestId } from '../../model';
 import { refusalText } from '../../refusal';
 import { useResource } from '../../../../../shared/resource';
-import { useSession } from '../../../../session/session';
+import { useSession } from '../../../../session';
 import type { SettingsBApi } from '../b-client';
 import { reportsCopy as c } from './copy';
 import {

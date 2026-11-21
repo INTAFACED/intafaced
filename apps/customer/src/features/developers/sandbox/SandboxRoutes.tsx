@@ -12,7 +12,7 @@ import { Button } from '@intafaced/ui';
 import { DataTable, EmptyState, Failure, Field, Loading, Page } from '../../../shared/ui';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { sandboxCopy, sandboxRefusalKey } from './sandbox-copy';
 import {
   KEY_PRESETS,

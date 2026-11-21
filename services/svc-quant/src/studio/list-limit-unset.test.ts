@@ -6,7 +6,7 @@
  * 2. Break: studio.list with no page size dumps every saved strategy.
  * 3. Done bar: unset throws QuantError quant.studio_list_limit_unset; 50 is allowed
  * 4. Class N
- * 5. Paths: services/svc-quant/src/studio/list-limit.ts, router.ts
+ * 5. Paths: services/svc-quant/src/studio/list-limit.ts, routes/studio.ts
  *
  * Page size is unchanged. The book itself is keyed by account (see account.test.ts).
  */
@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
 import {
   createEdgeContext,
   EDGE_PRINCIPAL_HEADER,
@@ -81,13 +82,20 @@ describe('assertStudioListLimit', () => {
 
 describe('studio.list limit unset refuse', () => {
   it('router does not dump strategies when studio.list omits limit', () => {
-    const src = readFileSync(join(ROOT, 'services/svc-quant/src/router.ts'), 'utf8');
-    const start = src.indexOf('list: publicJurisdictionProcedure');
-    const end = src.indexOf('backtest: router({', start);
-    const fn = src.slice(start, end === -1 ? undefined : end);
+    const src = readFileSync(join(ROOT, 'services/svc-quant/src/routes/studio.ts'), 'utf8');
+    const start = src.indexOf('list: mountRecord(\n      QUANT_STUDIO_LIST,');
+    expect(start).toBeGreaterThan(-1);
+    const fn = src.slice(start);
     expect(fn).toContain('assertStudioListLimit(input?.limit)');
-    expect(fn).toContain('limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional()');
     expect(fn).toContain('.slice(0, limit)');
+    // The input is the record's: the limit optional (omit reaches the named refusal), whole, 1 to the cap.
+    const input = QUANT_STUDIO_LIST.input;
+    expect(input.safeParse(undefined).success).toBe(true);
+    expect(input.safeParse({}).success).toBe(true);
+    expect(input.safeParse({ limit: STUDIO_LIST_LIMIT_CAP }).success).toBe(true);
+    expect(input.safeParse({ limit: STUDIO_LIST_LIMIT_CAP + 1 }).success).toBe(false);
+    expect(input.safeParse({ limit: 0 }).success).toBe(false);
+    expect(input.safeParse({ limit: 1.5 }).success).toBe(false);
     expect(fn).not.toMatch(/\?\? 50/);
     expect(fn).not.toMatch(/limit = 50/);
     expect(fn).not.toMatch(/strategies: \[\.\.\.studio\.list\(\)\]/);

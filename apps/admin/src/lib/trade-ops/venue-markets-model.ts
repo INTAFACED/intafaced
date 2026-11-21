@@ -1,3 +1,4 @@
+import { isRecord } from '@intafaced/contracts/guards';
 /**
  * The venue markets desk (J-cex-spot-16), the pure half: what svc-trade `admin.venueMarkets.list` answers, and the checks
  * the console runs before it files a request, each with svc-trade's own refusal code. Client-safe (no network, no hash).
@@ -86,7 +87,6 @@ export interface VenueMarketsView {
   readonly markets: readonly VenueMarketRow[];
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): v is string => typeof v === 'string';
 const strOrNull = (v: unknown): v is string | null => v === null || typeof v === 'string';
 const whole = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;

@@ -1,7 +1,7 @@
 import { Failure, Loading } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
 import { formatAmount, parseAmount } from '../../shared/money';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { funds, useBankRead } from './components';
 import type { AccountTerms } from './contracts';
 import { planRuleCopy } from './plan-rule-copy';

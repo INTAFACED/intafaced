@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { FuturesExchange } from './futures.fixtures.mjs';
+import { findChromiumExecutable } from '../../../../../../tooling/uiproof/playwright-browsers.mjs';
 
 // Playwright is resolved from a worktree that has node_modules; override with PW_ROOT (default: this worktree's apps/customer).
 const root = process.env.PW_ROOT || new URL('../../../../package.json', import.meta.url).pathname;
@@ -23,8 +24,7 @@ export const step = (name, pass, detail = {}) => {
 
 const browser = await chromium.launch({
   headless: true,
-  executablePath:
-    process.env.HOME + '/Library/Caches/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-mac-arm64/chrome-headless-shell',
+  executablePath: findChromiumExecutable(),
 });
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 await context.route('**/*', (route) => {

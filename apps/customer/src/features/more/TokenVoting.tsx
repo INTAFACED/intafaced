@@ -1,8 +1,15 @@
-// hand-declared-ok: svc-token's governance outputs are declared in its router; packages/contracts has no token schemas yet
 import { useState, type FormEvent } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
-import { signTextWithBrowserWallet } from '../session/browser-wallet';
+import {
+  tokenChoiceTallySchema,
+  tokenPowerHistorySchema,
+  tokenProposalPowerSchema,
+  tokenVoteMessageSchema,
+  tokenVoteSchema,
+  type TokenBallot,
+  type TokenVotingType,
+} from '@intafaced/contracts/token-governance';
+import { signTextWithBrowserWallet, useApi, useSession } from '../session';
 import { useResource, type Resource } from '../../shared/resource';
 import { decimalSchema, displayAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
@@ -23,24 +30,15 @@ export type BallotOutcome =
   { ok: true; weight: string } | { ok: false; failure: Refusal } | { ok: false; wallet: 'none' | 'rejected' | 'failed' } | null;
 type T = ReturnType<typeof tokenVotingCopy.forLocale>['t'];
 
-export const VOTING_TYPES = ['basic', 'single_choice', 'approval', 'weighted', 'quadratic', 'ranked_choice'] as const;
-export type VotingType = (typeof VOTING_TYPES)[number];
 /** The service caps a history page at 200 and refuses a blank page size. */
 const HISTORY_PAGE = 20;
 const HISTORY_CAP = 200;
 
 const iso = z.string().datetime({ offset: true });
-export const powerSchema = z.object({
-  proposalId: z.string().min(1).max(512),
+export const powerSchema = tokenProposalPowerSchema.extend({
   power: decimalSchema,
-  reason: z.enum(['no_stake_at_creation', 'not_measured']).nullable(),
   takenAt: iso.nullable(),
-  rule: z.object({ minPower: decimalSchema.nullable(), code: z.string().nullable() }),
-  signing: z.object({
-    required: z.literal(true),
-    available: z.boolean(),
-    code: z.literal('token.signed_vote_unavailable').nullable(),
-  }),
+  rule: tokenProposalPowerSchema.shape.rule.extend({ minPower: decimalSchema.nullable() }),
 });
 export type ProposalPower = z.infer<typeof powerSchema>;
 /** Read once per proposal view and shared, so the power, the ballot and the vote buttons agree. */
@@ -48,34 +46,17 @@ export interface PowerRead {
   resource: Resource<ProposalPower>;
   reload: () => void;
 }
-const historySchema = z.array(
-  z.object({ proposalId: z.string().min(1).max(512), title: z.string().nullable(), takenAt: iso, power: decimalSchema }),
-);
-export const choiceTallySchema = z.object({
+const historySchema = z.array(tokenPowerHistorySchema.element.extend({ takenAt: iso, power: decimalSchema }));
+export const choiceTallySchema = tokenChoiceTallySchema.extend({
   totals: z.array(decimalSchema),
   abstainWeight: decimalSchema,
   participatingWeight: decimalSchema,
-  voterCount: z.number().int().nonnegative(),
-  ranking: z.array(z.number().int().nonnegative()),
   rounds: z.array(z.array(decimalSchema)).nullable(),
 });
 type ChoiceTally = z.infer<typeof choiceTallySchema>;
-const ballotSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('abstain') }),
-  z.object({ kind: z.literal('pick'), choices: z.array(z.number().int().nonnegative()) }),
-  z.object({
-    kind: z.literal('split'),
-    parts: z.array(z.object({ choice: z.number().int().nonnegative(), bps: z.number().int().positive() })),
-  }),
-]);
-type BallotWire = z.infer<typeof ballotSchema>;
-const castSchema = z.object({
-  id: z.string().guid(),
-  proposalId: z.string().min(1).max(512),
-  userId: z.string().guid(),
+type BallotWire = TokenBallot;
+const castSchema = tokenVoteSchema.extend({
   weight: decimalSchema,
-  choice: z.enum(['for', 'against', 'abstain']).nullable(),
-  ballot: ballotSchema.nullable(),
   castAt: iso,
   signedBy: z.string().regex(/^0x[0-9a-f]{40}$/),
 });
@@ -90,7 +71,7 @@ export async function signVote(
   api: ReturnType<typeof useApi>,
   vote: { proposalId: string; choice?: 'for' | 'against' | 'abstain'; ballot?: BallotWire },
 ): Promise<VoteSigned> {
-  const asked = await api.query('token', 'voteMessage', vote, z.object({ message: z.string().min(1) }));
+  const asked = await api.query('token', 'voteMessage', vote, tokenVoteMessageSchema.extend({ message: z.string().min(1) }));
   if (!asked.ok) return { ok: false, failure: asked };
   const signed = await signTextWithBrowserWallet(asked.data.message);
   if (signed.status !== 'signed') return { ok: false, wallet: signed.status };
@@ -191,7 +172,12 @@ function bpsText(bps: number): string {
  * The ballot a reader fills in, as the wire form. A split keeps every filled weight, even one that does not add up to
  * 100: the service is the one that refuses it, with its typed code.
  */
-function ballotOf(type: VotingType, choices: readonly string[], inputs: readonly string[], picked: ReadonlySet<number>): BallotWire | null {
+function ballotOf(
+  type: TokenVotingType,
+  choices: readonly string[],
+  inputs: readonly string[],
+  picked: ReadonlySet<number>,
+): BallotWire | null {
   if (type === 'single_choice' || type === 'approval')
     return picked.size ? { kind: 'pick', choices: [...picked].sort((a, b) => a - b) } : null;
   if (type === 'ranked_choice') {
@@ -248,7 +234,7 @@ export function ChoiceBallot({
   onCast,
 }: {
   proposalId: string;
-  votingType: Exclude<VotingType, 'basic'>;
+  votingType: Exclude<TokenVotingType, 'basic'>;
   choices: readonly string[];
   open: boolean;
   power: PowerRead;

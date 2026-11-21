@@ -17,22 +17,20 @@ The Protocol Plane keeps its state on chain, not in our ledger. A UI cannot quer
 
 ## API
 
-Internal tRPC (`createIndexerRouter`), self-mounted at `/trpc` behind `createEdgeContext` per [`docs/decisions/mount-boundary.md`](../../docs/decisions/mount-boundary.md).
+Internal tRPC (`createIndexerRouter`), self-mounted at `/trpc` behind `createEdgeContext`.
 
 **Every data procedure is `publicJurisdictionProcedure('indexer', 'protocol')` — no login, no KYC tier, no account gate.** That is §22 as code: `MODULES.indexer` is `custodial: false` on the `protocol` plane, so `checkAccess` returns `allowed.permissionless`. `src/index.ts` re-asserts it at boot and **refuses to start** if it ever returns anything else.
 
 There is no scoped procedure in this router and there could not usefully be one. Every fact served is a copy of public chain state — the book, the tape, and a position at an address anyone can already query from any node. An account gate in front of a mirror of public data does not protect a user; it only makes the mirror worse than the original.
 
-| Procedure      | Guard          | Input                 | Output                                                                                                                                                                                                                 |
-| -------------- | -------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `health`       | —              | —                     | `{ ok, service, ingestEnabled, clob, chain: { status: 'unprobed', observedChainId: null } }` — liveness, not a custody claim                                                                                           |
-| `status`       | permissionless | —                     | cursor, **`behindBy`**, live `chain` probe, **`halted`**, `lastError`                                                                                                                                                  |
-| `markets`      | permissionless | —                     | `string[]`                                                                                                                                                                                                             |
-| `book`         | permissionless | `{ market, depth }`   | `{ asOfHeight, asOfHash, bids: [price, qty][], asks: … }` — the book as of `status.finalizedHeight`, so it lags the head by `finalityDepth` blocks (`asOfHeight` says which); omit depth is `indexer.book_depth_unset` |
-| `fills`        | permissionless | `{ market, limit }`   | recent trades, newest first — omit limit is `indexer.fills_limit_unset`                                                                                                                                                |
-| `accountFills` | permissionless | `{ account, limit }`  | an address's tape — omit limit is `indexer.fills_limit_unset`                                                                                                                                                          |
-| `position`     | permissionless | `{ market, account }` | signed size + entry price, or `null`                                                                                                                                                                                   |
-| `positions`    | permissionless | `{ account }`         | every market that address has a position in                                                                                                                                                                            |
+Every call is a record in `packages/contracts/src/indexer-procedures.ts` (path, guard, input, output, named refusals, samples); `src/router.ts` mounts them with `mountRecords` and holds only their handlers. Callers (the customer explorer and pools rooms, the admin indexer desk, svc-dex's on-chain venue, svc-ledger's portfolio read, svc-protocol's blockers) call through the same records.
+
+| Procedure    | Input                | Output                                                                                                                                                                                                                 |
+| ------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`     | —                    | cursor, **`behindBy`**, live `chain` probe, **`halted`**, `lastError`                                                                                                                                                  |
+| `book`       | `{ market, depth }`  | `{ asOfHeight, asOfHash, bids: [price, qty][], asks: … }` — the book as of `status.finalizedHeight`, so it lags the head by `finalityDepth` blocks (`asOfHeight` says which); omit depth is `indexer.book_depth_unset` |
+| `positions`  | `{ account, limit }` | every market that address has a position in — omit limit is `indexer.positions_list_limit_unset`                                                                                                                       |
+| `explorer.*` | `{ chainId, … }`     | blocks, transactions, an address's page, tokens by symbol, the owner factory's pools, and a hash on the other networks searched                                                                                        |
 
 HTTP: `GET /health` (process liveness — does **not** echo `INDEXER_CHAIN_ID` / Anvil 31337; chain is `unprobed`) · `GET /ready`. `status.chain` is the honest probe.
 
@@ -50,7 +48,7 @@ HTTP: `GET /health` (process liveness — does **not** echo `INDEXER_CHAIN_ID` /
 
 **`/ready` returns 503 when the book cannot be trusted as live** — a deep-reorg halt, a serving-refuse `lastError` (chain door or startHeight), or a down database. `/health` stays liveness. A load balancer that probes `/ready` must not keep sending traffic at procedures that all 503. Compose healthchecks currently probe `/health`; do not read that as "ready is optional."
 
-**Data procedures refuse on the same signals.** `/ready` only protects callers that go through a load balancer that actually probes readiness. So `book` / `fills` / `accountFills` / `position` / `positions` / `markets` return `SERVICE_UNAVAILABLE` while `status` and `health` keep answering — `status.halted` / `status.lastError` is how a caller learns why. A client that only hits `book` cannot silently render a dead-branch price or an empty book that is really "we never indexed." Transient `indexer.parent_unlink` does **not** refuse: the last canonical projection is still that block.
+**Data procedures refuse on the same signals.** `/ready` only protects callers that go through a load balancer that actually probes readiness. So `book`, `positions` and the explorer reads return `SERVICE_UNAVAILABLE` while `status` and `/health` keep answering — `status.halted` / `status.lastError` is how a caller learns why. A client that only hits `book` cannot silently render a dead-branch price or an empty book that is really "we never indexed." Transient `indexer.parent_unlink` does **not** refuse: the last canonical projection is still that block.
 
 **Money is a decimal string on the wire and a scaled bigint in memory**, everywhere. `formatAmount` is the only thing in the router that renders a price. Nothing constructs a `number` from an amount: an order book is nothing but sums, and a float sums `0.1 + 0.2` to something that is not `0.3`. There is a test that round-trips 18 decimal places through Postgres and back.
 
@@ -60,7 +58,7 @@ HTTP: `GET /health` (process liveness — does **not** echo `INDEXER_CHAIN_ID` /
 
 **Publishes — nothing. Consumes — nothing.** This service is not on the bus at all, and its compose entry declares no `nats` dependency for that reason.
 
-That is a deliberate scope line rather than an omission. A `intafaced.indexer.book.updated` subject is an obvious future addition, and adding one is a `packages/events` change (it may ride in the journey's PR) — the catalog is a contract. Until then the read path is pull-only: `apps/web` queries `book` / `fills` / `positions`, and a live feed is the ws-gateway's job (§5.2), fed from the same projection.
+That is a deliberate scope line rather than an omission. A `intafaced.indexer.book.updated` subject is an obvious future addition, and adding one is a `packages/events` change (it may ride in the journey's PR) — the catalog is a contract. Until then the read path is pull-only: callers query `book` / `positions`, and a live feed is the ws-gateway's job (§5.2), fed from the same projection.
 
 What this service does consume is a **chain**, through the `ChainSource` port (`src/chain/source.ts`) — not the event bus.
 

@@ -75,7 +75,7 @@ function callerWith(
     walletProofWindowMinutes: '30',
     walletProofValidDays: '180',
   });
-  return createBankRouter({ ramps } as unknown as BankServices).createCaller(
+  return createBankRouter({ ramps } as BankServices).createCaller(
     edgeContext({
       headers: {
         'x-intafaced-principal': raw,
@@ -425,7 +425,7 @@ describe('bank.ramps.destinations.ownership: prove a saved wallet (W-withdraw-17
       mfa: true,
       expiresAt: new Date(Date.now() + 60_000),
     } as Principal);
-    const caller = createBankRouter({ ramps } as unknown as BankServices).createCaller(
+    const caller = createBankRouter({ ramps } as BankServices).createCaller(
       edgeContext({
         headers: {
           'x-intafaced-principal': raw,

@@ -1,6 +1,6 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import type { MailPurpose, PasswordResetMail } from './password-reset.js';
+import type { PasswordResetMail } from './password-reset.js';
 
 /**
  * The only mail transport this service implements. It writes a LOCAL-TEST line

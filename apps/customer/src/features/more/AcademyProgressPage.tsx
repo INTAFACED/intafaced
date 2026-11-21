@@ -1,20 +1,20 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { z } from 'zod';
+import { type AcademyPlanner, type AcademyProgressPage } from '@intafaced/contracts/academy-catalogue';
 import {
-  academyGoalReminderSchema,
-  academyGoalSchema,
-  academyPlannerSchema,
-  academyPlannerTodoSchema,
-  academyProgressPageSchema,
-  type AcademyPlanner,
-  type AcademyProgressPage,
-} from '@intafaced/contracts/academy-catalogue';
+  ACADEMY_MY_PROGRESS,
+  ACADEMY_PLANNER_ADD_TODO,
+  ACADEMY_PLANNER_GET,
+  ACADEMY_PLANNER_REMOVE_TODO,
+  ACADEMY_PLANNER_SEND_GOAL_REMINDER,
+  ACADEMY_PLANNER_SET_GOAL,
+  ACADEMY_PLANNER_SET_TODO_DONE,
+} from '@intafaced/contracts/academy-learner-procedures';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { Button, EmptyState, Loading, Panel } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { formatDay } from './academy-lms';
 import { AcademyRefusal, GuardedButton, ProgressBar, pathLabel } from './AcademyLmsParts';
@@ -102,10 +102,7 @@ export function AcademyCourseProgress() {
   const api = useApi();
   const { userId } = useSession();
   const { t } = copy.useCopy();
-  const progress = useResource(
-    (signal) => api.query('academy', 'myProgress', undefined, academyProgressPageSchema, { signal }),
-    `progress:${userId}`,
-  );
+  const progress = useResource((signal) => api.call(ACADEMY_MY_PROGRESS, undefined, { signal }), `progress:${userId}`);
   if (progress.resource.status !== 'ready')
     return (
       <Panel title={t('progressPageTitle')}>
@@ -357,10 +354,7 @@ export function AcademyPlanner() {
   const api = useApi();
   const { userId } = useSession();
   const { t } = copy.useCopy();
-  const planner = useResource(
-    (signal) => api.query('academy', 'planner.get', undefined, academyPlannerSchema, { signal }),
-    `planner:${userId}`,
-  );
+  const planner = useResource((signal) => api.call(ACADEMY_PLANNER_GET, undefined, { signal }), `planner:${userId}`);
   const [draft, setDraft] = useState('');
   const [goalDraft, setGoalDraft] = useState<{ itemsPerWeek: string; reminder: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -426,7 +420,7 @@ export function AcademyPlanner() {
           const key = unsent.current?.text === text ? unsent.current.key : todoKey(data.revision, text);
           unsent.current = { text, key };
           void run(
-            () => api.mutate('academy', 'planner.addTodo', { clientKey: key, text }, academyPlannerTodoSchema),
+            () => api.call(ACADEMY_PLANNER_ADD_TODO, { clientKey: key, text }),
             () => {
               unsent.current = null;
               setDraft('');
@@ -438,11 +432,9 @@ export function AcademyPlanner() {
         }}
         onDone={(todoId, done) => {
           setTicked((now) => ({ ...now, [todoId]: done }));
-          void run(() => api.mutate('academy', 'planner.setTodoDone', { todoId, done }, academyPlannerTodoSchema));
+          void run(() => api.call(ACADEMY_PLANNER_SET_TODO_DONE, { todoId, done }));
         }}
-        onRemove={(todoId) =>
-          void run(() => api.mutate('academy', 'planner.removeTodo', { todoId }, z.object({ id: z.string(), removed: z.literal(true) })))
-        }
+        onRemove={(todoId) => void run(() => api.call(ACADEMY_PLANNER_REMOVE_TODO, { todoId }))}
         goalDraft={goal}
         onGoalDraft={(next) => {
           setGoalSaved(false);
@@ -450,13 +442,7 @@ export function AcademyPlanner() {
         }}
         onSaveGoal={() =>
           void run(
-            () =>
-              api.mutate(
-                'academy',
-                'planner.setGoal',
-                { itemsPerWeek: Number(goal.itemsPerWeek), reminder: goal.reminder },
-                academyGoalSchema.nullable(),
-              ),
+            () => api.call(ACADEMY_PLANNER_SET_GOAL, { itemsPerWeek: Number(goal.itemsPerWeek), reminder: goal.reminder }),
             () => {
               setGoalDraft(null);
               setGoalSaved(true);
@@ -465,7 +451,7 @@ export function AcademyPlanner() {
         }
         onSendReminder={() =>
           void run(
-            () => api.mutate('academy', 'planner.sendGoalReminder', undefined, academyGoalReminderSchema),
+            () => api.call(ACADEMY_PLANNER_SEND_GOAL_REMINDER, undefined),
             () => setReminderAnswered(true),
           )
         }

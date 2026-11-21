@@ -6,7 +6,7 @@ import { readContract, type ContractData, type ContractProcedure } from '../../s
 import type { Resource } from '../../shared/resource';
 import { Button, Loading } from '../../shared/ui';
 import { uiCopy, uiMessage } from '../../shared/ui-copy';
-import { useSession, type Session } from '../session/session';
+import { useSession, type Session } from '../session';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { formatXp, rankGetFor, rankPerksGet } from './rank-perks-api';

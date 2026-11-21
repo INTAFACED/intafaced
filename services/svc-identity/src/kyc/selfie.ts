@@ -17,7 +17,7 @@
  */
 import type { Sql } from 'postgres';
 import { createHash, randomBytes } from 'node:crypto';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import type {
   KycSelfie,
   KycSelfieDecision,
@@ -134,7 +134,7 @@ export class KycSelfieDesk {
     return { state: row.used_at ? 'used' : row.open ? 'open' : 'expired', expiresAt: row.expires_at.toISOString() };
   }
 
-  private async handoff(sql: Sql, userId: string, token: string, lock: boolean): Promise<HandoffRow> {
+  private async handoff(sql: Queryable, userId: string, token: string, lock: boolean): Promise<HandoffRow> {
     const [row] = await sql<HandoffRow[]>`
       SELECT user_id, expires_at, used_at, expires_at > now() AS open FROM kyc_selfie_handoffs
       WHERE token_sha256 = ${tokenHash(token)} AND user_id = ${userId} ${lock ? sql`FOR UPDATE` : sql``}`;

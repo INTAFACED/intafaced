@@ -6,16 +6,19 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { readReport } from './journey-verdict.mjs';
+import { CANARY } from './journey-touch.mjs';
 import {
   currentReportArtifact,
   fileSteps,
   fullVerdict,
+  journeyFilesAt,
   judgeTouched,
+  judgeTouchedRun,
+  titleBeforePush,
   JOURNEY_TEST,
   touchedSteps,
   globRe,
   isSharedSetup,
-  judgeFullRun,
   judgeSteps,
   mainReference,
   splitInherited,
@@ -146,7 +149,7 @@ test('exemption line: column 0, outside code and comments, step ids only; Markdo
     assert.deepEqual(ok(b), [], b);
     assert.deepEqual(bad(b), [], b);
   }
-  // Anything else that looks like an exemption is a problem (the seal fails closed).
+  // Anything else that looks like an exemption is a problem: printed as a note, and it exempts nothing.
   for (const b of [
     ' Left-or-replaced: J-bank-13 #1',
     '    Left-or-replaced: J-bank-13 #1',
@@ -222,7 +225,7 @@ test('a skipped named step is not green', async () => {
   assert.equal(v.ok, false);
 });
 
-test('a Left-or-replaced line passes its steps without a run; a malformed one fails the seal; a prose section exempts nothing', async () => {
+test('a Left-or-replaced line passes its steps without a run; a malformed one exempts nothing and is only a note', async () => {
   const one = { runs: [run(1)], reportOf: reports({ 1: { states: { 'J-bank-13#1': 'passed' } } }) };
   const left = await judge({ body: 'Left-or-replaced: J-bank-13 #2\n', ...one });
   assert.equal(left.ok, true, left.lines.join('\n'));
@@ -230,8 +233,15 @@ test('a Left-or-replaced line passes its steps without a run; a malformed one fa
   const both = await judge({ body: 'Left-or-replaced: J-bank-13 #1 #2\n', reportOf: () => assert.fail('nothing to read') });
   assert.equal(both.ok, true);
   const broken = await judge({ body: 'Left-or-replaced: J-bank-13 #2 needs the issuer\n', ...one });
-  assert.equal(broken.ok, false, 'a malformed line fails even though #1 passed');
-  assert.match(broken.lines.join('\n'), /looks like an exemption but isn't one/);
+  assert.equal(broken.ok, false, 'a malformed line exempts nothing: #2 still has no passing run');
+  assert.match(broken.lines.join('\n'), /exempts nothing[\s\S]*J-bank-13#2: no finished Real-app journeys run/);
+  // The 7 bodies the old early return failed (#8289 #8321 #8327 #8339 #8364 #8396 #8410): every step passed, so they seal.
+  const green = { runs: [run(1)], reportOf: reports({ 1: { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' } } }) };
+  for (const body of ['Left-or-replaced: none.\n', 'Left-or-replaced: none (all green)\n', 'Needs no `Left-or-replaced:` line.\n']) {
+    const v = await judge({ body, ...green });
+    assert.equal(v.ok, true, body);
+    assert.match(v.lines.join('\n'), /exempts nothing/);
+  }
   assert.equal((await judge({ body: '## Left or replaced\n- J-bank-13 #2: needs the issuer\n', ...one })).ok, false);
   assert.equal((await judge({ body: 'Left-or-replaced: #2\n', ...one })).ok, false, 'a bare #n');
 });
@@ -291,6 +301,78 @@ test('an unreadable report fails closed unless a newer run decides', async () =>
   assert.equal((await judge({ runs: [run(1, older), run(2, newer)], reportOf: reports({ 1: new Error('boom'), 2: green }) })).ok, true);
 });
 
+test('#9253: a finished run that started no job is passed over and named; one with jobs and no report still fails closed', async () => {
+  const older = { run_started_at: '2026-11-06T01:00:00Z' };
+  const noJob = run(2, { conclusion: 'failure', jobCount: 0, run_started_at: '2026-11-06T02:00:00Z' });
+  const noReport = { error: 'no real-app-journeys artifact from its current attempt' };
+  const v = await judge({ runs: [run(1, older), noJob], reportOf: reports({ 1: green, 2: noReport }) });
+  assert.equal(v.ok, true);
+  assert.equal(v.lines.filter((l) => l.startsWith('run 2 (attempt 1) started no job')).length, 1);
+  // Planted: the same run with jobs, or never counted, fails closed; alone, a no-job run proves nothing; going, it holds.
+  assert.equal((await judge({ runs: [run(1, older), { ...noJob, jobCount: 1 }], reportOf: reports({ 1: green, 2: noReport }) })).ok, false);
+  assert.equal(
+    (await judge({ runs: [run(1, older), { ...noJob, jobCount: undefined }], reportOf: reports({ 1: green, 2: noReport }) })).ok,
+    false,
+  );
+  assert.equal((await judge({ runs: [noJob], reportOf: reports({ 2: noReport }) })).ok, false);
+  assert.equal(
+    (await judge({ runs: [run(1, older), { ...noJob, status: 'in_progress', conclusion: null }], reportOf: reports({ 1: green }) })).state,
+    'wait',
+  );
+});
+
+test("#9253: the seal's run list counts each finished run's jobs from GitHub's jobs list, never its title", async () => {
+  const { makeIo, startedNoJob } = await import('./journey-seal.mjs');
+  const listed = [
+    run(1, { conclusion: 'failure', display_title: 'Real-app journeys by hand, J-a-01.pw.mjs' }),
+    run(2, { conclusion: 'success' }),
+    run(3, { conclusion: 'cancelled' }),
+    run(4, { status: 'in_progress', conclusion: null }),
+  ];
+  const jobs = {
+    1: [],
+    2: [{ name: 'Journeys (1/4)', status: 'completed', conclusion: 'success' }],
+    4: [{ name: 'touch', status: 'in_progress' }],
+  };
+  const asked = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    asked.push(String(url));
+    const u = new URL(url);
+    const id = /\/runs\/(\d+)\/jobs$/.exec(u.pathname)?.[1];
+    const body = id ? { total_count: jobs[id].length, jobs: jobs[id] } : { total_count: listed.length, workflow_runs: listed };
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const runs = await makeIo(REPO, 'x').runs(HEAD);
+    assert.deepEqual(
+      runs.map((r) => [r.id, r.jobCount, startedNoJob(r)]),
+      [
+        [1, 0, true],
+        [2, 1, false],
+        [3, undefined, false],
+        [4, undefined, false],
+      ],
+    );
+    assert.ok(
+      asked.every((u) => !/runs\/3\/jobs/.test(u)),
+      'a cancelled run is passed over without a read',
+    );
+  } finally {
+    globalThis.fetch = real;
+  }
+  // A jobs list that can't be read fails the whole read closed.
+  globalThis.fetch = async (url) =>
+    /\/jobs/.test(String(url))
+      ? new Response('{}', { status: 200 })
+      : new Response(JSON.stringify({ total_count: 1, workflow_runs: [listed[0]] }), { status: 200 });
+  try {
+    await assert.rejects(makeIo(REPO, 'x').runs(HEAD), /run 1's jobs: not a list/);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
 test("a run's report is the artifact from its current attempt only", () => {
   const r = run(1, { run_attempt: 2, run_started_at: '2026-11-06T03:00:00Z' });
   const first = { id: 10, name: 'real-app-journeys', created_at: '2026-11-06T02:00:00Z', expired: false };
@@ -305,9 +387,10 @@ test('sealPull: the title and body come from the pull request now; a moved head 
   const io = (pull, runs = [run(1)]) => ({
     pull: async () => pull,
     runs: async () => runs,
-    reportOf: reports({ 1: green }),
+    // Product code with no map to read runs its bounded set, the CANARY (journey-touch.mjs pullPick), never the full suite.
+    reportOf: reports({ 1: { ...green, ran: CANARY } }),
     files: async () => ['services/svc-bank/src/cards.ts'],
-    verdictOf: async () => ({ red: [], failing: 0, missing: [] }), // product code: a clean full run (journey-touch.mjs)
+    verdictOf: async () => ({ red: [], failing: 0, missing: [] }),
   });
   const pull = { state: 'open', head: { sha: HEAD }, title: 'x (J-bank-13 #1 #2)', body: '' };
   assert.equal((await sealPull({ repo: REPO, number: 5, sha: HEAD, io: io(pull) })).ok, true);
@@ -555,7 +638,7 @@ test('the recheck skips a finished CI run with no seal job and re-runs the newes
   );
 });
 
-// ---- Shared journey setup needs a clean full run on the head (judgeFullRun) ----
+// ---- Shared journey setup (SHARED_SETUP) ----
 
 test('shared setup: the list, and what is not on it', () => {
   for (const f of [
@@ -571,7 +654,6 @@ test('shared setup: the list, and what is not on it', () => {
     'tooling/scripts/local-test-compose-env.mjs',
     'tooling/scripts/local-stack-fixtures/a/b.json',
     'tooling/scripts/journey-world.mjs',
-    'tooling/scripts/local-infra-bootstrap.sh',
   ])
     assert.equal(isSharedSetup(f), true, f);
   for (const f of [
@@ -585,7 +667,7 @@ test('shared setup: the list, and what is not on it', () => {
     'tooling/scripts/local-founder-seed.mjs',
   ])
     assert.equal(isSharedSetup(f), false, f);
-  assert.equal(SHARED_SETUP.length, 6);
+  assert.equal(SHARED_SETUP.length, 5);
   assert.deepEqual(
     pullFilePaths([{ filename: 'a/new.mjs', previous_filename: 'tooling/scripts/local-test-world.mjs' }]),
     ['a/new.mjs', 'tooling/scripts/local-test-world.mjs'],
@@ -596,99 +678,41 @@ test('shared setup: the list, and what is not on it', () => {
 const fullRep = { states: { 'J-a-01#1': 'passed' }, files: { 'J-a-01#1': 'J-a-01.pw.mjs', 'J-b-01#1': 'J-b-01.pw.mjs' } };
 const clean = { red: [], failing: 3, missing: [] };
 const dirty = { red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: false }], failing: 4, missing: [] };
-const targeted = { red: [], failing: 0, missing: ['J-b-01.pw.mjs'] };
-const partialRed = { red: [{ step: 'J-a-01#1', why: 'failing, not in the baseline' }], failing: 1, missing: ['J-b-01.pw.mjs'] };
-const full = (over) =>
-  judgeFullRun({
-    sha: HEAD,
-    repo: REPO,
-    shared: ['tooling/scripts/local-stack-services/identity.mjs'],
-    runs: [run(1)],
-    reportOf: reports({ 1: fullRep, 2: fullRep, 3: fullRep, 4: fullRep }),
-    verdictOf: async () => clean,
-    ...over,
-  });
 
-test('judgeFullRun: a clean full run on the exact head passes; a dirty one fails', async () => {
-  const ok = await full();
-  assert.equal(ok.ok, true);
-  assert.match(ok.lines[0], /run 1 \(attempt 1\) is clean: 3 failing or missing step\(s\), 0 outside the list/);
-  const bad = await full({ verdictOf: async () => dirty });
-  assert.equal(bad.ok, false);
-  assert.match(bad.lines[0], /1 step\(s\) outside the list or against its rules: J-wallet-05#3: failing, not in the baseline/);
-});
-
-test('judgeFullRun: the newest full run decides; a run short of files is passed over only when clean on what it has', async () => {
-  const verdicts = { 1: clean, 2: dirty, 3: targeted, 4: partialRed };
-  assert.equal(
-    (await full({ runs: [run(1), run(4)], verdictOf: async (_rep, r) => verdicts[r.id] })).ok,
-    false,
-    'a newer short run with a red step fails, whatever older run is clean',
-  );
-  const by = async (_rep, r) => verdicts[r.id];
-  assert.equal((await full({ runs: [run(1), run(2)], verdictOf: by })).ok, false, 'a newer dirty full run outranks an older clean one');
-  assert.equal((await full({ runs: [run(2), run(3)], verdictOf: by })).ok, false, 'a newer targeted run does not hide a dirty full one');
-  assert.equal((await full({ runs: [run(1), run(3)], verdictOf: by })).ok, true, 'a newer targeted run leaves the clean full run deciding');
-  const only = await full({ runs: [run(3)], verdictOf: by });
-  assert.equal(only.ok, false, 'a targeted run alone is not a full run');
-  assert.match(only.lines.join('\n'), /none has finished/);
-  assert.match(only.lines.join('\n'), /not a full run \(no step from 1 journey file/);
-});
-
-test('judgeFullRun: an older head, a run going, a cancelled run, no run and an unreadable report do not pass', async () => {
-  assert.equal((await full({ runs: [run(1, { head_sha: OLD })] })).ok, false, 'a clean run on an older head counts for nothing');
-  const going = await full({ runs: [run(1), run(2, { status: 'in_progress' })] });
-  assert.equal(going.state, 'wait');
-  assert.equal(
-    (await full({ runs: [run(1), run(2, { status: 'in_progress' })], waitOnRunning: false })).ok,
-    true,
-    'merge queue: finished runs only',
-  );
-  assert.equal((await full({ runs: [run(1, { conclusion: 'cancelled' })] })).ok, false);
-  assert.equal((await full({ runs: [] })).ok, false);
-  assert.equal((await full({ reportOf: reports({ 1: new Error('HTTP 500') }) })).ok, false);
-  assert.equal((await full({ reportOf: reports({ 1: { error: 'no report' } }) })).ok, false);
-  assert.equal(
-    (await full({ verdictOf: async () => Promise.reject(new Error('gh: HTTP 403')) })).ok,
-    false,
-    'an unworkable verdict fails closed',
-  );
-  assert.equal(
-    (
-      await full({
-        verdictOf: async () => ({ red: [{ step: '(input)', why: "the pass history couldn't be read" }], failing: 0, missing: [] }),
-      })
-    ).ok,
-    false,
-    'an unreadable verdict input is red',
-  );
-});
-
-test('sealPull: a shared-setup pull request needs the clean full run, whatever its title; others are unchanged', async () => {
-  const io = ({ files, verdict = clean, runs = [run(1)] }) => ({
+test('sealPull: shared setup and product code the map cannot narrow need their bounded set run clean, never the full suite (project-state#3377)', async () => {
+  // With no map to read (this io has none), the bounded set is the CANARY (journey-touch.mjs pullPick).
+  const bounded = { states: { 'J-p2p-01#1': 'passed' }, ran: CANARY };
+  const io = ({ files, verdict = clean, runs = [run(1)], rep = bounded }) => ({
     pull: async () => ({ state: 'open', head: { sha: HEAD }, title: 'stack: identity gets its TEST staff roster', body: '' }),
     runs: async () => runs,
-    reportOf: reports({ 1: fullRep }),
+    reportOf: reports({ 1: rep }),
     files: async () => files,
     verdictOf: async () => verdict,
   });
   const shared = ['tooling/scripts/local-stack-services/identity.mjs'];
   const dirtySeal = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared, verdict: dirty }) });
-  assert.equal(dirtySeal.ok, false, 'shared setup with a dirty full run fails');
+  assert.equal(dirtySeal.ok, false, 'shared setup with a dirty run of its bounded set fails');
   assert.equal(dirtySeal.stepsOk, true);
   assert.equal(dirtySeal.fullOk, false);
-  assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared }) })).ok, true, 'with a clean one passes');
+  const ok = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared }) });
+  assert.equal(ok.ok, true, 'with a clean one passes');
+  assert.match(ok.lines.join('\n'), /main's full run after the merge judges the rest/);
+  assert.doesNotMatch(ok.lines.join('\n'), /full run: /, 'no full run is asked for');
   assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared, runs: [] }) })).ok, false, 'with none fails');
-  // Product code off the list can reach any journey and no recorded map says which (journey-touch.mjs), so it needs the
-  // same clean full run; a pull request touching nothing a journeys run reads needs none.
+  // Planted: a run short of one CANARY file fails, so the bounded set is held whole.
+  const short = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared, rep: { ...bounded, ran: CANARY.slice(1) } }) });
+  assert.equal(short.ok, false, 'a run missing a file of the bounded set fails');
+  assert.match(short.lines.join('\n'), new RegExp(CANARY[0].replace(/\./g, '\\.')));
+  // Product code no recorded map narrows runs the same bounded set; a pull request touching nothing a journeys run reads
+  // needs none.
   const product = (over) =>
     sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-support/src/chat.ts'], ...over }) });
   const none = await product({ runs: [] });
   assert.equal(none.ok, false, 'planted: product code with no run on its head fails');
   assert.equal(none.fullOk, false);
-  assert.match(none.lines.join('\n'), /it changes what can reach any journey \(services\/svc-support\/src\/chat\.ts: product code/);
-  assert.equal((await product({ verdict: dirty })).ok, false, 'product code with a dirty full run fails');
-  assert.equal((await product({})).ok, true, 'product code with a clean full run passes');
+  assert.match(none.lines.join('\n'), /services\/svc-support\/src\/chat\.ts: product code/);
+  assert.equal((await product({ verdict: dirty })).ok, false, 'product code with a dirty run fails');
+  assert.equal((await product({})).ok, true, 'product code with a clean run of its bounded set passes');
   const plain = await sealPull({
     repo: REPO,
     number: 7,
@@ -701,13 +725,13 @@ test('sealPull: a shared-setup pull request needs the clean full run, whatever i
   const both = (verdict) => ({
     ...io({ files: shared, verdict }),
     pull: async () => ({ state: 'open', head: { sha: HEAD }, title: 'x (J-bank-13 #1 #2)', body: '' }),
-    reportOf: reports({ 1: { ...fullRep, states: green.states } }),
+    reportOf: reports({ 1: { ...bounded, states: green.states } }),
   });
   assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: both(clean) })).ok, true);
   assert.equal(
     (await sealPull({ repo: REPO, number: 7, sha: HEAD, io: both(dirty) })).ok,
     false,
-    'green named steps do not cover a dirty full run',
+    'green named steps do not cover a dirty run of the bounded set',
   );
 });
 
@@ -779,35 +803,6 @@ test("fullVerdict: the journeys verdict's own rules with the given baseline, and
   assert.equal(blind.red.length, 1, 'an unreadable input is red');
 });
 
-test('review round 1 (B1): a newer run on the head that lost a shard and failed a step in a shard that reported is not hidden behind an older clean run', async () => {
-  const spec = (title, status, file) => ({ title, file, tests: [{ status }] });
-  const rep = (...specs) => readReport({ suites: [{ file: 'J-a-01.pw.mjs', specs }] });
-  const named = rep(spec('J-a-01 #1', 'expected', 'J-a-01.pw.mjs'), spec('J-b-01 #1', 'expected', 'J-b-01.pw.mjs'));
-  const inputs = {
-    baseline: { run: { number: 100, id: 1 }, steps: [] },
-    money: { 'J-a-01#1': false, 'J-b-01#1': false },
-    reports: new Map(),
-  };
-  const read = () => ({ named, passedSince: {}, issues: {}, problems: [] });
-  const byRun = {
-    1: rep(spec('J-a-01 #1', 'expected', 'J-a-01.pw.mjs'), spec('J-b-01 #1', 'expected', 'J-b-01.pw.mjs')), // full, clean
-    2: rep(spec('J-a-01 #1', 'unexpected', 'J-a-01.pw.mjs')), // newer: J-b's shard lost, J-a-01 #1 failed
-  };
-  const v = await judgeFullRun({
-    sha: HEAD,
-    repo: REPO,
-    shared: ['tooling/scripts/local-test-market.mjs'],
-    runs: [run(1), run(2)],
-    reportOf: async (r) => byRun[r.id],
-    verdictOf: async (report, r) => fullVerdict({ repo: REPO, report, run: r, inputs, read }),
-  });
-  assert.equal(v.ok, false);
-  assert.match(
-    v.lines[0],
-    /run 2 \(attempt 1\), short of 1 journey file\(s\), has 1 step\(s\) outside the list.*J-a-01#1: failing, not in the baseline/,
-  );
-});
-
 test("SHARED_SETUP and real-app-journeys.yml's push trigger do not drift", () => {
   const yml = readFileSync(new URL('../../.github/workflows/real-app-journeys.yml', import.meta.url), 'utf8');
   const push = /\n  push:\n    branches: \[main\]\n    paths:\n((?:      (?:- '[^']+'|#.*)\n)+)/.exec(yml);
@@ -850,7 +845,8 @@ const touchedPull = async ({
       pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: OLD }, title, body }),
       runs: async () => [run(1)],
       reportOf: reports({
-        1: { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-13#3': 'passed' }, ran: ['J-bank-13.pw.mjs'] },
+        // The CANARY too: a product path no map narrows runs its bounded set (journey-touch.mjs pullPick).
+        1: { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-13#3': 'passed' }, ran: ['J-bank-13.pw.mjs', ...CANARY] },
       }),
       // The run on the head is clean by the journeys verdict, so these cases judge the step naming alone.
       verdictOf: async () => ({ red: [], failing: 0, missing: [] }),
@@ -897,8 +893,8 @@ test('planted: a title naming another journey, a malformed line, an unreadable f
   assert.equal(wrong.ok, false, "another journey's step does not cover this file");
   assert.match(wrong.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of/);
   const bad = await touchedPull({ title: 'test(journeys): waits', body: '- Left-or-replaced: J-bank-13 #3' });
-  assert.equal(bad.ok, false, 'an exemption-like line that is not one');
-  assert.match(bad.lines.join('\n'), /looks like an exemption but isn't one/);
+  assert.equal(bad.ok, false, 'an exemption-like line that is not one names nothing');
+  assert.match(bad.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of/);
   assert.equal((await touchedPull({ title: 'x', body: 'Left-or-replaced: J-bank-13 #9' })).ok, false, 'a step the file does not hold');
   const empty = await touchedPull({ title: 'x (J-bank-13 #1)', text: { 'apps/customer/tests/real-app/J-bank-13.pw.mjs': '// nothing' } });
   assert.equal(empty.ok, false, 'a journey file with no readable step fails closed');
@@ -916,6 +912,33 @@ test('planted: a title naming another journey, a malformed line, an unreadable f
     'a file the head removed is read at the base',
   );
   assert.deepEqual(judgeTouched({ title: 'x', body: '', touched: [] }), { ok: true, lines: [] });
+});
+
+test('titleBeforePush: the title #8469 and #8478 first had is refused with the one they merged on; a wrong one stays refused', () => {
+  const t = (journey) => [
+    { file: `apps/customer/tests/real-app/${journey}.pw.mjs`, journey, steps: [1, 2, 3].map((n) => `${journey}#${n}`) },
+  ];
+  assert.deepEqual(
+    titleBeforePush({ title: null, touched: t('J-bank-13') }),
+    { ok: true, need: ['J-bank-13 #1 #2 #3'] },
+    'no pull request yet',
+  );
+  const pick = (v) => [v.ok, v.fix];
+  assert.deepEqual(pick(titleBeforePush({ title: 'fix(svc-ws): TEST limits (#8311)', touched: t('J-dev-01') })), [
+    false,
+    'fix(svc-ws): TEST limits, J-dev-01 #1 #2 #3 (#8311)',
+  ]);
+  assert.deepEqual(pick(titleBeforePush({ title: 'tests(J-dev-01): first (#8477)', touched: t('J-dev-01') })), [
+    false,
+    'tests(J-dev-01 #1 #2 #3): first (#8477)',
+  ]);
+  assert.equal(titleBeforePush({ title: 'tests(J-dev-01 #2): first', touched: t('J-dev-01') }).ok, true);
+  const wrong = titleBeforePush({ title: 'tests(J-dev-02 #2): first', touched: t('J-dev-01') });
+  assert.equal(wrong.ok, false, "another journey's steps");
+  assert.match(wrong.lines.join('\n'), /J-dev-01\.pw\.mjs changes the tests of/);
+  assert.equal(wrong.fix, 'tests(J-dev-02 #2): first, J-dev-01 #1 #2 #3');
+  assert.equal(titleBeforePush({ title: 'x', body: 'Left-or-replaced: J-dev-01 #3', touched: t('J-dev-01') }).ok, true, 'a strict line');
+  assert.equal(titleBeforePush({ title: 'x J-dev-01 #2-120', touched: t('J-dev-01') }).ok, false, 'an unreadable range');
 });
 
 test('the recheck takes a pull request whose body gained an exemption line, so leaving steps there re-runs the seal', () => {
@@ -1120,6 +1143,42 @@ test('fullVerdict: two journey files sharing one step id, both run, make a full 
   );
 });
 
+test("fullVerdict: a file main has since deleted is not missing; one main still has is, whatever the pull request's head holds (#8505)", () => {
+  // #8485 deleted J-home-ia-06-blocked.pw.mjs on main, but the baseline's named run (1719) ran it, so every full run
+  // after it read as short of that file and the seal held every pull request that needs one (#8494, 9c9b8091, run
+  // 43712693473). Which files must have run comes from the default branch's own checkout (`onMain`), never the head.
+  const spec = (title, file) => ({ title, file, tests: [{ status: 'expected' }] });
+  const rep = (...specs) => readReport({ suites: [{ specs }] });
+  const a = spec('J-a-01 #1', 'J-a-01.pw.mjs');
+  const b = spec('J-b-01 #1', 'J-b-01.pw.mjs');
+  const gone = spec('J-c-01 #1', 'J-c-01-blocked.pw.mjs');
+  const named = rep(a, b, gone);
+  const read = () => ({ named, passedSince: {}, issues: {}, problems: [] });
+  const base = { baseline: { run: { number: 100, id: 1 }, steps: [] }, money: {}, reports: new Map() };
+  const v = (report, onMain) => fullVerdict({ repo: REPO, report, run: run(1), inputs: { ...base, onMain }, read });
+  const mainNow = new Set(['J-a-01.pw.mjs', 'J-b-01.pw.mjs']);
+  // Known good: main deleted the file, and the run holds every file main still has.
+  assert.deepEqual(v(rep(a, b), mainNow).missing, [], 'a file main deleted is not held against the run');
+  // Planted fault: the run left out a file main still has.
+  assert.deepEqual(v(rep(a), mainNow).missing, ['J-b-01.pw.mjs'], 'a file main still has, left out, is missing');
+  // The trap: a pull request that deletes or skips a file itself. Main still has it, so the run is short of it.
+  assert.deepEqual(v(rep(a, b), new Set([...mainNow, 'J-c-01-blocked.pw.mjs'])).missing, ['J-c-01-blocked.pw.mjs']);
+  // No list of main's files: nothing is let off (fails closed, as before #8505).
+  assert.deepEqual(v(rep(a, b), undefined).missing, ['J-c-01-blocked.pw.mjs']);
+  assert.deepEqual(v(rep(a, b), null).missing, ['J-c-01-blocked.pw.mjs']);
+});
+
+test("journeyFilesAt: the journey files of a checkout's real-app folder, or null when it can't be read", () => {
+  const here = journeyFilesAt(new URL('../..', import.meta.url).pathname);
+  assert.ok(here instanceof Set && here.size > 100, 'this checkout holds the journey files');
+  assert.ok(here.has('J-home-ia-06.pw.mjs') && !here.has('J-home-ia-06-blocked.pw.mjs'), 'as main holds them since #8485');
+  assert.ok(
+    [...here].every((f) => f.endsWith('.pw.mjs')),
+    'only run files, never helpers',
+  );
+  assert.equal(journeyFilesAt('/nonexistent-checkout-8505'), null);
+});
+
 // ---- C1: reds inherited from main stop only their area (owner decision 180) ----
 
 const MAIN_SHA = 'c'.repeat(40);
@@ -1290,7 +1349,7 @@ test('C1 sealPull planted: a product pull request on a red main seals outside th
   }) => ({
     pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: MAIN_SHA }, title, body: '' }),
     runs: async () => [run(1)],
-    reportOf: reports({ 1: { ...fullRep, ran: ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs'] }, 50: fullRep }),
+    reportOf: reports({ 1: { ...fullRep, ran: ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs', ...CANARY] }, 50: fullRep }),
     files: async () => files,
     text: async () => 'test(`${J} #1 opens`, async () => {}); test(`${J} #3 sends`, async () => {});',
     verdictOf: async (_rep, r) => (r.id === 50 ? mainVerdict : dirty),
@@ -1679,33 +1738,50 @@ test("rerunSealJob reads merge-seal.yml's pull_request_target runs when asked, a
   assert.match(paths[1], /runs\/5\/jobs/, 'the pull_request_target run, not the ci.yml one');
 });
 
-test('review 7552-R2: a reopen leaves an older red seal run on the head; the re-check re-runs it with the newest', async () => {
+test('planted (#8225): an armed head whose newest seal run holds no `CI merge seal` gets it there, never on an older run', async () => {
+  // GitHub reads the required check from the newest run of merge-seal.yml on a head alone (probe intafaced#8246): #8225
+  // left its verdict on the push run (31) while an edit's or an arming's run (32) held only a skipped seal, whose check run
+  // is named by its expression's raw text, and every armed pull request then waited on a missing check.
+  const waits = "${{ (github.run_attempt != '1' || needs.now.outputs.now == 'true') && 'CI merge seal' || 'CI merge seal waits' }}";
   const runs = [
     { id: 30, event: 'pull_request_target', status: 'completed' },
     { id: 31, event: 'pull_request_target', status: 'completed' },
     { id: 32, event: 'pull_request_target', status: 'completed' },
   ];
-  const jobs = {
-    30: [{ id: 300, name: SEAL, status: 'completed', conclusion: 'failure' }],
-    31: [{ id: 310, name: SEAL, status: 'completed', conclusion: 'success' }],
-    32: [{ id: 320, name: SEAL, status: 'completed', conclusion: 'skipped' }],
+  const go = async (newest) => {
+    const jobs = {
+      30: [{ id: 300, name: SEAL, status: 'completed', conclusion: 'failure' }],
+      31: [{ id: 310, name: SEAL, status: 'completed', conclusion: 'success' }],
+      32: newest,
+    };
+    const get = async (path) => (path.includes('/runs?') ? { workflow_runs: runs } : { jobs: jobs[/runs\/(\d+)\/jobs/.exec(path)[1]] });
+    const posted = [];
+    const msg = await rerunSealJob({
+      repo: 'o/r',
+      sha: HEAD,
+      get,
+      post: async (p) => (posted.push(p.replace('/repos/o/r/actions/', '')), { status: 201 }),
+      sleep: async () => {},
+      log: () => {},
+      workflow: 'merge-seal.yml',
+      event: 'pull_request_target',
+    });
+    return { posted, msg };
   };
-  const get = async (path) => (path.includes('/runs?') ? { workflow_runs: runs } : { jobs: jobs[/runs\/(\d+)\/jobs/.exec(path)[1]] });
-  const posted = [];
-  const msg = await rerunSealJob({
-    repo: 'o/r',
-    sha: HEAD,
-    get,
-    post: async (p) => (posted.push(/jobs\/(\d+)\/rerun/.exec(p)[1]), { status: 201 }),
-    sleep: async () => {},
-    log: () => {},
-    workflow: 'merge-seal.yml',
-    event: 'pull_request_target',
-  });
-  // The skipped seal (an edit) is passed over; the newest real one (31) is re-run, and so is the older red one (30).
-  assert.deepEqual(posted, ['310', '300'], msg);
-  // Planted: without otherSeals, run 30's red seal would stay and block the head.
-  assert.ok(!posted.includes('320'), 'a skipped seal is never re-run');
+  // Its seal skipped (it waited), or no seal job at all (cancelled before its jobs): run 32 is started whole, and its
+  // second attempt is the verdict. The older runs, red or green, are never re-run: GitHub doesn't read them.
+  for (const newest of [[{ id: 320, name: waits, status: 'completed', conclusion: 'skipped' }], []]) {
+    const r = await go(newest);
+    assert.deepEqual(r.posted, ['runs/32/rerun'], r.msg);
+  }
+  // With a verdict in the newest run, that one is re-run, and only it.
+  assert.deepEqual((await go([{ id: 320, name: SEAL, status: 'completed', conclusion: 'success' }])).posted, ['jobs/320/rerun']);
+  // A newest run still deciding is waited for, never passed over.
+  runs[2].status = 'in_progress';
+  assert.equal(
+    recheckStep(runs, new Map([['32', [{ id: 320, name: waits, status: 'completed', conclusion: 'skipped' }]]]), 'pull_request_target').act,
+    'wait',
+  );
 });
 
 /** Problems with merge-seal.yml's seal job skipping, or []: it may skip only a first attempt whose `now` job decided,
@@ -1799,7 +1875,7 @@ test("#1574: ci.yml's seal is re-run only when it is red on a step only an older
   assert.deepEqual(r.posts, [], 'a green ci.yml seal is left: merge-seal.yml decides the steps and the review');
   r = await go({ 77: [sealOf({ conclusion: 'failure', steps: OLD_CI_STEPS })] });
   assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/9/rerun']);
-  // An older ci.yml run on the head, red on CI's jobs, is not re-run beside the newest (otherSeals).
+  // The newest ci.yml run on the head decides: its seal, red on the old journey step, is re-run; the older one is not.
   r = await go(
     {
       78: [sealOf({ id: 10, conclusion: 'failure', steps: OLD_CI_STEPS })],
@@ -1852,9 +1928,15 @@ function startJobProblems(text, finished) {
 }
 
 test('#1574: each seal input ends with Start the seal, after every other job, from the default branch; no workflow_run re-check', async () => {
-  const { START_JOB, SEAL_INPUTS, REVIEWED } = await import('./journey-seal.mjs');
+  const { START_JOB, SEAL_INPUTS, REVIEWED, MONEY } = await import('./journey-seal.mjs');
   assert.equal(START_JOB, 'Start the seal');
-  const finished = { 'ci.yml': 'CI', 'ci-review.yml': REVIEWED, 'real-app-journeys.yml': 'Real-app journeys' };
+  const finished = {
+    'ci.yml': 'CI',
+    'ci-review.yml': REVIEWED,
+    'real-app-journeys.yml': 'Real-app journeys',
+    'customer-money-browser.yml': MONEY,
+    'model-check.yml': 'Model check',
+  };
   assert.deepEqual(
     SEAL_INPUTS.map((i) => i.workflow),
     Object.keys(finished),
@@ -1869,10 +1951,10 @@ test('#1574: each seal input ends with Start the seal, after every other job, fr
         startJobProblems(text.replace(`needs: [${needs}]`, `needs: [${needs.split(', ').slice(1).join(', ')}]`), f).join(),
         /does not need/,
       );
-    // Planted: a job that is not in the workflow (a removed planner) fails.
+    // Planted: a job that is not in the workflow (a removed planner) fails. model-check.yml has a real `plan` job.
     assert.match(
-      startJobProblems(text.replace(`needs: [${needs}]`, `needs: [${needs}, plan]`), f).join(),
-      /needs plan, which is not a job here/,
+      startJobProblems(text.replace(`needs: [${needs}]`, `needs: [${needs}, removed-plan]`), f).join(),
+      /needs removed-plan, which is not a job here/,
     );
     assert.match(
       startJobProblems(
@@ -1974,14 +2056,15 @@ test('#1574 recheckStep: a waiting first attempt is started whole; a verdict, on
   assert.deepEqual(recheckStep([run(5)], J({ 5: [nowJob, waitingJob] }), e), {
     act: 'start',
     runId: '5',
-    msg: 'run 5 waits for its inputs',
+    msg: 'run 5, the newest seal run on this head, has no verdict',
   });
-  // An edit's newer waiting run beside a push's run that already gave its verdict: the verdict is re-run, not a second one.
+  // An edit's newer waiting run beside a push's run that already gave its verdict: the newest is started, since GitHub
+  // reads the check from it alone (#8225 re-ran run 5 here, and the head waited on a missing check).
   const verdict = { id: 9, name: SEAL, status: 'completed', conclusion: 'failure' };
   assert.deepEqual(recheckStep([run(5), run(6)], J({ 6: [nowJob, waitingJob], 5: [verdict] }), e), {
-    act: 'rerun',
-    runId: '5',
-    jobId: '9',
+    act: 'start',
+    runId: '6',
+    msg: 'run 6, the newest seal run on this head, has no verdict',
   });
   // A first attempt still deciding: wait, so a seal it skips is then started (never `done`, which would strand it).
   assert.equal(recheckStep([run(5, { status: 'in_progress' })], J({ 5: [{ ...nowJob, status: 'in_progress' }] }), e).act, 'wait');
@@ -2030,6 +2113,8 @@ test('#1574 readGoing: the re-check leaves the seal alone while an input on the 
       return { workflow_runs: [{ id: 1, head_sha: HEAD, event: 'pull_request', status: 'completed' }] };
     if (path.includes('/workflows/ci-review.yml/runs'))
       return { workflow_runs: [{ id: 2, head_sha: HEAD, event: 'pull_request_target', status: 'in_progress' }] };
+    if (path.includes('/workflows/customer-money-browser.yml/runs')) return { workflow_runs: [] }; // #8708: not touched here
+    if (path.includes('/workflows/model-check.yml/runs')) return { workflow_runs: [] }; // project-state#2962: no run read here
     if (path.includes('/workflows/real-app-journeys.yml/runs')) return { workflow_runs: [] };
     if (path.includes('/runs/2/jobs')) return { jobs: reviewJobs };
     if (path.includes('/files')) return [{ filename: 'docs/a.md' }];
@@ -2055,6 +2140,64 @@ test('#1574 readGoing: the re-check leaves the seal alone while an input on the 
   assert.ok(reads.some((r) => r.includes('ci-review.yml/runs?head_sha=') && r.includes('event=pull_request_target')));
   // Planted: an unreadable list fails the re-check, never reads as nothing going.
   await assert.rejects(readGoing({ get: async () => ({}), repo: 'o/r', sha: HEAD, pulls: [] }), /not a list/);
+});
+
+test('project-state #2548: the re-check never leaves the seal for a CI review run that has not started (#8574, 363a0e9b)', async () => {
+  const { readGoing, inputsGoing } = await import('./journey-seal.mjs');
+  // #8574 at 02:05:07 UTC, 16 Nov 2026: `gh pr ready` and an edit started two CI review runs on one head. 663 reviewed and
+  // ran its Start the seal; 130, the edit's, waited `pending` behind it in the head's concurrency group, then skipped every
+  // job, its Start the seal too. The re-check left the seal for 130's end, so no seal ever ran.
+  const get = async (path) => {
+    if (path.includes('/workflows/ci.yml/runs'))
+      return { workflow_runs: [{ id: 1, head_sha: HEAD, event: 'pull_request', status: 'completed' }] };
+    if (path.includes('/workflows/ci-review.yml/runs'))
+      return {
+        workflow_runs: [
+          { id: 43789888663, head_sha: HEAD, event: 'pull_request_target', status: 'in_progress' },
+          { id: 43789888130, head_sha: HEAD, event: 'pull_request_target', status: 'pending' },
+        ],
+      };
+    if (path.includes('/workflows/customer-money-browser.yml/runs')) return { workflow_runs: [] }; // #8708: not touched here
+    if (path.includes('/workflows/model-check.yml/runs')) return { workflow_runs: [] }; // project-state#2962: no run read here
+    if (path.includes('/workflows/real-app-journeys.yml/runs'))
+      return { workflow_runs: [{ id: 3, head_sha: HEAD, event: 'pull_request', status: 'completed' }] };
+    if (path.includes('/runs/43789888663/jobs'))
+      return {
+        jobs: [
+          { name: 'CI review', status: 'completed', conclusion: 'success' },
+          { name: 'Proof read', status: 'completed', conclusion: 'success' },
+          { name: 'Fix issue after merge', status: 'completed', conclusion: 'skipped' },
+          { name: 'Start the seal', status: 'in_progress' },
+        ],
+      };
+    if (path.includes('/runs/43789888130/jobs')) return { jobs: [] };
+    if (path.includes('/runs/3/jobs')) return { jobs: [] };
+    if (path.includes('/files')) return [{ filename: 'services/svc-agents/src/own/automation.test.ts' }];
+    throw new Error(path);
+  };
+  const pulls = [{ number: 8574, title: 'test(svc-agents): automation.test.ts gets its own database' }];
+  // The re-check (unstarted false): nothing is going, so it starts the seal.
+  assert.deepEqual(await readGoing({ get, repo: 'o/r', sha: HEAD, pulls, unstarted: false }), []);
+  // The seal's own wait still waits for the pending run, so a review that does run still gives the one verdict.
+  assert.deepEqual(await readGoing({ get, repo: 'o/r', sha: HEAD, pulls, settle: false }), [
+    'the CI review run 43789888663 (in_progress)',
+    'the CI review run 43789888130 (pending)',
+  ]);
+  // Only the review's runs are passed over: CI's and the journeys' Start the seal run on every in-repo pull request.
+  const sha = HEAD;
+  const runsOf = {
+    'ci.yml': [{ id: 1, head_sha: sha, event: 'pull_request', status: 'queued' }],
+    'ci-review.yml': [
+      { id: 2, head_sha: sha, event: 'pull_request_target', status: 'pending' },
+      { id: 4, head_sha: sha, event: 'pull_request_target', status: 'in_progress' },
+    ],
+    'real-app-journeys.yml': [{ id: 3, head_sha: sha, event: 'pull_request', status: 'pending' }],
+  };
+  assert.deepEqual(inputsGoing({ sha, runsOf, needJourneys: true, unstarted: false }), [
+    'CI run 1 (queued)',
+    'the CI review run 4 (in_progress)',
+    'Real-app journeys run 3 (pending)',
+  ]);
 });
 
 test('CI review on e1ba6699: a green verdict never stands while its inputs change; an edit re-judges at once', async () => {
@@ -2154,65 +2297,6 @@ test("#1574 ci-jobs-seal: CI's own Start the seal job still going does not hold 
   assert.equal(going.wait, true);
 });
 
-test('#1574 clearOlderReds: a green verdict re-runs older red seals on its head, never a green one, its own, or a skipped wait', async () => {
-  const { clearOlderReds } = await import('./journey-seal.mjs');
-  const runs = [
-    { id: 10, head_sha: HEAD, event: 'pull_request_target', status: 'completed' }, // this run, green
-    { id: 9, head_sha: HEAD, event: 'pull_request_target', status: 'completed' }, // an earlier edit's red verdict
-    { id: 8, head_sha: HEAD, event: 'pull_request_target', status: 'completed' }, // a push's verdict, green
-    { id: 7, head_sha: HEAD, event: 'pull_request_target', status: 'completed' }, // a push that waited (skipped)
-    { id: 6, head_sha: 'f'.repeat(40), event: 'pull_request_target', status: 'completed' }, // another head's red
-  ];
-  const jobs = {
-    10: [{ id: 100, name: SEAL, status: 'completed', conclusion: 'success' }],
-    9: [{ id: 90, name: SEAL, status: 'completed', conclusion: 'failure' }],
-    8: [{ id: 80, name: SEAL, status: 'completed', conclusion: 'success' }],
-    7: [{ id: 70, name: "${{ (github.run_attempt != '1') && 'CI merge seal' || 'x' }}", status: 'completed', conclusion: 'skipped' }],
-    6: [{ id: 60, name: SEAL, status: 'completed', conclusion: 'failure' }],
-  };
-  const get = async (path) =>
-    path.includes('/workflows/merge-seal.yml/runs') ? { workflow_runs: runs } : { jobs: jobs[path.match(/runs\/(\d+)\/jobs/)[1]] };
-  const posts = [];
-  const post = async (path) => (posts.push(path), { status: 201 });
-  const said = await clearOlderReds({ repo: 'o/r', sha: HEAD, self: '10', get, post });
-  assert.deepEqual(posts, ['/repos/o/r/actions/jobs/90/rerun']);
-  assert.match(said.join(), /re-ran the older red seal job 90 of run 9/);
-  // Already re-running: said, not thrown. Refused otherwise: thrown, so the step is red and says why.
-  assert.match(
-    (
-      await clearOlderReds({
-        repo: 'o/r',
-        sha: HEAD,
-        self: '10',
-        get,
-        post: async () => ({ status: 403, message: 'This workflow is already running' }),
-      })
-    ).join(),
-    /already re-running/,
-  );
-  await assert.rejects(
-    clearOlderReds({ repo: 'o/r', sha: HEAD, self: '10', get, post: async () => ({ status: 403, message: 'Resource not accessible' }) }),
-    /HTTP 403/,
-  );
-  // Nothing older and red: nothing posted.
-  posts.length = 0;
-  jobs[9][0].conclusion = 'success';
-  assert.deepEqual(await clearOlderReds({ repo: 'o/r', sha: HEAD, self: '10', get, post }), ['no older red seal on this head']);
-  assert.deepEqual(posts, []);
-  // Planted: an unreadable list fails the step, never reads as nothing to clear.
-  await assert.rejects(clearOlderReds({ repo: 'o/r', sha: HEAD, self: '10', get: async () => ({}), post }), /not a list/);
-});
-
-test('#1574 merge-seal.yml: the older reds are cleared only after every verdict step passed, with the right to re-run', () => {
-  const text = readFileSync('.github/workflows/merge-seal.yml', 'utf8');
-  const seal = text.split('\n  seal:\n')[1];
-  const step = seal.slice(seal.indexOf('- name: Re-run older red seals on this head'));
-  assert.ok(seal.indexOf('- name: The factory switch says run') < seal.indexOf('- name: Re-run older red seals on this head'), 'last');
-  assert.doesNotMatch(step.split('\n        env:')[0], /\n\s+if:/, 'the default condition: every step above passed');
-  assert.match(step, /run: node tooling\/ci\/journey-seal\.mjs --clear-older/);
-  assert.match(seal, /\n      actions: write /);
-});
-
 // A GET that fails on the way, or gets GitHub's 502/503/504, is tried again; a refusal is not; the last failure stands
 // (intafaced#7707: "which reds main already had couldn't be read (fetch failed)" on two seal attempts in a row).
 test('getTried: a dropped request or a 503 is tried again, a 403 is not, and the last failure still fails closed', async () => {
@@ -2266,7 +2350,7 @@ test('planted: the seal reads GitHub through getTried, not one bare fetch', () =
 
 // ---- The revert main-bisect opens runs narrow (project-state #1786 item 5) ----
 test('an automatic revert runs the journeys that failed on main and the reverted change own; anything forged is ordinary', async () => {
-  const { autoRevertScope, readAutoRevertScope, AUTO_REVERT_AUTHOR } = await import('./journey-seal.mjs');
+  const { autoRevertPlan, autoRevertScope, readAutoRevertScope, AUTO_REVERT_AUTHOR } = await import('./journey-seal.mjs');
   const SHA = 'c'.repeat(40);
   const pull = {
     state: 'open',
@@ -2302,13 +2386,21 @@ test('an automatic revert runs the journeys that failed on main and the reverted
   no({ commits: [{ commit: { message: `Revert "x"\n\nThis reverts commit ${'d'.repeat(40)}.` } }] }, 'reverts another commit');
   no({ culprit: null }, 'the reverted commit unread');
   no({ paths: [...paths, 'services/svc-ledger/src/post.ts'] }, 'a file the reverted commit did not change');
-  no(
-    {
-      paths: [...paths, 'tooling/scripts/local-test-market.mjs'],
-      culprit: { sha: SHA, files: [...paths, 'tooling/scripts/local-test-market.mjs'].map((filename) => ({ filename })) },
-    },
-    'shared journey setup',
-  );
+  // intafaced #8149: shared journey setup the reverted commit changed is undone with it, back to what main proved.
+  const shared = autoRevertScope({
+    ...ok,
+    paths: [...paths, 'tooling/scripts/local-test-market.mjs'],
+    culprit: { sha: SHA, files: [...paths, 'tooling/scripts/local-test-market.mjs'].map((filename) => ({ filename })) },
+  });
+  assert.equal(shared.ok, true, 'shared journey setup the reverted commit changed is still an automatic revert');
+  assert.deepEqual(shared.files, v.files, "the same journeys: the failing ones and the reverted change's own");
+  // A pull request's run is never the full suite (project-state#3377): shared setup's revert runs its narrow files too,
+  // and the seal holds it to them (before, the seal asked a full run of it: project-state #2997).
+  assert.deepEqual(autoRevertPlan(shared), { files: shared.files, why: shared.why }, 'shared setup: the planner runs it narrow');
+  assert.deepEqual(autoRevertPlan(v), { files: v.files, why: v.why }, 'the planner runs only its journeys');
+  assert.deepEqual(autoRevertPlan(null), { files: null, why: '' }, 'not an automatic revert: the ordinary scope');
+  assert.equal(autoRevertPlan(autoRevertScope({ ...ok, culprit: null })).files, null, 'a refused scope: the ordinary scope');
+  no({ paths: [...paths, 'tooling/scripts/local-test-market.mjs'] }, 'shared journey setup the reverted commit did not change');
   no({ pull: { ...pull, body: '' }, paths: ['services/svc-bank/src/cards.ts'], culpritTitle: '' }, 'no journey named');
   // sealPull judges the narrow files, and names them; a forged revert gets the ordinary scope.
   const io = (p) => ({
@@ -2336,6 +2428,16 @@ test('an automatic revert runs the journeys that failed on main and the reverted
 // ---- A red names its kind in its title (OWNER 289; 10-D-one-verdict.md item 8) ----
 
 test("a red's title names its kind: yours, main's or runner", async () => {
+  const full = (over) =>
+    judgeTouchedRun({
+      sha: HEAD,
+      repo: REPO,
+      files: ['J-a-01.pw.mjs'],
+      runs: [run(1)],
+      reportOf: reports({ 1: { ...fullRep, ran: ['J-a-01.pw.mjs'] } }),
+      verdictOf: async () => clean,
+      ...over,
+    });
   // yours: a step red on this head and not on main.
   const bad = await full({ verdictOf: async () => dirty });
   assert.deepEqual(bad.kinds, ['yours']);
@@ -2432,6 +2534,8 @@ test('#7996: a deferred journeys run counts as going, never as a finished run th
   const at = (journeys, jobsOf) => async (path) => {
     if (path.includes('/workflows/ci.yml/runs')) return { workflow_runs: [done(1)] };
     if (path.includes('/workflows/ci-review.yml/runs')) return { workflow_runs: [done(2, { event: 'pull_request_target' })] };
+    if (path.includes('/workflows/customer-money-browser.yml/runs')) return { workflow_runs: [] }; // #8708: not touched here
+    if (path.includes('/workflows/model-check.yml/runs')) return { workflow_runs: [] }; // project-state#2962: no run read here
     if (path.includes('/workflows/real-app-journeys.yml/runs')) return { workflow_runs: journeys };
     if (path.includes('/runs/2/jobs')) return { jobs: [{ name: 'CI review', status: 'completed', conclusion: 'success' }] };
     const m = /\/runs\/(\d+)\/jobs/.exec(path);
@@ -2533,7 +2637,7 @@ test("main's own sealPull planted: main's newest run outside the head's history 
   const io = ({ files, issues = [reg(9, 'Journey broken on main: J-wallet-05')], newest = dirty, mainIssues = true }) => ({
     pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: MAIN_SHA }, title: 'gate: drop a folder', body: '' }),
     runs: async () => [run(1)],
-    reportOf: reports({ 1: { ...fullRep, ran: ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs'] }, 50: fullRep, 60: fullRep }),
+    reportOf: reports({ 1: { ...fullRep, ran: ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs', ...CANARY] }, 50: fullRep, 60: fullRep }),
     files: async () => files,
     text: async () => 'test(`${J} #1 opens`, async () => {}); test(`${J} #3 sends`, async () => {});',
     verdictOf: async (_rep, r) => (r.id === 60 ? newest : r.id === 50 ? { ...clean, lastPass: {} } : dirty),

@@ -1,22 +1,15 @@
+import { router, TRPCError } from '@intafaced/contracts';
 import {
-  protocolAddressBookAddContactInputSchema,
-  protocolAddressBookCreateGroupInputSchema,
-  protocolAddressBookGroupInputSchema,
-  protocolAddressBookListInputSchema,
-  protocolAddressBookListOutputSchema,
-  protocolAddressBookRemoveContactInputSchema,
-  protocolAddressBookRemovedOutputSchema,
-  protocolAddressBookRemoveGroupInputSchema,
-  protocolContactSchema,
-  protocolWalletGroupSchema,
-  protocolWalletSessionChallengeInputSchema,
-  protocolWalletSessionChallengeOutputSchema,
-  protocolWalletSessionOpenInputSchema,
-  protocolWalletSessionOpenOutputSchema,
-  publicJurisdictionProcedure,
-  router,
-  TRPCError,
-} from '@intafaced/contracts';
+  PROTOCOL_ADDRESS_BOOK_ADD_CONTACT,
+  PROTOCOL_ADDRESS_BOOK_CREATE_GROUP,
+  PROTOCOL_ADDRESS_BOOK_GROUP,
+  PROTOCOL_ADDRESS_BOOK_LIST,
+  PROTOCOL_ADDRESS_BOOK_REMOVE_CONTACT,
+  PROTOCOL_ADDRESS_BOOK_REMOVE_GROUP,
+  PROTOCOL_WALLET_SESSION_CHALLENGE,
+  PROTOCOL_WALLET_SESSION_OPEN,
+} from '@intafaced/contracts/protocol-wallet-procedures';
+import { mountProtocolRecord } from '../record-mount.js';
 import {
   ADDRESS_BOOK_MAX_CONTACTS_UNSET,
   AddressBookRefusedError,
@@ -111,28 +104,22 @@ const groupOut = (g: GroupRecord) => ({
 export function createWalletSessionRouter(deps: AddressBookDeps) {
   const now = deps.now ?? (() => new Date());
   return router({
-    challenge: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolWalletSessionChallengeInputSchema)
-      .output(protocolWalletSessionChallengeOutputSchema)
-      .mutation(({ input }) => {
-        try {
-          const issued = issueWalletChallenge(deps.session(), deps.chainId(), input, now());
-          return { message: issued.message, challenge: issued.challenge, expiresAt: issued.expiresAt.toISOString() };
-        } catch (err) {
-          throw addressBookTrpcError(err);
-        }
-      }),
-    open: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolWalletSessionOpenInputSchema)
-      .output(protocolWalletSessionOpenOutputSchema)
-      .mutation(async ({ input }) => {
-        try {
-          const opened = await openWalletSession(deps.session(), deps.chainId(), input, now());
-          return { session: opened.session, address: opened.address, expiresAt: opened.expiresAt.toISOString() };
-        } catch (err) {
-          throw addressBookTrpcError(err);
-        }
-      }),
+    challenge: mountProtocolRecord(PROTOCOL_WALLET_SESSION_CHALLENGE, ({ input }) => {
+      try {
+        const issued = issueWalletChallenge(deps.session(), deps.chainId(), input, now());
+        return { message: issued.message, challenge: issued.challenge, expiresAt: issued.expiresAt.toISOString() };
+      } catch (err) {
+        throw addressBookTrpcError(err);
+      }
+    }),
+    open: mountProtocolRecord(PROTOCOL_WALLET_SESSION_OPEN, async ({ input }) => {
+      try {
+        const opened = await openWalletSession(deps.session(), deps.chainId(), input, now());
+        return { session: opened.session, address: opened.address, expiresAt: opened.expiresAt.toISOString() };
+      } catch (err) {
+        throw addressBookTrpcError(err);
+      }
+    }),
   });
 }
 
@@ -148,48 +135,34 @@ export function createAddressBookRouter(deps: AddressBookDeps) {
     }
   };
   return router({
-    list: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolAddressBookListInputSchema)
-      .output(protocolAddressBookListOutputSchema)
-      .mutation(({ input }) =>
-        guarded(async () => {
-          const who = owner(input.session);
-          const [contacts, groups] = await Promise.all([deps.store.contacts(who), deps.store.groups(who)]);
-          return { owner: who, contacts: contacts.map(contactOut), groups: groups.map(groupOut) };
-        }),
-      ),
-    addContact: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolAddressBookAddContactInputSchema)
-      .output(protocolContactSchema)
-      .mutation(({ input }) =>
-        guarded(async () => contactOut(await addContact(deps.store, owner(input.session), input, deps.maxContacts()))),
-      ),
-    removeContact: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolAddressBookRemoveContactInputSchema)
-      .output(protocolAddressBookRemovedOutputSchema)
-      .mutation(({ input }) =>
-        guarded(async () => {
-          await removeContact(deps.store, owner(input.session), input.id);
-          return { id: input.id, removed: true as const };
-        }),
-      ),
-    createGroup: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolAddressBookCreateGroupInputSchema)
-      .output(protocolWalletGroupSchema)
-      .mutation(({ input }) => guarded(async () => groupOut(await createGroup(deps.store, owner(input.session), input, deps.maxGroups())))),
-    group: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolAddressBookGroupInputSchema)
-      .output(protocolWalletGroupSchema)
-      .mutation(({ input }) => guarded(async () => groupOut(await readGroup(deps.store, owner(input.session), input.id)))),
-    removeGroup: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolAddressBookRemoveGroupInputSchema)
-      .output(protocolAddressBookRemovedOutputSchema)
-      .mutation(({ input }) =>
-        guarded(async () => {
-          await removeGroup(deps.store, owner(input.session), input.id);
-          return { id: input.id, removed: true as const };
-        }),
-      ),
+    list: mountProtocolRecord(PROTOCOL_ADDRESS_BOOK_LIST, ({ input }) =>
+      guarded(async () => {
+        const who = owner(input.session);
+        const [contacts, groups] = await Promise.all([deps.store.contacts(who), deps.store.groups(who)]);
+        return { owner: who, contacts: contacts.map(contactOut), groups: groups.map(groupOut) };
+      }),
+    ),
+    addContact: mountProtocolRecord(PROTOCOL_ADDRESS_BOOK_ADD_CONTACT, ({ input }) =>
+      guarded(async () => contactOut(await addContact(deps.store, owner(input.session), input, deps.maxContacts()))),
+    ),
+    removeContact: mountProtocolRecord(PROTOCOL_ADDRESS_BOOK_REMOVE_CONTACT, ({ input }) =>
+      guarded(async () => {
+        await removeContact(deps.store, owner(input.session), input.id);
+        return { id: input.id, removed: true as const };
+      }),
+    ),
+    createGroup: mountProtocolRecord(PROTOCOL_ADDRESS_BOOK_CREATE_GROUP, ({ input }) =>
+      guarded(async () => groupOut(await createGroup(deps.store, owner(input.session), input, deps.maxGroups()))),
+    ),
+    group: mountProtocolRecord(PROTOCOL_ADDRESS_BOOK_GROUP, ({ input }) =>
+      guarded(async () => groupOut(await readGroup(deps.store, owner(input.session), input.id))),
+    ),
+    removeGroup: mountProtocolRecord(PROTOCOL_ADDRESS_BOOK_REMOVE_GROUP, ({ input }) =>
+      guarded(async () => {
+        await removeGroup(deps.store, owner(input.session), input.id);
+        return { id: input.id, removed: true as const };
+      }),
+    ),
   });
 }
 

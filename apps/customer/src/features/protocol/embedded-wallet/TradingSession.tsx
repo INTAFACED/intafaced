@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { z } from 'zod';
 import { Button } from '@intafaced/ui';
 import { Tag } from '@intafaced/ui/lit';
 import type { ProtocolEmbeddedWalletRecord } from '@intafaced/contracts/protocol-embedded-wallet';
+import { tradingMarketsSchema } from '@intafaced/contracts/protocol-trading-session';
 import type { ApiClient, ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import type { embeddedWalletCopy } from './embedded-wallet-copy';
@@ -24,10 +24,6 @@ import {
 
 type T = ReturnType<typeof embeddedWalletCopy.useCopy>['t'];
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
-
-const marketsSchema = z
-  .object({ value: z.array(z.object({ symbol: z.string(), kind: z.string(), orderTypes: z.array(z.string()) }).passthrough()) })
-  .passthrough();
 
 /** `a >= b` for two non-negative decimal strings, exactly (no floating point). */
 export function decimalAtLeast(a: string, b: string): boolean {
@@ -75,7 +71,8 @@ export function TradingSession(props: {
     `venue-builder-approval:${userId}:${owner}:${doorReady?.builder ? 'on' : 'off'}:${epoch}`,
   );
   const markets = useResource(
-    (signal) => (doorReady ? api.rest('/venue/markets', marketsSchema, { signal }) : Promise.resolve({ ok: true as const, data: null })),
+    (signal) =>
+      doorReady ? api.rest('/venue/markets', tradingMarketsSchema, { signal }) : Promise.resolve({ ok: true as const, data: null }),
     `venue-markets:${userId}:${doorReady ? 'on' : 'off'}`,
   );
   const [held, setHeld] = useState<HeldKey | null>(() => heldKey(userId));

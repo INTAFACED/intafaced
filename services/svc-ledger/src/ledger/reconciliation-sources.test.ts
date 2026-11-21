@@ -15,7 +15,7 @@ function fakeFetch(answer: (url: URL) => Response) {
   const impl = (async (input: URL) => {
     calls.push(input);
     return answer(input);
-  }) as unknown as typeof fetch;
+  }) as typeof fetch;
   return { impl, calls };
 }
 
@@ -96,7 +96,7 @@ describe('per-rail open items (lead ruling 2026-10-30)', () => {
       bodies.push(String(init.body));
       headers.push(init.headers as Record<string, string>);
       return answer(JSON.parse(String(init.body)));
-    }) as unknown as typeof fetch;
+    }) as typeof fetch;
     return { impl, bodies, headers, signals };
   }
   const sign = (payload: string) => ({ 'x-signed': payload });

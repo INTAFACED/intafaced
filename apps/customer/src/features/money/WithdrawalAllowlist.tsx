@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { amount, date, Section } from './components';
 import { allowlistCopy } from './withdrawal-allowlist-copy';
 import { createAllowlistReads, requestedChange, type AllowlistChange, type AllowlistGroup } from './withdrawal-allowlist-reads';

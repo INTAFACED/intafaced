@@ -8,11 +8,18 @@ import {
   payDepositCreditPosted,
   bankScheduledReminder,
   bankScheduledFailed,
+  coreOpsReconciliationAlertAccepted,
+  coreOpsReconciliationAlertOpened,
+  coreOpsReconciliationAlertResolved,
+  coreOpsReconciliationAlertUpdated,
   copySkipped,
   copyStopped,
   agentUsageAlertCrossed,
+  agentAlertFired,
   agentApprovalRequested,
+  agentRunCompleted,
   supportTicketResolved,
+  quantOrderFilled,
   fillSettled,
   kycApproved,
   ledgerFreezeUpdated,
@@ -41,9 +48,14 @@ import {
 import type { MessageKey } from '@intafaced/i18n';
 import { noticeFreezeChange } from './freeze-notice.js';
 import { noticeVenueDelisting } from './venue-delisting-notice.js';
+import * as reconFeed from './reconciliation-alert-feed/feed.js';
+import { MemoryReconAlertFeedStore, type ReconAlertFeedStore } from './reconciliation-alert-feed/feed.js';
 import { DEPOSIT_CREDITED_BODY_KEY, DEPOSIT_CREDITED_KIND, DEPOSIT_CREDITED_TITLE_KEY } from './deposit-credit-notice.js';
 import type { CreateResult, NotifyService } from './notify-service.js';
 import type { Severity } from './store.js';
+
+/** A paper strategy fill under a fill alert (AL-alerts-01). */
+export const QUANT_FILL_KIND = 'quant.fill';
 import {
   NOTIFY_EVENT_CONSUMERS,
   SKIPPED_NOTIFY_SUBJECTS,
@@ -101,14 +113,12 @@ export { NOTIFY_EVENT_CONSUMERS, SKIPPED_NOTIFY_SUBJECTS, notifyEventConsumerCou
  * So a pending consumer is now one of exactly two things:
  *
  *   `socket` non-null   Somebody wrote down that this subject has no publisher
- *                       yet, in `WIRING_SOCKETS`, with a reason. Known, reviewed
- *                       and enforced by `pnpm scan:events`. Logged at INFO with
+ *                       yet, in `WIRING_SOCKETS`, with a reason. Known and
+ *                       reviewed. Logged at INFO with
  *                       the recorded reason. Quiet, because it is accounted for.
  *
  *   `socket` null       Nothing in the repo admits this consumer cannot attach.
- *                       That is a defect. Logged at ERROR, counted on /ready, and
- *                       CI is already red on it — `scan:events` fails on an
- *                       undeclared orphan, so this state cannot reach `main`.
+ *                       That is a defect. Logged at ERROR and counted on /ready.
  *
  * Boot does not refuse either way, and that is deliberate: svc-notify's inbox is
  * healthy without any one consumer, and taking the whole inbox down over a single
@@ -231,6 +241,7 @@ const FACTOR_CHANGED_TITLE_KEYS: Record<PayloadOf<'securityFactorChanged'>['chan
   passkey_removed: 'notify.identity.security.passkey_removed.title',
   password_changed: 'notify.identity.security.password_changed.title',
   new_device: 'notify.identity.security.new_device.title',
+  api_key_revoked: 'notify.identity.security.api_key_revoked.title',
 };
 
 /** The action kinds `intafaced.agents.action.completed` can carry. */
@@ -261,6 +272,9 @@ export interface SubscribeOptions {
   readonly positionNotify?: PositionNotifyPolicy;
   readonly orderNotify?: OrderTerminalNotifyPolicy;
   readonly agentActionCompletedNotify?: AgentActionCompletedNotifyPolicy;
+  /** Where reconciliation alert transitions are kept; production passes the Postgres store, tests a memory one. */
+  readonly reconAlertFeed?: ReconAlertFeedStore;
+  readonly now?: () => Date;
 }
 
 /**
@@ -282,6 +296,9 @@ interface Attachment {
   subscription: Subscription | null;
   pending: PendingConsumer | null;
 }
+
+/** An agent alert's measure in words, for its notice. */
+const ALERT_MEASURE_WORDS = { refusal_rate: 'Refusal rate', failure_rate: 'Failure rate', cost: 'Cost in the fee asset' } as const;
 
 /**
  * Subscribe, or report why not.
@@ -310,9 +327,7 @@ async function attach<K extends EventName>(
         subject,
         durable,
         reason: err instanceof Error ? err.message : String(err),
-        // The catalog is the single place a missing publisher is recorded, so
-        // the boot log and `pnpm scan:events` cannot disagree about which
-        // subjects are known-dark. One list, two readers.
+        // The catalog is the single place a missing publisher is recorded.
         socket: wiringSocketReason(event, 'publisher'),
       },
     };
@@ -689,7 +704,9 @@ export async function subscribeNotificationEvents(
               ? 'notify.identity.security.password_changed.body'
               : payload.change === 'new_device'
                 ? 'notify.identity.security.new_device.body'
-                : 'notify.identity.security.factor_changed.body',
+                : payload.change === 'api_key_revoked'
+                  ? 'notify.identity.security.api_key_revoked.body'
+                  : 'notify.identity.security.factor_changed.body',
           // The business key, so Home can tell this notice from the "Needs you" item identity keys by it (new_device).
           params: { noticeKey: payload.noticeKey },
           href: '/uc/safe',
@@ -897,7 +914,13 @@ export async function subscribeNotificationEvents(
       // before a retry is asked for, so one person's channel outage never holds back the other's notice. A send
       // to oneself is only a receipt: the money never left the person.
       const common = {
-        params: { amount: payload.amount, assetId: payload.assetId, transferId: payload.transferId, ledgerTxId: payload.ledgerTxId },
+        params: {
+          amount: payload.amount,
+          assetId: payload.assetId,
+          transferId: payload.transferId,
+          ledgerTxId: payload.ledgerTxId,
+          partnerMoveId: payload.partnerMoveId ?? null,
+        },
         href: '/money/activity?tab=transfers',
         severity: 'info' as const,
         sourceSubject: personalTransferPosted.subject,
@@ -925,7 +948,9 @@ export async function subscribeNotificationEvents(
   );
 
   // Copy trading (J-copy-bots-otc-03 #6): svc-trade publishes after the skip row or the stop is saved. The notice says
-  // why, in words keyed by the reason id, and what the person can do; it never shows a raw code. Inbox only.
+  // why, in words keyed by the reason id, and what the person can do; it never shows a raw code. It goes out of app like
+  // any order notice: one email to a confirmed address when an email sender is set (the delivery row keeps it to one);
+  // with none, no address can be confirmed, nothing is sent, and the settings name vendor.email.
   attachments.push(
     await attach(bus, 'copySkipped', copySkipped.subject, 'notify-copy-skipped', async (payload) => {
       // A skip the follower chose (a pause or a stop) is theirs already; svc-trade does not send it, and none is written.
@@ -942,7 +967,6 @@ export async function subscribeNotificationEvents(
           sourceSubject: copySkipped.subject,
           // One notice per follow and leader fill, however often svc-trade sends it.
           sourceIdempotencyKey: `${payload.followId}:${payload.leaderFillId}`,
-          outOfApp: false,
         }),
       );
     }),
@@ -963,7 +987,6 @@ export async function subscribeNotificationEvents(
           sourceSubject: copyStopped.subject,
           // A stop is one-way, so one notice per follow and close-only.
           sourceIdempotencyKey: `${payload.followId}:${payload.closeOnly}`,
-          outOfApp: false,
         }),
       );
     }),
@@ -995,6 +1018,37 @@ export async function subscribeNotificationEvents(
     }),
   );
 
+  // An operator's agent alert (J-agents-16 #3): svc-agents hands each alert over once per rule and window, on that
+  // business key, while alert notifications are on. The operator who stored the rule gets one inbox row, and it goes out
+  // of app on every channel they confirmed: email and push show `vendor.email` and `vendor.push` until those vendors are
+  // set, and the inbox row is written regardless.
+  attachments.push(
+    await attach(bus, 'agentAlertFired', agentAlertFired.subject, 'notify-agent-alert-fired', async (payload) => {
+      const percent = payload.measure !== 'cost';
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'agents.alert.fired',
+          titleKey: 'notify.agents.alert.fired.title',
+          bodyKey: 'notify.agents.alert.fired.body',
+          params: {
+            rule: payload.ruleName,
+            measure: ALERT_MEASURE_WORDS[payload.measure],
+            value: percent ? `${payload.value}%` : payload.value,
+            threshold: percent ? `${payload.threshold}%` : payload.threshold,
+            from: payload.windowStart,
+            to: payload.windowEnd,
+          },
+          href: null,
+          severity: 'action',
+          sourceSubject: agentAlertFired.subject,
+          sourceIdempotencyKey: payload.alertKey,
+          outOfApp: true,
+        }),
+      );
+    }),
+  );
+
   // A held tool call of an own agent (J-agents-05 #4): svc-agents publishes it once per approval request, on the
   // request's business key, so the owner gets one inbox row for it however often it is sent. The row names the action
   // in words (a tool with no words of its own gets the general title, never its raw id) and links to the Approvals
@@ -1015,6 +1069,31 @@ export async function subscribeNotificationEvents(
           sourceSubject: agentApprovalRequested.subject,
           sourceIdempotencyKey: payload.requestId,
           outOfApp: true,
+        }),
+      );
+    }),
+  );
+
+  // A background run of an agent session finished (J-agents-06 #2): svc-agents publishes it once per run, on the run id,
+  // so the person gets one inbox row however often it is sent. The row links to the run's page, where the result is; it
+  // never carries the reply. Only the channel the person asked for goes out of app, and its delivery row is recorded
+  // even when that channel has no vendor (`vendor.email` until a mail vendor is set); `inapp` writes the inbox row alone.
+  attachments.push(
+    await attach(bus, 'agentRunCompleted', agentRunCompleted.subject, 'notify-agent-run-completed', async (payload) => {
+      const asked = payload.notice === 'inapp' ? null : payload.notice;
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'agents.run.completed',
+          titleKey: 'notify.agents.run.completed.title',
+          bodyKey: 'notify.agents.run.completed.body',
+          params: { runId: payload.runId, agentId: payload.agentId, finishedAt: payload.finishedAt },
+          href: `/agents/runs/${payload.runId}`,
+          severity: 'info',
+          sourceSubject: agentRunCompleted.subject,
+          sourceIdempotencyKey: payload.runId,
+          outOfApp: asked !== null,
+          ...(asked ? { askedChannels: [asked] } : {}),
         }),
       );
     }),
@@ -1127,6 +1206,92 @@ export async function subscribeNotificationEvents(
         }),
       );
     }),
+  );
+
+  attachments.push(
+    await attach(bus, 'quantOrderFilled', quantOrderFilled.subject, 'notify-quant-order-filled', async (payload) => {
+      // A paper strategy fill under the person's own fill alert (AL-alerts-01). svc-quant publishes it from the server, so
+      // the notice is written with no browser open; deduped on the event id, so a redelivery writes nothing new.
+      // The message was rendered by svc-quant from the person's template and the allow-listed fields only.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: QUANT_FILL_KIND,
+          titleKey: 'notify.quant.fill.title',
+          bodyKey: 'notify.quant.fill.body',
+          params: {
+            message: payload.message,
+            strategyId: payload.strategyId,
+            strategyVersion: String(payload.strategyVersion),
+            runId: payload.runId,
+            alertId: payload.alertId,
+            mode: payload.mode,
+            symbol: payload.symbol,
+            side: payload.side,
+            qty: payload.qty,
+            price: payload.price,
+            filledAt: payload.filledAt,
+          },
+          href: `/quant/strategies/${encodeURIComponent(payload.strategyId)}`,
+          severity: 'info',
+          sourceSubject: quantOrderFilled.subject,
+          sourceIdempotencyKey: payload.eventId,
+          // The out-of-app channels the person chose for this strategy; each gets a delivery row, refused by name when
+          // the platform has no sender for it. None chosen is inbox only.
+          outOfApp: payload.channels.length > 0,
+          ...(payload.channels.length > 0 ? { askedChannels: payload.channels } : {}),
+        }),
+      );
+    }),
+  );
+
+  // Reconciliation alert transitions from svc-ops (OPS-reconciliation-04): one feed row per business key, so a transition
+  // delivered twice is applied once. Ids, states and times only; no customer inbox row and no out-of-app send.
+  const feed = options.reconAlertFeed ?? new MemoryReconAlertFeedStore();
+  const now = options.now ?? (() => new Date());
+  attachments.push(
+    await attach(
+      bus,
+      'coreOpsReconciliationAlertOpened',
+      coreOpsReconciliationAlertOpened.subject,
+      'notify-recon-alert-opened',
+      async (p, env) => {
+        await feed.record(reconFeed.opened(p, env.idempotencyKey), now());
+      },
+    ),
+  );
+  attachments.push(
+    await attach(
+      bus,
+      'coreOpsReconciliationAlertUpdated',
+      coreOpsReconciliationAlertUpdated.subject,
+      'notify-recon-alert-updated',
+      async (p, env) => {
+        await feed.record(reconFeed.updated(p, env.idempotencyKey), now());
+      },
+    ),
+  );
+  attachments.push(
+    await attach(
+      bus,
+      'coreOpsReconciliationAlertResolved',
+      coreOpsReconciliationAlertResolved.subject,
+      'notify-recon-alert-resolved',
+      async (p, env) => {
+        await feed.record(reconFeed.resolved(p, env.idempotencyKey), now());
+      },
+    ),
+  );
+  attachments.push(
+    await attach(
+      bus,
+      'coreOpsReconciliationAlertAccepted',
+      coreOpsReconciliationAlertAccepted.subject,
+      'notify-recon-alert-accepted',
+      async (p, env) => {
+        await feed.record(reconFeed.accepted(p, env.idempotencyKey), now());
+      },
+    ),
   );
 
   // Class B growth pin: attach count must match the deliberate matrix.

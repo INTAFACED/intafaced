@@ -209,6 +209,7 @@ function populate(world, now) {
             bookedFee: null,
             reserveAmount: null,
             recordedAt: iso(createdAt),
+            parts: null,
           }
         : null,
       failure: status === 'failed' ? { code: 'card_declined', message: 'The card was declined.' } : null,
@@ -276,6 +277,7 @@ function populate(world, now) {
               bookedFee: fromU(fees),
               reserveAmount: null,
               recordedAt: iso(createdAt),
+              parts: null,
             }
           : null,
       members: members.map((p) => p.id),

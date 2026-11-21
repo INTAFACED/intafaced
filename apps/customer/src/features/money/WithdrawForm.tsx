@@ -6,13 +6,13 @@ import { Button, Failure, Loading } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
-import { useSession } from '../session/session';
-import { useWallet } from '../protocol/wallet/WalletProvider';
+import { useSession } from '../session';
+import { useWallet } from '../protocol';
 import { date, useBankRead } from './components';
 import type { Destination } from './contracts';
 import { DepthPanel, DisabledAction, Fact } from './DepthParts';
 import { useHoldings } from './holdings';
-import { INTERNAL_RAIL, useWithdrawDestination, type DestinationRead } from './withdraw-destination';
+import { useWithdrawDestination, type DestinationRead } from './withdraw-destination';
 import { SAVED_STATE_WORDS, checkAddress, checkAmount, coolingOf, shortenAddress, shownState } from './withdraw-model';
 import {
   above,
@@ -25,7 +25,7 @@ import {
   type WithdrawQuote,
   type WithdrawSend,
 } from './withdraw-send';
-import { withdrawalSchema, type WithdrawalRecord } from './withdrawal-reads';
+import type { WithdrawalRecord } from './withdrawal-reads';
 import { withdrawalCopy } from './withdrawal-copy';
 import { WithdrawStepUp } from './WithdrawStepUp';
 import { WALLET_NOT_CONNECTED, walletFill, walletGone, walletSavedNetwork, type WalletFill } from './withdraw-to-wallet';
@@ -441,18 +441,9 @@ export function WithdrawForm({ toWallet = false }: { toWallet?: boolean } = {}) 
   async function sendInside(token: string, send: OpenSend) {
     // Kept in the tab before the ask leaves, so a reload or a crash while it is in flight finishes it, never starts another.
     keepOpen(userId, { ...send, unanswered: true });
-    const answer = await api.mutate(
-      'pay',
-      'withdrawal.create',
-      {
-        assetId: send.assetId,
-        amount: send.amount,
-        railId: INTERNAL_RAIL,
-        destination: { kind: 'crypto', ref: send.ref },
-        clientRef: send.clientRef,
-      },
-      withdrawalSchema,
-      { bearer: token },
+    const answer = await createWithdrawSend(api).sendInside(
+      { assetId: send.assetId, amount: send.amount, ref: send.ref, clientRef: send.clientRef },
+      token,
     );
     if (answer.ok) {
       setSentInside(answer.data);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Failure, Loading } from '../../shared/ui';
 import { verificationAttemptsCopy as copy } from './verification-attempts-copy';

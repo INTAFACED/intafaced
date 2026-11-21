@@ -26,7 +26,7 @@
  * Exit 0 = clean. Exit 1 = a name would have shipped.
  */
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
-import { basename, join, relative, resolve, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
@@ -224,24 +224,9 @@ const ALLOWLIST = [
       'internal licence audit; must name the exact vendor paths and Maven groupIds an unlicensed component sits at, or an engineer cannot act on it without first asking which path was meant. Same rationale as TERMINAL_INTEGRATION.md (removed) and docs/adr. Not shipped to users. Remove this entry once the vendor directory and Java package root are renamed.',
   },
   {
-    path: join('docs', 'A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md'),
-    reason:
-      'internal security work product (board item A1.4); names the exact module and file each committed credential sits in. A finding that says "a password in some properties file" is not actionable — the whole value of the document is that an engineer can go straight to the key and rotate it. Not shipped to users. Remove this entry once the vendor directory and Java package root are renamed.',
-  },
-  {
-    path: join('docs', 'SECRET-ROTATION-READINESS-2026-08-03.md'),
-    reason:
-      'internal security work product; the owner action list for rotating what A1.4 found. Identical rationale to the A1.4 entry above and over the same file set: an owner cannot act on "a seed in some wallet module", so every item names the exact module, file and line. The document deliberately contains no secret VALUES — only locations — which is exactly what makes the paths load-bearing. Not shipped to users. Remove this entry once the vendor directory and Java package root are renamed.',
-  },
-  {
     path: join('tooling', 'ci', 'secret-scan.mjs'),
     reason:
       'its KNOWN_DISCLOSED register keys each finding by exact tracked path, and the scan FAILS on a register entry that no longer matches — so a paraphrased path would not merely be unhelpful, it would break the rule that stops the register rotting into an exemption list. Seven entries, each a real path plus line and check name, no values. The synthetic paths in secret-scan.mutation.mjs need no such exception and deliberately use none. Remove this entry once the Java package root is renamed.',
-  },
-  {
-    path: join('docs', 'RUNBOOK-ETH-KEYSTORE-REENCRYPTION.md'),
-    reason:
-      'internal custody runbook; an operator following it must be able to copy the real module paths and MongoDB collection names verbatim. A runbook that paraphrases the path it wants you to act on is how the wrong directory gets re-encrypted. Not shipped to users. Remove this entry once the vendor directory and Java package root are renamed.',
   },
   {
     path: 'NOTICE',
@@ -454,9 +439,9 @@ function collectVendorProductFiles() {
   const JAVA_COPY_EXT = new Set(['.ftl', '.html', '.htm', '.md', '.mdx', '.json', '.yml', '.yaml', '.txt']);
   function isJavaCopyResource(name) {
     const lower = name.toLowerCase();
-    if (/^application(\-.+)?\.properties$/.test(lower)) return false;
-    if (/^bootstrap(\-.+)?\.(properties|ya?ml)$/.test(lower)) return false;
-    if (/^logback/.test(lower)) return false;
+    if (/^application(-.+)?\.properties$/.test(lower)) return false;
+    if (/^bootstrap(-.+)?\.(properties|ya?ml)$/.test(lower)) return false;
+    if (lower.startsWith('logback')) return false;
     if (lower.endsWith('.properties')) return true; // messages_*.properties etc.
     const dot = lower.lastIndexOf('.');
     if (dot < 0) return false;

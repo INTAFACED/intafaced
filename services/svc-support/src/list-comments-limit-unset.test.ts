@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { LIST_COMMENTS_LIMIT_UNSET, SupportError, SupportService, assertListCommentsLimit } from './support-service.js';
+import { LIST_COMMENTS_LIMIT_UNSET, SupportError, assertListCommentsLimit } from './support-service.js';
 import { userCopy } from './user-copy.js';
 import { withTestCommentCap } from './comment-cap.fixture.js';
 

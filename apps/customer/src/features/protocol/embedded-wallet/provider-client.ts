@@ -1,5 +1,5 @@
 import type { EmbeddedWalletPasskey, ProtocolEmbeddedWalletProvider } from '@intafaced/contracts/protocol-embedded-wallet';
-import { base64url } from '../../session/webauthn';
+import { base64url } from '../../session';
 
 /**
  * The page's side of the embedded-wallet provider (J-wallet-22, OWNER 237). Signing, export and recovery run here,

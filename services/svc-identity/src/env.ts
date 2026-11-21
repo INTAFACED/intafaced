@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseExtraControlsMin } from './account/safety.js';
 import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import { founderSessionScopesFromEnv } from '@intafaced/auth';
 import { assertWebauthnPosture } from './webauthn-posture.js';
@@ -168,6 +169,12 @@ const schema = serviceEnvSchema
        */
       IDENTITY_REQUEST_SIGN_WINDOW_SECONDS: z.string().optional().default(''),
       /**
+       * The owner's stream-token lifetime, whole seconds from 1 to 3600 (J-developer-09 #2): how long a token from
+       * `POST /api/v1/stream/token` opens the private stream. Blank = unset: every mint refuses
+       * `identity.stream_token_ttl_unset`.
+       */
+      IDENTITY_STREAM_TOKEN_TTL_SECONDS: z.string().optional().default(''),
+      /**
        * The owner's `API_KEY_SIGNING_OPTIONAL` (DV-auth-01): `true` lets a key that places orders turn signing off,
        * with a fresh factor. Blank (or anything else): signing stays required on such a key.
        */
@@ -280,6 +287,13 @@ const schema = serviceEnvSchema
        * oldest (I-signin-sessions-06). NO DEFAULT. Blank: no limit, and Security says so. Parsed by `parseSessionLimits`.
        */
       SESSION_MAX_CONCURRENT: z.string().optional(),
+      /**
+       * Owner setting: the longest a rotated key keeps working beside its replacement, in whole seconds (DV-keys-04,
+       * J-developer-07 #1). NO DEFAULT. Blank: a rotation with an overlap above 0 refuses
+       * `identity.key_rotate_overlap_unset`; an overlap of 0 still rotates. Parsed at start; anything but a whole number
+       * above 0 stops the service.
+       */
+      IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS: z.string().optional(),
       /**
        * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
        * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
@@ -445,6 +459,23 @@ const schema = serviceEnvSchema
       /** Owner setting: how often the lapse sweep runs, in whole seconds. NO DEFAULT. Blank leaves the sweep timer off. */
       IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS: z.string().optional(),
       /**
+       * Owner setting: how many qualified invitees (people introduced directly whose verification was approved) a person
+       * needs to apply as an affiliate partner (CM-referral-05, J-campaigns-07 #1). NO DEFAULT. Blank refuses the eligibility
+       * read and every application (`partner.eligibility_unset`), writing nothing. Parsed by `parsePartnerMinQualified`.
+       */
+      IDENTITY_PARTNER_MIN_QUALIFIED_INVITEES: z.string().optional(),
+      /**
+       * Owner setting: how many days after a rejection a person may apply again as a partner (J-campaigns-07 #3). NO
+       * DEFAULT. Blank refuses a rejection (`partner.reapply_unset`), leaving the application open.
+       */
+      IDENTITY_PARTNER_REAPPLY_DAYS: z.string().optional(),
+      /**
+       * Owner setting: the partner programme depth, 1 to 5 levels of a sub-tree (RC-campaigns-07, J-campaigns-07 #4). NO
+       * DEFAULT. Blank refuses every commission accrual, dry-run and payout and the partner sub-tree
+       * (`affiliate.programme_depth_unset`). Parsed by `parseProgrammeDepth`; malformed stops the service.
+       */
+      IDENTITY_PARTNER_PROGRAMME_DEPTH: z.string().optional(),
+      /**
        * Owner setting: how many waiting entries one waitlist wave releases (RC-campaigns-03, J-campaigns-20 #3). NO DEFAULT.
        * Blank refuses every release (`drop.wave_unset`) and releases nobody. Parsed at start by `parseWaveSize`.
        */
@@ -474,6 +505,26 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(50).optional()),
+      /**
+       * Owner-published saved desk layout limits (C-workspace-02): layouts per account, deleted layouts kept for restoring,
+       * and the days a deleted layout can be restored in. Blank / unset → unpublished; a write that needs one refuses
+       * (`identity.desk_layout_*`). Never a default: the stack sets labelled TEST values only.
+       */
+      IDENTITY_DESK_LAYOUT_CAP: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(100).optional()),
+      IDENTITY_DESK_LAYOUT_RESTORE_CAP: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(200).optional()),
+      IDENTITY_DESK_LAYOUT_RESTORE_DAYS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(3650).optional()),
       /**
        * Signing key for pay QR codes and payment links (PP-send-request-11), at least 32 characters. Blank / unset →
        * not set up: issuing and resolving a code both refuse `identity.qr_key_unset`. A `local-test:` key is the local
@@ -635,6 +686,22 @@ const schema = serviceEnvSchema
           return n;
         }),
       /**
+       * BK-safe-01 (J-bank-18 #4). The owner's least number of step-up extras a person must choose. NO DEFAULT: blank /
+       * unset → setting extras refuses (`identity.extra_controls_unset`); reading and removing them still work. A whole
+       * number 1 to 4, or the service stops.
+       */
+      IDENTITY_EXTRA_CONTROLS_MIN: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseExtraControlsMin(v);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
+        }),
+      /**
        * W-withdraw-09. Owner-set wait, in seconds, from an unlock request to when the customer security lock ends. NO
        * DEFAULT: blank / unset → the unlock request refuses (`identity.security_lock_unlock_wait_unset`); locking still
        * works. Zero is a published "no wait". A change applies to later requests, never to one already made.
@@ -756,6 +823,22 @@ const schema = serviceEnvSchema
       }, z.string().optional()),
       /** Absolute file path for the local-outbox transport. Required when that transport is selected. */
       IDENTITY_LOCAL_MAIL_OUTBOX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /**
+       * Text-message transport. Blank / unset → unwired; a phone sign-in link refuses `vendor.sms`. `local-outbox` is the
+       * only implemented transport and is refused at boot unless APP_ENV is exactly dev or test. Any other name refuses at
+       * boot. No SMS provider is configured here.
+       */
+      IDENTITY_SMS_TRANSPORT: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** Absolute file path for the local-outbox text transport. Required when that transport is selected. */
+      IDENTITY_LOCAL_SMS_OUTBOX: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return typeof v === 'string' ? v.trim() : v;

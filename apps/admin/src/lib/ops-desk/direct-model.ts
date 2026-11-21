@@ -1,4 +1,5 @@
 import { REASON_MAX, REASON_MIN } from '@/lib/desk/approval-packet';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * A desk action that one operator takes and that the owning service does NOT ask a second person for. Today that is one:
@@ -21,10 +22,6 @@ export interface EscalateRequest {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const KEY = /^[A-Za-z0-9_-]{8,128}$/;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
 
 /** Strict reader. The reason is trimmed the way the service will keep it; anything off-shape is null. */
 export function readDirectRequest(raw: unknown): EscalateRequest | null {

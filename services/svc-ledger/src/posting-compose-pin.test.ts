@@ -21,13 +21,12 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { composeServiceBlock } from '@intafaced/config/compose';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 function ledgerServiceBlock(source: string): string {
-  const match = source.match(/^  svc-ledger:\n(?:.*\n)*?(?=^  [a-z]|\Z)/m);
-  if (!match) throw new Error('svc-ledger service block missing from docker-compose.apps.yml');
-  return match[0];
+  return composeServiceBlock(source, 'svc-ledger');
 }
 
 const POSTING = /^\s+LEDGER_POSTING_ENABLED:\s*\$\{LEDGER_POSTING_ENABLED:-true\}\s*$/gm;

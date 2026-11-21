@@ -1,4 +1,4 @@
-import type { Db } from './quota.js';
+import type { Queryable } from '@intafaced/db';
 
 function relation(schema: string, table: string): string {
   if (!/^[a-z][a-z0-9_]*$/.test(schema) || !/^[a-z_]+$/.test(table)) throw new Error(`refusing sql identifier ${schema}.${table}`);
@@ -28,7 +28,7 @@ interface CountSql {
  * Every count a quota reads, in one statement, so a write that locked its counters reads them as they are committed.
  * Deleted strategies are in the recycle bin: they are not saved strategies, but their versions still take storage.
  */
-export async function accountCounts(db: Db, schema: string, accountId: string): Promise<AccountCounts> {
+export async function accountCounts(db: Queryable, schema: string, accountId: string): Promise<AccountCounts> {
   const strategies = relation(schema, 'strategies');
   const versions = relation(schema, 'strategy_versions');
   const runs = relation(schema, 'runs');
@@ -59,7 +59,7 @@ export async function accountCounts(db: Db, schema: string, accountId: string): 
 }
 
 /** The versions one strategy has now. */
-export async function versionCount(db: Db, schema: string, strategyId: string): Promise<bigint> {
+export async function versionCount(db: Queryable, schema: string, strategyId: string): Promise<bigint> {
   const rows = await db.unsafe<{ n: string }[]>(
     `SELECT COUNT(*)::text AS n FROM ${relation(schema, 'strategy_versions')} WHERE strategy_id = $1`,
     [strategyId],

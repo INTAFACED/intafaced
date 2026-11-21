@@ -4,14 +4,12 @@ import {
   PROTOCOL_FEE_POLICY_FIELDS,
   PROTOCOL_FEE_POLICY_UNSET,
   PROTOCOL_NOT_FACTORY_POOL,
-  protocolPoolFeesInputSchema,
-  protocolPoolFeesOutputSchema,
-  protocolRequestProtocolFeeInputSchema,
-  publicJurisdictionProcedure,
   router,
   TRPCError,
   type ProtocolPoolFees,
 } from '@intafaced/contracts';
+import { PROTOCOL_AMM_POOL_FEES, PROTOCOL_AMM_REQUEST_PROTOCOL_FEE } from '@intafaced/contracts/protocol-amm-procedures';
+import { mountProtocolRecord } from '../record-mount.js';
 import { chainRefusal, classifyChainError, isZeroAddress } from '../chain/availability.js';
 import { factoryAbi, poolAbi } from './abi.js';
 
@@ -141,33 +139,28 @@ export interface PoolFeesRouterDeps {
  */
 export function createPoolFeesProcedures(deps: PoolFeesRouterDeps) {
   return {
-    poolFees: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolPoolFeesInputSchema)
-      .output(protocolPoolFeesOutputSchema)
-      .query(async ({ input }) => {
-        const factory = deps.factory();
-        if (isZeroAddress(factory))
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message: 'protocol.amm_factory_unset: AMM factory is not configured (PROTOCOL_AMM_FACTORY_ADDRESS).',
-          });
-        try {
-          return await readPoolFees(deps.chain, factory, input.pool as Address);
-        } catch (err) {
-          throw deps.toTrpcError(err);
-        }
-      }),
-
-    requestProtocolFee: publicJurisdictionProcedure('protocol', 'protocol')
-      .input(protocolRequestProtocolFeeInputSchema)
-      .mutation(() => {
+    poolFees: mountProtocolRecord(PROTOCOL_AMM_POOL_FEES, async ({ input }) => {
+      const factory = deps.factory();
+      if (isZeroAddress(factory))
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
-          message:
-            `${PROTOCOL_FEE_POLICY_UNSET}: the protocol fee policy is not set. The owner has not published ` +
-            `${PROTOCOL_FEE_POLICY_FIELDS.join(', ')}; a protocol fee would also need new contracts, and the existing pools take no protocol fee.`,
+          message: 'protocol.amm_factory_unset: AMM factory is not configured (PROTOCOL_AMM_FACTORY_ADDRESS).',
         });
-      }),
+      try {
+        return await readPoolFees(deps.chain, factory, input.pool as Address);
+      } catch (err) {
+        throw deps.toTrpcError(err);
+      }
+    }),
+
+    requestProtocolFee: mountProtocolRecord(PROTOCOL_AMM_REQUEST_PROTOCOL_FEE, () => {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message:
+          `${PROTOCOL_FEE_POLICY_UNSET}: the protocol fee policy is not set. The owner has not published ` +
+          `${PROTOCOL_FEE_POLICY_FIELDS.join(', ')}; a protocol fee would also need new contracts, and the existing pools take no protocol fee.`,
+      });
+    }),
   };
 }
 

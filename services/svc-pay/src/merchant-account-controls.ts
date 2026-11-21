@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { pendingIdentityIntentCount } from './payment-admission.js';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import {
   accountControlInputSchema,
   accountControlResultSchema,
@@ -13,7 +13,7 @@ import {
 } from '@intafaced/contracts';
 
 export type FounderAuthority = (ctx: Context) => Promise<string>;
-export type PendingIdentityIntentDrain = (tx: Sql, merchantId: string) => Promise<void>;
+export type PendingIdentityIntentDrain = (tx: Queryable, merchantId: string) => Promise<void>;
 export class MerchantControlError extends Error {
   constructor(readonly code: string) {
     super(code);

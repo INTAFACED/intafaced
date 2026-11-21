@@ -63,7 +63,7 @@ describe('reachability probe', () => {
         if ('error' in outcome) setTimeout(() => socket.emit('error', Object.assign(new Error(outcome.error), { code: outcome.error })), 5);
       };
       socket.destroy = () => undefined;
-      return socket as unknown as Socket;
+      return socket as Socket;
     };
   }
 

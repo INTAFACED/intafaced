@@ -1,18 +1,14 @@
 import { z } from 'zod';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { useApi, useSession } from '../session/session';
 import {
-  buildTracking,
-  certDefinition,
-  certGrant,
-  certProgressRow,
-  completionPage,
-  type CompletionRow,
-  lessonCatalogue,
-  type Tracking,
-  type LessonSummary,
-} from './academy-lms';
+  ACADEMY_CERT_DEFINITIONS,
+  ACADEMY_CERT_PROGRESS,
+  ACADEMY_CURRICULUM,
+  type AcademyCertProgress,
+} from '@intafaced/contracts/academy-learner-procedures';
+import { useApi, useSession } from '../session';
+import { buildTracking, certGrant, completionPage, type CompletionRow, type Tracking, type LessonSummary } from './academy-lms';
 
 /** The service caps a page at 200 and a completion is one per curriculum lesson, so more than a few pages is not a real answer. */
 const COMPLETION_PAGE = 200;
@@ -43,14 +39,14 @@ export function useAcademyTracking() {
   const { userId } = useSession();
   return useResource<{ lessons: LessonSummary[]; tracking: Tracking }>(
     async (signal): Promise<ApiResult<{ lessons: LessonSummary[]; tracking: Tracking }>> => {
-      const lessons = await api.query('academy', 'curriculum', { limit: 200 }, lessonCatalogue, { signal });
+      const lessons = await api.call(ACADEMY_CURRICULUM, { limit: 200 }, { signal, accept: (rows) => rows.length <= 200 });
       if (!lessons.ok) return lessons;
-      const definitions = await api.query('academy', 'certDefinitions', undefined, z.array(certDefinition), { signal });
+      const definitions = await api.call(ACADEMY_CERT_DEFINITIONS, undefined, { signal });
       if (!definitions.ok) return definitions;
       const rows = await Promise.all(
-        definitions.data.map((definition) => api.query('academy', 'certProgress', { certId: definition.id }, certProgressRow, { signal })),
+        definitions.data.map((definition) => api.call(ACADEMY_CERT_PROGRESS, { certId: definition.id }, { signal })),
       );
-      const progress: z.infer<typeof certProgressRow>[] = [];
+      const progress: AcademyCertProgress[] = [];
       for (const [index, row] of rows.entries()) {
         if (!row.ok) return row;
         // A progress answer for another account or certificate is not this account's progress.

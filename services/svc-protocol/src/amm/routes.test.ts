@@ -198,7 +198,7 @@ describe('protocol.amm.routes', () => {
       relayEnabled: () => false,
       swapSlippageBps: () => null,
       ...overrides,
-    }) as unknown as ProtocolRouterDeps;
+    }) as ProtocolRouterDeps;
   const ask = { tokenIn: A, tokenOut: B, amountIn: '10' };
 
   it('refuses an unset factory before any chain read', async () => {

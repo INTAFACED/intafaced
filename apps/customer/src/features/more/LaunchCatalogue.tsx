@@ -1,12 +1,12 @@
 // hand-declared-ok: svc-token's launch outputs are declared in its launch router; packages/contracts has no token schemas yet
 import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
-import { Button, EmptyState, Loading, Panel } from '../../shared/ui';
+import { Button, EmptyState, Panel } from '../../shared/ui';
 import { SessionRetryPanel, SignInPanel } from '../../app/SignInPanel';
 import { Details, Limit, Read, Select } from './common';
 import { launchCatalogueCopy } from './launch-catalogue-copy';
@@ -308,12 +308,11 @@ function EligibilityCheck({ event }: { event: LaunchEvent }) {
 
 /**
  * A part of a public launch that needs an account, seen signed out: the sign-in panel the other More rooms use, returning
- * to this launch (J-more-catalogue-01 #6). Until the boot refresh answers it shows Loading; if it could not answer, Retry.
+ * to this launch (J-more-catalogue-01 #6). If the boot refresh could not answer, Retry.
  */
 function SignedOut({ event }: { event: LaunchEvent }) {
   const t = useT();
-  const { restoring, restoreFailed, retryRestore } = useSession();
-  if (restoring) return <Loading />;
+  const { restoreFailed, retryRestore } = useSession();
   if (restoreFailed) return <SessionRetryPanel retry={retryRestore} />;
   return <SignInPanel returnTo={`/launch/${event.id}`}>{t('signIn')}</SignInPanel>;
 }

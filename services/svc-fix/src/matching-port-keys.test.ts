@@ -1,3 +1,4 @@
+import { createMarketLifecycleAdmissionProof } from '@intafaced/exchange-contract';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServiceSigner, createServiceVerifier, verifyServiceRequest, type Keyring, type ServiceAuthMode } from '@intafaced/contracts';
@@ -55,6 +56,26 @@ function stubFetch(): void {
   });
 }
 
+/** A TEST market lifecycle admission proof for BTC/USDT: svc-fix has no real source of one (see `lifecycleProof`). */
+const testProof = createMarketLifecycleAdmissionProof(
+  {
+    marketId: 'BTC/USDT',
+    ruleVersion: 'TEST-rules-1',
+    instrumentId: 'TEST-instrument',
+    instrumentVersion: 'TEST-v1',
+    state: 'OPEN',
+    reasonCategory: 'NORMAL',
+    reasonCode: 'trade.lifecycle.ready',
+    effectiveAt: '2026-11-18T00:00:00.000Z',
+    observedAt: '2026-11-18T00:00:00.000Z',
+    lastGoodState: 'OPEN',
+    allowedActions: ['PLACE'],
+    transitionId: 'TEST-transition',
+    evidenceRefs: ['TEST-evidence'],
+  },
+  'PLACE',
+);
+
 function judged(s: Sent, verifier: ReturnType<typeof createServiceVerifier>, mode?: ServiceAuthMode) {
   return verifyServiceRequest(
     { method: s.method, url: s.url.pathname + s.url.search, headers: s.headers, body: s.body },
@@ -63,7 +84,13 @@ function judged(s: Sent, verifier: ReturnType<typeof createServiceVerifier>, mod
 }
 
 function opts(extra: Partial<MatchingPortOptions> = {}): MatchingPortOptions {
-  return { matchingBaseUrl: 'http://matching.test', compIdAccountJson: OWNER_MAP, internalServiceSecret: SECRET, ...extra };
+  return {
+    matchingBaseUrl: 'http://matching.test',
+    compIdAccountJson: OWNER_MAP,
+    internalServiceSecret: SECRET,
+    lifecycleProof: () => testProof,
+    ...extra,
+  };
 }
 
 afterEach(() => {

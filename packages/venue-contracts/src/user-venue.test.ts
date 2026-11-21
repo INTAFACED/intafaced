@@ -74,7 +74,7 @@ describe('assertSignerMaySign', () => {
       clientOrderKey: 'order:u:1',
       builderFee: null,
     },
-    { kind: 'amend_order', symbol: 'BTC-USDC', clientOrderKey: 'order:u:1', amount: 1n, price: 1n },
+    { kind: 'amend_order', symbol: 'BTC-USDC', venueClientOrderId: '0xabc', amount: 1n, price: 1n },
     { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: 'order:u:1' },
     { kind: 'withdraw', asset: 'USDC', amount: 1n, destination: '0xowner', withdrawalKey: 'withdraw:u:1' },
     { kind: 'approve_builder_fee', builder: '0xbuilder', maxFeeBps: 1n },
@@ -106,16 +106,33 @@ describe('assertSignerMaySign', () => {
     },
   );
 
-  it('keeps withdrawal, every approval, every sub-account action and a market margin move owner-only', () => {
+  it('keeps withdrawal, every approval, every sub-account action, a market margin move, a spot-perps move and a mode change owner-only', () => {
     expect([...OWNER_ONLY_INTENTS].sort()).toEqual([
       'approve_agent',
       'approve_builder_fee',
       'create_sub_account',
       'market_margin_transfer',
       'revoke_agent',
+      'set_account_mode',
+      'spot_perps_transfer',
       'sub_account_transfer',
       'withdraw',
     ]);
+  });
+
+  it('refuses an agent key a spot-perps move and a mode change; the owner may sign both (J-derivatives-29 #3 #6)', () => {
+    const classMove: VenueIntent = {
+      kind: 'spot_perps_transfer',
+      direction: 'perps_to_spot',
+      asset: 'USDC',
+      amount: parseAmount('200'),
+      moveKey: 'class-move:0xowner:to-spot:d-1',
+    };
+    const modeChange: VenueIntent = { kind: 'set_account_mode', mode: 'standard', changeKey: 'account-mode:0xowner:standard:c-1' };
+    for (const intent of [classMove, modeChange]) {
+      expect(refusalCode(() => assertSignerMaySign(account, agent, intent))).toBe('agent_not_permitted');
+      expect(() => assertSignerMaySign(account, owner, intent)).not.toThrow();
+    }
   });
 
   it("refuses an agent key a move into a market deployer's margin account, and refuses it on a sub-account (J-derivatives-27 #7)", () => {

@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useMounted } from '../../../shared/outside';
+import { useResource } from '../../../shared/resource';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import {
   Button,
@@ -135,13 +137,27 @@ export function WriteNotice({ writer, onCheck }: { writer: Writer; onCheck: () =
   return null;
 }
 
+/**
+ * The futures writer, reporting a refusal's service code to `onRefusal` as the write or look-up that met it returns, so a
+ * row can disable what a live liquidation step blocks. Only while the dialog is open, as its outcome is kept only then.
+ */
+function useReportedWriter(onRefusal?: (code: string | null) => void): Writer {
+  const writer = useFuturesWriter();
+  const mounted = useMounted();
+  const report = (result: Awaited<ReturnType<Writer['run']>>) => {
+    if (result.kind === 'refused' && mounted.current) onRefusal?.(result.refusal.code);
+    return result;
+  };
+  return {
+    ...writer,
+    run: async (intent) => report(await writer.run(intent)),
+    check: async (pending, options) => report(await writer.check(pending, options)),
+  };
+}
+
 /** Send one intent, or look up the unresolved one. A finished write for THIS position closes the dialog via onDone. */
 function useSend(position: Position, onDone: (p: Position) => void, onRefusal?: (code: string | null) => void) {
-  const writer = useFuturesWriter();
-  const refusal = writer.outcome?.kind === 'refused' ? writer.outcome.refusal.code : undefined;
-  useEffect(() => {
-    if (refusal !== undefined) onRefusal?.(refusal);
-  }, [refusal, onRefusal]);
+  const writer = useReportedWriter(onRefusal);
   const settle = (result: Awaited<ReturnType<Writer['run']>>) => {
     // A close answers with the position as it now stands; when that read failed, the order is the record and the room re-reads.
     if (result.kind === 'done' && (result.position?.id ?? position.id) === position.id) onDone(result.position ?? position);
@@ -421,7 +437,7 @@ function LegLine({ leg, order, position, t }: { leg: Leg; order: ConditionalOrde
  */
 export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'onDone'>) {
   const { t } = positionsCopy.useCopy();
-  const writer = useFuturesWriter();
+  const writer = useReportedWriter(onRefusal);
   const read = useConditionalOrders(true);
   const refresh = useFuturesRefresh();
   const orders = read.status === 'ready' ? read.data : read.status === 'empty' ? [] : null;
@@ -432,17 +448,13 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
   const [takeProfitPart, setTakeProfitPart] = useState('');
   const [stopLossPart, setStopLossPart] = useState('');
   const [saved, setSaved] = useState<'set' | 'removed' | 'checked' | null>(null);
-  const prefilled = useRef(false);
+  const [prefilled, setPrefilled] = useState(false);
   const nonce = useRef<{ key: string; nonce: string } | null>(null);
   const asset = settleOf(position.symbol) ?? '';
-  const refusal = writer.outcome?.kind === 'refused' ? writer.outcome.refusal.code : undefined;
-  useEffect(() => {
-    if (refusal !== undefined) onRefusal?.(refusal);
-  }, [refusal, onRefusal]);
-  // The fields start from the armed legs, once: a save replaces both, so a field left as it is keeps its leg.
-  useEffect(() => {
-    if (orders === null || prefilled.current) return;
-    prefilled.current = true;
+  // The fields start from the armed legs, once, during the render that first has the read: a save replaces both, so a
+  // field left as it is keeps its leg.
+  if (orders !== null && !prefilled) {
+    setPrefilled(true);
     const tp = legs.take_profit;
     const sl = legs.stop_loss;
     if (tp?.status === 'armed') {
@@ -453,7 +465,7 @@ export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBa
       setStopLoss(sl.triggerPrice ?? '');
       if (sl.wholePosition === false) setStopLossPart(sl.quantity);
     }
-  }, [orders, legs.take_profit, legs.stop_loss]);
+  }
   const edit = (set: (v: string) => void) => (value: string) => {
     setSaved(null);
     set(value);
@@ -638,13 +650,7 @@ export function CloseAllDialog({ positions, onClose, onDone }: { positions: Posi
   const [state, setState] = useState<CloseAllState>(() => startCloseAll(plan.map((p) => p.id ?? '')));
   const closeIds = useRef(new Map<string, string>());
   const [running, setRunning] = useState(false);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const mounted = useMounted();
   const apply = (event: Parameters<typeof closeAllReduce>[1]) => mounted.current && setState((s) => closeAllReduce(s, event));
 
   async function run(ids: string[]) {
@@ -782,7 +788,7 @@ function reverseWords(r: Reverse, t: T): string {
 export function ReverseDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'onDone'>) {
   const { t } = positionsCopy.useCopy();
   const api = useFuturesApi();
-  const writer = useFuturesWriter();
+  const writer = useReportedWriter(onRefusal);
   const refresh = useFuturesRefresh();
   const to = position.side === 'long' ? 'short' : 'long';
   const [review, setReview] = useState<{ status: 'loading' } | { status: 'ready'; data: PositionPreview } | { status: 'error' }>({
@@ -792,10 +798,6 @@ export function ReverseDialog({ position, onClose, onRefusal }: Omit<DialogBase,
   const [moved, setMoved] = useState(false);
   const [result, setResult] = useState<Reverse | null>(null);
   const nonce = useRef<{ key: string; nonce: string } | null>(null);
-  const refusal = writer.outcome?.kind === 'refused' ? writer.outcome.refusal.code : undefined;
-  useEffect(() => {
-    if (refusal !== undefined) onRefusal?.(refusal);
-  }, [refusal, onRefusal]);
   const priceOpen = useCallback(
     (signal?: AbortSignal) =>
       position.leverage === null
@@ -805,14 +807,19 @@ export function ReverseDialog({ position, onClose, onRefusal }: Omit<DialogBase,
             .then((answer) => (answer.ok ? answer.data : null)),
     [api, position.symbol, position.contracts, position.leverage, to],
   );
-  useEffect(() => {
-    if (position.leverage === null) return;
-    const ask = new AbortController();
-    void priceOpen(ask.signal).then((data) => {
-      if (!ask.signal.aborted) setReview(data ? { status: 'ready', data } : { status: 'error' });
-    });
-    return () => ask.abort();
-  }, [priceOpen, position.leverage]);
+  // The open is priced for this size and leverage; a new size or leverage prices it again, and the last figures stay on
+  // screen until the new answer arrives. Reverse itself re-prices just before sending (setReview in run).
+  const { userId } = useSession();
+  const priced = useResource<PositionPreview | null>(
+    (signal) => priceOpen(signal).then((data) => ({ ok: true as const, data })),
+    `futures:reverse:price:${userId ?? ''}:${position.symbol}:${to}:${position.contracts}:${position.leverage ?? ''}`,
+  );
+  const [pricedSeen, setPricedSeen] = useState<typeof priced.resource | null>(null);
+  if (position.leverage !== null && priced.resource.status === 'ready' && priced.resource !== pricedSeen) {
+    setPricedSeen(priced.resource);
+    const data = priced.resource.data;
+    setReview(data ? { status: 'ready', data } : { status: 'error' });
+  }
 
   const preview = review.status === 'ready' ? review.data : null;
   const tier = preview?.riskTier ?? null;
@@ -959,7 +966,7 @@ export function ReverseDialog({ position, onClose, onRefusal }: Omit<DialogBase,
 export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'onDone'>) {
   const { t } = positionsCopy.useCopy();
   const words = triggersCopy.useCopy().t;
-  const writer = useFuturesWriter();
+  const writer = useReportedWriter(onRefusal);
   const read = useConditionalOrders(true);
   const refresh = useFuturesRefresh();
   const [kind, setKind] = useState<StopInput['kind']>('stop_market');
@@ -971,10 +978,6 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
   const [armed, setArmed] = useState(false);
   const nonce = useRef<{ key: string; nonce: string } | null>(null);
   const asset = settleOf(position.symbol) ?? '';
-  const refusal = writer.outcome?.kind === 'refused' ? writer.outcome.refusal.code : undefined;
-  useEffect(() => {
-    if (refusal !== undefined) onRefusal?.(refusal);
-  }, [refusal, onRefusal]);
   const edit = (set: (v: string) => void) => (value: string) => {
     setArmed(false);
     set(value);
@@ -1169,23 +1172,21 @@ export function riskStopLines(stop: RiskStop, t: T): string[] {
 export function RiskStopDialog({ position, onClose, onDone, onRefusal }: DialogBase) {
   const { t } = positionsCopy.useCopy();
   const api = useFuturesApi();
-  const [read, setRead] = useState<{ status: 'loading' } | { status: 'ready'; stop: RiskStop } | { status: 'error' }>({
-    status: 'loading',
-  });
   const [level, setLevel] = useState('');
   const nonce = useRef<{ key: string; nonce: string } | null>(null);
   const { writer, send, check } = useSend(position, onDone, onRefusal);
   const id = position.id;
-  useEffect(() => {
-    if (id === null) return;
-    let live = true;
-    void api.riskStop(id).then((result) => {
-      if (live) setRead(result.ok ? { status: 'ready', stop: result.data } : { status: 'error' });
-    });
-    return () => {
-      live = false;
-    };
-  }, [api, id]);
+  // A position with no id has no stop to read: it stays loading, as it always has.
+  const { resource } = useResource<RiskStop>(
+    (signal) => (id === null ? new Promise<never>(() => {}) : api.riskStop(id, signal)),
+    `risk-stop:${id ?? ''}`,
+  );
+  const read: { status: 'loading' } | { status: 'ready'; stop: RiskStop } | { status: 'error' } =
+    resource.status === 'ready'
+      ? { status: 'ready', stop: resource.data }
+      : resource.status === 'failed'
+        ? { status: 'error' }
+        : { status: 'loading' };
   const stop = read.status === 'ready' ? read.stop : null;
   const problem = riskStopProblem(level, stop?.marginRatio ?? null);
   const go = (value: string | null) => {

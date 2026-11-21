@@ -10,10 +10,10 @@ import {
 } from '@intafaced/contracts/identity-kyc-selfie';
 import type { ApiResult } from '../../shared/api';
 import { base64Of, kib } from '../../shared/file-base64';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, Failure, Loading } from '../../shared/ui';
-import { encodeQr, qrPath } from '../pay/personal/qr';
+import { encodeQr, qrPath } from '../../shared/qr';
 import { verificationSelfieCopy as copy } from './verification-selfie-copy';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;

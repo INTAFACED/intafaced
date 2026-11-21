@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import { z } from 'zod';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { supportEventsCopy } from './support-events-copy';
@@ -14,7 +14,7 @@ const eventSchema = z
     id: z.string().guid(),
     ticketId: z.string().guid(),
     sequence: z.number().int().positive(),
-    kind: z.enum(['opened', 'assigned', 'status_changed', 'grounding_read', 'escalated', 'merged']),
+    kind: z.enum(['opened', 'assigned', 'status_changed', 'grounding_read', 'escalated', 'merged', 'charts_lookup']),
     actorId: z.string().guid(),
     actorRole: z.enum(['user', 'operator']),
     fromStatus: statusSchema.nullable(),

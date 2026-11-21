@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Button } from '@intafaced/ui';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { SupportBereavementInput, SupportBereavementRelation } from '@intafaced/contracts/support-safety';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { safetyCopy, type SafetyCopyKey } from '../safety-copy';
 import { Acknowledgement, EarlierAcknowledgements, safetyState, useMyAcknowledgements, useSafetySend } from '../safety-ack';
 

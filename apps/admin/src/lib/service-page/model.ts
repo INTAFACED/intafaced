@@ -1,7 +1,8 @@
 import type { ModuleId } from '@intafaced/config';
 import { SERVICE_SOURCE_UNAVAILABLE, type ServiceRecord } from '@intafaced/contracts/ops-console-services';
-import type { OpsRead } from '@/lib/console-announcements/model';
-import { HEALTH_SOURCE_UNWIRED, type HealthRow } from '@/lib/module-health/board';
+import type { OpsRead } from '@/lib/console-announcements';
+import { HEALTH_SOURCE_UNWIRED, type HealthRow } from '@/lib/module-health';
+import { isRecord } from '@intafaced/contracts/guards';
 
 /**
  * One module's service page (`/health/:module`, OPS-service-health-01) as the console read it. Pure, so the page, the
@@ -49,7 +50,6 @@ export interface ModuleAlerts {
   readonly nextCursor: string | null;
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => Boolean(v && typeof v === 'object' && !Array.isArray(v));
 const STATES = ['normal', 'pending', 'firing'] as const;
 const HEALTH = ['ok', 'error', 'no_data'] as const;
 

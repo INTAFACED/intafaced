@@ -130,6 +130,7 @@ async function network(context, options = {}) {
         assetId: 'USDT',
         metered: true,
         action: complete(),
+        provenance: null,
       });
     if (proc === 'session.close') return reply(session({ status: 'closed', closedAt: at }));
     return route.fulfill({ status: 503, json: { error: { message: 'Isolated unconnected read', data: { code: 'SERVICE_UNAVAILABLE' } } } });
@@ -335,6 +336,7 @@ for (const key of ['task', 'kind', 'status', 'cost', 'input', 'output', 'asset',
           assetId: key === 'asset' ? 'BTC' : 'USDT',
           metered: key !== 'unmetered',
           action,
+          provenance: null,
         });
       },
     });

@@ -15,7 +15,7 @@ import { changeLine } from '../../../screens/trade/desk/order-changes';
 import { baseOf, orderStatus, precisionOf, quoteOf, type Precision } from '../../../screens/trade/desk/OrderTables';
 import { quotePlaces } from '../../../screens/trade/desk/text';
 import { dayTime } from '../../../screens/trade/desk/time';
-import { useSession } from '../../session/session';
+import { useSession } from '../../session';
 import { createTradeApi, isTerminalOrder, ORDER_TRADES_LIMIT, type Order, type OrderChange } from '../trade-api';
 import { orderReason } from './order-reason';
 import { fillsAverage, orderTrigger, type Slippage } from './order-trigger';

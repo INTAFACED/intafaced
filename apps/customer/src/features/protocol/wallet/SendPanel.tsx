@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Dialog, Field, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
-import { useApi } from '../../session/session';
+import { useApi } from '../../session';
 import { createProtocolApi, type RepresentationStatus } from '../api';
 import { networkLabel } from '../blockers';
 import { useRegionBlocked } from '../region';
@@ -10,17 +10,19 @@ import { APP_CHAIN_ID } from './eip1193';
 import { RepresentationPanel } from './RepresentationPanel';
 import { useResource } from '../../../shared/resource';
 import {
+  exactUnits,
   isContractCode,
   lastFour,
   nativeCurrency,
   readDestination,
+  receiptFee,
   sameAddress,
   toBaseUnits,
   toHexValue,
   tokenLabel,
   transferCalldata,
 } from './transfer';
-import { useWallet } from './WalletProvider';
+import { useWallet, waitMined } from './WalletProvider';
 import { recordSent } from './sent-store';
 import { signingGate } from './signing-gate';
 
@@ -29,10 +31,15 @@ type Outcome =
   | { kind: 'idle' }
   | { kind: 'busy' }
   | { kind: 'representation'; address: string; status: RepresentationStatus }
-  | { kind: 'sent'; hash: string }
+  | { kind: 'sent'; hash: string; fee: SentFee }
   | { kind: 'refused'; message: string };
 
 const NATIVE = 'native';
+/** How long the panel waits for a sent transfer to be mined before it says its fee is not known. */
+const FEE_WAIT_MS = 120_000;
+
+/** A sent transfer's network fee: waiting for the chain, read from its receipt, or not known (never shown as 0). */
+type SentFee = { kind: 'waiting' } | { kind: 'known'; units: bigint } | { kind: 'unknown' };
 
 /**
  * Send: the network's own currency from the connected wallet to an address (D-portfolio-wallet-03, D-swap-12). The
@@ -71,6 +78,25 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
   const [ticked, setTicked] = useState(false);
   const [outcome, setOutcome] = useState<Outcome>({ kind: 'idle' });
   const asked = useRef(0);
+  /** The send whose fee is being read; another send or an edit of the form ends that read. */
+  const feeFor = useRef<string | null>(null);
+
+  /** Reads the sent transfer's receipt from the chain through the wallet, and shows the fee it paid or "not known". */
+  const readFee = async (hash: string) => {
+    const mined = await waitMined(
+      (h) => wallet.read('eth_getTransactionReceipt', [h]),
+      hash,
+      FEE_WAIT_MS,
+      () => feeFor.current !== hash,
+    );
+    if (feeFor.current !== hash) return;
+    let fee: SentFee = { kind: 'unknown' };
+    if (mined.status !== 'timeout') {
+      const units = receiptFee(await wallet.read('eth_getTransactionReceipt', [hash]).catch(() => null));
+      if (units !== null) fee = { kind: 'known', units };
+    }
+    setOutcome((now) => (now.kind === 'sent' && now.hash === hash ? { ...now, fee } : now));
+  };
 
   const destination = readDestination(to);
   const chosen =
@@ -88,6 +114,7 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
     set(event.target.value);
     setReviewing(false);
     setProblem(null);
+    feeFor.current = null;
     setOutcome({ kind: 'idle' });
   };
 
@@ -134,7 +161,9 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
         kind: 'send',
         label: `${amount.trim()} ${chosen?.label ?? ''} → ${destination.address}`,
       });
-      setOutcome({ kind: 'sent', hash: result.hash });
+      setOutcome({ kind: 'sent', hash: result.hash, fee: { kind: 'waiting' } });
+      feeFor.current = result.hash;
+      void readFee(result.hash);
     } else if (result.status === 'rejected') setOutcome({ kind: 'refused', message: t('sendRejected') });
     else if (result.status === 'failed') setOutcome({ kind: 'refused', message: result.message });
     else setOutcome({ kind: 'idle' });
@@ -220,7 +249,22 @@ export function SendPanel({ to: prefilledTo = '', token: askedToken = '' }: { to
             {t('sendReview')}
           </Button>
         </form>
-        {outcome.kind === 'sent' && <p role="status">{t('sendSent', { hash: outcome.hash })}</p>}
+        {outcome.kind === 'sent' && (
+          <>
+            <p role="status">{t('sendSent', { hash: outcome.hash })}</p>
+            <p
+              data-testid="send-network-fee"
+              data-fee={outcome.fee.kind}
+              data-fee-units={outcome.fee.kind === 'known' ? outcome.fee.units.toString() : undefined}
+            >
+              {outcome.fee.kind === 'waiting'
+                ? t('sendFeeWaiting')
+                : outcome.fee.kind === 'known' && native
+                  ? t('sendFeeKnown', { fee: exactUnits(outcome.fee.units, native.decimals), symbol: native.symbol })
+                  : t('sendFeeUnknown')}
+            </p>
+          </>
+        )}
         {outcome.kind === 'refused' && <p role="alert">{outcome.message}</p>}
       </Panel>
       {reviewing && destination.kind === 'address' && chosen && (

@@ -63,8 +63,7 @@ export const httpEnvSchema = z.object({
 });
 
 /**
- * Required by any service that self-mounts `/trpc` (see the mount boundary
- * decision, docs/decisions/mount-boundary.md).
+ * Required by any service that self-mounts `/trpc`.
  *
  * There is deliberately NO default. A service that mounts without this must
  * fail to boot: the alternative is a service that starts fine, serves traffic,

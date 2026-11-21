@@ -11,7 +11,7 @@ function fillsSql(rows: Array<{ order_id: string; base: string; quote: string }>
     if (!Array.isArray(first) || !('raw' in first)) return { ids: first };
     asked.push((values[0] as { ids: string[] }).ids);
     return Promise.resolve(rows);
-  }) as unknown as Sql;
+  }) as Sql;
   return { sql, asked };
 }
 

@@ -18,21 +18,7 @@ import {
 } from './mass-cancel.js';
 import { liveSessionFromState, missingSessionRefuse, sessionOrderIds } from './session.js';
 import { refusedSplitBrain, replaySplitBrain, splitBrainAmendResult, splitBrainSubmitResult } from './split-brain.js';
-import type {
-  AmendResult,
-  CancelledRef,
-  EngineAmend,
-  EngineOrder,
-  MarketHaltResult,
-  MarketId,
-  MassCancelResult,
-  OrderId,
-  OrderSide,
-  SessionDeadResult,
-  SplitBrainResult,
-  SubmitResult,
-  VenueKillResult,
-} from './types.js';
+import type { CancelledRef, MarketId, OrderId, SplitBrainResult } from './types.js';
 
 const FLAG = Symbol.for('intafaced.matching.cod-fence');
 const SPLIT_BRAIN = Symbol.for('intafaced.matching.split-brain');
@@ -103,19 +89,16 @@ async function declareOrClear(host: Host, cmd: DualCmd, kind: 'split_brain' | 'c
 export function installCodFence(ctor: typeof MatchingEngine = MatchingEngine): void {
   if (!ctor) return;
   const proto = ctor.prototype as unknown as {
-    submit: (marketId: MarketId, order: EngineOrder, proof?: unknown) => Promise<SubmitResult>;
-    amend: (marketId: MarketId, cmd: EngineAmend, proof?: unknown) => Promise<AmendResult>;
-    halt: (marketId: MarketId, cmd: DualCmd) => Promise<MarketHaltResult>;
-    resume: (marketId: MarketId, cmd: DualCmd) => Promise<MarketHaltResult>;
-    haltAll: (cmd: DualCmd) => Promise<VenueKillResult>;
-    resumeAll: (cmd: DualCmd) => Promise<VenueKillResult>;
-    massCancel: (
-      marketId: MarketId,
-      cmd: { readonly accountId: string; readonly sessionId?: string | null; readonly side?: OrderSide | null },
-    ) => Promise<MassCancelResult>;
-    sessionDead: (cmd: { readonly sessionId?: string | null }) => Promise<SessionDeadResult>;
-    recover: () => Promise<{ records: number; markets: number }>;
-    cancel: (marketId: MarketId, orderId: OrderId) => Promise<{ cancellation: CancelledRef | null; rejected?: { message: string } }>;
+    submit: MatchingEngine['submit'];
+    amend: MatchingEngine['amend'];
+    halt: MatchingEngine['halt'];
+    resume: MatchingEngine['resume'];
+    haltAll: MatchingEngine['haltAll'];
+    resumeAll: MatchingEngine['resumeAll'];
+    massCancel: MatchingEngine['massCancel'];
+    sessionDead: MatchingEngine['sessionDead'];
+    recover: MatchingEngine['recover'];
+    cancel: MatchingEngine['cancel'];
     declareSplitBrain?: (cmd: DualCmd) => Promise<SplitBrainResult>;
     clearSplitBrain?: (cmd: DualCmd) => Promise<SplitBrainResult>;
     isSplitBrain?: boolean;

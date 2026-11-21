@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
@@ -232,7 +233,7 @@ interface DebtParts {
   interest: Amount;
 }
 
-async function debtBefore(sql: Sql, loanId: string, cutoff: Date, drawnPrincipal: Amount, drawnAt: Date | null): Promise<DebtParts> {
+async function debtBefore(sql: Queryable, loanId: string, cutoff: Date, drawnPrincipal: Amount, drawnAt: Date | null): Promise<DebtParts> {
   const day = utcDay(cutoff);
   const drawn = drawnAt !== null && drawnAt.getTime() < cutoff.getTime() ? drawnPrincipal : 0n;
   const accrued = await sql<Array<{ v: string }>>`
@@ -319,8 +320,7 @@ export async function buildLoanStatement(
   const now = input.now ?? new Date();
   // Every read sees one snapshot, so a repayment that settles while the file is built
   // cannot make the lines disagree with the opening and closing debt.
-  const read = await pool.begin('isolation level repeatable read read only', async (tx) => {
-    const sql = tx as unknown as Sql;
+  const read = await pool.begin('isolation level repeatable read read only', async (sql) => {
     // opened_at is the pending insert. The draw can fail and land later; drawn_at
     // is written in the same update as draw_ledger_tx_id.
     const drawnRows = await sql<Array<{ drawn_at: Date | null }>>`

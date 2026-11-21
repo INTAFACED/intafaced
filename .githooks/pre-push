@@ -1,102 +1,36 @@
 #!/bin/sh
 #
-# Refuse direct push to main + require format:check before any push.
+# Refuse direct push to main + require the Doctrine gates and the typecheck of what the push reaches before any push.
+# Every check below runs on every push, and every refusal is named in one run: a check that fails is recorded, the rest
+# still run, and the push is refused at the end with the whole list. On 18-20 Nov the hook stopped at its first refusal,
+# so four builders spent a second push on a refusal the first run never reached (project-state#3035): lint-ratchet,
+# then the secret scan, then the CI review's size count (09d41f0f86, fix/ps-3343-curriculum); lint-ratchet then the
+# brand scan (726b2494f5, fix/ps-3377); lint-ratchet then the typecheck (d6eba49b8e, fix/9184; ee8e433f8, fix/8879).
+# The rest of CI runs on GitHub.
 # Safety net only — --no-verify bypasses; real enforcement is branch protection (needs Pro).
-#
-# P1: format:check covers tooling/scripts/*.mjs (what red-trunked main via #471).
-# Worktrees often lack node_modules — resolve prettier from git-common-dir parent.
+# Formatting is checked by .githooks/pre-commit on every commit and by CI's Format job on the pull request.
 
 TOP=$(git rev-parse --show-toplevel)
 
-# Resolve the MAIN checkout from --git-common-dir, whose parent is the main
-# working tree. Two spellings have to be handled, and getting this wrong is why
-# every push from a worktree used to print
-#   cd: .../plug-x-inta-worktrees/<wt>/C:/Users/User/PLUG X INTA: No such file
-#
-#   main checkout   → ".git"                       (relative to $TOP)
-#   linked worktree → "C:/Users/User/repo/.git"    (absolute, Git Bash on Windows)
-#
-# The old code tested only `/*` for "already absolute". A Windows absolute path
-# starts with a drive letter, not a slash, so it fell through to the relative
-# branch and concatenated an absolute path onto $TOP. Non-fatal — REPO_ROOT just
-# came out empty and prettier was found via $TOP — but it cried wolf on every
-# push. `git rev-parse --show-toplevel` always returns forward slashes; other
-# rev-parse outputs do not normalise, hence matching both forms below.
-# (`--path-format=absolute` would do this in one call but needs git >= 2.31.)
-COMMON_GIT=$(git rev-parse --git-common-dir)
-case "$COMMON_GIT" in
-  /*) ;;                                       # POSIX absolute
-  [A-Za-z]:*) ;;                               # Windows absolute, e.g. C:/repo/.git
-  *) COMMON_GIT="$TOP/$COMMON_GIT" ;;          # relative — hooks run from $TOP
-esac
-REPO_ROOT=$(CDPATH= cd -- "$COMMON_GIT/.." 2>/dev/null && pwd) || REPO_ROOT=""
-[ -n "$REPO_ROOT" ] || REPO_ROOT="$TOP"
+# The checks that refused this push, one per line; refuse() records one and the hook goes on to the next check.
+REFUSED=""
+refuse() {
+  REFUSED="${REFUSED}$1
+"
+}
 
-PRETTIER=""
-if [ -x "$TOP/node_modules/.bin/prettier" ]; then
-  PRETTIER="$TOP/node_modules/.bin/prettier"
-elif [ -x "$REPO_ROOT/node_modules/.bin/prettier" ]; then
-  PRETTIER="$REPO_ROOT/node_modules/.bin/prettier"
-fi
-
-if [ -n "$PRETTIER" ]; then
-  # Format only files this push introduces vs origin/main. Full-tree prettier
-  # on ~4k files hung agent pushes for minutes (L15 wave 4) and was routinely
-  # --no-verify'd — which is how #471 red-trunked. Scoped check is the same
-  # gate with a usable runtime. Only files in this push are checked.
-  RANGE_BASE=$(git merge-base HEAD origin/main 2>/dev/null || git rev-parse origin/main 2>/dev/null || true)
-  FILES=""
-  if [ -n "$RANGE_BASE" ]; then
-    FILES=$(git diff --name-only --diff-filter=ACMR "$RANGE_BASE"...HEAD 2>/dev/null | grep -E '\.(ts|tsx|mjs|js|md|json|yml|yaml)$' || true)
-  fi
-  WT_FILES=$(git diff --name-only --diff-filter=ACMR HEAD 2>/dev/null | grep -E '\.(ts|tsx|mjs|js|md|json|yml|yaml)$' || true)
-  STAGED=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null | grep -E '\.(ts|tsx|mjs|js|md|json|yml|yaml)$' || true)
-  ALL_FILES=$(printf '%s\n%s\n%s\n' "$FILES" "$WT_FILES" "$STAGED" | sort -u | grep -v '^$' || true)
-  if [ -z "$ALL_FILES" ]; then
-    echo "format:check — no matching files in push range; skip"
-  else
-    echo "Checking formatting on push range..."
-    if ! (CDPATH= cd -- "$TOP" && echo "$ALL_FILES" | tr '\n' '\0' | xargs -0 "$PRETTIER" --check); then
-      cat >&2 <<'MSG'
-
-  ✖ format:check failed — refuse push.
-
-    Fix: prettier --write on the named files (or pnpm format from a full install).
-    This is the gate that failed when #471 merged before CI (swarm.mjs).
-    Only files in this push are checked (not the whole tree).
-
-MSG
-      exit 1
-    fi
-  fi
-elif command -v pnpm >/dev/null 2>&1; then
-  if ! (CDPATH= cd -- "$TOP" && pnpm format:check); then
-    echo "✖ pnpm format:check failed — refuse push." >&2
-    exit 1
-  fi
-else
-  echo "warn: no prettier binary found; skipping format:check on push" >&2
-fi
-
-# Local agent-rule drift check. Not a GitHub workflow. Stdin stays with the loop below.
+# Every step below runs node.
 if ! command -v node >/dev/null 2>&1; then
-  echo "truth-check: node is missing — refuse push." >&2
-  exit 1
-fi
-if ! (CDPATH= cd -- "$TOP" && node tooling/scripts/truth-check.mjs) </dev/null; then
-  cat >&2 <<'MSG'
-
-  ✖ truth-check failed — push refused.
-
-    Fix the named lines (AGENTS.md is the truth); archive files arrive by
-    git mv; list new docs in docs/README.md.
-
-MSG
+  echo "pre-push: node is missing — refuse push." >&2
   exit 1
 fi
 
 protected="main"
 remote_ref_prefix="refs/heads/"
+
+# The refs this push sends, kept for the checks below the loop (git gives them once, on stdin).
+PUSHED=$(mktemp)
+cat > "$PUSHED"
 
 while read -r local_ref _local_sha remote_ref _remote_sha; do
   branch="${remote_ref#$remote_ref_prefix}"
@@ -110,7 +44,7 @@ while read -r local_ref _local_sha remote_ref _remote_sha; do
     (CONTRIBUTING.md §1).
 
     Instead:
-      pnpm wt feat/your-change
+      git switch -c feat/your-change
       git push -u origin feat/your-change
       gh pr create --fill
 
@@ -118,8 +52,135 @@ while read -r local_ref _local_sha remote_ref _remote_sha; do
       git push --no-verify
 
 MESSAGE
+    rm -f "$PUSHED"
     exit 1
   fi
-done
+done < "$PUSHED"
+
+# The tooling tests that read every journey file, when this push changes one. They take under a second together, and a
+# journey file that breaks one is otherwise first seen as a red Doctrine gates job minutes after the push (J-merchant-01
+# and J-algo-dev-03 on 14 Nov, each a push spent on journey-navigation.test.mjs). A test joins by its marker line;
+# the slow tooling tests stay in CI.
+JOURNEY_SCAN_MARK='^// Before a push: runs from .githooks/pre-push when the push changes a journey file'
+SCAN_BASE=$(git merge-base HEAD origin/main 2>/dev/null || true)
+if [ -n "$SCAN_BASE" ] && git diff --name-only "$SCAN_BASE" HEAD 2>/dev/null | grep -qE '^apps/[^/]+/tests/real-app/'; then
+  SCANS=$(CDPATH= cd -- "$TOP" && grep -rlE --include='*.test.mjs' --exclude-dir=node_modules "$JOURNEY_SCAN_MARK" tooling 2>/dev/null | sort)
+  if [ -n "$SCANS" ]; then
+    echo "journey-file scans: $(echo "$SCANS" | wc -l | tr -d ' ') tooling test file(s)"
+    # A push made inside a node test (pre-push-hook.test.mjs) would hand node's test context on, and `node --test`
+    # would then skip every file and pass; the scan always runs as its own test run.
+    # shellcheck disable=SC2086 # one path per word; no tooling test path holds a space
+    if ! (CDPATH= cd -- "$TOP" && env -u NODE_TEST_CONTEXT node --test --test-concurrency=1 $SCANS) </dev/null; then
+      cat >&2 <<'MSG'
+
+  ✖ a tooling test that reads every journey file failed — push refused.
+
+    The failed test and its message are above. CI's Doctrine gates job runs the same test and would fail the same way.
+
+MSG
+      refuse 'journey-file scans'
+    fi
+  fi
+  # The merge seal's title rule for journey files (journey-seal.mjs titleBeforePush): the title it needs, before the push.
+  if [ -f "$TOP/tooling/ci/journey-seal.mjs" ] && ! (CDPATH= cd -- "$TOP" && node tooling/ci/journey-seal.mjs --before-push) </dev/null; then refuse 'journey seal title'; fi
+fi
+
+# CI's lint ratchet (a Doctrine gate), CI's own command: it fetches main and judges the files this push touches with
+# main's rules as they are now, never a stale origin/main. A push that raised a rule was otherwise first seen as a red
+# Doctrine gates job minutes after it (J-campaigns-03 and J-agents-01 on 14 Nov; J-cex-spot-10 and J-identity-22 on 17 Nov,
+# whose branches were cut before main gained garden/no-copied-journey-function).
+if [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ] && [ ! -x "$TOP/node_modules/.bin/oxlint" ]; then
+  echo "  ✖ lint-ratchet needs this worktree's oxlint — push refused. Install it: pnpm install --frozen-lockfile --prefer-offline" >&2
+  refuse 'lint-ratchet (no oxlint)'
+elif [ -f "$TOP/tooling/ci/lint-ratchet.mjs" ]; then
+  if ! (CDPATH= cd -- "$TOP" && node tooling/ci/lint-ratchet.mjs) </dev/null; then
+    cat >&2 <<'MSG'
+
+  ✖ lint-ratchet failed — push refused.
+
+    The rule, the file and the fix are named above. CI's Doctrine gates job runs the same check and would fail the same way.
+
+MSG
+    refuse 'lint-ratchet'
+  fi
+fi
+
+# CI's cross-package read scan (1.6 s on CI) when a test or what it checks changed: else a red after the push (4, 13-14 Nov).
+if git diff --name-only "${SCAN_BASE:-HEAD}" HEAD | grep -qE '\.test\.|turbo\.json$|package\.json$|test-read-edges\.json$' &&
+  ! (CDPATH= cd -- "$TOP" && node tooling/ci/cross-package-reads.mjs) </dev/null; then refuse 'cross-package reads'; fi
+
+# CI's Rust job, by its own command (`pnpm rust:check`: format, clippy with warnings as errors, tests), when this branch
+# changes a Rust file (ci-affected.mjs isRustFile). A push that changes none pays nothing.
+if [ -f "$TOP/Cargo.toml" ] && [ "$(CDPATH= cd -- "$TOP" && node tooling/ci/ci-affected.mjs --rust-files 2>/dev/null)" = "true" ]; then
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "  ✖ this push changes Rust, and cargo is missing — push refused. Install rustup, then the pinned toolchain:" >&2
+    echo "    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none && rustup toolchain install" >&2
+    refuse 'rust:check (no cargo)'
+  elif [ -n "${INTAFACED_LOCAL_JOBS:-}" ] && case "$INTAFACED_LOCAL_JOBS" in *[!0-9]* | 0*) true ;; *) false ;; esac; then
+    echo "  ✖ INTAFACED_LOCAL_JOBS must be a whole number of at least 1, or unset; it is '$INTAFACED_LOCAL_JOBS' — push refused." >&2
+    refuse 'rust:check (INTAFACED_LOCAL_JOBS)'
+  # On a shared machine INTAFACED_LOCAL_JOBS bounds cargo's build jobs and test threads (tooling/scripts/local-jobs.mjs),
+  # unless CARGO_BUILD_JOBS or RUST_TEST_THREADS is set already; unset, cargo's own defaults.
+  elif ! (
+    CDPATH= cd -- "$TOP" || exit 1
+    if [ -n "${INTAFACED_LOCAL_JOBS:-}" ]; then
+      CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-$INTAFACED_LOCAL_JOBS}"
+      RUST_TEST_THREADS="${RUST_TEST_THREADS:-$INTAFACED_LOCAL_JOBS}"
+      export CARGO_BUILD_JOBS RUST_TEST_THREADS
+    fi
+    pnpm -s rust:check
+  ) </dev/null; then
+    echo "  ✖ rust:check failed — push refused. The failing format, lint or test is above; CI's Rust job runs the same command." >&2
+    refuse 'rust:check'
+  fi
+fi
+
+
+# CI's Doctrine gates that read the pushed tree, all at once, as CI would fail them (#8616's first red, the boundary scan).
+if grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED" && [ -f "$TOP/tooling/ci/gates.mjs" ]; then
+  if [ ! -d "$TOP/node_modules" ]; then
+    echo "  ✖ the Doctrine gates need this worktree's install — push refused. Install it: pnpm install --frozen-lockfile --prefer-offline" >&2
+    refuse 'Doctrine gates (no install)'
+  elif ! (CDPATH= cd -- "$TOP" && node tooling/ci/gates.mjs --before-push) </dev/null; then
+    echo "  ✖ a Doctrine gate failed — push refused. Its name, its message and why it exists are above; CI's Doctrine gates job runs it too." >&2
+    refuse 'Doctrine gates'
+  fi
+fi
+
+# CI's typecheck on the packages this push reaches (tooling/scripts/pre-push-typecheck.mjs: ci-affected.mjs's selection,
+# under a time limit that prints TIMEOUT and lets the push go). A push that changes no TypeScript pays nothing. A type
+# error was otherwise first seen as a red Typecheck & build job minutes after the push (#8814, #8804, #8783 on 17-18 Nov).
+if grep -qv ' 0000000000000000000000000000000000000000 ' "$PUSHED" && [ -f "$TOP/tooling/scripts/pre-push-typecheck.mjs" ] &&
+  ! (CDPATH= cd -- "$TOP" && node tooling/scripts/pre-push-typecheck.mjs) </dev/null; then
+  refuse 'typecheck'
+fi
+
+# The CI review's size rule, by the review's own diff step on local git (review-before-push.mjs --size): the bytes it
+# will count and its refusal, before the push. #8463 and #8491 were each refused for size after a whole round (15 Nov).
+if [ -f "$TOP/tooling/scripts/review-before-push.mjs" ]; then
+  while read -r _lref lsha rref _rsha; do
+    [ "$lsha" = "0000000000000000000000000000000000000000" ] && continue
+    if ! (CDPATH= cd -- "$TOP" && node tooling/scripts/review-before-push.mjs --size --head "$lsha" --branch "${rref#refs/heads/}") </dev/null; then
+      refuse "CI review size (${rref#refs/heads/})"
+    fi
+  done < "$PUSHED"
+fi
+
+# What runs here takes seconds: the tooling tests that read
+# journey files (when one is pushed), the lint ratchet on the pushed files, the cross-package read scan, rust:check (when
+# Rust is pushed), the Doctrine
+# gates that read the pushed tree, the typecheck of the packages the push reaches (within its time limit), the CI review's
+# size count and the refusal of main. Only on GitHub: build, the whole repo's typecheck, unit tests, the other tooling tests and the gates gates.mjs leaves to CI (on the Mac CI's checks took 13 to 91 minutes
+# a push under three builders; GitHub runs them in 9 to 20), on the pull request.
+# `node tooling/scripts/ci-checks.mjs` still runs CI's checks here by hand, to diagnose a red.
+rm -f "$PUSHED"
+
+if [ -n "$REFUSED" ]; then
+  echo >&2
+  echo "  ✖ push refused by $(printf '%s' "$REFUSED" | grep -c .) check(s), each named above, all from this one run:" >&2
+  printf '%s' "$REFUSED" | sed 's/^/      - /' >&2
+  echo "    Fix them all, then push once." >&2
+  exit 1
+fi
 
 exit 0

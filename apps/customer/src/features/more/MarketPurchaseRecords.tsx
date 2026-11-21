@@ -1,40 +1,14 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { z } from 'zod';
+import { MARKET_SUBSCRIPTION_ACCESS, type MarketPurchase } from '@intafaced/contracts/market-procedures';
 import { Button, DataTable, EmptyState, Failure, Loading } from '../../shared/ui';
 import { useResource, type Resource } from '../../shared/resource';
-import { decimalSchema, displayAmount } from '../../shared/money';
+import { displayAmount } from '../../shared/money';
 import { usePreferences } from '../../shared/preferences';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { marketPurchasesCopy as copy } from './market-purchases-copy';
 import './market-purchases.css';
 
-const id = z.string().guid();
-const time = z.string().datetime({ offset: true });
-// Mounted Market purchase rows are decimal strings and native asset identifiers.
-const purchase = z.object({
-  id,
-  listingId: id,
-  buyerId: id,
-  vendorId: id,
-  vendorUserId: id,
-  assetId: z
-    .string()
-    .min(1)
-    .max(32)
-    .refine((value) => value.trim().length > 0),
-  price: decimalSchema,
-  commissionBps: z.number().int().safe().min(0).max(10000),
-  status: z.enum(['pending', 'settled', 'rejected', 'held', 'released', 'refunded']),
-  ledgerTxId: id.nullable(),
-  rejectionCode: z.string().nullable(),
-  createdAt: time,
-  settledAt: time.nullable(),
-  accessUntil: time.nullable(),
-  // A held purchase (MC-market-02): its refund window and the buyer's refund request.
-  refundWindowEndsAt: time.nullable().optional(),
-  refundRequestedAt: time.nullable().optional(),
-});
-export type MarketPurchaseRecord = z.infer<typeof purchase>;
+export type MarketPurchaseRecord = MarketPurchase;
 type Props = {
   resource: Resource<MarketPurchaseRecord[]>;
   reload: () => void;
@@ -88,14 +62,14 @@ function OwnerRecords({ userId, resource, reload, limit, renderCancel, titleOf, 
   const { Copy, t, languageFor } = copy.useCopy();
   const { hideBalances } = usePreferences();
   const [selected, setSelected] = useState<string | null>(null);
-  const parsed = resource.status === 'ready' ? z.array(purchase).max(Math.min(50, limit)).safeParse(resource.data) : null;
+  // The rows were read through MARKET_MY_PURCHASES; here they must also be this person's, one page, newest first, each once.
+  const read = resource.status === 'ready' ? resource.data : null;
   const valid =
-    parsed?.success &&
-    parsed.data.every(
-      (row, index) => row.buyerId === userId && (!index || Date.parse(row.createdAt) <= Date.parse(parsed.data[index - 1]!.createdAt)),
-    ) &&
-    new Set(parsed.data.map((row) => row.id)).size === parsed.data.length;
-  const rows = valid && parsed?.success ? parsed.data : null;
+    read !== null &&
+    read.length <= Math.min(50, limit) &&
+    read.every((row, index) => row.buyerId === userId && (!index || Date.parse(row.createdAt) <= Date.parse(read[index - 1]!.createdAt))) &&
+    new Set(read.map((row) => row.id)).size === read.length;
+  const rows = valid ? read : null;
   const current = rows?.find((row) => row.id === selected);
   useEffect(() => {
     if (selected) document.getElementById(`market-receipt-${selected}`)?.scrollIntoView?.({ block: 'nearest' });
@@ -325,17 +299,10 @@ function CurrentAccess({ row }: { row: MarketPurchaseRecord }) {
   const access = useResource(
     (signal) =>
       requested
-        ? api.query(
-            'market',
-            'subscriptionAccess',
+        ? api.call(
+            MARKET_SUBSCRIPTION_ACCESS,
             { listingId: row.listingId },
-            z
-              .object({ granted: z.literal(true), listingId: id, buyerId: id, accessUntil: time })
-              .refine(
-                (value) => value.buyerId === userId && value.listingId === row.listingId,
-                'Current access ownership or listing identity is invalid',
-              ),
-            { signal },
+            { signal, accept: (value) => value.buyerId === userId && value.listingId === row.listingId },
           )
         : Promise.resolve({ ok: true as const, data: null }),
     `market-current-access:${userId}:${row.id}:${row.listingId}:${requested}:${cycle}`,

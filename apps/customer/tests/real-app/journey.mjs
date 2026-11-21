@@ -6,10 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scripts/journey-freeze-guard.mjs';
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
-import { REACH_ATTACHMENT, makeLogReader, makeRecorder } from '../../../../tooling/scripts/journey-reach.mjs';
+import { REACH_ATTACHMENT, makeCodeReader, makeLogReader, makeRecorder, settleCode } from '../../../../tooling/scripts/journey-reach.mjs';
+import { codeReachDir } from '../../../../tooling/scripts/service-reach.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
+import { beforeRequest, noteResponse, partnerFile } from './partner-start.mjs';
 
 // Every journey imports `test` (and `expect`) from here, never from '@playwright/test' directly
 // (tooling/scripts/journey-freeze-guard.test.mjs fails a file that does), and so does every helper that asserts, so a
@@ -66,11 +68,18 @@ export const expect = new Proxy(baseExpect, {
 // The build on disk here, unless the stack serves the customer app from another folder (local-test-stack.mjs's
 // customer-dist override): then no script can be placed, and each record says so (otherDist).
 const servesOtherDist = !!process.env.LOCAL_STACK_CUSTOMER_DIST || existsSync(path.join(localStackState(), 'customer-dist.json'));
-const reach = makeRecorder({ root: ROOT, distDir: servesOtherDist ? null : path.join(ROOT, 'apps', 'customer', 'dist') });
+// Which of each Node service's own files ran (service-reach.mjs, a preload the stack starts every Node service with).
+const stackCode = makeCodeReader(codeReachDir(localStackState()));
+const reach = makeRecorder({
+  root: ROOT,
+  distDir: servesOtherDist ? null : path.join(ROOT, 'apps', 'customer', 'dist'),
+  codeServices: () => stackCode.services(),
+});
 let reachFile = 'outside-any-file';
 // What the stack's services logged they served, read from their own logs at each read below (journey-reach.mjs).
 const stackLogs = makeLogReader(path.join(localStackState(), 'logs'));
 const enterReach = (file) => {
+  partnerFile(file);
   reachFile = file;
   reach.enter(file);
 };
@@ -93,7 +102,15 @@ globalThis.fetch = (input, init) => {
     /* recording never stops a request */
   }
   noted(() => reach.request(reachFile, typeof input === 'string' ? input : (input?.url ?? String(input)), init?.method ?? input?.method));
-  return nodeFetch(input, init);
+  // The TEST partner bank's starts this file made, sent again first after a svc-bank restart, and each new one noted
+  // (partner-start.mjs).
+  const send = async () => {
+    const res = await nodeFetch(input, init);
+    await noteResponse(input, init, res);
+    return res;
+  };
+  const due = beforeRequest(nodeFetch);
+  return due ? due.then(send) : send();
 };
 
 /**
@@ -247,6 +264,17 @@ export const chromium = new Proxy(playwrightChromium, {
   },
 });
 
+/** Closes the founders' console contexts a journey file kept, and forgets its approver sessions. */
+async function closeFounders(kept) {
+  const consoles = [...kept.consoles.values()];
+  kept.consoles.clear();
+  kept.ops.clear();
+  for (const held of consoles) await held.then(({ page }) => page.context().close()).catch(() => {});
+}
+
+/** The step picture's attachment name, as tooling/ci/step-pictures.mjs STEP_PICTURE reads it (a shard imports no judge file). */
+const STEP_PICTURE = 'step-picture';
+
 const extended = base.extend({
   // Every context a journey opens, through the `page` fixture or its own browser.newContext(), reports its sign-ins.
   browser: [
@@ -266,6 +294,56 @@ const extended = base.extend({
   context: async ({ context }, use) => {
     watchSignIns(context);
     await use(context);
+  },
+  // The founders' sessions, signed in once per journey file in this worker and kept for the file's steps
+  // (garden/no-sign-in-in-step refuses a sign-in inside a step). Each founder sign-in sends an authenticator step no earlier
+  // sign-in spent, so a sign-in per step could wait out a whole 30 s window inside the step's own time limit.
+  //   founders.console(key)  founder `key` ('a' or 'b') signed in to the console, in a browser context of its own (its
+  //                          cookies never meet the customer's): { page, founder: { userId, handle } }
+  //   founders.ops()         the two founders' approver sessions on one gates context: { gates, ctx, sessions }
+  // A sign-in that fails is not kept, so the next step signs in afresh and a refusal fails the step that met it.
+  founderSessions: [
+    async ({ browser }, use) => {
+      const kept = { browser, file: null, consoles: new Map(), ops: new Map() };
+      await use(kept);
+      await closeFounders(kept);
+    },
+    { scope: 'worker' },
+  ],
+  founders: async ({ founderSessions: kept }, use, testInfo) => {
+    if (kept.file !== testInfo.file) {
+      await closeFounders(kept);
+      kept.file = testInfo.file;
+    }
+    // One sign-in per key: a sign-in that failed is forgotten, so the next step signs in afresh.
+    const once = (map, key, make) => {
+      if (!map.has(key)) {
+        const held = make();
+        held.catch(() => map.delete(key));
+        map.set(key, held);
+      }
+      return map.get(key);
+    };
+    await use({
+      console: (key = 'a') =>
+        once(kept.consoles, key, async () => {
+          const context = await kept.browser.newContext();
+          try {
+            const page = await context.newPage();
+            const { founderSignIn } = await import('./admin.mjs');
+            return { page, founder: await founderSignIn(page, key) };
+          } catch (error) {
+            await context.close().catch(() => {});
+            throw error;
+          }
+        }),
+      ops: () =>
+        once(kept.ops, 'pair', async () => {
+          const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+          const ctx = await gates.makeContext({ log: () => {}, shareSessions: true });
+          return { gates, ctx, sessions: await gates.approverSessions(ctx) };
+        }),
+    });
   },
   // No journey file leaves the shared world changed for the file after it: its resting orders, algos and bots come down,
   // and its TEST price moves are cleared, before the next file's first step (world-restore.mjs, journey-world.mjs).
@@ -288,6 +366,7 @@ const extended = base.extend({
       try {
         await readAll([...covered.keys()]);
         readLogs();
+        await settleCode(stackCode, reach);
         for (const file of reach.files()) {
           const record = reach.take(file);
           if (record) await testInfo.attach(REACH_ATTACHMENT, { body: JSON.stringify(record), contentType: 'application/json' });
@@ -297,6 +376,39 @@ const extended = base.extend({
       }
     },
     { auto: true },
+  ],
+  // The proof reader's picture of this step (tooling/ci/step-pictures.mjs): the whole page of this test's own page, taken
+  // when the test calls `await stepPicture()` (or `stepPicture(otherPage)`) at the moment the step's state is on screen,
+  // else as the test ended. A test that checks the step's state and then leaves it (clicks the link the step names, closes
+  // the menu, goes on to another room) calls it before it leaves, or the end picture shows the page it went on to and the
+  // reader answers NOT SHOWN (garden/step-picture-before-leaving). The first picture taken is the step's: a later call
+  // takes none, and one that could not be taken leaves the end picture to try. A full page, since `screenshot: 'on'` alone
+  // left the reader the 900-pixel window. A test with no page of its own and no call (an API-only step, or one on its own
+  // browser.newContext() pages) attaches none and keeps the end pictures. A picture never fails a test.
+  // It takes `context`, so it ends before the test's own context closes; its own time, apart from the test's.
+  stepPicture: [
+    async ({ context }, use, testInfo) => {
+      let taken = false;
+      const take = async (page) => {
+        if (taken || !page || page.isClosed()) return;
+        try {
+          const file = testInfo.outputPath('step-picture.png');
+          await page.screenshot({ path: file, fullPage: true, timeout: 15_000 });
+          await testInfo.attach(STEP_PICTURE, { path: file, contentType: 'image/png' });
+          taken = true;
+        } catch {
+          /* a picture never fails a test; one that could not be taken leaves the end picture to try */
+        }
+      };
+      const ownPage = () =>
+        context
+          .pages()
+          .filter((p) => !p.isClosed())
+          .at(-1);
+      await use((page = ownPage()) => take(page));
+      await take(ownPage());
+    },
+    { auto: true, timeout: 30_000 },
   ],
   // No journey leaves the platform posting freeze on for the journeys after it (journey-freeze-guard.mjs).
   postingFreezeGuard: [
@@ -367,6 +479,7 @@ extended.afterAll = (...args) => {
     } finally {
       await readAll([...covered.keys()]).catch(() => {});
       readLogs();
+      await settleCode(stackCode, reach);
       reach.afterAll(testInfo.file);
     }
   };

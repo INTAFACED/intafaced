@@ -5,13 +5,12 @@
  * A click on a ladder cell asks the desk's own ticket for a draft at that price; the ticket reviews it (OrderForm).
  */
 import { memo, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import type { OrderBook, Trade } from '@intafaced/exchange-contract/schemas';
+import type { OrderBook } from '@intafaced/exchange-contract/schemas';
 import type { Order } from '../../../features/trade/trade-api';
 import type { Preferences } from '../../../shared/preferences';
 import { fmtAmount, fmtPct, fmtPrice, refusalCopy, StateBlock, Skeleton, type Loadable } from './deps';
 import { useQueuePosition, useTape } from './data';
 import { useNow } from './hooks';
-import type { DeskMarket } from './market';
 import { STALE_BOOK_MS } from './OrderBook';
 import { flowCopy } from './order-flow-copy';
 import { RowCancel } from './OneClick';
@@ -24,9 +23,12 @@ import {
   stepOf,
   tapeView,
   type DomSetting,
+  type FlowMarket,
   type LadderColumns,
   type LadderStep,
+  type TapePrint,
   type TapeUnits,
+  type WorkingOrder,
 } from './order-flow';
 import { scaled } from './order-math';
 import { placesOf } from './text';
@@ -40,7 +42,7 @@ export interface LadderPick {
 }
 
 interface Props {
-  market: DeskMarket;
+  market: FlowMarket;
   book: Loadable<OrderBook>;
   openOrders: Loadable<Order[]>;
   zone: Preferences['timeZone'];
@@ -56,24 +58,23 @@ interface Props {
   onCancelled?: () => void;
 }
 
-function Ladder({
+function Ladder<O extends WorkingOrder>({
   market,
   data,
   mine,
   columns,
   stepTicks,
   onPick,
-  instant,
-  onCancelled,
+  renderCancel,
 }: {
-  market: DeskMarket;
-  data: OrderBook;
-  mine: readonly Order[];
+  market: FlowMarket;
+  data: Pick<OrderBook, 'bids' | 'asks'>;
+  mine: readonly O[];
   columns: LadderColumns;
   stepTicks: LadderStep;
   onPick: (pick: LadderPick) => void;
-  instant: boolean;
-  onCancelled: () => void;
+  /** One-click cancel of my orders on one row (J-charts-desk-14 #7). */
+  renderCancel: (orders: O[]) => ReactNode;
 }) {
   const { t } = flowCopy.useCopy();
   const step = stepOf(market.tickSize, stepTicks) ?? market.tickSize;
@@ -158,9 +159,7 @@ function Ladder({
                 {double
                   ? size(row.myAsk)
                   : [row.myBid && `+${size(row.myBid)}`, row.myAsk && `−${size(row.myAsk)}`].filter(Boolean).join(' ')}
-                {row.myBid || row.myAsk ? (
-                  <RowCancel market={market} orders={myOrdersAt(mine, row.price, step)} instant={instant} onDone={onCancelled} />
-                ) : null}
+                {row.myBid || row.myAsk ? renderCancel(myOrdersAt(mine, row.price, step)) : null}
               </span>
             </div>
           );
@@ -171,7 +170,7 @@ function Ladder({
 }
 
 /** One of my resting orders: its place in the native queue and, only with the owner's window set, the chance of a fill. */
-function QueueRow({ market, order }: { market: DeskMarket; order: Order }) {
+function QueueRow({ market, order }: { market: FlowMarket; order: Order }) {
   const { t } = flowCopy.useCopy();
   const read = useQueuePosition(order.id);
   const amountPlaces = placesOf(market.lotSize);
@@ -244,7 +243,7 @@ function QueueRow({ market, order }: { market: DeskMarket; order: Order }) {
 }
 
 /** My resting limit orders in this market and where each stands in the queue. */
-function MyQueue({ market, mine }: { market: DeskMarket; mine: readonly Order[] }) {
+function MyQueue({ market, mine }: { market: FlowMarket; mine: readonly Order[] }) {
   const { t } = flowCopy.useCopy();
   const resting = mine.filter((order) => order.type === 'limit' && order.price !== null);
   return (
@@ -268,18 +267,20 @@ function TimeAndSales({
   zone,
   setting,
   onSetting,
+  tape,
 }: {
-  market: DeskMarket;
+  market: FlowMarket;
   zone: Preferences['timeZone'];
   setting: DomSetting;
   onSetting: (next: DomSetting) => void;
+  /** The prints the tape shows: today's public trades, or the venue's own prints. */
+  tape: Loadable<readonly TapePrint[]>;
 }) {
   const { t } = flowCopy.useCopy();
-  const tape = useTape(market.symbol, true);
   const [typed, setTyped] = useState(setting.minAmount);
   const invalid = typed.trim() !== '' && (scaled(typed.trim()) === null || (scaled(typed.trim()) ?? 0n) < 0n);
   const amountPlaces = placesOf(market.lotSize);
-  const trades: readonly Trade[] = tape.status === 'ready' ? tape.data : [];
+  const trades: readonly TapePrint[] = tape.status === 'ready' ? tape.data : [];
   const view = useMemo(
     () => tapeView(trades, { minAmount: setting.minAmount, units: setting.units, accumulate: setting.accumulate }),
     [trades, setting.minAmount, setting.units, setting.accumulate],
@@ -315,7 +316,8 @@ function TimeAndSales({
                 role="row"
                 className="of-tape-row"
                 data-testid="of-tape-row"
-                data-side={row.side}
+                data-trade-id={row.id}
+                data-side={row.side ?? undefined}
                 data-price={row.price}
                 data-amount={row.amount}
                 data-value={row.value}
@@ -324,7 +326,7 @@ function TimeAndSales({
               >
                 <span className="of-tape-bar" aria-hidden="true" />
                 <span role="gridcell">{clockSeconds(row.timestamp, zone)}</span>
-                <span role="gridcell" className="of-tape-price" data-side={row.side}>
+                <span role="gridcell" className="of-tape-price" data-side={row.side ?? undefined}>
                   {fmtPrice(row.price, market.tickSize)}
                 </span>
                 <span role="gridcell">
@@ -390,7 +392,7 @@ function TimeAndSales({
 const W = 320;
 const H = 140;
 
-function DepthChart({ market, data }: { market: DeskMarket; data: OrderBook }) {
+function DepthChart({ market, data }: { market: FlowMarket; data: OrderBook }) {
   const { t } = flowCopy.useCopy();
   const [units, setUnits] = useState<TapeUnits>('base');
   const [hover, setHover] = useState<{ x: number; price: string; amount: string } | null>(null);
@@ -472,11 +474,36 @@ function DepthChart({ market, data }: { market: DeskMarket; data: OrderBook }) {
 
 const noop = () => {};
 
-/** The DOM widget on the desk: the ladder, time and sales and the depth chart for the chart's market. */
-export const OrderFlow = memo(function OrderFlow({
+/** What the DOM draws, from whichever book, tape and orders it is given (today's engine, or a venue: VenueOrderFlow.tsx). */
+export interface OrderFlowViewProps<O extends WorkingOrder> {
+  market: FlowMarket;
+  /** One book snapshot: the ladder and the depth chart both draw it. */
+  book: Loadable<OrderBook>;
+  /** My working orders on this market. */
+  mine: readonly O[];
+  tape: Loadable<readonly TapePrint[]>;
+  /** My place in the queue for my resting orders. */
+  queue: ReactNode;
+  renderCancel: (orders: O[]) => ReactNode;
+  zone: Preferences['timeZone'];
+  setting: DomSetting;
+  onSetting: (next: DomSetting) => void;
+  onPick: (pick: LadderPick) => void;
+  onClose: () => void;
+  instant?: boolean;
+  oneClick?: ReactNode;
+  /** The source of the figures, named under the title (the venue's TEST mark), when not today's engine. */
+  badge?: ReactNode;
+}
+
+/** The DOM widget: the ladder, time and sales and the depth chart for the chart's market. */
+export function OrderFlowView<O extends WorkingOrder>({
   market,
   book,
-  openOrders,
+  mine,
+  tape,
+  queue,
+  renderCancel,
   zone,
   setting,
   onSetting,
@@ -484,16 +511,11 @@ export const OrderFlow = memo(function OrderFlow({
   onClose,
   instant = false,
   oneClick,
-  onCancelled,
-}: Props) {
+  badge,
+}: OrderFlowViewProps<O>) {
   const { t } = flowCopy.useCopy();
   const now = useNow(1000);
   const data = book.status === 'ready' ? book.data : null;
-  const mine = useMemo(
-    () =>
-      openOrders.status === 'ready' ? openOrders.data.filter((order) => order.symbol === market.symbol && order.status === 'open') : [],
-    [openOrders, market.symbol],
-  );
   const old = data !== null && now - data.timestamp >= STALE_BOOK_MS;
 
   let ladder: React.ReactNode;
@@ -512,8 +534,7 @@ export const OrderFlow = memo(function OrderFlow({
         columns={setting.columns}
         stepTicks={setting.stepTicks}
         onPick={onPick}
-        instant={instant}
-        onCancelled={onCancelled ?? noop}
+        renderCancel={renderCancel}
       />
     );
   else ladder = <p className="of-note">{t('Ladder empty')}</p>;
@@ -529,7 +550,10 @@ export const OrderFlow = memo(function OrderFlow({
       data-step-ticks={setting.stepTicks}
     >
       <div className="of-title-bar">
-        <h2 className="of-title">{t('DOM for', { pair: market.symbol })}</h2>
+        <h2 className="of-title">
+          {t('DOM for', { pair: market.symbol })}
+          {badge ? <> {badge}</> : null}
+        </h2>
         <div className="of-tools">
           <label className="of-field">
             <span>{t('Columns')}</span>
@@ -571,13 +595,54 @@ export const OrderFlow = memo(function OrderFlow({
       <div className="of-body">
         <div className="of-col">
           {ladder}
-          <MyQueue market={market} mine={mine} />
+          {queue}
         </div>
         <div className="of-col">
           {data ? <DepthChart market={market} data={data} /> : null}
-          <TimeAndSales market={market} zone={zone} setting={setting} onSetting={onSetting} />
+          <TimeAndSales market={market} zone={zone} setting={setting} onSetting={onSetting} tape={tape} />
         </div>
       </div>
     </section>
+  );
+}
+
+/** The DOM on today's desk: our engine's book and tape, my orders there and their place in the native queue. */
+export const OrderFlow = memo(function OrderFlow({
+  market,
+  book,
+  openOrders,
+  zone,
+  setting,
+  onSetting,
+  onPick,
+  onClose,
+  instant = false,
+  oneClick,
+  onCancelled,
+}: Props) {
+  const tape = useTape(market.symbol, true);
+  const mine = useMemo(
+    () =>
+      openOrders.status === 'ready' ? openOrders.data.filter((order) => order.symbol === market.symbol && order.status === 'open') : [],
+    [openOrders, market.symbol],
+  );
+  const done = onCancelled ?? noop;
+  const renderCancel = (orders: Order[]) => <RowCancel market={market} orders={orders} instant={instant} onDone={done} />;
+  return (
+    <OrderFlowView
+      market={market}
+      book={book}
+      mine={mine}
+      tape={tape}
+      queue={<MyQueue market={market} mine={mine} />}
+      renderCancel={renderCancel}
+      zone={zone}
+      setting={setting}
+      onSetting={onSetting}
+      onPick={onPick}
+      onClose={onClose}
+      instant={instant}
+      oneClick={oneClick}
+    />
   );
 });

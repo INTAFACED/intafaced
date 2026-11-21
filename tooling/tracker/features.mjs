@@ -6,11 +6,8 @@
  * matrix), plus the Core and infrastructure work §25 does not list because it
  * predates the surfaces.
  *
- * This file is DATA. `pnpm tracker` renders it to docs/TRACKER.md and validates
- * it against what is actually in the repo — a feature cannot claim `done` if the
- * service it lives in does not exist. That validation is the whole point: a
- * tracker nobody trusts is worse than no tracker, and the way trackers become
- * untrustworthy is by drifting from the code.
+ * This file is DATA. Its renderer and the generated status board were removed;
+ * active work and owners are the open GitHub PRs and issues.
  *
  * ── How to use this as a developer ──────────────────────────────────────────
  * Pick anything with status `ready`. That means its dependencies are `done`, so
@@ -42,7 +39,7 @@
  * svc-edge EXISTS and signs `x-intafaced-principal` for every routed request.
  * `scopedProcedure` is reachable by logged-in humans through the edge.
  * `done` still means code mounted + tested + unpropped — not "live product
- * complete" (rails, chain, KYC ops may still be sandbox). See mount-boundary.
+ * complete" (rails, chain, KYC ops may still be sandbox).
  */
 
 /** @typedef {'done'|'wip'|'ready'|'socket'} DeclaredStatus */
@@ -212,7 +209,7 @@ export const FEATURES = [
     status: 'done',
     dependsOn: ['identity.kyc'],
     requires: ['services/svc-identity'],
-    note: "Reachable on svc-identity's mounted /trpc; tested in router.test.ts + identity.test.ts; nothing propped up — approval is an operator action against kyc_records, no provider stub. Custodial side only: §22 permissionless surfaces read no tier (docs/decisions/kyc-posture.md).",
+    note: "Reachable on svc-identity's mounted /trpc; tested in router.test.ts + identity.test.ts; nothing propped up — approval is an operator action against kyc_records, no provider stub. Custodial side only: §22 permissionless surfaces read no tier.",
   }),
   f('identity.step-up', 'Step-up challenge minting trade:withdraw for five minutes', {
     module: 'identity',
@@ -499,7 +496,7 @@ export const FEATURES = [
       'packages/venue-contracts/src/latency.ts',
     ],
     note:
-      '**Done 2026-08-22:** MD/trade/account factories for binance/bybit/okx; live-network CI smoke; OMS wire + operator cred pass-through on svc-execution compose. ' +
+      '**Done 2026-08-22:** MD/trade/account factories for binance/bybit/okx; live-network smoke (by hand since 15 Nov 2026); OMS wire + operator cred pass-through on svc-execution compose. ' +
       'Honest gaps closed — refuse-closed without operator credentials; no invented mids.',
   }),
   f('connect.venue-vault', 'Venue Vault — per-user external API keys, HSM-backed, withdrawal refused (§27)', {
@@ -996,7 +993,8 @@ export const FEATURES = [
     note:
       '**D26-P1-A2 Done 2026-08-21:** constant-product pools mounted (`mount-vs-tracker.ts`); mint/swap on-chain proven. ' +
       'quoteExactIn + quoteFromPool + buildCreatePool + buildSwapExactIn on router. ' +
-      'Class X residual: external contract audit; live chain RPC Nitro.',
+      'Class X residual: external contract audit; live chain RPC Nitro. ' +
+      '2026-11-19: quoteExactIn, buildCreatePool, buildMintLiquidity, buildApprove and poolReserves were deleted, nothing called them (project-state#3292).',
   }),
   f('protocol.lending', 'On-chain lending markets, keeper liquidations', {
     module: 'protocol',
@@ -1359,10 +1357,10 @@ export const FEATURES = [
     owner: 'Phantom-X-007',
     dependsOn: ['identity.rank'],
     requires: [
-      'services/svc-academy/src/lobbies/mount-vs-tracker.ts',
-      'services/svc-academy/src/lobbies/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/access/room-access.ts',
-      'services/svc-academy/src/stream/provider.ts',
+      'crates/svc-academy/src/lobbies/mod.rs',
+      'crates/svc-academy/src/lobbies/seat.rs',
+      'crates/svc-academy/src/lobbies/stream.rs',
+      'crates/svc-academy/tests/lobbies_units.rs',
     ],
     note:
       'DONE: decideSeat capacity tiers (free/staked/invite); host bypass; NullStreamProvider refuses SFU creds. ' +
@@ -1374,7 +1372,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['academy.lobbies'],
-    requires: ['services/svc-academy/src/spatial/canvas.ts'],
+    requires: ['crates/svc-academy/src/lobbies/scene.rs'],
     note:
       'Done 2026-08-23: navigable shell is Canvas.vue on /academy (hub sessionIdFromHub, host click updateScene, empty session empty). ' +
       'sceneIsNavigableProductShell true. VR client residual (`socket.vr-client`) — do not invent VR.',
@@ -1386,10 +1384,9 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     requires: [
-      'services/svc-academy/src/curriculum/mount-vs-tracker.ts',
-      'services/svc-academy/src/curriculum/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/curriculum/import-pipeline.ts',
-      'services/svc-academy/src/curriculum/import-pipeline.test.ts',
+      'crates/svc-academy/src/curriculum/spine.rs',
+      'crates/svc-academy/src/curriculum/substance.rs',
+      'crates/svc-academy/tests/curriculum_spine.rs',
     ],
     note:
       '**D26-P1-C5 Done-bar sealed 2026-08-12 (#1738):** import substance bar (not char-count theater); ' +
@@ -1402,12 +1399,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['academy.curriculum', 'identity.rank'],
-    requires: [
-      'services/svc-academy/src/certs/mount-vs-tracker.ts',
-      'services/svc-academy/src/certs/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/certs/perk-plane.ts',
-      'services/svc-academy/src/certs/grant-ledger.test.ts',
-    ],
+    requires: ['crates/svc-academy/src/certs/perks.rs', 'crates/svc-academy/src/certs/xp.rs', 'crates/svc-academy/tests/certs_rules.rs'],
     note:
       '**D26-P1-C1 Done 2026-08-21:** cert→XP→identity perks or refuse invent (`mount-vs-tracker.ts`). ' +
       'grantCert + certPerkPlane + certPerkIntent refuse-closed. ' +
@@ -1420,10 +1412,9 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     requires: [
-      'services/svc-academy/src/ambassadors/mount-vs-tracker.ts',
-      'services/svc-academy/src/ambassadors/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/ambassadors/ifc-pay-rate-law.ts',
-      'services/svc-academy/src/ambassadors/ifc-pay.ts',
+      'crates/svc-academy/src/programme/ambassadors/rate_law.rs',
+      'crates/svc-academy/src/programme/ambassadors/ifc_pay.rs',
+      'crates/svc-academy/tests/programme_ambassadors.rs',
     ],
     note:
       '**D26-P1-C2 Done-bar sealed 2026-08-12 (#1725):** IFC pay under owner rate law — refuse invent rates. ' +
@@ -1436,11 +1427,10 @@ export const FEATURES = [
     owner: 'Phantom-X-007',
     status: 'done',
     requires: [
-      'services/svc-academy/src/tournaments/mount-vs-tracker.ts',
-      'services/svc-academy/src/tournaments/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/tournaments/tournament-policy.ts',
-      'services/svc-academy/src/tournaments/prize-refuse.test.ts',
-      'services/svc-academy/src/tournaments/season-lifecycle.test.ts',
+      'crates/svc-academy/src/programme/tournaments/policy.rs',
+      'crates/svc-academy/src/programme/tournaments/prize.rs',
+      'crates/svc-academy/src/programme/tournaments/lifecycle.rs',
+      'crates/svc-academy/tests/programme_tournaments_wire.rs',
     ],
     note:
       '**D26-P1-C3 Done 2026-08-21:** Stage-1 ladder + season lifecycle (`mount-vs-tracker.ts`); prize pools refuse `academy.prize_pool_unset`. ' +
@@ -1454,10 +1444,10 @@ export const FEATURES = [
     owner: 'Phantom-X-007',
     dependsOn: ['trade.spot'],
     requires: [
-      'services/svc-academy/src/paper/mount-vs-tracker.ts',
-      'services/svc-academy/src/paper/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/paper/workbook-loop.ts',
-      'services/svc-academy/src/paper/ops-gate.ts',
+      'crates/svc-academy/src/programme/paper/workbook.rs',
+      'crates/svc-academy/src/programme/paper/ops.rs',
+      'crates/svc-academy/src/programme/paper/ban.rs',
+      'crates/svc-academy/tests/programme_paper.rs',
       'services/svc-trade/drizzle/0006_paper_markets.sql',
     ],
     note:
@@ -1471,16 +1461,12 @@ export const FEATURES = [
     plane: 'B',
     status: 'done',
     dependsOn: [],
-    requires: [
-      'services/svc-protocol/src/launch/mount-vs-tracker.ts',
-      'services/svc-protocol/src/launch/mount-vs-tracker.test.ts',
-      'services/svc-protocol/src/launch/token-factory-onchain.test.ts',
-      'services/svc-protocol/contracts/launch',
-    ],
+    requires: ['services/svc-protocol/src/launch/token-factory-onchain.test.ts', 'services/svc-protocol/contracts/launch'],
     note:
       '**D26-P1-L1 Done 2026-08-21:** token factory mounted (`mount-vs-tracker.ts`); CREATE2 launch proven on chain. ' +
       'status + predictTokenAddress + buildTokenDeployment + tokenInfo; unsigned calldata only. ' +
-      'Class X residual: template not audited; live factory Nitro RPC.',
+      'Class X residual: template not audited; live factory Nitro RPC. ' +
+      '2026-11-19: the four launch calls were deleted, nothing called them (project-state#3292); the contract and its on-chain proof remain.',
   }),
   f('launch.meme-factory', 'One-click meme launch + instant market + LP', {
     owner: 'shehzad002',
@@ -1633,7 +1619,7 @@ export const FEATURES = [
       'serialise every claim behind svc-token latency. That suite is DB-backed and skips without Postgres. ' +
       'RELEASE: vet() releases every open slot in the SAME transaction as any transition out of `approved` (suspended AND ' +
       'rejected) — split across two transactions, a crash leaves a suspended vendor holding every slot. NO unstake subscriber ' +
-      'and none wanted: no accepted bus subject exists, event-wiring reds on an orphan, and polling would be a second source of ' +
+      'and none wanted: no accepted bus subject exists, an orphan subject would be dark, and polling would be a second source of ' +
       'truth. Instead `slots` reports usable = min(held, capacity) and 0 for anyone not approved, so an unstaked vendor reads ' +
       'usable:0 instantly — that is how DoD clause 5 holds with no event. NO suspension POLICY was added: releasing on a ' +
       'transition an operator recorded is not deciding it. ' +
@@ -1884,7 +1870,7 @@ export const FEATURES = [
     plane: 'B',
     status: 'done',
     dependsOn: ['ledger.double-entry', 'connect.data-lake', 'indexer.readmodels'],
-    requires: ['services/svc-tax'],
+    requires: ['crates/svc-tax'],
     note:
       '**Done 2026-08-23:** svc-tax + /portfolio tax card. Caller selects FIFO|LIFO|HIFO. Blank owner TAX_JURISDICTION_MAP_JSON → tax.jurisdiction_unmapped (never a silent country). Empty books → empty pack, not $0 PnL. ' +
       'Residuals: counsel jurisdiction map (owner JSON); data-lake and indexer.readmodels blocked reads named absent on the pack (tax.data_lake_unavailable / tax.indexer_unavailable) — not invented, not CSV re-import.',
@@ -2047,11 +2033,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['academy.curriculum'],
-    requires: [
-      'services/svc-academy/src/video/mount-vs-tracker.ts',
-      'services/svc-academy/src/video/mount-vs-tracker.test.ts',
-      'services/svc-academy/src/video/library.ts',
-    ],
+    requires: ['crates/svc-academy/src/authoring/video.rs', 'crates/svc-academy/tests/authoring_video.rs'],
     note:
       '**Done 2026-08-23:** stored VOD mounted (`videos` + `videoPlayback`); MinIO compose default off. ' +
       'Unconfigured → `academy.video_storage_unconfigured`. Signed expiring GET + tier/stake gate. ' +
@@ -2466,11 +2448,7 @@ export const FEATURES = [
     phase: '5',
     status: 'done',
     dependsOn: ['academy.lobbies'],
-    requires: [
-      'docker-compose.apps.yml',
-      'services/svc-academy/src/stream/provider.ts',
-      'services/svc-academy/src/stream/livekit-compose-pin.test.ts',
-    ],
+    requires: ['docker-compose.apps.yml', 'crates/svc-academy/src/lobbies/stream.rs', 'crates/svc-academy/tests/boot.rs'],
     note: 'Done 2026-08-23: docker-compose.apps.yml provides livekit/livekit-server:v1.9.0 on the internal compose network, while StreamProvider remains refuse-closed when LIVEKIT_URL or provider configuration is blank. The compose pin and NullStreamProvider tests preserve the unavailable state honestly until operator credentials are supplied.',
   }),
   // Found 2026-08-03 while separating the screening authority from the

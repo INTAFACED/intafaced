@@ -1,7 +1,7 @@
 import { routingProcedures } from './desk-routing-router.js';
 import type { DeskRouting } from './desk-routing.js';
 import { TRPCError } from '@trpc/server';
-import { WithdrawalFreezes, WITHDRAWAL_FREEZE_UNAVAILABLE } from './withdrawal-freeze.js';
+import { WithdrawalFreezes } from './withdrawal-freeze.js';
 import { withdrawalFreezeProcedures } from './withdrawal-freeze-router.js';
 import { MemoryLinkBook, TicketLinks } from './ticket-links.js';
 import { ticketLinkProcedures } from './ticket-links-router.js';
@@ -32,6 +32,8 @@ import {
   router,
   scopedProcedure,
   supportAccountGroundingSchema,
+  supportChartsLookupInputSchema,
+  supportChartsLookupSchema,
   supportAttachmentDownloadSchema,
   supportBulkInputSchema,
   supportBulkPolicySchema,
@@ -91,6 +93,10 @@ import { SupportError, SupportService, kbViewerOf, requireSupportOps } from './s
 import type { TicketKbLoopObserver } from './ticket-kb-loop-observation.js';
 import { ticketOrderReadSchema } from './ticket-order.js';
 import { userCopy } from './user-copy.js';
+import { supportRefusal, supportTrpcError } from './record-refusal.js';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { SUPPORT_DESK_ATTACH_OPS, SUPPORT_DESK_ATTACHMENT_DOWNLOAD_OPS } from '@intafaced/contracts/support-desk-settings-procedures';
+import { SLA_POLICY_STALE, SLA_TARGETS_UNSET } from './response-targets.js';
 
 const queueEntrySchema = z.object({
   ticketId: z.string().guid(),
@@ -103,6 +109,20 @@ const queueEntrySchema = z.object({
   createdAt: z.string().datetime(),
   timingKind: z.literal('score_not_promise'),
   sla: z.literal(false),
+  responseDue: z.object({ dueAt: z.string().datetime(), targetMinutes: z.number().int().positive() }).nullable(),
+});
+
+/** The caller a scoped procedure has already checked; a missing one is refused, never assumed. */
+function principalOf<P>(principal: P | null | undefined): P {
+  if (!principal) throw new TRPCError({ code: 'UNAUTHORIZED', message: userCopy('scope.denied') });
+  return principal;
+}
+
+const responseTargetPolicySchema = z.object({
+  firstReplyMinutes: z.number().int().positive().nullable(),
+  active: z.boolean(),
+  revision: z.number().int().nonnegative(),
+  updatedAt: z.string().datetime().nullable(),
 });
 
 const queueResultSchema = z.discriminatedUnion('status', [
@@ -111,126 +131,7 @@ const queueResultSchema = z.discriminatedUnion('status', [
 ]);
 
 export function mapError(err: unknown): never {
-  if (err instanceof SupportError) {
-    const message = err.missingKey ? `${userCopy(err.code)} ${err.missingKey}` : userCopy(err.code);
-    if (err.code === 'support.not_found' || err.code === 'support.claim.not_found') {
-      throw new TRPCError({ code: 'NOT_FOUND', message });
-    }
-    // Live chat (SP-chat-01).
-    if (err.code.startsWith('support.chat_')) {
-      if (err.code === 'support.chat_not_found') throw new TRPCError({ code: 'NOT_FOUND', message });
-      if (err.code === 'support.chat_rate_limited') throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message });
-      if (err.code === 'support.chat_already_accepted' || err.code === 'support.chat_message_conflict')
-        throw new TRPCError({ code: 'CONFLICT', message });
-      if (err.code === 'support.chat_prechat_invalid') throw new TRPCError({ code: 'BAD_REQUEST', message });
-      throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
-    }
-    if (err.code === 'support.claim.already_claimed' || err.code === 'support.kb_revision_stale' || err.code === 'support.already_rated') {
-      throw new TRPCError({ code: 'CONFLICT', message });
-    }
-    if (
-      err.code === 'support.claim.not_queueable' ||
-      err.code === 'support.claim.invalid_operator' ||
-      err.code === 'support.claim.queue_empty' ||
-      // A lifecycle move that is not available from where the ticket is now,
-      // and an escalation that cites nothing, are both "the state you are
-      // asking from does not permit this" rather than a malformed request.
-      err.code === 'support.transition_illegal' ||
-      err.code === 'support.transition_same_status' ||
-      err.code === 'support.case_file.ungrounded' ||
-      err.code === 'support.case_file.empty_summary' ||
-      // Closed is terminal — same family as illegal lifecycle moves.
-      err.code === 'support.escalation.terminal' ||
-      err.code === 'support.comment.terminal' ||
-      err.code === 'support.kb.not_published' ||
-      err.code === 'support.kb_version_unknown' ||
-      err.code === 'support.identity_grounding_unwired' ||
-      err.code === 'support.order.user_mismatch' ||
-      // J-support-public-20 #1: not the customer's record, or its owner gave no answer; nothing was linked.
-      err.code === 'support.link_record_not_owned' ||
-      err.code === 'support.link_record_unverifiable' ||
-      err.code === 'support.settle.refused' ||
-      err.code === 'support.kb_review_required' ||
-      // listQueue / listAll / listMine / listComments / events / listKb / searchKb page size unpublished. Blank is not 100.
-      err.code === 'support.queue_list_limit_unset' ||
-      err.code === 'support.list_all_limit_unset' ||
-      err.code === 'support.list_mine_limit_unset' ||
-      err.code === 'support.list_comments_limit_unset' ||
-      err.code === 'support.list_attachments_limit_unset' ||
-      err.code === 'support.list_events_limit_unset' ||
-      err.code === 'support.list_kb_limit_unset' ||
-      err.code === 'support.staff_bootstrap' ||
-      err.code === 'support.heartbeat_window_unset' ||
-      err.code === 'support.ticket_closed' ||
-      err.code === 'support.follow_up_invalid' ||
-      err.code === 'support.hold_reason_required' ||
-      err.code === 'support.rating_window_invalid' ||
-      err.code === 'support.release.not_queueable' ||
-      err.code === 'support.assign.not_queueable' ||
-      err.code === 'support.attachments_unconfigured' ||
-      err.code === 'support.bulk_cap_unset' ||
-      err.code === 'support.view_cap_unset' ||
-      err.code === 'support.view_cap_reached' ||
-      err.code === 'support.filter_invalid' ||
-      err.code === 'support.sort_invalid' ||
-      err.code === 'support.merge_not_allowed' ||
-      err.code === 'support.merge_same_ticket' ||
-      err.code === 'support.rate_status_refused' ||
-      err.code === 'support.attachment_scan_refused' ||
-      err.code === 'support.attachment_count_unset' ||
-      err.code === 'support.attachment_scan_unknown' ||
-      err.code === 'support.attachment_count_reached' ||
-      err.code === 'support.attachment_too_large' ||
-      err.code === 'support.feedback_rate_limit_unset' ||
-      err.code === 'support.comment_cap_unset' ||
-      err.code === 'support.comment_cap_reached' ||
-      err.code === 'support.assistant_model_unset' ||
-      err.code === 'support.kb_section_unknown' ||
-      err.code === 'support.fraud_route_unset' ||
-      err.code === 'support.fraud_route_missing' ||
-      err.code === 'support.fraud_report_key_required' ||
-      // The guest path (SP-tickets-01): a blank owner value, no sender, an expired link, an answer the sender did not give.
-      err.code === 'support.guest_link_ttl_unset' ||
-      err.code === 'support.guest_rate_limit_unset' ||
-      err.code === 'support.guest_retention_unset' ||
-      err.code === 'support.guest_address_key_unset' ||
-      err.code === 'support.guest_link_expired' ||
-      err.code === 'support.guest_delivery_unknown' ||
-      err.code === 'support.category_unknown' ||
-      err.code === 'vendor.email' ||
-      err.code === WITHDRAWAL_FREEZE_UNAVAILABLE ||
-      err.code.startsWith('guest.')
-    ) {
-      throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
-    }
-    if (err.code === 'support.guest_link_invalid') {
-      throw new TRPCError({ code: 'NOT_FOUND', message });
-    }
-    if (err.code === 'support.feedback_rate_exceeded' || err.code === 'support.guest_rate_limited') {
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message });
-    }
-    if (
-      err.code === 'support.not_lead' ||
-      err.code === 'support.not_staff' ||
-      err.code === 'support.release.not_assignee' ||
-      err.code === 'support.view_not_owner'
-    ) {
-      throw new TRPCError({ code: 'FORBIDDEN', message });
-    }
-    if (
-      err.code === 'support.idempotency_conflict' ||
-      err.code === 'support.view_revision_stale' ||
-      err.code === 'support.stale_ticket' ||
-      err.code === 'support.group_member_duplicate' ||
-      err.code === 'support.group_name_taken'
-    ) {
-      throw new TRPCError({ code: 'CONFLICT', message });
-    }
-    if (err.code === 'support.release.not_found' || err.code === 'support.assign.not_found' || err.code === 'support.group_unknown') {
-      throw new TRPCError({ code: 'NOT_FOUND', message });
-    }
-    throw new TRPCError({ code: 'BAD_REQUEST', message });
-  }
+  if (err instanceof SupportError) throw supportTrpcError(err);
   throw err;
 }
 
@@ -667,6 +568,25 @@ export function createSupportRouter(
         }
       }),
 
+    /**
+     * A customer's price alerts, their trigger history and saved desk layouts, for a ticket the agent can see
+     * (C-ops-03 (a), J-charts-desk-19 #1). Read-only. The customer comes off the ticket: the input is `.strict()`, so a
+     * `userId` is refused rather than silently dropped, as on `accountState`. One `charts_lookup` trail row is written
+     * before anything is read; when it does not land the lookup is refused.
+     */
+    ticketChartsLookup: scopedProcedure('support:ops')
+      .input(supportChartsLookupInputSchema)
+      .output(supportChartsLookupSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          const principal = principalOf(ctx.principal);
+          requireSupportOps(principal);
+          return await support.readChartsLookup({ operatorId: principal.userId, ticketId: input.ticketId });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
     /** Escalate with a case file. Refuses when nothing was read. No money. */
     escalate: scopedProcedure('support:ops')
       .input(escalateTicketInputSchema)
@@ -883,6 +803,41 @@ export function createSupportRouter(
         }
       }),
 
+    /** The desk's response targets (SP-sla-01): the first-reply target in minutes, or null, and whether it is on. */
+    responseTargets: scopedProcedure('support:ops')
+      .output(responseTargetPolicySchema)
+      .query(async ({ ctx }) => {
+        requireSupportOps(principalOf(ctx.principal));
+        return support.responseTargets();
+      }),
+
+    /** A lead sets the first-reply target or turns it on or off, from the revision they read, with a reason. */
+    responseTargetsSave: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          firstReplyMinutes: z.number().int().min(1).max(525_600).nullable().optional(),
+          active: z.boolean().optional(),
+          expectedRevision: z.number().int().nonnegative(),
+          reason: z.string().trim().min(1).max(500),
+        }),
+      )
+      .output(responseTargetPolicySchema)
+      .mutation(async ({ ctx, input }) => {
+        const principal = principalOf(ctx.principal);
+        requireSupportOps(principal);
+        try {
+          return await support.saveResponseTargets({ actorId: principal.userId, ...input });
+        } catch (err) {
+          if (err instanceof SupportError && err.code === 'support.not_lead')
+            throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('support.not_lead') });
+          if (err instanceof SupportError && err.code === SLA_POLICY_STALE)
+            throw new TRPCError({ code: 'CONFLICT', message: SLA_POLICY_STALE });
+          if (err instanceof SupportError && err.code === SLA_TARGETS_UNSET)
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: SLA_TARGETS_UNSET });
+          mapError(err);
+        }
+      }),
+
     /** Stage-2 — peek next queue ticket without claiming. */
     next: scopedProcedure('support:ops')
       .output(queueEntrySchema.nullable())
@@ -1054,24 +1009,14 @@ export function createSupportRouter(
      * Operator attach, for the operator the ticket is assigned to. The file is the ticket owner's and names the operator
      * in `uploadedBy`. Limits, scanner and store are the owner attach's; another operator's ticket answers like none.
      */
-    attachOps: scopedProcedure('support:ops')
-      .input(
-        z.object({
-          ticketId: z.string().guid(),
-          clientRequestId: z.string().min(1).max(200),
-          contentType: z.string().min(1).max(200),
-          bodyBase64: z.string(),
-        }),
-      )
-      .output(supportAttachmentSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return attachmentWire(await support.attachAsOperator({ operatorId: ctx.principal!.userId, ...input }));
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    attachOps: mountRecord(
+      SUPPORT_DESK_ATTACH_OPS,
+      async ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return attachmentWire(await support.attachAsOperator({ operatorId: ctx.principal.userId, ...input }));
+      },
+      supportRefusal,
+    ),
 
     /** Owner read of one attachment's metadata. */
     attachment: scopedProcedure('support:read')
@@ -1141,21 +1086,14 @@ export function createSupportRouter(
       }),
 
     /** Operator download. support:ops, and only a file on a ticket assigned to them; the same rules as the owner's. */
-    attachmentDownloadOps: scopedProcedure('support:ops')
-      .input(supportAttachmentIdInputSchema)
-      .output(supportAttachmentDownloadSchema)
-      .query(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.attachmentDownload({
-            userId: ctx.principal!.userId,
-            attachmentId: input.attachmentId,
-            asOperator: true,
-          });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    attachmentDownloadOps: mountRecord(
+      SUPPORT_DESK_ATTACHMENT_DOWNLOAD_OPS,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.attachmentDownload({ userId: ctx.principal.userId, attachmentId: input.attachmentId, asOperator: true });
+      },
+      supportRefusal,
+    ),
 
     /** One vote per account per published article version. A repeat updates nothing. */
     kbFeedback: scopedProcedure('support:write')

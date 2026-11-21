@@ -1,7 +1,8 @@
 // hand-declared-ok: svc-token's governance outputs are declared in its router; packages/contracts has no token schemas yet
 import { useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from 'react';
 import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import { TOKEN_TREASURY } from '@intafaced/contracts/token-procedures';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
@@ -9,7 +10,7 @@ import { usePreferences } from '../../shared/preferences';
 import { Button, DataTable, EmptyState, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, TextArea } from './common';
 import { governanceRoomCopy } from './governance-room-copy';
-import { VOTING_TYPES } from './TokenVoting';
+import { TOKEN_VOTING_TYPES } from '@intafaced/contracts/token-governance';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type T = ReturnType<typeof governanceRoomCopy.forLocale>['t'];
@@ -55,15 +56,6 @@ const homeSchema = z.object({
 type Home = z.infer<typeof homeSchema>;
 const followSchema = z.object({ spaceId: z.string(), following: z.boolean() });
 const delegationSchema = z.object({ delegateeUserId: z.null(), blocker: z.literal('no_chain_service') });
-const treasurySchema = z.object({
-  minted: decimalSchema.nullable(),
-  burned: decimalSchema,
-  bought: decimalSchema.nullable(),
-  toRewards: decimalSchema.nullable(),
-  distributed: decimalSchema.nullable(),
-  lastBuyback: z.object({ bought: decimalSchema, burned: decimalSchema, toRewards: decimalSchema, executedAt: iso }).nullable(),
-});
-
 /** A UTC minute for a service timestamp; the `datetime` attribute keeps the exact value. */
 function When({ at }: { at: string }) {
   return <time dateTime={at}>{`${new Date(at).toISOString().slice(0, 16).replace('T', ' ')} UTC`}</time>;
@@ -439,7 +431,7 @@ function ProposalForm({
         <label className="field">
           <span>{t('votingType')}</span>
           <select value={votingType} onChange={(e) => setVotingType(e.target.value)}>
-            {VOTING_TYPES.map((type) => (
+            {TOKEN_VOTING_TYPES.map((type) => (
               <option key={type} value={type}>
                 {t(type)}
               </option>
@@ -556,7 +548,7 @@ export function GovernanceTreasury() {
   const t = useWords();
   const api = useApi();
   const { userId } = useSession();
-  const read = useResource((signal) => api.query('token', 'treasury', undefined, treasurySchema, { signal }), `gov-treasury:${userId}`);
+  const read = useResource((signal) => api.call(TOKEN_TREASURY, undefined, { signal }), `gov-treasury:${userId}`);
   const figure = (value: string | null): ReactNode => value ?? t('notReported');
   return (
     <Panel title={t('treasury')} aria-label={t('treasury')}>

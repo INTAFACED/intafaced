@@ -1,7 +1,6 @@
 import 'server-only';
-import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
-import { refusalOf, resolveCustomer } from '@/lib/agents-log/server';
-import { customerReference } from '@/lib/agents-log/model';
+import { founderCall, type FounderCallContext } from '@/lib/desk';
+import { customerReference, refusalOf, resolveCustomer } from '@/lib/agents-log';
 import type { FleetAction } from './model';
 
 /**
@@ -80,7 +79,7 @@ function registryIds(rows: readonly Json[]): unknown[] {
 }
 
 /** The handles of the accounts a page names. An id identity does not answer for stays an id on the page. */
-async function handlesFor(
+export async function handlesFor(
   ctx: FounderCallContext,
   named: readonly unknown[],
 ): Promise<{ handles: Record<string, string>; unread: boolean }> {

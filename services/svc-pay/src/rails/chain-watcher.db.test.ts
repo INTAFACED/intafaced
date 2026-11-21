@@ -133,7 +133,7 @@ describe('PostgresChainWatcherCursorStore — crash replay does not double-credi
       secret: 'x'.repeat(32),
       webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
       cursorStore: store,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     }).tick();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
 
@@ -143,7 +143,7 @@ describe('PostgresChainWatcherCursorStore — crash replay does not double-credi
       secret: 'x'.repeat(32),
       webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
       cursorStore: store,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     }).tick();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(replay.marked).toContain(address.toLowerCase());
@@ -180,7 +180,7 @@ describe('PostgresChainWatcherCursorStore — crash replay does not double-credi
       cursorStore: store,
       deadLetters,
       maxDeliveryAttempts: 2,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     });
     await watcher.tick();
     expect(await deadLetters.list()).toEqual([]);

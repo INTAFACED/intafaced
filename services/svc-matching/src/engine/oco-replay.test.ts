@@ -20,7 +20,7 @@ const bare = (extra: Record<string, unknown>) =>
     stopPrice: null,
     tif: 'GTC',
     ...extra,
-  }) as unknown as EngineOrder;
+  }) as EngineOrder;
 const tape = (order: EngineOrder): JournalRecord[] => [
   { kind: 'submit', marketId: MARKET, at: '2026-10-19T08:00:00.000Z', seq: 1, order: toWire(order) },
 ];

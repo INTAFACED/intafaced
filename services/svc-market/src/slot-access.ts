@@ -11,7 +11,7 @@ import type { VendorStatus } from './vendor-service.js';
  * ── THE ORDER OF THE CHECKS IS DELIBERATE ───────────────────────────────────
  *
  * The GATE is checked before the SLOT COUNT, the same inversion
- * `services/svc-academy/src/access/room-access.ts` makes and for the same
+ * svc-academy's seat rule (`crates/svc-academy/src/lobbies/seat.rs`) makes and for the same
  * reason: telling somebody their tier is full when they were never eligible
  * sends them away to wait for capacity they could not have used. Telling them to
  * stake first is something they can act on.
@@ -121,8 +121,7 @@ export function decideVendorSlot(entitlement: SlotEntitlement, request: SlotRequ
  * A slot is released when a vendor is suspended, because svc-market records that
  * transition itself and can act on it in the same transaction (`vet`). Unstaking
  * is not like that: it happens inside svc-token, there is no accepted bus subject
- * for it, and `tooling/ci/event-wiring.mjs` correctly reds on a subject with no
- * publisher. Polling svc-token for stake changes would be a second source of
+ * for it, and a subject with no publisher would be dark. Polling svc-token for stake changes would be a second source of
  * truth on a timer.
  *
  * So the honest mechanism is to re-derive on every read: a vendor who has

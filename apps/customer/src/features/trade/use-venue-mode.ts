@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { venueApi, type VenueStatus } from './venue-api';
 
 /**

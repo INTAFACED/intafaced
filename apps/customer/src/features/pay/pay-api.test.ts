@@ -32,6 +32,25 @@ function createPersistentTestGuard(storage: JournalStorage) {
   return createPayMutationGuard(storage, true, { durable: () => storage, locks: () => locks });
 }
 
+/** The fields svc-p2p always sends on an order, and the ones `trades.get` adds. */
+const TRADE_WIRE = {
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
+  terms: null,
+  displayStatus: 'completed',
+  feeBps: 30,
+  fee: null,
+  netAmount: null,
+  settlement: { instant: true },
+  releasePreview: null,
+  escrowHeld: '0',
+  reminders: { count: 0, lastAt: null, nextAt: null, max: null },
+  mismatch: null,
+  paymentValidation: { blocker: null },
+  cancelReason: null,
+} as const;
 describe('Personal Pay network boundary', () => {
   it('sends exact asset units from the caller’s ledger space with one stable transfer identity', async () => {
     const requests: { url: string; method: string; body?: unknown }[] = [];
@@ -51,6 +70,10 @@ describe('Personal Pay network boundary', () => {
               name: 'Main',
               goalTarget: null,
               lockedUntil: null,
+              unlocksAt: null,
+              unlockRequestedAt: null,
+              billsPot: null,
+              heldAt: null,
               balance: '100.000000000000000001',
               ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
             },
@@ -80,6 +103,10 @@ describe('Personal Pay network boundary', () => {
             name: 'Main',
             goalTarget: null,
             lockedUntil: null,
+            unlocksAt: null,
+            unlockRequestedAt: null,
+            billsPot: null,
+            heldAt: null,
             balance: 0.1,
             ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
           },
@@ -106,12 +133,60 @@ describe('Personal Pay network boundary', () => {
             name: 'Savings',
             goalTarget: null,
             lockedUntil: null,
+            unlocksAt: null,
+            unlockRequestedAt: null,
+            billsPot: null,
+            heldAt: null,
             balance: '1',
             ledgerAccount: { ownerType: 'subaccount', ownerId: spaceId, assetId: 'USDT', kind: 'available' },
           },
         ]),
     });
     expect(await createPersonalPayApi(api, userId, createPayMutationGuard()).spaces()).toMatchObject({ ok: true, data: [{ id: spaceId }] });
+  });
+  it('a space the partner bank holds is read, and not offered as a source to pay from (#8841)', async () => {
+    const heldId = '55555555-5555-4555-8555-555555555555';
+    const row = { goalTarget: null, lockedUntil: null, unlocksAt: null, unlockRequestedAt: null, billsPot: null };
+    const api = createApiClient({
+      fetch: async () =>
+        response([
+          {
+            ...row,
+            id: spaceId,
+            assetId: 'USDT',
+            kind: 'primary',
+            name: 'Main',
+            balance: '5',
+            ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'available' },
+            heldAt: null,
+          },
+          {
+            ...row,
+            id: heldId,
+            assetId: 'EUR',
+            kind: 'primary',
+            name: 'TEST partner account',
+            balance: '12.5',
+            ledgerAccount: null,
+            heldAt: {
+              label: 'TEST partner',
+              asOf: '2026-11-18T00:00:00.000Z',
+              figure: {
+                state: 'known',
+                source: 'TEST partner',
+                amount: '12.5',
+                asOf: '2026-11-18T00:00:00.000Z',
+                staleAfterMs: 60_000,
+                reason: null,
+              },
+            },
+          },
+        ]),
+    });
+    const read = await createPersonalPayApi(api, userId, createPayMutationGuard()).spaces();
+    expect(read.ok, JSON.stringify(read)).toBe(true);
+    if (!read.ok) return;
+    expect(read.data.map((space) => space.id)).toEqual([spaceId]);
   });
 });
 
@@ -137,6 +212,7 @@ describe('Unconfirmed Pay outcomes', () => {
       escrowedAt: '2026-10-07T12:00:00Z',
       resolvedAt: released ? '2026-10-07T12:01:00Z' : null,
       settledAt: settled ? '2026-10-07T12:02:00Z' : null,
+      ...TRADE_WIRE,
     });
     const api = createApiClient({
       fetch: async (_url, options) => {
@@ -693,6 +769,10 @@ describe('Send original context admission and settlement', () => {
       name: 'Main',
       goalTarget: null,
       lockedUntil: null,
+      unlocksAt: null,
+      unlockRequestedAt: null,
+      billsPot: null,
+      heldAt: null,
       balance: '9999999999999999999.000000000000000001',
       ledgerAccount: { ownerType: 'user', ownerId: userId, assetId: 'USDT', kind: 'bank:primary' },
     },
@@ -1253,6 +1333,7 @@ describe('Exact original P2P reconciliation identity', () => {
                   escrowedAt: '2026-10-10T00:01:00Z',
                   resolvedAt: '2026-10-10T00:02:00Z',
                   settledAt: '2026-10-10T00:03:00Z',
+                  ...TRADE_WIRE,
                 },
           );
         },

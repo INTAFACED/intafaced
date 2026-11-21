@@ -1,40 +1,34 @@
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import {
-  classifyPostOutcome,
-  formatAmount,
-  LedgerError,
-  parseAmount,
-  recipes,
-  type Amount,
-  type LedgerClient,
-} from '@intafaced/ledger-client';
+import { classifyPostOutcome, formatAmount, LedgerError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { mul } from '@intafaced/ledger-client/money';
-import type { Sql } from 'postgres';
-import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { env } from '../env.js';
-import { REGULAR_FEE_TIER } from './fee-schedule.js';
 import { orderIdFor } from './ids.js';
-import { closePositionOnMatching, type MatchingCloseRequest } from './matching-close.js';
-import type { EngineSubmitResult, MatchingClient } from './matching-client.js';
+import { readNetPositionOnMatching } from './matching-close.js';
+import type { MatchingClient } from './matching-client.js';
 import { classifyHoldPostError } from './hold-outcome.js';
-import { assertMarketOpen, assertSettlementRails, assertTradable, holdFor } from './risk.js';
-import { TradeService } from './trade-service.js';
-import { attributionFromPrincipal, withLedgerAttribution } from './auth-attribution.js';
+import { TradeService, type PlaceOrderInput } from './trade-service.js';
+// The close is reduce-only at the engine; that door forwards the flag, so it is installed wherever the close is.
+import './reduce-only-place.js';
 import { TradeError, type Market, type OrderRecord, type OrderSide } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
-import { SETTLEMENT_PENDING } from '../ledger-public-code.js';
+import { POSTING_FROZEN, POSTING_FROZEN_MESSAGE, publicLedgerCode, SETTLEMENT_PENDING } from '../ledger-public-code.js';
 import { privateWrite } from '../route-inventory.js';
 
 /**
- * Close a spot position through the matching flatten that landed in #3249.
+ * Close a spot position: matching owns the net, trade funds the close before the engine sees it (#4591).
  *
- * Matching owns net fills. Trade does not invent a mark or a qty.
- * Flat refuses with trade.position_flat — no row, no ledger post.
- * An accepted flatten funds from the engine result, then leftover hold
- * is released through recipes.orderHoldRelease via applySubmitResult/finalize.
+ *   1. Read the account's signed net on this book from matching. Flat refuses with trade.position_flat: no row, no post.
+ *   2. Place a reduce-only market order for exactly that net through `placeOrder`, the one funded door: the row is
+ *      written, the hold is posted (a buy at its protection price x qty, a sell in base), and only then is the order
+ *      sent to the engine, as an IOC limit at the owner protection price. A refused hold sends nothing.
+ *   3. The order's qty is its own, never a sum of the engine's cancellations; fills settle and the leftover hold is
+ *      released through the same applySubmitResult/finalize path every order takes.
+ *
+ * If the position moved between the read and the engine, the engine's reduce-only check refuses a close larger than
+ * the position, and that refusal releases the hold like any rejected order.
  *
  * Installed onto TradeService.prototype so trade-service.ts never moves.
  */
@@ -56,21 +50,12 @@ export function bindCloseSpotTrade(svc: TradeService): void {
 }
 
 type CloseHost = {
-  readonly sql: Sql;
-  readonly ledger: LedgerClient;
   readonly matching: MatchingClient;
-  readonly slippageCapBps: number | null;
   readonly spotEnabled: boolean;
-  readonly futuresEnabled: boolean;
-  readonly optionsSettlementAssetLaw: string;
-  now: () => Date;
-  perks: { perksOf(userId: string): Promise<{ feeDiscountBps: number }> };
-  feeTierAt: (userId: string) => Promise<string>;
   requireMarket: (input: { symbol?: string; marketId?: string }) => Promise<Market>;
   findOrder: (orderId: string) => Promise<OrderRecord | null>;
-  assertLifecycleAction: (market: Market, action: 'PLACE', orderType?: string) => Promise<LifecycleAdmissionProof>;
-  applySubmitResult: (market: Market, orderId: string, result: EngineSubmitResult) => Promise<void>;
-  markRecoveryRequired: (orderId: string, reason: 'SUBMIT_UNKNOWN') => Promise<void>;
+  slippageCap: (marketId: string) => Promise<number | null>;
+  placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<OrderRecord>;
 };
 
 function asHost(svc: object): CloseHost {
@@ -83,25 +68,24 @@ export function sumBuyFillNotional(fills: readonly { readonly price: string; rea
 }
 
 /**
- * Unit tests in close-position.flatten-hold and slice-futures-amounts still
- * call this. The close catch does not: the engine has already printed the
- * flatten when the hold is posted, so a close never deletes its row.
- * A definite refusal is the one set in `hold-outcome.ts`, so the two never drift.
+ * Unit tests in close-position.flatten-hold and slice-futures-amounts still call this. A definite refusal is the one
+ * set in `hold-outcome.ts`, so the two never drift. The close itself now holds before the engine (`placeOrder`).
  */
 export function closeHoldFailureAction(err: unknown): 'keep_recovery' | 'delete_intent' {
   return classifyHoldPostError(err) === 'refused' ? 'delete_intent' : 'keep_recovery';
 }
 
-function flattenFromResult(result: EngineSubmitResult): { side: OrderSide; qty: Amount; price: Amount } {
-  const fillQty = result.fills.reduce((n, f) => n + parseAmount(f.qty), 0n);
-  const cancelQty = result.cancellations.reduce((n, c) => n + parseAmount(c.remainingQty), 0n);
-  const qty = fillQty + cancelQty;
-  const side = (result.fills[0]?.takerSide ?? result.resting?.side) as OrderSide | undefined;
-  if (!side || qty <= 0n) {
-    throw new TradeError('matching flatten printed no side or qty; trade does not invent a mark', 'trade.invalid_qty');
-  }
-  const price = result.fills[0] ? parseAmount(result.fills[0].price) : result.resting ? parseAmount(result.resting.price) : 0n;
-  return { side, qty, price };
+function closeOrderInput(marketId: string, clientOrderId: string, side: OrderSide, qty: Amount): PlaceOrderInput {
+  return {
+    marketId,
+    side,
+    type: 'market',
+    qty,
+    tif: 'IOC',
+    clientOrderId,
+    positionClose: true,
+    reduceOnly: true,
+  } as PlaceOrderInput;
 }
 
 export async function closeSpotPosition(svc: TradeService, principal: Principal, input: CloseSpotPositionInput): Promise<OrderRecord> {
@@ -115,107 +99,43 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
   }
 
   const market = await host.requireMarket(input);
-  assertTradable(market, {
-    futuresEnabled: host.futuresEnabled,
-    optionsSettlementLawStamped: host.optionsSettlementAssetLaw.trim().length > 0,
-    now: host.now(),
-  });
-  assertSettlementRails(market);
-  assertMarketOpen(market, host.now());
-
   const userId = principal.userId;
-  const attribution = attributionFromPrincipal(principal);
   const orderId = orderIdFor(userId, market.id, input.clientOrderId);
   const existing = await host.findOrder(orderId);
-  if (existing) return existing;
+  // A retry is the same command again: placeOrder returns the row, or resumes a hold whose reply was lost.
+  if (existing) return host.placeOrder(principal, closeOrderInput(market.id, input.clientOrderId, existing.side, existing.qty));
 
-  if (host.slippageCapBps == null || !Number.isInteger(host.slippageCapBps) || host.slippageCapBps < 1 || host.slippageCapBps > 5000) {
+  const cap = market.paper ? null : await host.slippageCap(market.id);
+  if (!market.paper && (cap == null || !Number.isInteger(cap) || cap < 1 || cap > 5000)) {
     throw new TradeError(
       'flatten has no owner protection floor (TRADE_MARKET_SLIPPAGE_CAP_BPS unset) — refuse rather than send an unbounded close',
       'trade.protection_unset',
     );
   }
 
-  // A flatten is a close, which limit-only admits (its allowed actions keep CLOSE), so no order type is passed here.
-  const lifecycleProof = await host.assertLifecycleAction(market, 'PLACE');
-  // The fee tier is read before the engine is asked: once the flatten has printed, the row must be written whatever
-  // else is down, so nothing that can fail is read between the two.
-  const feeTier = market.paper ? REGULAR_FEE_TIER : await host.feeTierAt(userId);
-  const request: MatchingCloseRequest = {
-    orderId,
-    accountId: userId,
-    lifecycleProof,
-  };
-
-  const result = await closePositionOnMatching(host.matching, market.id, request);
-
-  if (!result.accepted && result.rejected?.code === 'position_flat') {
+  const net = await readNetPositionOnMatching(host.matching, market.id, userId);
+  if (net === 0n) {
     throw new TradeError('account is flat on this book; trade does not invent a mark', 'trade.position_flat');
   }
-  if (!result.accepted) {
-    throw new TradeError(result.rejected?.message ?? 'matching refused the flatten', 'trade.invalid_qty');
-  }
-
-  const flatten = flattenFromResult(result);
-  // A BUY flatten can sweep several levels: hold the exact executed notional, not first price x qty (#4591).
-  const buyNotional = sumBuyFillNotional(result.fills);
-  const hold =
-    flatten.side === 'buy' ? { assetId: market.quoteAsset, amount: buyNotional } : holdFor(market, flatten.side, 0n as Amount, flatten.qty);
-  const perks = await host.perks.perksOf(userId);
-
-  // A market row carries no price (orders_price_shape_ck); the executed prices live in trade.fills (#4591).
-  const inserted = await host.sql<Array<{ id: string }>>`
-    INSERT INTO trade.orders (
-      id, user_id, market_id, client_order_id, side, type,
-      price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, fee_tier, seeded, lifecycle_proof,
-      session_id, api_key_id
-    ) VALUES (
-      ${orderId}, ${userId}, ${market.id}, ${input.clientOrderId},
-      ${flatten.side}, ${'market'},
-      ${null}::numeric,
-      ${formatAmount(flatten.qty)}::numeric, 'pending', ${'IOC'},
-      ${hold.assetId}, ${formatAmount(market.paper ? 0n : hold.amount)}::numeric, ${perks.feeDiscountBps}, ${feeTier},
-      ${false}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
-      ${attribution.sessionId}, ${attribution.apiKeyId}
-    )
-    ON CONFLICT (id) DO NOTHING
-    RETURNING id
-  `;
-
-  if (inserted.length === 0) {
-    const raced = await host.findOrder(orderId);
-    if (raced) return raced;
-    throw new TradeError(`order ${orderId} vanished between insert and read`, 'trade.order_not_found');
-  }
-
-  if (!market.paper && hold.amount > 0n) {
-    try {
-      await host.ledger.post(
-        withLedgerAttribution(recipes.orderHold({ orderId, userId, assetId: hold.assetId, amount: hold.amount }), attribution),
-      );
-    } catch (err) {
-      // The engine has already printed the flatten and told the makers they traded. Whatever the ledger said, the row
-      // stays so that fill can be settled or unwound; deleting it would leave the printed fill with no record at all.
-      await host.markRecoveryRequired(orderId, 'SUBMIT_UNKNOWN');
-      throw err;
-    }
-  }
-
-  await host.sql`
-    UPDATE trade.orders SET status = 'open', updated_at = now()
-     WHERE id = ${orderId} AND status = 'pending'
-  `;
-
+  const side: OrderSide = net > 0n ? 'sell' : 'buy';
+  const qty = (net > 0n ? net : -net) as Amount;
   try {
-    await host.applySubmitResult(market, orderId, result);
+    return await host.placeOrder(principal, closeOrderInput(market.id, input.clientOrderId, side, qty));
   } catch (err) {
-    await host.markRecoveryRequired(orderId, 'SUBMIT_UNKNOWN');
+    // A ledger refusal that left no row is the close's own hold, refused before the engine saw it: nothing printed,
+    // nothing held. Anything else (a row kept for recovery, an unknown outcome) is passed on unchanged.
+    if (err instanceof LedgerError && !(await host.findOrder(orderId))) throw new CloseNotFundedError(err);
     throw err;
   }
+}
 
-  const settled = await host.findOrder(orderId);
-  if (!settled) throw new TradeError(`order ${orderId} vanished during settlement`, 'trade.order_not_found');
-  return settled;
+/** The close's hold was refused before the engine: the position is untouched and nothing is held. */
+export class CloseNotFundedError extends Error {
+  constructor(readonly ledger: LedgerError) {
+    super('the close was not funded and never reached the engine');
+    this.name = 'CloseNotFundedError';
+    this.cause = ledger;
+  }
 }
 
 export function installClosePosition(ctor: typeof TradeService): void {
@@ -237,6 +157,10 @@ export interface ClosePositionRestDeps {
   closeSpotPosition: (principal: Principal, input: CloseSpotPositionInput) => Promise<OrderRecord>;
 }
 
+/** The close's hold was refused before the engine: nothing printed, nothing held. */
+export const CLOSE_NOT_FUNDED = 'trade.close_not_funded';
+export const CLOSE_NOT_FUNDED_MESSAGE =
+  'The close could not be funded, so it was not sent: nothing was traded and nothing is held. Check the balance free for this close';
 /** A close one of whose settlement posts the ledger refused by name; the printed close waits for recovery. */
 export const CLOSE_SETTLEMENT_REFUSED = 'trade.close_settlement_refused';
 export const CLOSE_SETTLEMENT_PENDING_MESSAGE =
@@ -294,9 +218,16 @@ export function attachClosePosition(app: FastifyInstance, deps: ClosePositionRes
         const status = error.code === 'trade.position_flat' ? 409 : error.code === 'trade.market_not_found' ? 404 : 400;
         return sendError(reply, status, error.code, error.message);
       }
+      if (error instanceof CloseNotFundedError) {
+        // Refused before the engine, in fixed words: the ledger's own message (a freeze's operator reason) is never sent.
+        if (publicLedgerCode(error.ledger) === POSTING_FROZEN) {
+          return sendError(reply, 503, POSTING_FROZEN, POSTING_FROZEN_MESSAGE);
+        }
+        return sendError(reply, 400, CLOSE_NOT_FUNDED, CLOSE_NOT_FUNDED_MESSAGE);
+      }
       if (error instanceof LedgerError) {
-        // Every ledger post on a close comes after the engine printed the flatten, and the row is kept
-        // recovery_required (closeSpotPosition): the close exists either way. The body is typed by what the ledger
+        // Any other ledger error on a close comes after the hold was posted: the row exists (it may have reached the
+        // engine, or is kept for recovery), so the close exists either way. The body is typed by what the ledger
         // said, in fixed words: the ledger's own message (a freeze's operator reason, an account id) is never sent.
         //   - the posting freeze, or an outcome nobody knows (a timeout, a dropped reply, a refusal raised before the
         //     key lookup such as `ledger.unauthenticated`): its settlement is pending.

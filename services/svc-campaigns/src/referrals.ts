@@ -1,5 +1,5 @@
 import type postgres from 'postgres';
-import { transaction } from '@intafaced/db';
+import { transaction, type Queryable } from '@intafaced/db';
 import { parseAmount } from '@intafaced/ledger-client';
 import { INVITEE_LIST_LIMIT, type CampaignReferral, type MyInvitee, type MyInvitees } from '@intafaced/contracts/campaigns-catalogue';
 import type { MarketNames } from './markets.js';
@@ -98,7 +98,7 @@ export class ReferralService {
     const made = await this.sql`
       INSERT INTO campaigns.referral_invitees (invitee_id, referrer_id, attached_at, campaign_id, revision, terms)
       VALUES (${input.userId.toLowerCase()}, ${input.referrerId.toLowerCase()}, ${at}, ${campaign?.id ?? null},
-        ${campaign?.revision ?? null}, ${campaign?.referral ? this.sql.json(campaign.referral as unknown as postgres.JSONValue) : null})
+        ${campaign?.revision ?? null}, ${campaign?.referral ? this.sql.json(campaign.referral) : null})
       ON CONFLICT (invitee_id) DO NOTHING`;
     return made.count > 0;
   }
@@ -173,7 +173,7 @@ export class ReferralService {
     return row ?? null;
   }
 
-  private async totals(sql: Sql, inviteeId: string): Promise<Totals> {
+  private async totals(sql: Queryable, inviteeId: string): Promise<Totals> {
     const [row] = await sql<{ verified: boolean; deposited: string; traded: string }[]>`
       SELECT bool_or(kind = 'verified') IS TRUE AS verified,
         COALESCE(sum(amount) FILTER (WHERE kind = 'deposit'), 0)::text AS deposited,

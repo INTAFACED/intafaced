@@ -49,7 +49,7 @@ function recordingSql(rows: Array<Record<string, unknown>>, calls: unknown[][]):
     calls.push(values);
     return Promise.resolve(rows);
   };
-  return fn as unknown as Sql;
+  return fn as Sql;
 }
 
 function service(rows: Array<Record<string, unknown>>, calls: unknown[][]): LoanService {

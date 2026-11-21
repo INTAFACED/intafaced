@@ -7,6 +7,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   // DATABASE_POOL_MAX is the stack's common setting, not a size invented here.
   // BANK_URL: svc-bank says which named spaces are the customer's, so a move to a space carries its lots (LB-6).
   name: 'tax',
+  // The Rust binary (crates/svc-tax), built by the stack (ensureRustBinaries); it applies its own migrations (`svc-tax migrate`).
+  rust: true,
   env: () => ({
     ...c('svc-tax', PORTS.tax),
     LEDGER_URL: urlOf('ledger'),

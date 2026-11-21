@@ -2748,7 +2748,8 @@ if (!available) {
       const both = await Promise.all([opsLog().actions(twice), opsLog().actions(twice)]);
       expect(both.map((b) => b.auditRows)).toEqual([1, 1]);
       expect(await reads()).toBe(42);
-    });
+      // 42 reads share the 8-connection pool: about 1.3 s on a quiet runner, 5.7 s on a loaded one (#8208), past the 5 s default.
+    }, 20_000);
 
     it('filters by outcome and tool, flags a page past the owner’s limit, and exports the same rows as CSV', async () => {
       const { refused } = await history();

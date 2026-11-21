@@ -54,6 +54,8 @@ export function createLoansRouter(c: BankRouterContext) {
             maxLtvBps: z.number().int(),
             marginCallLtvBps: z.number().int(),
             liquidationLtvBps: z.number().int(),
+            /** Home's margin warning level, the owner's (BANK_MARGIN_WARNING_LTV_BPS); null while it is blank. */
+            marginWarningLtvBps: z.number().int().nullable(),
             minPrincipal: amountString,
           }),
         ),
@@ -75,6 +77,8 @@ export function createLoansRouter(c: BankRouterContext) {
             // being liquidated is not a product anyone can manage.
             marginCallLtvBps: p.policy.marginCallLtvBps,
             liquidationLtvBps: p.policy.liquidationLtvBps,
+            // Blank says so: a borrower reads that no warning comes before the call, rather than finding no field.
+            marginWarningLtvBps: options.marginWarningLtvBps ?? null,
             minPrincipal: formatAmount(p.minPrincipal),
           }));
         }),

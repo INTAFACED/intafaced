@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button, Page, Tabs } from '../../shared/ui';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { t, Text } from './copy';
 import { ScheduleExecutions } from './ScheduleHistory';

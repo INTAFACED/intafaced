@@ -65,6 +65,11 @@ export interface ActivityItem {
   purchase?: true;
   /** The signed-in person's own wording for this line on the statements and reports they download. Never shown to anyone else. */
   reportDescription?: string;
+  /**
+   * Whose record the line is, when the partner bank holds the person's money and the line is the partner's own record of
+   * a move it made (svc-bank `partner-activity.ts`). Absent on a line of our own ledger.
+   */
+  heldAt?: { label: string };
 }
 
 const itemSchema = z
@@ -105,6 +110,10 @@ const itemSchema = z
       .string()
       .nullish()
       .transform((value) => (value ? value : undefined)),
+    heldAt: z
+      .object({ label: z.string().min(1) })
+      .nullish()
+      .transform((value) => (value ? { label: value.label } : undefined)),
   })
   .transform(({ note, ...item }) => (note ? { ...item, paymentNote: note } : item));
 

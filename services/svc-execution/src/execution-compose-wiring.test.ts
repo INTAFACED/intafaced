@@ -40,8 +40,8 @@ describe('execution.sor fleet compose wiring', () => {
 
   it('keeps a line that starts with Z when svc-execution is the last service', () => {
     const block = matchExecutionComposeBlock(
-      ['  svc-execution:', '    image: execution', 'Zed stays in the block', '    volume: journal', ''].join('\n'),
+      ['  svc-execution:', '    image: execution', '    Zed: stays in the block', '    volume: journal', ''].join('\n'),
     );
-    expect(block).toBe(['  svc-execution:', '    image: execution', 'Zed stays in the block', '    volume: journal', ''].join('\n'));
+    expect(block).toBe(['  svc-execution:', '    image: execution', '    Zed: stays in the block', '    volume: journal', ''].join('\n'));
   });
 });

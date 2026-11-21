@@ -1,3 +1,4 @@
+import type { Queryable } from '@intafaced/db';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
@@ -62,7 +63,7 @@ export function ownIdleRange(limits: SessionLimits, tokens: { accessTtlSeconds: 
  * one makes the account exactly the limit. Runs inside the sign-in transaction, after the users row is locked FOR UPDATE,
  * so two racing sign-ins take turns and each ends its own oldest device. Returns the ended session ids.
  */
-export async function endOldestBeyondLimit(tx: Sql, userId: string, maxConcurrent: number | null): Promise<string[]> {
+export async function endOldestBeyondLimit(tx: Queryable, userId: string, maxConcurrent: number | null): Promise<string[]> {
   if (maxConcurrent === null) return [];
   // A device is a sign-in family; its age is its first sign-in (the family's first row, live or rotated), not its
   // latest refresh, so the device signed in on longest ago ends, as Security says.

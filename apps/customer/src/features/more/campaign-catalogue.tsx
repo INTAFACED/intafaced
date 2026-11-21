@@ -3,15 +3,14 @@ import {
   CAMPAIGN_TYPES,
   CATALOGUE_CAMPAIGN_STATES,
   campaignCatalogueSchema,
-  campaignJoinResultSchema,
-  campaignReviewResultSchema,
   campaignViewSchema,
   myCampaignsSchema,
   type CampaignEligibility,
   type CampaignType,
   type CampaignView,
 } from '@intafaced/contracts/campaigns-catalogue';
-import { useApi } from '../session/session';
+import { CAMPAIGNS_PARTICIPATION_JOIN, CAMPAIGNS_PARTICIPATION_REQUEST_REVIEW } from '@intafaced/contracts/campaigns-procedures';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
@@ -19,6 +18,9 @@ import { Select } from './common';
 import { StatRow } from './depth-kit';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
 import { CampaignTasks } from './campaign-tasks';
+import { CampaignCompetition } from './campaign-competition';
+import { CampaignDraw } from './campaign-draw';
+import { CampaignPool } from './campaign-pool';
 
 /**
  * The campaign rooms read from svc-campaigns (CM-campaign-types-01, J-campaigns-01): the catalogue at /campaigns, one
@@ -38,6 +40,7 @@ const JOIN_CODES = [
   'campaigns.region_blocked',
   'campaigns.participant_unread',
   'campaigns.review_not_needed',
+  'campaigns.seats_full',
 ] as const;
 type JoinCode = (typeof JOIN_CODES)[number];
 const joinCode = (code: string | undefined): JoinCode | null =>
@@ -253,13 +256,13 @@ function CampaignBody({
   const [busy, setBusy] = useState(false);
   const join = async () => {
     setBusy(true);
-    const result = await api.mutate('campaigns', 'participation.join', { campaignId: c.id }, campaignJoinResultSchema);
+    const result = await api.call(CAMPAIGNS_PARTICIPATION_JOIN, { campaignId: c.id });
     setBusy(false);
     settle(result.ok ? null : result);
   };
   const askReview = async () => {
     setBusy(true);
-    const result = await api.mutate('campaigns', 'participation.requestReview', { campaignId: c.id }, campaignReviewResultSchema);
+    const result = await api.call(CAMPAIGNS_PARTICIPATION_REQUEST_REVIEW, { campaignId: c.id });
     setBusy(false);
     settle(result.ok ? null : result);
   };
@@ -373,6 +376,9 @@ function CampaignBody({
         <p className="muted">{t('joinNote')}</p>
       </Panel>
       {c.tasks && c.type !== 'welcome' ? <CampaignTasks campaign={c} /> : null}
+      {c.type === 'competition' ? <CampaignCompetition campaign={c} version={c.mine?.participationKey ?? 'none'} /> : null}
+      {c.type === 'draw' ? <CampaignDraw campaign={c} version={c.mine?.participationKey ?? 'none'} /> : null}
+      {c.type === 'pool' ? <CampaignPool campaign={c} version={c.mine?.participationKey ?? 'none'} /> : null}
     </>
   );
 }

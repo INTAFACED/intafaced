@@ -2,7 +2,7 @@
 // Market: live
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
-import { EDGE, fund, journeyState, signOutBrowser } from './stack.mjs';
+import { EDGE, fund, journeyState, ORIGIN, signOutBrowser } from './stack.mjs';
 import { fundedTrader, signIn, signUp } from './desk.mjs';
 import { takeBest } from './copy.mjs';
 
@@ -104,7 +104,7 @@ test(`${J} #1 adds BTC-USDT by search to a list; it appears at the end and survi
   await page.reload();
   await expect(row(page, 'BTC/USDT')).toBeVisible();
   // And on another device: a second browser context signs in and sees the same list from the account.
-  const other = await browser.newContext({ baseURL: 'http://127.0.0.1:3210' });
+  const other = await browser.newContext({ baseURL: ORIGIN });
   try {
     const second = await other.newPage();
     await signIn(second, who);
@@ -224,7 +224,7 @@ test(`${J} #3 shows the last price and change of each row live, from the stack's
   // Other files' trades on the same book move the price too: every move seen, theirs included, is held to the same mark
   // and colour below. Each trade waits for the page's next ticker read (every 5 s) to show it before the next is sent, so
   // the two moves are not folded into one read; a trade another file's trade overtook is not waited for again.
-  const traderContext = await browser.newContext({ baseURL: 'http://127.0.0.1:3210' });
+  const traderContext = await browser.newContext({ baseURL: ORIGIN });
   try {
     const trader = await fundedTrader(await traderContext.newPage(), 'wlq', '500');
     expect(fund(trader.email, 'BTC', '0.01').tx).toBeTruthy();

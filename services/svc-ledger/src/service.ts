@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import type { Queryable } from '@intafaced/db';
 import { recordOperatorAccess, type OperatorAccessEntry } from './ledger/operator-owner-balances.js';
 import type { LookupActor } from './ledger/operator-lookup.js';
 import {
@@ -116,7 +117,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   private readonly reconcileStatementTimeoutMs: number;
   private readonly clockSkewBoundMs: number | null;
   private readonly now: () => Date;
-  private readonly readDatabaseNow: (sql: Sql) => Promise<Date>;
+  private readonly readDatabaseNow: (sql: Queryable) => Promise<Date>;
   private readonly reconciliationSources: ReconciliationSources;
 
   constructor(
@@ -133,7 +134,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
       /** Null or omitted: the owner has not set a bound. Not zero. */
       clockSkewBoundMs?: number | null;
       now?: () => Date;
-      readDatabaseNow?: (sql: Sql) => Promise<Date>;
+      readDatabaseNow?: (sql: Queryable) => Promise<Date>;
       /** The outside and parity sides operator controls read; omitted, both are unset. */
       reconciliationSources?: ReconciliationSources;
     } & IdempotencyConflictOptions = {},
