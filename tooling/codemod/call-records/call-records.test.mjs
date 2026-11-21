@@ -727,6 +727,15 @@ test("portable: a door answer's Date becomes its ISO string; a mounted service's
     [...door.edits.get(join(dir, 'grants.ts')).edits.values()].map((e) => e.text),
     ['z.iso.datetime({ offset: true })', 'z.iso.datetime({ offset: true })'],
   );
+  const input = plan(
+    { grant: 'x.grant.input cannot be exported without losing meaning: input.scene (z.unknown (no shape: accepts anything))' },
+    [record],
+    { door: true },
+  );
+  assert.deepEqual(
+    input.left.map((l) => l.at),
+    ['input.scene'],
+  );
   const mounted = plan({ grant: why }, [record]);
   assert.equal(mounted.edits.size, 0);
   assert.deepEqual(
