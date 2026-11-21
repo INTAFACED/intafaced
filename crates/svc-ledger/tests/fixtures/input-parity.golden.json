@@ -223,7 +223,39 @@
     "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
     "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"uuid\",\"pattern\":\"/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/\",\"path\":[\"accountId\"],\"message\":\"Invalid UUID\"}]",
     "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received array\"}]",
-    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received object\"}]"
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reason\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received undefined\"}]",
+    "ok {\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"TEST reason for the desk\",\"revision\":0}",
+    "issues [{\"origin\":\"string\",\"code\":\"invalid_format\",\"format\":\"regex\",\"pattern\":\"/^[a-z][a-z0-9_.:-]{0,63}$/\",\"path\":[\"key\"],\"message\":\"a key is lower case: a letter, then letters, digits, _ . : or -, 64 at most\"}]",
+    "ok {\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"eleven chars\",\"revision\":0}",
+    "issues [{\"origin\":\"number\",\"code\":\"too_small\",\"minimum\":0,\"inclusive\":true,\"path\":[\"revision\"],\"message\":\"Too small: expected number to be >=0\"}]",
+    "issues [{\"expected\":\"int\",\"format\":\"safeint\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected int, received number\"}]",
+    "issues [{\"origin\":\"number\",\"code\":\"too_big\",\"maximum\":2147483646,\"inclusive\":true,\"path\":[\"revision\"],\"message\":\"Too big: expected number to be <=2147483646\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received string\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received array\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received null\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received number\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received boolean\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"value\"],\"message\":\"Too small: expected string to have >=1 characters\"}]",
+    "issues [{\"origin\":\"string\",\"code\":\"too_big\",\"maximum\":500,\"inclusive\":true,\"path\":[\"value\"],\"message\":\"Too big: expected string to have <=500 characters\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received array\"},{\"origin\":\"array\",\"code\":\"too_small\",\"minimum\":1,\"inclusive\":true,\"path\":[\"value\"],\"message\":\"Too small: expected array to have >=1 items\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"value\"],\"message\":\"Invalid input: expected string, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reason\"],\"message\":\"Invalid input: expected string, received array\"},{\"origin\":\"array\",\"code\":\"too_small\",\"minimum\":12,\"inclusive\":true,\"path\":[\"reason\"],\"message\":\"Too small: expected array to have >=12 items\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received undefined\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received null\"}]",
+    "ok {\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"TEST reason for the desk\",\"revision\":7}",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received boolean\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received array\"}]",
+    "issues [{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received object\"}]",
+    "issues [{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"accountId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"key\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"reason\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"number\",\"code\":\"invalid_type\",\"path\":[\"revision\"],\"message\":\"Invalid input: expected number, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"approvalId\"],\"message\":\"Invalid input: expected string, received undefined\"},{\"expected\":\"string\",\"code\":\"invalid_type\",\"path\":[\"operationId\"],\"message\":\"Invalid input: expected string, received undefined\"}]",
+    "issues [{\"code\":\"custom\",\"path\":[\"revision\"],\"message\":\"a key that was never set has nothing to delete\"}]",
+    "issues [{\"origin\":\"number\",\"code\":\"too_small\",\"minimum\":0,\"inclusive\":true,\"path\":[\"revision\"],\"message\":\"Too small: expected number to be >=0\"},{\"code\":\"custom\",\"path\":[\"revision\"],\"message\":\"a key that was never set has nothing to delete\"}]"
   ],
   "cases": [
     ["post", null, 0],
@@ -1631,6 +1663,529 @@
       221
     ],
     ["metadataRead", "{\"accountId\":[]}", 222],
-    ["metadataRead", "{\"accountId\":{}}", 223]
+    ["metadataRead", "{\"accountId\":{}}", 223],
+    ["metadataSet", null, 0],
+    ["metadataSet", "null", 1],
+    ["metadataSet", "7", 2],
+    ["metadataSet", "\"x\"", 3],
+    ["metadataSet", "[]", 4],
+    ["metadataSet", "{}", 224],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      225
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0,\"extra\":1}",
+      113
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"Desk Label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      226
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"dkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      226
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\" eleven chars \",\"revision\":0}",
+      227
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":-1}",
+      228
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":1.5}",
+      229
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":2147483647}",
+      230
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":\"0\"}",
+      231
+    ],
+    ["metadataSet", "{\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}", 217],
+    [
+      "metadataSet",
+      "{\"accountId\":null,\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      218
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":7,\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      219
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":true,\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      220
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      221
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      221
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":[],\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      222
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":{},\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      223
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      232
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":null,\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      233
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":7,\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      234
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":true,\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      235
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      226
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      226
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":[],\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      236
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":{},\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      237
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      238
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":null,\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      239
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":7,\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      240
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":true,\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      241
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      242
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      243
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":[],\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      244
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":{},\"reason\":\"  TEST reason for the desk  \",\"revision\":0}",
+      245
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"revision\":0}",
+      27
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":null,\"revision\":0}",
+      28
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":7,\"revision\":0}",
+      29
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":true,\"revision\":0}",
+      30
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"\",\"revision\":0}",
+      144
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"revision\":0}",
+      148
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":[],\"revision\":0}",
+      246
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":{},\"revision\":0}",
+      33
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \"}",
+      247
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":null}",
+      248
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":7}",
+      249
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":true}",
+      250
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":\"\"}",
+      231
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      231
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":[]}",
+      251
+    ],
+    [
+      "metadataSet",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"value\":\"TEST label\",\"reason\":\"  TEST reason for the desk  \",\"revision\":{}}",
+      252
+    ],
+    ["metadataDelete", null, 0],
+    ["metadataDelete", "null", 1],
+    ["metadataDelete", "7", 2],
+    ["metadataDelete", "\"x\"", 3],
+    ["metadataDelete", "[]", 4],
+    ["metadataDelete", "{}", 253],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      6
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\",\"extra\":1}",
+      113
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":0,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      254
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":-1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      255
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"   \",\"operationId\":\"o1\"}",
+      149
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo\"}",
+      150
+    ],
+    [
+      "metadataDelete",
+      "{\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      217
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":null,\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      218
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":7,\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      219
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":true,\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      220
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      221
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      221
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":[],\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      222
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":{},\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      223
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      232
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":null,\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      233
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":7,\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      234
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":true,\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      235
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      226
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      226
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":[],\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      236
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":{},\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      237
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      27
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":null,\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      28
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":7,\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      29
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":true,\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      30
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      144
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      148
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":[],\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      246
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":{},\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      33
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      247
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":null,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      248
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":7,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      6
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":true,\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      250
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":\"\",\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      231
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      231
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":[],\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      251
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":{},\"approvalId\":\"a1\",\"operationId\":\"o1\"}",
+      252
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"operationId\":\"o1\"}",
+      153
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":null,\"operationId\":\"o1\"}",
+      154
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":7,\"operationId\":\"o1\"}",
+      155
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":true,\"operationId\":\"o1\"}",
+      156
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"\",\"operationId\":\"o1\"}",
+      149
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"operationId\":\"o1\"}",
+      157
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":[],\"operationId\":\"o1\"}",
+      158
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":{},\"operationId\":\"o1\"}",
+      159
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\"}",
+      160
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":null}",
+      161
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":7}",
+      162
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":true}",
+      163
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"\"}",
+      164
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      150
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":[]}",
+      165
+    ],
+    [
+      "metadataDelete",
+      "{\"accountId\":\"22222222-2222-4222-8222-222222222222\",\"key\":\"desk.label\",\"reason\":\"TEST reason for the desk\",\"revision\":1,\"approvalId\":\"a1\",\"operationId\":{}}",
+      166
+    ]
   ]
 }

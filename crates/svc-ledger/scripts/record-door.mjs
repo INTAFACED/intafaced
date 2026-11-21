@@ -47,7 +47,9 @@ const { userCopy } = await import(`${SVC}user-copy.ts`);
 const { operatorTxGetInputSchema } = await import(`${SVC}ledger/operator-tx-get.ts`);
 const { operatorTraceInputSchema } = await import(`${SVC}ledger/operator-trace.ts`);
 const { operatorTxListInputSchema, operatorAccountSearchInputSchema } = await import(`${SVC}ledger/operator-desk.ts`);
-const { accountMetadataReadInputSchema } = await import(`${SVC}ledger/operator-account-metadata.ts`);
+const { accountMetadataReadInputSchema, accountMetadataSetInputSchema, accountMetadataDeleteInputSchema } = await import(
+  `${SVC}ledger/operator-account-metadata.ts`
+);
 // The history doors' schemas as the service runs them: `history.ts` takes the ledger client as the service resolves it
 // (its built `dist`), so its account schema is a different object from the one `types.ts` above loads.
 const { historyInputSchema, historyPageInputSchema } = await import(`${SVC}ledger/history.ts`);
@@ -81,12 +83,16 @@ const INPUTS = {
   accountSearch: operatorAccountSearchInputSchema,
   stats: z.object({}).strict(),
   metadataRead: accountMetadataReadInputSchema,
+  // The metadata writes parse inside the handler, after the token (`parseOrRefuse`), on the body with the path's id.
+  metadataSet: accountMetadataSetInputSchema,
+  metadataDelete: accountMetadataDeleteInputSchema,
 };
 
 /** Refines, by their source as tsx loads it: the Rust door runs each by this name (`src/refines.rs`). */
 const REFINES = {
   'q=>!q.from||!q.to||Date.parse(q.from)<Date.parse(q.to)': 'from_before_to',
   'v=>BigInt(v)<=INT8_MAX': 'seq_within_int8',
+  'r=>r>=1': 'revision_set',
 };
 /** `superRefine`s, by the schema that carries them (their check's source is zod's own wrapper). */
 const SUPER_REFINES = new Map([
@@ -280,6 +286,15 @@ const VALID = {
   accountSearch: { prefix: ' user:2222 ', after: ID },
   stats: {},
   metadataRead: { accountId: ID },
+  metadataSet: { accountId: ID, key: 'desk.label', value: 'TEST label', reason: '  TEST reason for the desk  ', revision: 0 },
+  metadataDelete: {
+    accountId: ID,
+    key: 'desk.label',
+    reason: 'TEST reason for the desk',
+    revision: 1,
+    approvalId: 'a1',
+    operationId: 'o1',
+  },
 };
 const EXTRA = {
   post: [
@@ -355,6 +370,21 @@ const EXTRA = {
   ],
   accountSearch: [{ prefix: 'nobody:x' }, { prefix: 'user:' }, { prefix: 'user:x', after: 'not-a-uuid' }],
   trace: [{ businessKey: '   ' }, { businessKey: 'k'.repeat(513) }],
+  metadataSet: [
+    { ...VALID.metadataSet, key: 'Desk Label' },
+    { ...VALID.metadataSet, key: `d${'k'.repeat(64)}` },
+    { ...VALID.metadataSet, reason: ' eleven chars ' },
+    { ...VALID.metadataSet, revision: -1 },
+    { ...VALID.metadataSet, revision: 1.5 },
+    { ...VALID.metadataSet, revision: 2_147_483_647 },
+    { ...VALID.metadataSet, revision: '0' },
+  ],
+  metadataDelete: [
+    { ...VALID.metadataDelete, revision: 0 },
+    { ...VALID.metadataDelete, revision: -1 },
+    { ...VALID.metadataDelete, approvalId: '   ' },
+    { ...VALID.metadataDelete, operationId: 'o'.repeat(129) },
+  ],
   unfreeze: [
     { approvalId: '', operationId: 'o' },
     { approvalId: 'a', operationId: 'o', confirmOperatorId: 'c'.repeat(129) },

@@ -377,7 +377,60 @@
           "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/"
         }
       ]
-    }
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["accountId", 93],
+        ["key", 95],
+        ["value", 96],
+        ["reason", 97],
+        ["revision", 98]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "regex",
+          "src": "/^[a-z][a-z0-9_.:-]{0,63}$/",
+          "msg": "a key is lower case: a letter, then letters, digits, _ . : or -, 64 at most"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 500 }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 12 }, { "k": "max_length", "n": 500 }] },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }, { "k": "lt", "v": 2147483646, "incl": true }] },
+    {
+      "t": "object",
+      "shape": [
+        ["accountId", 93],
+        ["key", 95],
+        ["reason", 97],
+        ["revision", 100],
+        ["approvalId", 101],
+        ["operationId", 102]
+      ],
+      "catchall": "strict"
+    },
+    {
+      "t": "number",
+      "checks": [
+        { "k": "int" },
+        { "k": "gt", "v": 0, "incl": true },
+        { "k": "lt", "v": 2147483646, "incl": true },
+        { "k": "refine", "id": "revision_set", "msg": "a key that was never set has nothing to delete" }
+      ]
+    },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 128 }] },
+    { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 128 }] }
   ],
   "inputs": {
     "post": 0,
@@ -397,6 +450,8 @@
     "txList": 78,
     "accountSearch": 87,
     "stats": 91,
-    "metadataRead": 92
+    "metadataRead": 92,
+    "metadataSet": 94,
+    "metadataDelete": 99
   }
 }
