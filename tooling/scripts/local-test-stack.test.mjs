@@ -933,11 +933,31 @@ try {
       if (statSync(full).isDirectory()) return f === 'vendor' || f === 'node_modules' ? [] : walk(full);
       return /\.(ts|tsx)$/.test(f) && !/\.(test|pw|spec)\./.test(f) ? [full] : [];
     });
+  const loaded = new Map();
+  const contractsFile = (file) => {
+    if (!loaded.has(file)) loaded.set(file, tsImport(`../../packages/contracts/src/${file}.ts`, import.meta.url));
+    return loaded.get(file);
+  };
   const used = new Set();
   for (const f of walk(join(repo, 'apps', 'customer', 'src'))) {
     const src = readFileSync(f, 'utf8');
     for (const m of src.matchAll(/\b(?:query|mutate|plain)\(\s*'([a-z0-9]+)'/g)) used.add(m[1]);
     for (const m of src.matchAll(/'\/api\/([a-z0-9]+)/g)) used.add(m[1]);
+    // A call by its record (`api.call(P2P_DISPUTES_OPEN, …)`, `callAs(api, RECORD, …)`) names no module in its text: the
+    // record carries it. Each record the file imports from contracts and passes as an argument is loaded for its module.
+    const imported = new Map();
+    for (const m of src.matchAll(/^import \{([^}]*)\} from '@intafaced\/contracts\/([a-z0-9-]+)';/gm))
+      for (const spec of m[1].split(',').map((x) => x.trim()).filter((x) => x && !x.startsWith('type '))) {
+        const [name, local = name] = spec.split(/\s+as\s+/);
+        imported.set(local, { file: m[2], name });
+      }
+    const code = src.replace(/^import [^;]*?;/gm, '');
+    for (const m of code.matchAll(/(?<!typeof\s*)[(,]\s*([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b/g)) {
+      const from = imported.get(m[1]);
+      if (!from) continue;
+      const record = (await contractsFile(from.file))[from.name];
+      if (record?.transport && record.module) used.add(record.module);
+    }
   }
   used.delete('v1'); // public exchange REST, served by svc-trade
   used.add('trade');
