@@ -1040,6 +1040,14 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
     summary: 'The on-chain deposits the venue has seen for your account: confirming, credited, or not credited and why',
   },
   {
+    name: 'venueDepositRoutes',
+    method: 'GET',
+    path: '/api/v1/venue/deposit-routes',
+    product: 'accounts',
+
+    summary: 'How the venue takes each asset it lists as a deposit: the network and its own words for the route, or none offered',
+  },
+  {
     name: 'venueWithdrawalTerms',
     method: 'GET',
     path: '/api/v1/venue/withdrawal-terms',

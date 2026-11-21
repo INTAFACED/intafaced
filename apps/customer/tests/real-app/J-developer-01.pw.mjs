@@ -56,7 +56,7 @@ const FLOOR = {
     'Assistant tools': 'DV-tools-02',
     'API explorer': null,
     'Machine-readable specs': null,
-    'Developer support': 'DV-portal-03',
+    'Developer support': null,
     'Service status': null,
   },
 };

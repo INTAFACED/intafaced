@@ -103,11 +103,13 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // LOCAL TEST only (same profile): the embedded self-custody wallet's provider (J-wallet-22) is the labelled TEST
       // provider this stack runs (local-test-wallet-provider.mjs), on loopback. Production stays blank and Create my wallet
       // refuses wallet.embedded_provider_unset. `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=off` on a restart leaves it blank, so
-      // that refusal can be seen too (J-wallet-22 #1).
+      // that refusal can be seen too (J-wallet-22 #1); `=no-export` sets TEST:test-no-export, the same TEST provider
+      // standing in for one whose plan offers no key export (J-wallet-22 #5).
       ...(process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET === 'off'
         ? {}
         : {
-            PROTOCOL_EMBEDDED_WALLET_PROVIDER: 'TEST:test',
+            PROTOCOL_EMBEDDED_WALLET_PROVIDER:
+              process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET === 'no-export' ? 'TEST:test-no-export' : 'TEST:test',
             PROTOCOL_EMBEDDED_WALLET_TEST_URL: `http://127.0.0.1:${PORTS['test-wallet-provider']}`,
           }),
       // LOCAL TEST only: `LOCAL_STACK_PROTOCOL_NETWORKS=published` on a restart serves the TEST network registry beside this
