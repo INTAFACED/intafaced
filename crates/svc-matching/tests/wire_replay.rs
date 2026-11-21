@@ -37,10 +37,12 @@ use service_kit::s2s_verify::BodyBind;
 use service_kit::server::Request;
 use service_kit::time::Instant;
 use sha2::Sha256;
+use svc_matching::approval::{Stub, Unwired};
 use svc_matching::book::types::{EngineOrder, OrderType, Side, Tif};
 use svc_matching::book::wire::to_wire;
 use svc_matching::door::{DoorConfig, MatchingDoor, Outcome, ROUTES, Slice};
 use svc_matching::engine::{EngineParts, MatchingEngine, MemoryEventBus};
+use svc_matching::env::parse_operator_ids;
 use svc_matching::journal::io::{EngineJournal as _, MemoryJournal};
 use svc_matching::journal::record::JournalCommand;
 use svc_matching::journal::replay::MemorySnapshotSink;
@@ -240,6 +242,7 @@ fn engine(setup: &str) -> MatchingEngine {
         snapshot_every: 0,
         sink: Box::new(MemorySnapshotSink::default()),
         enabled: true,
+        spread_fills: true,
     });
     engine.recover().unwrap();
     engine
@@ -254,6 +257,19 @@ fn door(setup: &str) -> MatchingDoor {
             edge_secret: (setup == "set").then(|| EDGE_SECRET.to_owned()),
             edge_key: None,
             clock: now_ms,
+            approvals: if setup == "set" {
+                Box::new(Stub {
+                    approver_id: CONFIRM.to_owned(),
+                    requester_id: OPERATOR.to_owned(),
+                })
+            } else {
+                Box::new(Unwired)
+            },
+            operator_ids: if setup == "set" {
+                parse_operator_ids(Some(&format!("{OPERATOR}, {CONFIRM}")))
+            } else {
+                Vec::new()
+            },
         },
         engine(setup),
     )

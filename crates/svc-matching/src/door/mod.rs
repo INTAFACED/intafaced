@@ -14,6 +14,7 @@
 //! Past those the call is its slice's: [`Outcome::Owed`] names which. Nothing here reads or moves a book.
 
 pub mod book;
+pub mod spreads;
 
 use std::sync::{LazyLock, Mutex, PoisonError};
 
@@ -381,6 +382,10 @@ pub struct DoorConfig {
     pub edge_key: Option<EdgeKey>,
     /// Milliseconds since the epoch.
     pub clock: fn() -> i64,
+    /// Spends identity's two-person approvals (`IDENTITY_URL`); [`crate::approval::Unwired`] without one.
+    pub approvals: Box<dyn crate::approval::ApprovalConsumer + Send + Sync>,
+    /// `MATCHING_OPERATOR_IDS`, as `parseOperatorIds` reads it.
+    pub operator_ids: Vec<String>,
 }
 
 /// The door.
@@ -672,17 +677,27 @@ impl MatchingDoor {
             Ok(parsed) => parsed,
             Err(refused) => return answer(refused),
         };
-        if route.slice != Slice::Book {
-            return Outcome::Owed(route.slice);
-        }
         let param = |name: &str| {
             params
                 .iter()
                 .find(|(n, _, _)| *n == name)
                 .map_or_else(String::new, |(_, _, v)| v.clone())
         };
-        let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
-        book::serve(route, req, &param, &parsed, &mut engine)
+        match route.slice {
+            Slice::Book => {
+                let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
+                book::serve(route, req, &param, &parsed, &mut engine)
+            }
+            Slice::Spreads => {
+                let mut engine = self.engine.lock().unwrap_or_else(PoisonError::into_inner);
+                let approvals = spreads::Approvals {
+                    consumer: self.cfg.approvals.as_ref(),
+                    operator_ids: &self.cfg.operator_ids,
+                };
+                spreads::serve(route, req, &param, &parsed, &mut engine, &approvals)
+            }
+            other => Outcome::Owed(other),
+        }
     }
 
     /// The engine, for what runs beside the doors (the cold start, the tests).

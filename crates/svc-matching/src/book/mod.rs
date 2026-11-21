@@ -3,6 +3,7 @@
 
 pub mod order_book;
 pub mod rules;
+pub mod spread;
 pub mod types;
 pub mod wire;
 

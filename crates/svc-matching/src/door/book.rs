@@ -2,7 +2,7 @@
 //! engine's call and writes the engine's answer as the TypeScript writes it.
 //!
 //! An order that names a part only a later slice serves (a stop or a trigger, a dated expiry, an iceberg, a peg, all-
-//! or-none, an auction, an option or a combo) is that slice's: the door owes it and the engine never sees it.
+//! or-none, an auction) is that slice's: the door owes it and the engine never sees it.
 
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
@@ -11,12 +11,14 @@ use service_kit::server::{Request, Response};
 
 use super::{Outcome, Route, Slice, published_limit, query};
 use crate::book::QueueLevel;
-use crate::book::types::{CancelReason, EngineAmend, EngineOrder, Opt, OrderType, Side, Tif};
+use crate::book::types::{
+    CancelReason, ComboLeg, EngineAmend, EngineOrder, Opt, OrderType, Side, Tif,
+};
 use crate::engine::reconcile::{CounterpartOrder, reconcile};
 use crate::engine::{EngineError, Flags, MatchingEngine};
 use crate::errors;
 
-fn ok(body: Json) -> Outcome {
+pub(super) fn ok(body: Json) -> Outcome {
     Outcome::Answer(Response {
         status: 200,
         body: body.compact(),
@@ -27,21 +29,21 @@ fn not_found(code: &str, copy: &str) -> Outcome {
     Outcome::Answer(errors::plain(404, code, &errors::user_copy(copy)))
 }
 
-fn failed(e: &EngineError) -> Outcome {
+pub(super) fn failed(e: &EngineError) -> Outcome {
     Outcome::Answer(errors::thrown(&e.to_string()))
 }
 
-fn text(v: &Value) -> String {
+pub(super) fn text(v: &Value) -> String {
     v.as_str().unwrap_or("").to_owned()
 }
 
 /// A checked decimal string (`parseAmount`); the schema has already refused anything else.
-fn amount(v: &Value) -> Result<Amount, String> {
+pub(super) fn amount(v: &Value) -> Result<Amount, String> {
     parse_amount(v.as_str().unwrap_or(""))
 }
 
 /// `value == null ? null : parseAmount(value)`.
-fn nullish_amount(v: &Value) -> Result<Option<Amount>, String> {
+pub(super) fn nullish_amount(v: &Value) -> Result<Option<Amount>, String> {
     match v {
         Value::Undefined | Value::Null => Ok(None),
         _ => amount(v).map(Some),
@@ -99,12 +101,6 @@ pub fn submit_owed_by(body: &Value) -> Option<Slice> {
     {
         return Some(Slice::Liquidity);
     }
-    if ["strike", "expiry", "combo", "legs"]
-        .iter()
-        .any(|k| present(k))
-    {
-        return Some(Slice::Spreads);
-    }
     None
 }
 
@@ -142,14 +138,41 @@ fn to_engine_order(body: &Value) -> Result<EngineOrder, String> {
     order.min = opt_amount(body.get("min"))?;
     order.max = opt_amount(body.get("max"))?;
     order.min_notional = opt_amount(body.get("minNotional"))?;
+    order.strike = opt_amount(body.get("strike"))?;
+    order.expiry = match body.get("expiry") {
+        Value::Undefined => Opt::Absent,
+        Value::Null => Opt::Null,
+        v => Opt::Some(text(v)),
+    };
+    order.combo = match body.get("combo") {
+        Value::Undefined => Opt::Absent,
+        v => Opt::Some(is_true(v)),
+    };
+    order.legs = match body.get("legs") {
+        Value::Undefined => Opt::Absent,
+        Value::Null => Opt::Null,
+        Value::Array(legs) => Opt::Some(
+            legs.iter()
+                .map(|leg| {
+                    Ok(ComboLeg {
+                        name: leg.get("name").as_str().map(str::to_owned),
+                        ratio: nullish_amount(leg.get("ratio"))?,
+                        strike: nullish_amount(leg.get("strike"))?,
+                        expiry: leg.get("expiry").as_str().map(str::to_owned),
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?,
+        ),
+        _ => return Err("legs".to_owned()),
+    };
     Ok(order)
 }
 
-fn proof(body: &Value) -> Option<Json> {
+pub(super) fn proof(body: &Value) -> Option<Json> {
     body.get("lifecycleProof").to_json()
 }
 
-fn flags_fields(f: Flags) -> Vec<(String, Json)> {
+pub(super) fn flags_fields(f: Flags) -> Vec<(String, Json)> {
     vec![
         ("venueHalted".into(), Json::Bool(f.venue_halted)),
         ("halted".into(), Json::Bool(f.halted)),
@@ -161,7 +184,7 @@ fn flags_fields(f: Flags) -> Vec<(String, Json)> {
     ]
 }
 
-fn ladder(levels: &[(Amount, Amount)]) -> Json {
+pub(super) fn ladder(levels: &[(Amount, Amount)]) -> Json {
     Json::Array(
         levels
             .iter()
@@ -248,7 +271,7 @@ fn board(engine: &MatchingEngine) -> Json {
     ])
 }
 
-fn limit_of(req: &Request<'_>) -> usize {
+pub(super) fn limit_of(req: &Request<'_>) -> usize {
     query(req.url)
         .iter()
         .find(|(k, _)| k == "limit")
@@ -343,6 +366,7 @@ pub fn serve(
                         Some(t) => Some(Tif::parse(t).ok_or("tif")?),
                     },
                     expire_at: None,
+                    ..EngineAmend::default()
                 })
             })();
             let cmd = match cmd {

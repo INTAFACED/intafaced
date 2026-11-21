@@ -11,7 +11,12 @@
 //! The `book` slice adds the order book (`book`), the engine over it (`engine`: the journal before every move, the
 //! order events, the cold start, reconcile), and the doors that reach it (`door::book`). The `serve` slice adds the
 //! binary that serves them.
+//!
+//! The `spreads` slice adds options and combos to the book (`book::order_book`'s option and combo layers), owner-listed
+//! spreads with their own books (`book::spread`, the spread layer, the engine's listings and `spreadFilled`), the
+//! identity approval a listing spends (`approval`), and the spread doors (`door::spreads`).
 
+pub mod approval;
 pub mod book;
 pub mod door;
 pub mod engine;
