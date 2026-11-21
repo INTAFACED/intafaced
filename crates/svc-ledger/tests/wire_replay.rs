@@ -184,6 +184,8 @@ fn door(mode: Option<Mode>, keyring: &[KeyringEntry]) -> LedgerDoor {
         // The TypeScript replay's `sql` stub throws this on every query.
         store: Store::Down("replay stub: sql".to_owned()),
         service_name: "svc-ledger".to_owned(),
+        indexer_url: None,
+        fetch: std::sync::Arc::new(service_kit::http::UreqFetch::new()),
     })
     .unwrap()
 }

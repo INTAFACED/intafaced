@@ -97,6 +97,9 @@ fn door(env: &LedgerEnv, store: Store) -> Result<LedgerDoor, String> {
         clock: system_seconds,
         store,
         service_name: str_of("SERVICE_NAME"),
+        // `handleS2sPortfolio` reads `process.env.INDEXER_URL`; nothing in `env.ts` holds it.
+        indexer_url: std::env::var("INDEXER_URL").ok(),
+        fetch: Arc::new(UreqFetch::new()),
     })
 }
 

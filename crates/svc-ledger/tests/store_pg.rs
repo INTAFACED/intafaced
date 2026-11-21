@@ -615,6 +615,8 @@ fn served(db: &TestDb) -> App<LedgerDoor> {
             clock: system_seconds,
             store: db.store(),
             service_name: "svc-ledger".to_owned(),
+            indexer_url: None,
+            fetch: std::sync::Arc::new(service_kit::http::UreqFetch::new()),
         })
         .unwrap(),
         service_name: "svc-ledger".to_owned(),

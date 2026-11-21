@@ -17,6 +17,12 @@ The `store` slice is ported. It added:
 - `src/boot.rs` and `src/main.rs`: the chain-tip check, the custody boot check, the startup freeze, and the outbox recovery at boot and every five seconds.
 - `tests/store_pg.rs`: `scripts/migrate.test.ts` case for case, and the boot and status doors, on a real Postgres.
 
+The `balances` slice is ported. It added:
+
+- `src/balances.rs`: `balance`, `balances`, `portfolio`, `txByKey` and `txById`, answered by the door once their input parses. Each read runs `PostgresLedger`'s query: an untouched account reads as zero without a row being made, purpose is matched after its trim, and a booked transaction whose claim (`ledger_posted_keys`) no longer matches is refused with `ledger.posted_claim_mismatch`.
+- `portfolio`'s chain half: `INDEXER_URL` (read from the process, as `handleS2sPortfolio` reads it; `env.ts` does not hold it) and the indexer's `positions` record, through the door's one `Fetch`. Anything it cannot verify is named absent.
+- `tests/balances_pg.rs`: the TypeScript cases for these doors (`s2s-http.test.ts`, `s2s-tx-by-key.test.ts`, `s2s-tx-by-id.test.ts`, the claim check of `ledger/tx-hash-bind.test.ts`) through the door, on a real Postgres.
+
 Left to later slices:
 
 - The recovery's relays are empty. `posting` adds the `ledgerTxPosted` relay and `freeze` the `ledgerFreezeUpdated` one. Until then a committed intent, the startup freeze's included, waits unsent.

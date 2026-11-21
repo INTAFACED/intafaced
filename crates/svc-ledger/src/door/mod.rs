@@ -9,8 +9,8 @@
 //! 4. the door's first input check, where the handler parses its body, path or query with one schema before it
 //!    reaches the ledger (`schemas.json`).
 //!
-//! Past those the call is its slice's: [`Outcome::Owed`] names which. The door itself reads the book only for
-//! `/health` and `/ready` (the `store` slice, `crate::status`).
+//! Past those the call is its slice's: a ported slice answers it (`/health` and `/ready`, the `store` slice's
+//! `crate::status`; the reads of `balances`, `crate::balances`), and [`Outcome::Owed`] names the slice that owes the rest.
 
 mod callers;
 
@@ -389,6 +389,10 @@ pub struct DoorConfig {
     pub store: crate::db::Store,
     /// `SERVICE_NAME`, as `/health` names it.
     pub service_name: String,
+    /// `process.env.INDEXER_URL`: where `portfolio` reads a 0x account's chain positions.
+    pub indexer_url: Option<String>,
+    /// The wire every outgoing call goes through.
+    pub fetch: std::sync::Arc<dyn service_kit::http::Fetch>,
 }
 
 /// The door.
@@ -632,6 +636,22 @@ impl LedgerDoor {
         }
     }
 
+    /// A service door's call once its input parses: the ported slices answer it, the rest are owed.
+    fn past_the_door(&self, route: &Route, door: &str, input: &Value) -> Outcome {
+        match route.slice {
+            Slice::Balances => answer(crate::balances::respond(
+                &crate::balances::Reads {
+                    store: &self.cfg.store,
+                    indexer_url: self.cfg.indexer_url.as_deref(),
+                    fetch: self.cfg.fetch.as_ref(),
+                },
+                door,
+                input,
+            )),
+            slice => Outcome::Owed(slice),
+        }
+    }
+
     /// `registerS2sHttp`'s `authenticate`, then the door's input.
     fn service(
         &self,
@@ -679,7 +699,7 @@ impl LedgerDoor {
             Body::Parsed(j) => Value::from_json(j),
         };
         match parse(name, value) {
-            Ok(Parsed::Ok(_)) => Outcome::Owed(route.slice),
+            Ok(Parsed::Ok(input)) => self.past_the_door(route, door, &input),
             Ok(Parsed::Issues(issues)) => {
                 answer(errors::http_error(&Failure::Zod(schema::message(&issues))))
             }
