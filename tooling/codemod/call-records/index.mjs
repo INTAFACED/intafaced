@@ -182,7 +182,7 @@ function plan(opts) {
 }
 
 /** The input argument of a site, and whether it is no input at all (`undefined`, `{}`, or absent). */
-const inputArg = (s) => s.node.arguments[s.shape === 'founderCall' ? 4 : 2];
+const inputArg = (s) => (s.shape === 'desk-read' ? s.inputProp?.value : s.node.arguments[s.shape === 'founderCall' ? 4 : 2]);
 function noInput(s) {
   const a = inputArg(s);
   return !a || (a.type === 'Identifier' && a.name === 'undefined') || (a.type === 'ObjectExpression' && a.properties.length === 0);
@@ -335,6 +335,7 @@ function build(opts, planned) {
 
 /** The schema a caller parses the answer with, or undefined. */
 function schemaArgOf(s) {
+  if (s.shape === 'desk-read') return undefined;
   const a = s.node.arguments;
   return s.shape === 'founderCall' ? (s.reader ? undefined : a[5]?.arguments?.[0]) : a[3];
 }
@@ -397,6 +398,15 @@ function rewriteSite(changes, s, name, spec, takesNone) {
     f.schemas ??= new Map();
     if (!f.schemas.has(schemaArg.name)) f.schemas.set(schemaArg.name, new Set());
     f.schemas.get(schemaArg.name).add(name);
+  }
+  if (s.shape === 'desk-read') {
+    // `module: 'x', ... procedure: 'y'` becomes `...readOf(RECORD)` where `procedure` was; the record names both.
+    const props = s.obj.properties;
+    const i = props.indexOf(s.moduleProp);
+    changes.edit(s.file, s.moduleProp.start, props[i + 1] ? props[i + 1].start : s.moduleProp.end, '');
+    changes.edit(s.file, n.start, n.end, `...readOf(${name})`);
+    changes.imp(s.file, spec, name);
+    return;
   }
   const input = takesNone ? 'undefined' : text(p, inputArg(s));
   if (s.shape === 'query' || s.shape === 'mutate') {
