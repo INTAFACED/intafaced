@@ -444,7 +444,7 @@ const keyrings = new WeakMap();
  * The S2S env for one service. Unset or `off` adds nothing, so the shared secret stays the only form (the default, and
  * what the journeys run). `dual` gives every S2S service the same public keyring and its own signing key: each one
  * signs with its key and still accepts the shared secret, so svc-ledger binds callers by key and refuses a
- * shared-secret post of a key-only recipe (services/svc-ledger/CALLER-BINDING.md). `keypair` is refused: the local
+ * shared-secret post of a key-only recipe (crates/svc-ledger/CALLER-BINDING.md). `keypair` is refused: the local
  * fund and seed scripts sign with the shared secret.
  */
 export function s2sEnv(secrets, name, mode = process.env.LOCAL_STACK_S2S) {
@@ -743,7 +743,6 @@ function ensureNatsBinary() {
 const BACKEND_PKGS = [
   'svc-edge',
   'svc-identity',
-  'svc-ledger',
   'svc-bank',
   'svc-trade',
   'svc-pay',
@@ -1152,7 +1151,7 @@ function javaBin() {
   return path.join(ensureToolchain(javaTools()).JAVA_HOME, 'bin', 'java');
 }
 
-// ── Rust services (svc-tax, svc-academy) ───────────────────────────────────
+// ── Rust services (svc-tax, svc-academy, svc-ledger) ───────────────────────────────────
 
 /** The stack's Rust services: each `local-stack-services/<name>.mjs` that says `rust: true` runs `crates/svc-<name>`. */
 function rustServices() {
@@ -1177,7 +1176,7 @@ function crateAndPathDeps(dir, seen = new Set()) {
 
 /**
  * A hash of everything a Rust service's binary is built from: the workspace manifest, lockfile and toolchain, the crate,
- * and each crate it names by path (svc-academy and svc-tax both build on `crates/service-kit`).
+ * and each crate it names by path (every Rust service builds on `crates/service-kit`).
  */
 export function rustBinInputs(name, repo = REPO) {
   const walk = (dir) =>
@@ -1327,7 +1326,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
 // one per core (they were 19 runs of about a second each, one after another).
 async function migrate(secrets, schemas = SCHEMAS) {
   await inPool(schemas, os.availableParallelism(), (s) =>
-    // A Rust service (svc-tax, svc-academy) is a binary that applies its own schema's migrations (`svc-<name> migrate`);
+    // A Rust service (svc-tax, svc-academy, svc-ledger) is a binary that applies its own schema's migrations (`svc-<name> migrate`);
     // the rest are Node packages.
     rustServices().includes(serviceOfSchema(s))
       ? runPnpmAsync(['migrate'], `migrate-${s}`, { DATABASE_URL: dbUrl(`svc_${s}`, secrets) }, rustBin(serviceOfSchema(s)))
@@ -1452,7 +1451,7 @@ function commonEnv(secrets, name, port) {
     EDGE_PRINCIPAL_SECRET: secrets.edgePrincipal,
     INTERNAL_SERVICE_SECRET: secrets.internal,
     // S2S_AUTH_MODE stays unset here unless LOCAL_STACK_S2S=dual (s2sEnv): svc-ledger then accepts this shared
-    // secret and counts each post as unbound. See services/svc-ledger/CALLER-BINDING.md.
+    // secret and counts each post as unbound. See crates/svc-ledger/CALLER-BINDING.md.
     ...s2sEnv(secrets, name),
     INTERNAL_SERVICE_BODY_BIND: 'accept-both',
     JWT_ACCESS_SECRET: secrets.jwt,
@@ -1907,7 +1906,7 @@ async function startNodeService(def) {
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
   // A Java service (svc-fix) runs its shaded jar (ensureFixJar) on a Java runtime (javaBin); a Rust one (svc-tax,
-  // svc-academy) runs its binary (ensureRustBinaries); every other one is Node.
+  // svc-academy, svc-ledger) runs its binary (ensureRustBinaries); every other one is Node.
   // A Node service records which of its own files ran, for the touched-journeys map (service-reach.mjs).
   const node = !def.java && !def.rust ? nodeServiceReach(codeReachDir(STATE), def.name, env) : null;
   const argv = def.java

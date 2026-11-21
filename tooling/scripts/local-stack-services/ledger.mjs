@@ -15,6 +15,9 @@ function outsideSnapshot() {
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'ledger',
+  // The Rust binary (crates/svc-ledger), built by the stack (ensureRustBinaries); it applies its own migrations
+  // (`svc-ledger migrate`).
+  rust: true,
   env: () => ({
     ...c('svc-ledger', PORTS.ledger),
     DATABASE_URL: dbUrl('svc_ledger', secrets),

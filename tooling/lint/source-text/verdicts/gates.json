@@ -111,28 +111,6 @@
   },
   {
     "file": "tooling/scripts/local-test-gates.test.mjs",
-    "target": "../../services/svc-ledger/src/ledger/action-approval-consume.ts",
-    "verdict": "rewrite",
-    "asserts": "The posting-freeze approval hash the stack signs is the one svc-ledger recomputes.",
-    "guard": {
-      "kind": "test",
-      "ref": "tooling/scripts/local-test-gates.test.mjs#freeze consume changed"
-    },
-    "why": "Calls svc-ledger's ledgerActionPayloadHash for freeze and unfreeze and requires the proposals' hashes to equal it."
-  },
-  {
-    "file": "tooling/scripts/local-test-gates.test.mjs",
-    "target": "../../services/svc-ledger/src/operator-http.ts",
-    "verdict": "rewrite",
-    "asserts": "svc-ledger's freeze and thaw doors consume exactly the posting-freeze proposals, bound to the version the ledger reports.",
-    "guard": {
-      "kind": "test",
-      "ref": "tooling/scripts/local-test-gates.test.mjs#unfreeze consume changed"
-    },
-    "why": "Mounts svc-ledger's operator routes with a ledger reporting a version and a recording consumer, POSTs /operator/freeze and /operator/unfreeze with an MFA admin:treasury token, and requires each consume request to equal the proposal's."
-  },
-  {
-    "file": "tooling/scripts/local-test-gates.test.mjs",
     "target": "../../services/svc-identity/src/auth/action-approval-audience.ts",
     "verdict": "rewrite",
     "asserts": "Identity holds ledger.freeze and ledger.unfreeze approvals for founders, as the posting-freeze proposals assume.",
