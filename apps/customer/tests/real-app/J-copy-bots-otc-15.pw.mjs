@@ -293,11 +293,11 @@ test(`${J} #7 copies a lead's grid bot: the same range and a snapshot id; later 
   const trader = state('trader');
   await signIn(page, trader);
   await page.goto(`/trade/copy/${leadRef}`);
-  await page.getByRole('button', { name: 'Copy this grid', exact: true }).click(UNBUILT);
+  await page.getByRole('button', { name: 'Copy this grid' }).click(UNBUILT);
   const leadBot = await makeGrid(lead, `${J}-7-lead-${state('tag')}`);
-  await page.getByRole('dialog').getByLabel('Investment (USDT)', { exact: true }).fill('300');
+  await page.getByRole('dialog').getByLabel('Investment (USDT)').fill('300');
   const answer = page.waitForResponse((res) => res.url().includes('bots.copyGrid'));
-  await page.getByRole('dialog').getByRole('button', { name: 'Copy grid', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Copy grid' }).click();
   const copied = (await (await answer).json()).result.data;
   expect([copied.lowerPrice, copied.upperPrice]).toEqual([leadBot.lowerPrice, leadBot.upperPrice]);
   expect(copied.snapshotId).toMatch(/^[\w:.-]{8,}$/);
@@ -316,6 +316,6 @@ test(`${J} #8 a lead's futures liquidation on a copied pair: the follower positi
 }) => {
   await signIn(page, state('trader'));
   await page.goto('/trade/copy?tab=follows');
-  const grid = page.getByRole('grid', { name: 'My follows', exact: true });
-  await expect(grid.getByText('Not applicable (spot)', { exact: true }).first()).toBeVisible(UNBUILT);
+  const grid = page.getByRole('grid', { name: 'My follows' });
+  await expect(grid.getByText('Not applicable (spot)').first()).toBeVisible(UNBUILT);
 });
