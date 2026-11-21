@@ -375,9 +375,19 @@ export function RoutedReview({
     if (!chosen || busy) return;
     setBusy(true);
     try {
+      // The poll's answer may be a read that failed or is older than an approval just signed: Confirm asks the venue once
+      // more before it asks the person to sign an approval they may already hold.
       if (!approved) {
-        setStep('approval');
-        return;
+        const fresh = carries ? await venue.builderFeeApproval(owner, undefined, chosen.venueId) : null;
+        approval.reload();
+        const now = approvalState(carries, fee, {
+          approved: fresh?.ok ? fresh.data.value : null,
+          failed: fresh !== null && !fresh.ok,
+        });
+        if (now !== 'approved' && now !== 'not_needed') {
+          setStep('approval');
+          return;
+        }
       }
       await order();
     } finally {
