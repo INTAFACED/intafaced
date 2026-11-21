@@ -41,6 +41,12 @@
       "cache": false,
       "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
     },
+    "@intafaced/customer#test": {
+      "dependsOn": ["^build", "@intafaced/db#build"],
+      "outputs": ["coverage/**"],
+      "cache": false,
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+    },
     "@intafaced/svc-matching#test": {
       "dependsOn": ["^build", "@intafaced/sbe-codec#build:jar"],
       "outputs": ["coverage/**"],
@@ -193,6 +199,7 @@
         "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
+        "$TURBO_ROOT$/services/svc-market/**",
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "$TURBO_ROOT$/services/svc-ws/**",
@@ -222,6 +229,7 @@
         "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
+        "$TURBO_ROOT$/services/svc-market/**",
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "$TURBO_ROOT$/services/svc-ws/**",

@@ -174,6 +174,15 @@ const GRID_CODES = {
   'trade.bots_grid_withdraw_not_permitted': true,
 } as const satisfies Record<GridErrorCode, true>;
 
+/**
+ * svc-market's signal publisher, imported at run time: its exported refusal codes. The path is a URL rather than a static
+ * specifier only so this app's type program does not pull a services/ file in; the values are the module's real exports.
+ */
+const PUBLISHER_URL = new URL('../../../../../../services/svc-market/src/signals/signal-publisher.ts', import.meta.url).href;
+const PUBLISHER_CODES = Object.values((await import(PUBLISHER_URL)) as Record<string, unknown>).filter(
+  (value): value is string => typeof value === 'string' && value.startsWith('market.'),
+);
+
 /** The signal calls the rooms make; each record's refusals are the codes svc-market answers it with. */
 const SIGNAL_RECORDS = [
   MARKET_SIGNALS_ARCHIVE,
@@ -209,6 +218,9 @@ describe('roomRefusal', () => {
     );
     expect(codes.length).toBeGreaterThan(8);
     for (const code of new Set(codes)) if (!SIGNAL_INTERNAL.has(code)) expect(KNOWN_ROOM_CODES, code).toContain(code);
+    // And the publisher's own named codes, which the records may not all declare.
+    expect(PUBLISHER_CODES.length).toBeGreaterThan(8);
+    for (const code of PUBLISHER_CODES) expect(KNOWN_ROOM_CODES, code).toContain(code);
   });
   it('maps every copy and algo code the service throws', () => {
     const copyCodes = Object.keys(COPY_CODES);

@@ -8,7 +8,7 @@
       "kind": "test",
       "ref": "apps/customer/src/screens/trade/copybots/refusals.test.ts#maps every code the signal calls refuse with"
     },
-    "why": "Reads the refusals of the six market.signals records svc-market mounts (mountRecord), keeps the same code prefixes and the publisher's three internal codes out, and checks each against KNOWN_ROOM_CODES."
+    "why": "Imports the publisher at run time and checks each of its exported market. codes, and the refusals of the six market.signals records svc-market mounts (same prefixes, the publisher's three internal codes out), against KNOWN_ROOM_CODES."
   },
   {
     "file": "apps/customer/src/screens/trade/copybots/refusals.test.ts",
