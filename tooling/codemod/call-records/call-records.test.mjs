@@ -9,7 +9,7 @@ import { answerChecks, Changes, pruneImports, pruneSchemas, recordName, rewriteS
 import { applyEdits, freeNames, load, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
 import { closureOf } from './closure.mjs';
-import { CALL_METHOD, doublesIn } from './doubles.mjs';
+import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
 import { armsOf, callsOf } from './door.mjs';
 import { canon, doorTree, treeOf } from './door-check.mjs';
 import { samplesFor } from './samples.mjs';
@@ -107,6 +107,36 @@ test("a test's API client double gets a call that sends the record to its own qu
     ['query', 'notify', 'notify.list', { limit: 1 }, 'schema', { signal: 's' }],
     ['mutate', 'notify', 'notify.list', { id: 'x' }, 'schema', undefined],
   ]);
+});
+
+test('a useApi mock with only mutate (or only query) gets a call to it, and the other kind is refused as before', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'b.test.tsx');
+  writeFileSync(
+    file,
+    [
+      "vi.mock('../session/session', () => ({ useApi: () => ({ mutate: async () => 1 }) }));",
+      "vi.mock('./reads', () => ({ useApi: () => ({ query: async () => 2 }) }));",
+      'const hook = { mutate: () => 3 };',
+      '',
+    ].join('\n'),
+  );
+  assert.equal(doublesIn(file).out.length, 2, "an object with mutate that isn't a useApi mock is left");
+  const strip = (m) =>
+    m
+      .replace(/^call\(\s*this:[^\n]*\n/, 'call(\n')
+      .replace(/: \{ kind[^}]*\}/, '')
+      .replace(/\?: unknown/g, '')
+      .replace(/,$/, '');
+  const sent = [];
+  const writes = new Function('m', `return { mutate: (...a) => (m.push(a), 'm'), ${strip(callMethodFor(['mutate']))} };`)(sent);
+  const record = { kind: 'mutation', module: 'quant', path: 'preview.act', output: 'schema' };
+  assert.equal(writes.call(record, { room: 'editor' }), 'm');
+  assert.deepEqual(sent, [['quant', 'preview.act', { room: 'editor' }, 'schema', undefined]]);
+  assert.throws(() => writes.call({ ...record, kind: 'query' }), /no query/);
+  const reads = new Function(`return { query: () => 'q', ${strip(callMethodFor(['query']))} };`)();
+  assert.equal(reads.call({ ...record, kind: 'query' }), 'q');
+  assert.throws(() => reads.call(record), /no mutate/);
 });
 
 test("a schema the caller's own function builds is an answer check, so its call stays", () => {
