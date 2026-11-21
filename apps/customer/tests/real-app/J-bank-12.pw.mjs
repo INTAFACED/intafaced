@@ -3,7 +3,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN } from './admin.mjs';
 import { api, fund, journeyState, stepAccount } from './stack.mjs';
 import { trpcError } from './answers.mjs';
-import { signIn, signUp, verify } from './desk.mjs';
+import { pictureFromTop, signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-12, in the running app (docs/roadmap/journeys.json): I look at overdraft, personal loans and the credit card
 // (labelled previews). One test per step, titled "J-bank-12 #<n>", run in order on one fresh, verified TEST account that
@@ -168,6 +168,7 @@ test(`${J} #2 presses Apply: the typed Preview refusal, no record stored and no 
 
 test(`${J} #3 opens the unsecured loan schedule and changes the repayment date: the Preview refusal, and the missed-payment policy reads "not set"`, async ({
   page,
+  stepPicture,
 }) => {
   await signIn(page, who());
   const before = await holdings();
@@ -190,6 +191,7 @@ test(`${J} #3 opens the unsecured loan schedule and changes the repayment date: 
   await expect(button, 'no date chosen, nothing to send').toBeDisabled();
   await page.getByLabel('New repayment date', { exact: true }).fill('2027-01-15');
   await refused(page, button, { procedure: 'loans.changeRepaymentDate', engine: 'bank.loan_schedule', action: 'change_repayment_date' });
+  await pictureFromTop(page, stepPicture);
   expect(await holdings(), 'nothing stored and no balance changed').toEqual(before);
 });
 
@@ -224,6 +226,7 @@ test(`${J} #4 opens the credit-card application and rules: Submit shows the Prev
 
 test(`${J} #5 opens the revolving credit page over test data: a labelled preview, and the fraud-score page on the ops side says the same`, async ({
   page,
+  stepPicture,
   founders,
 }) => {
   await signIn(page, who());
@@ -248,6 +251,7 @@ test(`${J} #5 opens the revolving credit page over test data: a labelled preview
     engine: 'bank.revolving_credit',
     action: 'borrow',
   });
+  await pictureFromTop(page, stepPicture);
   expect(await holdings(), 'no credit line and no balance changed').toEqual(before);
 
   // The ops side: the card fraud risk page is the same labelled preview over TEST rows.
