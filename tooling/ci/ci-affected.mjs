@@ -113,11 +113,14 @@ export function rustCrates(root = fileURLToPath(new URL('../..', import.meta.url
  * service's records reach no crate, so a change to them runs no Rust job.
  */
 const RUST_READS = new Set(['docker-compose.apps.yml']);
+/** Source the Rust ledger's recorded tables come from (crates/svc-ledger/scripts/record-posting.mjs, checked in the Rust job). */
+const RUST_READS_UNDER = ['packages/ledger-client/src/'];
 const RECORDS_FILE = /^packages\/[^/]+\/procedures\/([^/]+)\.schema\.json$/;
 /** A file the Rust job judges: a Rust file, a file the crates' tests read, or anything in a TypeScript service a crate replaces. */
 export const reachesRust = (file, crates = rustCrates()) =>
   isRustFile(file) ||
   RUST_READS.has(posix(file)) ||
+  RUST_READS_UNDER.some((dir) => posix(file).startsWith(dir)) ||
   crates.includes(RECORDS_FILE.exec(posix(file))?.[1] ?? '') ||
   crates.some((name) => posix(file).startsWith(`services/${name}/`));
 /** What defines the Rust job (its steps, and the `rust:check` script it runs): a change to one runs it too. */

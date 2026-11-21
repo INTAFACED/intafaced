@@ -11,7 +11,7 @@
  * before anything posts.
  */
 import { LedgerError, parseAmount, type Amount, type LedgerTx } from '@intafaced/ledger-client';
-import type { PostCaller } from './caller-binding.js';
+import type { PostCaller } from '@intafaced/ledger-client/gate';
 
 export const WITHDRAW_FEE_UNBOUND_CODE = 'ledger.withdraw_fee_unbound';
 const FEE_REASONS = new Set(['withdraw.held', 'withdraw.settled', 'withdraw.reversed']);

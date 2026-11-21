@@ -396,6 +396,23 @@ jobs:
           plant 'clippy warning' $'#[test]\nfn planted_warning() {\n    let v = vec![1];\n    assert_eq!(v.len(), 1);\n}' 'clippy::useless-vec. implied by .-D warnings'
           plant 'failing test' $'#[test]\nfn planted_failure() {\n    assert_eq!(svc_tax::SERVICE, "planted");\n}' 'test planted_failure ... FAILED' planted_failure
           rm crates/svc-tax/tests/planted.rs
+      # The Rust ledger's posting tables and door callers are recorded from packages/ledger-client/src/gate (who may post
+      # what, which recipe has which legs, who may call each door). A gate change whose recorded tables were not rewritten
+      # fails here, and the check is shown to fail on a planted grant before it is trusted.
+      - name: The ledger's recorded gate tables match packages/ledger-client
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter "@intafaced/ledger-client^..." build
+          TZ=UTC node --import tsx crates/svc-ledger/scripts/record-posting.mjs --check
+          gate=packages/ledger-client/src/gate/caller-allowlist.ts
+          sed -i "s#^  'svc-academy': {#  'svc-academy': {\n    deposit: g('ledger', 'planted'),#" "$gate"
+          if TZ=UTC node --import tsx crates/svc-ledger/scripts/record-posting.mjs --check > "$RUNNER_TEMP/planted-gate.log" 2>&1; then
+            cat "$RUNNER_TEMP/planted-gate.log"; echo "::error::record-posting --check passed a planted grant"; exit 1
+          fi
+          grep -q 'stale: crates/svc-ledger/src/posting/recorded.rs' "$RUNNER_TEMP/planted-gate.log" \
+            || { cat "$RUNNER_TEMP/planted-gate.log"; echo "::error::record-posting --check failed the planted grant, but not for it"; exit 1; }
+          git checkout -- "$gate"
+          echo "record-posting --check failed the planted grant, as it must"
 
   build:
     name: Typecheck & build

@@ -16,7 +16,7 @@ import {
   userAvailable,
   type PostRequest,
   type RecipeName,
-} from '@intafaced/ledger-client';
+} from '../index.js';
 
 export const RECIPE_REQUIRED_CODE = 'ledger.recipe_required';
 

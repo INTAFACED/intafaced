@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatAmount, parseAmount as amt, recipes, type PostRequest } from '@intafaced/ledger-client';
-import { LEDGER_POST_ALLOWLIST, grantFor } from './caller-allowlist.js';
-import { judgeCallerPost } from './caller-binding.js';
+import { LEDGER_POST_ALLOWLIST, grantFor, judgeCallerPost } from '@intafaced/ledger-client/gate';
 
 const MAKER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 

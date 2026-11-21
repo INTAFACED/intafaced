@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { serviceCallSigner } from '../../../../packages/contracts/src/service-auth-http.ts';
 import { createServiceSigner, parseKeyring } from '../../../../packages/contracts/src/service-keys.ts';
-import { LEDGER_CALLER_SERVICES } from '../../../../services/svc-ledger/src/caller-allowlist.ts';
+import { LEDGER_CALLER_SERVICES } from '../../../../packages/ledger-client/src/gate/caller-allowlist.ts';
 
 const ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 const BINARY = `${ROOT}target/debug/svc-ledger`;
