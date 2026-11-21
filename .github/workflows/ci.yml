@@ -362,6 +362,19 @@ jobs:
           node-version-file: .node-version
       - name: Install the pinned toolchain
         run: rustup toolchain install && rustc --version && cargo clippy --version
+      # The service database is thrown away with the job, so it skips crash durability (fsync, synchronous_commit,
+      # full_page_writes), which no test exercises: a test can't crash the server. Each database test makes and migrates
+      # its own database, and those writes waited on the disk: locally svc-ledger's freeze_pg took 61s with it, 2.6s without.
+      - name: Test Postgres skips crash durability
+        run: |
+          psql "$TEST_DATABASE_URL" -qc 'ALTER SYSTEM SET fsync = off' -c 'ALTER SYSTEM SET synchronous_commit = off' \
+            -c 'ALTER SYSTEM SET full_page_writes = off' -tAc 'SELECT pg_reload_conf()'
+          for _ in 1 2 3 4 5; do
+            got=$(psql "$TEST_DATABASE_URL" -tAc "SELECT string_agg(name || '=' || setting, ' ' ORDER BY name) FROM pg_settings WHERE name IN ('fsync', 'synchronous_commit', 'full_page_writes')")
+            [ "$got" = 'fsync=off full_page_writes=off synchronous_commit=off' ] && { echo "$got"; exit 0; }
+            sleep 1
+          done
+          echo "::error::Postgres settings did not change: $got"; exit 1
       - name: rust:check
         run: pnpm rust:check
       # Every run also proves the check can fail: rust:check must fail, for the planted reason, on a clippy warning
