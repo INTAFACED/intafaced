@@ -53,7 +53,8 @@ const noCallByName = {
       },
       Property(node) {
         const key = keyName(node);
-        if (key === 'procedure' && isString(node.value)) {
+        // `procedure: ''` names no call (an unknown tool's empty result), so there is nothing to name by record.
+        if (key === 'procedure' && isString(node.value) && node.value.value !== '') {
           context.report({ node, message: `\`procedure:\` names a call by a string: ${FIX}` });
           return;
         }

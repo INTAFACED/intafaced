@@ -64,7 +64,7 @@ export function findSites(repo) {
         const entry = key === 'procedure' && !desk ? opsEntry(p, n) : undefined;
         if (desk) out.push({ file, line: line(n), node: n, shape: 'desk-read', ...desk });
         else if (entry) out.push({ file, line: line(n), node: n, shape: 'ops-entry', ...entry });
-        else if (key === 'procedure' && isString(n.value))
+        else if (key === 'procedure' && isString(n.value) && n.value.value !== '')
           out.push({
             file,
             line: line(n),
