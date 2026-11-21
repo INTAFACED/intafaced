@@ -167,15 +167,15 @@ fn own_agent_used(
 }
 
 /// \`OwnCaps\`: what a hold of an own agent is checked against.
-struct OwnCaps {
-    per_call: Amount,
-    per_session: Amount,
-    per_period: Amount,
-    period: String,
+pub(crate) struct OwnCaps {
+    pub(crate) per_call: Amount,
+    pub(crate) per_session: Amount,
+    pub(crate) per_period: Amount,
+    pub(crate) period: String,
 }
 
 /// \`readOwnCaps\`: the agent's own cap per session and the person's caps for it, or none when any is unset.
-fn read_own_caps(
+pub(crate) fn read_own_caps(
     tx: &mut impl GenericClient,
     owner: &str,
     agent: &str,

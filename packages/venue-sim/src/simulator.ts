@@ -1324,6 +1324,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
       // The simulator's own rule (`place`): an order that would cross this account's own resting order cancels the resting one.
       selfTrade: { known: true, value: 'cancel_resting' },
       marginTiers: published(m.kind === 'perpetual' ? m.marginTiers : undefined),
+      // One rate only where the market has no tiers: with tiers, a position's rate is its tier's.
+      maintenanceMarginRate: published(m.kind === 'perpetual' && !m.marginTiers ? m.maintenanceMarginRate : undefined),
       collateral: published(m.collateral),
     }));
     return this.asOf(list);

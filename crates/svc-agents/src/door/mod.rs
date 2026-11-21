@@ -40,6 +40,7 @@ use crate::gateway::desk::GatewaySlice;
 use crate::gateway::readiness::{self, ReadyInput};
 use crate::metering::Metering;
 use crate::runtime::Runtime;
+use crate::team::Team;
 
 /// A query answers GET, a mutation POST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,6 +282,7 @@ pub struct DoorConfig {
     pub background: crate::background::Settings,
     /// The advisors' curriculum, holdings, prices and switches (`advisors`).
     pub advisors: Advisors,
+    pub team: Team,
 }
 
 pub struct AgentsDoor {
@@ -300,6 +302,7 @@ pub struct AgentsDoor {
     factories: Factories,
     background: crate::background::Settings,
     advisors: Advisors,
+    team: Team,
 }
 
 /// The system clock.
@@ -346,6 +349,7 @@ impl AgentsDoor {
             factories: Factories::unwired(),
             background: config.background,
             advisors: config.advisors,
+            team: config.team,
         })
     }
 
@@ -434,6 +438,16 @@ impl AgentsDoor {
                     rt: &self.runtime,
                     advisors: &self.advisors,
                     jurisdiction: &self.jurisdiction,
+                },
+            ),
+            Slice::Team => crate::team::slice::handle(
+                ctx,
+                &crate::team::slice::Deps {
+                    store: &self.store,
+                    gateway: &self.gateway,
+                    m: &self.metering,
+                    rt: &self.runtime,
+                    team: &self.team,
                 },
             ),
             other => Err(not_ported(other)),

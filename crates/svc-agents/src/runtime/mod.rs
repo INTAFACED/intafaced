@@ -380,6 +380,22 @@ pub fn open_session(x: &Rt<'_>, user_id: &str, agent_id: &str) -> Result<Session
     insert_session(x, user_id, &guardrail, true)
 }
 
+/// `openOwnSession`: a session of a person's own agent, bound to the guardrail its builder made (`own.<agent id>`).
+pub fn open_own_session(
+    x: &Rt<'_>,
+    user_id: &str,
+    guardrail: &Guardrail,
+) -> Result<SessionRecord, RunError> {
+    if !guardrail.agent_id.starts_with("own.") {
+        return Err(agent_not_found(
+            format!("\"{}\" is not an own agent", guardrail.agent_id),
+            "agents.error.route_not_found",
+            vec![audit::param("task", guardrail.agent_id.clone())],
+        ));
+    }
+    insert_session(x, user_id, guardrail, true)
+}
+
 fn insert_session(
     x: &Rt<'_>,
     user_id: &str,
