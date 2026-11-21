@@ -329,6 +329,11 @@ export function plan(skipped, recordFiles, { door = false } = {}) {
         }
         continue;
       }
+      // A door's input is its own zod tree (`schemas.json`), held to the record part for part: it keeps its z.unknown().
+      if (door && side === 'input' && f.construct === UNKNOWN) {
+        left.push({ record: name, at: f.at, why: "the door's input runs z.unknown() here, and a door record's input is the door's" });
+        continue;
+      }
       if (f.construct === DATE && !(door && side === 'output')) {
         left.push({
           record: name,
