@@ -17,9 +17,9 @@ import {
 } from './queries';
 import type { Source } from './source';
 
-const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./__fixtures__/${name}`, import.meta.url), 'utf8')) as unknown;
-const MARKETS = fixture('markets.json') as Array<Record<string, unknown> & { symbol: string }>;
-const TICKERS = fixture('tickers.json') as Record<string, Record<string, unknown>>;
+const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./__fixtures__/${name}.json`, import.meta.url), 'utf8')) as unknown;
+const MARKETS = fixture('markets') as Array<Record<string, unknown> & { symbol: string }>;
+const TICKERS = fixture('tickers') as Record<string, Record<string, unknown>>;
 
 // 2026-10-13 12:30:00 UTC, the middle of an hour.
 const NOW = Date.UTC(2026, 9, 13, 12, 30, 0);
