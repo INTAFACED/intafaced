@@ -127,56 +127,67 @@ pub fn open(
 }
 
 /// One transaction at `isolation`: committed when `f` succeeds, rolled back when it fails.
-pub fn transaction<T, E: From<StoreError>>(
+pub fn transaction<T>(
     pool: &Pool,
     isolation: IsolationLevel,
-    f: impl FnOnce(&mut Transaction<'_>) -> Result<T, E>,
-) -> Result<T, E> {
-    let mut conn = pool.get().map_err(StoreError::from)?;
-    let client: &mut Client = conn.client().map_err(StoreError::from)?;
+    f: impl FnOnce(&mut Transaction<'_>) -> Result<T, StoreError>,
+) -> Result<T, StoreError> {
+    let mut conn = pool.get()?;
+    let client: &mut Client = conn.client()?;
     let mut tx = client
         .build_transaction()
         .isolation_level(isolation)
-        .start()
-        .map_err(StoreError::from)?;
+        .start()?;
     let out = f(&mut tx)?;
-    tx.commit().map_err(StoreError::from)?;
+    tx.commit()?;
     Ok(out)
 }
 
-/// A failure that may carry the server's SQLSTATE.
-pub trait Sqlstate {
-    fn sqlstate(&self) -> Option<&str>;
+/// A transaction body's error that may carry a database failure, so a serialization failure or a deadlock can be
+/// told apart from the body's own refusal.
+pub trait Retryable {
+    fn store(&self) -> Option<&StoreError>;
 }
 
-impl Sqlstate for StoreError {
-    fn sqlstate(&self) -> Option<&str> {
-        self.code.as_deref()
+impl Retryable for StoreError {
+    fn store(&self) -> Option<&StoreError> {
+        Some(self)
     }
 }
 
-/// `transaction(sql, fn, { isolation })` from `@intafaced/db`: one transaction at `isolation`, run again (up to five
-/// attempts, full-jitter backoff) when it fails with a serialization failure (40001) or a deadlock (40P01); any other
-/// failure stands.
-pub fn transaction_retrying<T, E: From<StoreError> + Sqlstate>(
+/// `transaction(sql, fn, { isolation, maxAttempts })` (`@intafaced/db`): `f` in one transaction, run again from the
+/// start on a serialization failure (40001) or a deadlock (40P01), at most `attempts` times; any other failure, and
+/// the body's own refusals, end it at once. Rolled back whenever `f` fails.
+pub fn transaction_retrying<T, E: Retryable + From<StoreError>>(
     pool: &Pool,
     isolation: IsolationLevel,
+    attempts: u32,
     mut f: impl FnMut(&mut Transaction<'_>) -> Result<T, E>,
 ) -> Result<T, E> {
-    const MAX_ATTEMPTS: u32 = 5;
     let mut attempt = 1;
     loop {
-        match transaction(pool, isolation, &mut f) {
-            Err(e) if matches!(e.sqlstate(), Some("40001" | "40P01")) && attempt < MAX_ATTEMPTS => {
-                // `Math.random() * 2 ** attempt * 5` milliseconds.
-                let ceiling = (1u64 << attempt) * 5;
-                let mut b = [0u8; 8];
-                let jitter =
-                    getrandom::fill(&mut b).map_or(0, |()| u64::from_le_bytes(b) % ceiling);
-                std::thread::sleep(std::time::Duration::from_millis(jitter));
+        let out: Result<T, E> = (|| {
+            let mut conn = pool.get().map_err(StoreError::from)?;
+            let client: &mut Client = conn.client().map_err(StoreError::from)?;
+            let mut tx = client
+                .build_transaction()
+                .isolation_level(isolation)
+                .start()
+                .map_err(StoreError::from)?;
+            let out = f(&mut tx)?;
+            tx.commit().map_err(StoreError::from)?;
+            Ok(out)
+        })();
+        match out {
+            Err(e)
+                if attempt < attempts
+                    && e.store()
+                        .and_then(|s| s.code.as_deref())
+                        .is_some_and(|c| c == "40001" || c == "40P01") =>
+            {
                 attempt += 1;
             }
-            out => return out,
+            other => return other,
         }
     }
 }

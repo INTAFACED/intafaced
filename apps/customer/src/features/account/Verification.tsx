@@ -33,6 +33,7 @@ import {
   type VerificationJournal,
   type VerificationOriginal,
   type VerificationRecord,
+  type VerificationStatus,
 } from './verification-guards';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
@@ -101,7 +102,7 @@ export function Verification() {
   const privateVisible = privateContext.current.api === api && privateContext.current.userId === userId;
   const clientVersion = useRef({ api, value: 0 });
   if (clientVersion.current.api !== api) clientVersion.current = { api, value: clientVersion.current.value + 1 };
-  const { resource, reload } = useResource(
+  const { resource, reload } = useResource<VerificationStatus>(
     (signal) =>
       userId
         ? api.query('identity', 'kyc.status', { limit }, verificationStatus(userId, limit), { signal })

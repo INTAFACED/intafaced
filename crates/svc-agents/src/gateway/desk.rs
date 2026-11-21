@@ -59,6 +59,19 @@ fn rate_json(price: Option<&Price>) -> (Json, Json) {
 }
 
 impl GatewaySlice {
+    /// No provider and an empty routing table, as the wire replay builds the TypeScript router's gateway.
+    pub fn unwired(fee_asset_id: &str) -> GatewaySlice {
+        GatewaySlice {
+            gateway: Arc::new(Gateway::new(
+                Vec::new(),
+                super::routing::RoutingTable::default(),
+            )),
+            fee_asset_id: fee_asset_id.to_owned(),
+            metering_enabled: None,
+            window_minutes: 15,
+        }
+    }
+
     /// Reads `route_overrides` again and lays them over the configured table (`RouteTableSync.refresh`).
     pub fn refresh(&self, store: &Store) -> Result<Vec<RouteOverride>, StoreError> {
         let overrides = with_client(store.pool()?, changes::read_overrides)?;

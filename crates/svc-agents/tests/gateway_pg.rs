@@ -94,13 +94,8 @@ impl Desk {
                 metering_enabled: Some(true),
                 window_minutes: 15,
             },
-            ready: ReadyInput {
-                provider_mode: "mock".to_owned(),
-                metering_enabled: true,
-                product_agents_registered: 0,
-                fleet: Json::Null,
-                live_planes: Json::Null,
-            },
+            ready: ReadyInput::unwired(),
+            metering: svc_agents::metering::Metering::unwired("USDC", 15),
         })
         .unwrap();
         door.gateway().refresh(door.store()).unwrap();

@@ -9,6 +9,7 @@
     reason = "a test helper: each test file uses part of it, and a failure is the point"
 )]
 
+pub mod door;
 pub mod operator;
 
 use std::process::Command;

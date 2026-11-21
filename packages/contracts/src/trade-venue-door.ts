@@ -1009,12 +1009,46 @@ export const spotFeeReviewSchema = z.object({ legs: z.array(spotFeeLegSchema) })
  */
 const convertAssetAmount = z.object({ asset: z.string(), amount: decimalSchema });
 
+/** A cash convert's first leg as the partner records it (J-cex-spot-11 #11): svc-bank `convertCash.leg`, passed on. */
+export const venueConvertCashLegSchema = z.object({
+  legKey: z.string(),
+  cash: z.string(),
+  coin: z.string(),
+  paid: decimalSchema,
+  delivered: decimalSchema,
+  rate: decimalSchema,
+  venue: z.object({ venueId: z.string(), owner: z.string() }),
+  state: z.enum(['sending', 'delivered']),
+  moveId: z.string(),
+  movedAt: isoTime,
+  deliveredAt: isoTime.nullable(),
+  label: z.string(),
+  test: z.boolean(),
+});
+
+/** `/venue/convert/accept`: the quote's one venue order for the wallet, after a cash convert's partner leg (#11). */
+export const venueConvertAcceptSchema = preparedAnswerSchema.extend({ cashLeg: venueConvertCashLegSchema.optional() });
+
 export const venueConvertPairsSchema = z.object({
   venueId: z.string(),
   test: z.boolean(),
   paused: z.boolean(),
   assets: z.array(z.string()),
   restricted: z.array(z.string()),
+  /** Cash currencies the partner converts through a coin for this person now (#11); `cashReason` says why none is. */
+  cash: z
+    .array(
+      z.object({
+        asset: z.string(),
+        via: z.string(),
+        rate: decimalSchema,
+        available: decimalSchema.nullable(),
+        label: z.string(),
+        test: z.boolean(),
+      }),
+    )
+    .default([]),
+  cashReason: z.string().nullable().default(null),
   pairs: z.array(
     z.object({
       symbol: z.string(),
@@ -1029,7 +1063,16 @@ export const venueConvertPairsSchema = z.object({
 });
 
 /** `/venue/convert/route`: the one direct market a pair converts through. */
-export const venueConvertRouteSchema = z.object({ kind: z.literal('direct'), symbol: z.string(), side: z.enum(['buy', 'sell']) });
+export const venueConvertRouteSchema = z.union([
+  z.object({ kind: z.literal('direct'), symbol: z.string(), side: z.enum(['buy', 'sell']) }),
+  /** Two linked legs (#11): the partner's cash for `via`, then `via` for the coin on `symbol`. */
+  z.object({
+    kind: z.literal('linked'),
+    symbol: z.string(),
+    side: z.enum(['buy', 'sell']),
+    cash: z.object({ asset: z.string(), via: z.string(), label: z.string(), test: z.boolean() }),
+  }),
+]);
 
 /** `/venue/convert/quote`: holds nothing and locks nothing (`held: false`). */
 export const venueConvertQuoteSchema = z.object({
@@ -1062,6 +1105,11 @@ export const venueConvertQuoteSchema = z.object({
   held: z.literal(false),
   freshUntil: isoTime,
   createdAt: isoTime,
+  /** A cash convert's first leg (#11): the partner's cash for `coin`, which the venue order then spends. */
+  cashLeg: z
+    .object({ cash: z.string(), coin: z.string(), rate: decimalSchema, coinSpend: decimalSchema, label: z.string(), test: z.boolean() })
+    .nullable()
+    .default(null),
 });
 
 /** One conversion, its paid and received amounts read from the venue's own fills. */
@@ -1083,6 +1131,13 @@ export const venueConversionSchema = z.object({
   fills: z.number().int(),
   filledAt: isoTime.nullable(),
   acceptedAt: isoTime,
+  /** A cash convert (#11) is one record of two linked legs: the partner's, then the venue order (null until signed). */
+  legs: z
+    .object({
+      cash: z.union([venueConvertCashLegSchema, z.object({ unread: z.literal(true) })]),
+      venue: z.object({ state: z.string(), paid: convertAssetAmount, received: convertAssetAmount }).nullable(),
+    })
+    .optional(),
 });
 
 /** `/venue/convert/history`. */

@@ -72,7 +72,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
-import { StepUpCheckError } from '@intafaced/contracts';
+import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, StepUpCheckError } from '@intafaced/contracts';
 import {
   VenueRefusalError,
   hasSubAccountReads,
@@ -967,19 +967,34 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
   });
 
   // Convert on the customer's own venue account (src/venue/venue-convert.ts, J-cex-spot-11), on the primary venue.
+  /** The edge-signed principal of this request, byte for byte, for svc-bank to answer the person's own cash leg (#11). */
+  const forwardedOf = (req: FastifyRequest): Record<string, string> => {
+    const h = (name: string) => {
+      const v = req.headers[name];
+      return Array.isArray(v) ? v[0] : v;
+    };
+    const raw = h(EDGE_PRINCIPAL_HEADER);
+    const sig = h(EDGE_SIGNATURE_HEADER);
+    if (!raw || !sig) return {};
+    return { [EDGE_PRINCIPAL_HEADER]: raw, [EDGE_SIGNATURE_HEADER]: sig, 'x-intafaced-region': h('x-intafaced-region') ?? 'XX' };
+  };
   const converts = (): VenueConverts => {
     if (!deps.converts) throw new UserVenueDoorError('venue Convert is not wired on this deployment', 'trade.venue_convert_unwired', 503);
     return deps.converts;
   };
   app.get('/api/v1/venue/convert/pairs', privateRead, async (req, reply) => {
     if (!(await admit(req, reply, 'trade:read'))) return;
-    return answer(reply, async (d) => presentPairs(await converts().pairs(d)));
+    return answer(reply, async (d) => presentPairs(await converts().forPerson(forwardedOf(req)).pairs(d)));
   });
   app.get<{ Querystring: { from?: string; to?: string } }>('/api/v1/venue/convert/route', privateRead, async (req, reply) => {
     if (!(await admit(req, reply, 'trade:read'))) return;
     return answer(reply, async (d) => {
-      const { market, side } = await converts().route(d, req.query.from ?? '', req.query.to ?? '');
-      return { kind: 'direct', symbol: market.symbol, side };
+      const { market, side, cash } = await converts()
+        .forPerson(forwardedOf(req))
+        .route(d, req.query.from ?? '', req.query.to ?? '');
+      return cash
+        ? { kind: 'linked', symbol: market.symbol, side, cash: { asset: cash.cash, via: cash.coin, label: cash.label, test: cash.test } }
+        : { kind: 'direct', symbol: market.symbol, side };
     });
   });
   app.post('/api/v1/venue/convert/quote', privateWrite, async (req, reply) => {
@@ -987,13 +1002,15 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     if (!principal) return;
     return answer(reply, async (d) => {
       const b = body<{ owner?: string; from?: string; to?: string; amount?: bigint; quoteKey?: string }>(req);
-      const quote = await converts().quote(d, principal, {
-        owner: b.owner ?? '',
-        from: b.from ?? '',
-        to: b.to ?? '',
-        amount: b.amount ?? 0n,
-        quoteKey: b.quoteKey ?? '',
-      });
+      const quote = await converts()
+        .forPerson(forwardedOf(req))
+        .quote(d, principal, {
+          owner: b.owner ?? '',
+          from: b.from ?? '',
+          to: b.to ?? '',
+          amount: b.amount ?? 0n,
+          quoteKey: b.quoteKey ?? '',
+        });
       return presentConvertQuote(quote);
     });
   });
@@ -1002,7 +1019,9 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     if (!principal) return;
     return answer(reply, async (d) => {
       const b = body<{ owner?: string; quoteId?: string }>(req);
-      return converts().accept(d, principal, { owner: b.owner ?? '', quoteId: b.quoteId ?? '' });
+      return converts()
+        .forPerson(forwardedOf(req))
+        .accept(d, principal, { owner: b.owner ?? '', quoteId: b.quoteId ?? '' });
     });
   });
   app.post('/api/v1/venue/convert/limit', privateWrite, async (req, reply) => {
@@ -1032,7 +1051,9 @@ export function attachUserVenueRoutes(app: FastifyInstance, router: UserVenueRou
     const principal = await admit(req, reply, 'trade:read');
     if (!principal) return;
     return answer(reply, async (d) => {
-      const read = await converts().history(d, principal, req.query.owner ?? '');
+      const read = await converts()
+        .forPerson(forwardedOf(req))
+        .history(d, principal, req.query.owner ?? '');
       return { conversions: read.conversions.map(presentConversion), asOf: read.asOf?.toISOString() ?? null };
     });
   });

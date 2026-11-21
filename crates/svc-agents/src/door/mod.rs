@@ -36,6 +36,7 @@ use service_kit::trpc::{self, TrpcError};
 use crate::db::Store;
 use crate::gateway::desk::GatewaySlice;
 use crate::gateway::readiness::{self, ReadyInput};
+use crate::metering::Metering;
 
 /// A query answers GET, a mutation POST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -266,6 +267,8 @@ pub struct DoorConfig {
     pub gateway: GatewaySlice,
     /// What `/ready` reports besides the gateway.
     pub ready: ReadyInput,
+    /// The meter, its settings and what it asks outside the process (`metering`).
+    pub metering: Metering,
 }
 
 pub struct AgentsDoor {
@@ -280,6 +283,7 @@ pub struct AgentsDoor {
     store: Store,
     gateway: GatewaySlice,
     ready: ReadyInput,
+    metering: Metering,
 }
 
 /// The system clock.
@@ -321,6 +325,7 @@ impl AgentsDoor {
             store: config.store,
             gateway: config.gateway,
             ready: config.ready,
+            metering: config.metering,
         })
     }
 
@@ -328,6 +333,11 @@ impl AgentsDoor {
     pub fn with_edge_key(mut self, key: EdgeKey) -> AgentsDoor {
         self.edge_key = Some(key);
         self
+    }
+
+    /// The meter every metering call and timer goes through.
+    pub fn metering(&self) -> &Metering {
+        &self.metering
     }
 
     /// The database every slice reads and writes through.
@@ -348,6 +358,7 @@ impl AgentsDoor {
                 ("service", Json::str("svc-agents")),
             ]))),
             Slice::Gateway => self.gateway.handle(&self.store, ctx),
+            Slice::Metering => crate::metering::slice::handle(ctx, &self.store, &self.metering),
             other => Err(not_ported(other)),
         }
     }

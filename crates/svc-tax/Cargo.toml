@@ -18,6 +18,7 @@ ed25519-dalek = { version = "2", features = ["pkcs8"] }
 getrandom = "0.3"
 postgres = "0.19"
 signal-hook = "0.3"
-tiny_http = "0.12"
+# Vendored with the pool fix of #9432 (crates/vendor/tiny_http/VENDORED.md).
+tiny_http = { path = "../vendor/tiny_http" }
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 url = "2"

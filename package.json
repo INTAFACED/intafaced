@@ -90,6 +90,7 @@
     "oxlint": "1.93.0",
     "prettier": "^3.10.1",
     "rimraf": "^6.1.4",
+    "tsrs": "7.1.0-beta.tsrs4",
     "tsx": "^4.23.15",
     "turbo": "^2.11.11",
     "typescript": "^7.0.2",

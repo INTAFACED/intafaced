@@ -14,7 +14,7 @@ use service_kit::money::{format_amount, parse_amount};
 use service_kit::time::Instant;
 
 use super::routing::{Price, Route, RoutingTable};
-use crate::db::{Sqlstate, StoreError, transaction_retrying};
+use crate::db::{Retryable, StoreError, transaction_retrying};
 
 /// A refusal of the route desk (`RouteChangeRefusalCode`), or the database failing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,10 +35,10 @@ impl From<postgres::Error> for DeskError {
     }
 }
 
-impl Sqlstate for DeskError {
-    fn sqlstate(&self) -> Option<&str> {
+impl Retryable for DeskError {
+    fn store(&self) -> Option<&StoreError> {
         match self {
-            DeskError::Store(e) => e.sqlstate(),
+            DeskError::Store(e) => Some(e),
             DeskError::Refused(_) => None,
         }
     }
@@ -320,6 +320,9 @@ fn same_user(a: &str, b: &str) -> bool {
     service_kit::money::js_trim(a).to_lowercase() == service_kit::money::js_trim(b).to_lowercase()
 }
 
+/// `transaction`'s default attempts.
+const ATTEMPTS: u32 = 5;
+
 /// Every write takes this lock, so a proposal, a withdrawal and a confirm of one table never interleave.
 const LOCK: &str = "agents-route-changes";
 
@@ -439,7 +442,7 @@ impl ChangeStore<'_> {
         let valid = validate(input)?;
         self.base_route(&valid.task)?;
         let id = id_for(&format!("route-change:{request_id}"));
-        transaction_retrying(self.pool, IsolationLevel::Serializable, |tx| {
+        transaction_retrying(self.pool, IsolationLevel::Serializable, ATTEMPTS, |tx| {
             Self::lock(tx)?;
             let mine = tx.query(
                 &format!(
@@ -512,7 +515,7 @@ impl ChangeStore<'_> {
 
     /// The proposer takes their pending change back. Nothing else changes.
     pub fn withdraw(&self, operator_id: &str, change_id: &str) -> Result<ChangeView, DeskError> {
-        transaction_retrying(self.pool, IsolationLevel::Serializable, |tx| {
+        transaction_retrying(self.pool, IsolationLevel::Serializable, ATTEMPTS, |tx| {
             Self::lock(tx)?;
             let row = Self::request(tx, change_id)?;
             if !same_user(&row.proposed_by, operator_id) {
@@ -552,7 +555,7 @@ impl ChangeStore<'_> {
     /// A second founder applies the change: once, with its audit row, in one transaction. A rate change is in force from
     /// the next usage window; the ceiling at once. The caller refreshes the gateway's table afterwards.
     pub fn confirm(&self, operator_id: &str, change_id: &str) -> Result<ChangeView, DeskError> {
-        transaction_retrying(self.pool, IsolationLevel::Serializable, |tx| {
+        transaction_retrying(self.pool, IsolationLevel::Serializable, ATTEMPTS, |tx| {
             Self::lock(tx)?;
             let row = Self::request(tx, change_id)?;
             if row.status == "applied"

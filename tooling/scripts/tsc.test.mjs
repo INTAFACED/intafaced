@@ -7,11 +7,13 @@ import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { installShims, planOf } from './tsc.mjs';
+import { checkerOf, installShims, planOf } from './tsc.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..');
 const WRAPPER = join(HERE, 'tsc.mjs');
+// What the wrapper runs here: tsrs off CI where installed, tsc in CI. Every test below holds for both.
+const TSRS = checkerOf() === 'tsrs' ? '.tsrs' : '';
 const temps = [];
 after(() => temps.forEach((t) => rmSync(t, { recursive: true, force: true })));
 
@@ -44,15 +46,21 @@ const startCheck = (cwd) => {
   const said = (re) => new Promise((r) => child.stderr.on('data', () => re.test(err) && r()));
   return { child, done, err: () => err, said };
 };
-const buildInfo = (pkg) => join(pkg, 'node_modules', '.cache', 'tsc', 'tsconfig.tsbuildinfo');
+const buildInfo = (pkg) => join(pkg, 'node_modules', '.cache', 'tsc', `tsconfig${TSRS}.tsbuildinfo`);
 
 test('a --noEmit check of one project is made incremental; anything else runs tsc as given', () => {
   const root = repo();
   const pkg = join(root, 'pkg');
+  const at = (name) => join(pkg, 'node_modules', '.cache', 'tsc', name);
   const plan = planOf(['-p', 'tsconfig.json', '--noEmit'], pkg);
-  assert.deepEqual(plan.args, ['-p', 'tsconfig.json', '--noEmit', '--incremental', '--tsBuildInfoFile', buildInfo(pkg)]);
-  assert.equal(planOf(['--noEmit'], pkg).buildInfo, buildInfo(pkg), 'no -p: the cwd tsconfig.json');
-  assert.equal(planOf(['--noEmit', '-p', 'pkg'], root).buildInfo, buildInfo(pkg), 'a directory -p: its tsconfig.json');
+  assert.deepEqual(plan.args, ['-p', 'tsconfig.json', '--noEmit', '--incremental', '--tsBuildInfoFile', at('tsconfig.tsbuildinfo')]);
+  assert.deepEqual(
+    planOf(['--noEmit'], pkg, 'tsrs').args.slice(1),
+    ['--declaration', 'false', '--declarationMap', 'false', '--incremental', '--tsBuildInfoFile', at('tsconfig.tsrs.tsbuildinfo')],
+    'tsrs: no declaration errors, as tsc 7.0 under --noEmit; its own build-info',
+  );
+  assert.equal(planOf(['--noEmit'], pkg).buildInfo, at('tsconfig.tsbuildinfo'), 'no -p: the cwd tsconfig.json');
+  assert.equal(planOf(['--noEmit', '-p', 'pkg'], root).buildInfo, at('tsconfig.tsbuildinfo'), 'a directory -p: its tsconfig.json');
   for (const args of [
     ['-p', 'tsconfig.json'],
     ['-b'],
@@ -70,7 +78,7 @@ test('a seeded new worktree checks from the last passing check, and a planted ty
   assert.equal(first.status, 0, first.stdout + first.stderr);
   assert.ok(existsSync(buildInfo(join(root, 'pkg'))), 'the check wrote its build-info');
   const seeds = readdirSync(join(root, '.git', 'intafaced-tsc-seed'));
-  assert.deepEqual(seeds, ['pkg%tsconfig.json.tsbuildinfo'], 'and published it as the seed');
+  assert.deepEqual(seeds, [`pkg%tsconfig.json${TSRS}.tsbuildinfo`], 'and published it as the seed');
 
   const wt = join(root, '..', `${root.split('/').pop()}-wt`);
   temps.push(wt);
@@ -153,10 +161,14 @@ const build = (pkg) => {
 const unbuild = (pkg) => rmSync(join(pkg, 'node_modules', 'dep', 'dist'), { recursive: true, force: true });
 /** The real compiler, no build-info: what every answer must equal. */
 const real = (cwd) =>
-  spawnSync(process.execPath, [join(REPO, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', 'tsconfig.json', '--noEmit'], {
-    cwd,
-    encoding: 'utf8',
-  });
+  spawnSync(
+    process.execPath,
+    [join(REPO, 'node_modules', ...(TSRS ? ['tsrs', 'bin', 'tsrs'] : ['typescript', 'bin', 'tsc'])), '-p', 'tsconfig.json', '--noEmit'],
+    {
+      cwd,
+      encoding: 'utf8',
+    },
+  );
 const sameAsReal = (pkg, label) => {
   const [got, want] = [check(pkg), real(pkg)];
   assert.equal(got.stdout, want.stdout, `${label}: the same errors as the real compiler`);

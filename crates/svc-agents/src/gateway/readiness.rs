@@ -128,6 +128,19 @@ pub struct ReadyInput {
     pub live_planes: Json,
 }
 
+impl ReadyInput {
+    /// The mock, metering off, no product agents and no fleet or live-plane cards.
+    pub fn unwired() -> ReadyInput {
+        ReadyInput {
+            provider_mode: "mock".to_owned(),
+            metering_enabled: false,
+            product_agents_registered: 0,
+            fleet: Json::Null,
+            live_planes: Json::Null,
+        }
+    }
+}
+
 /// `agentsReadiness`.
 pub fn readiness(gateway: &Gateway, input: &ReadyInput, now: Instant) -> Json {
     let providers = gateway

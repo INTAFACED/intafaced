@@ -293,7 +293,7 @@ fn every_pooled_connection_reads_the_agents_schema_first_under_the_services_name
     assert_eq!(table.as_deref(), Some("agent_definitions"));
 
     // The transaction helper commits on success and rolls back on failure.
-    db::transaction::<_, db::StoreError>(pool, postgres::IsolationLevel::ReadCommitted, |tx| {
+    db::transaction(pool, postgres::IsolationLevel::ReadCommitted, |tx| {
         tx.execute(
             "INSERT INTO agent_definitions (agent_id, guardrail) VALUES ('committed', '{\"limits\":{},\"tools\":[]}')",
             &[],
@@ -301,18 +301,14 @@ fn every_pooled_connection_reads_the_agents_schema_first_under_the_services_name
         Ok(())
     })
     .unwrap();
-    let refused: Result<(), db::StoreError> = db::transaction(
-        pool,
-        postgres::IsolationLevel::ReadCommitted,
-        |tx| {
-            tx.execute(
+    let refused = db::transaction(pool, postgres::IsolationLevel::ReadCommitted, |tx| {
+        tx.execute(
             "INSERT INTO agent_definitions (agent_id, guardrail) VALUES ('rolled-back', '{\"limits\":{},\"tools\":[]}')",
             &[],
         )?;
-            tx.execute("SELECT 1/0", &[])?;
-            Ok(())
-        },
-    );
+        tx.execute("SELECT 1/0", &[])?;
+        Ok(())
+    });
     assert_eq!(refused.unwrap_err().code.as_deref(), Some("22012"));
     assert_eq!(
         db.count("SELECT count(*) FROM agents.agent_definitions WHERE agent_id IN ('committed', 'rolled-back')"),
@@ -354,6 +350,7 @@ fn health_answers_as_index_ts_and_ready_reports_the_gateway() {
             fleet: Json::Null,
             live_planes: Json::Null,
         },
+        metering: svc_agents::metering::Metering::unwired("USDC", 60),
     })
     .unwrap();
     let app = App {
