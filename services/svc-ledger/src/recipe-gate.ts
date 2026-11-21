@@ -1673,6 +1673,26 @@ export function unsampledRecipeNames(): readonly RecipeName[] {
   return (Object.keys(recipes) as RecipeName[]).filter((name) => !SAMPLED_RECIPES.has(name)).sort();
 }
 
+/**
+ * The catalog as plain rows, keyed `module::reason`, signatures and tokens sorted: what svc-ledger's Rust port records
+ * (`crates/svc-ledger/scripts/record-posting.mjs`) so its gate is this one.
+ */
+export function recipeCatalogRows(): readonly {
+  readonly key: string;
+  readonly name: RecipeName;
+  readonly minLegs: number;
+  readonly signatures: readonly string[];
+  readonly repeats: readonly { readonly prefix: readonly string[]; readonly tokens: readonly string[]; readonly minTail: number }[];
+}[] {
+  return [...RECIPE_CATALOG].map(([key, row]) => ({
+    key,
+    name: row.name,
+    minLegs: row.minLegs,
+    signatures: [...row.signatures].sort(),
+    repeats: row.repeats.map((r) => ({ prefix: [...r.prefix], tokens: [...r.tokens].sort(), minTail: r.minTail })),
+  }));
+}
+
 /** Samples the catalog was built from. Tests use this to check candidate names. */
 export function recipeGateSamples(): readonly { readonly name: RecipeName; readonly post: PostRequest }[] {
   return samplePosts();
