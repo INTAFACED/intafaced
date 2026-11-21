@@ -310,15 +310,23 @@ export function withSiblings(files, journeyFiles) {
  * A run by hand's journeys input (journey file names, spaces or commas between) as the files it runs: every file of each
  * journey it names (withSiblings), as a pull request's run takes them. (Failure it prevents: on 14 Nov 2026 run
  * 43637111867 named J-derivatives-01.pw.mjs alone, and the steps in J-derivatives-01-venue.pw.mjs read as missing money
- * steps.) A name that is not a journey file at the head stays as given, so the run still refuses it.
+ * steps.) A bare journey id (`J-cex-spot-10`, which journey-shards.mjs runs as `J-cex-spot-10.pw.mjs`) is every file
+ * of that journey too. (Failure it prevents: on 20 Nov 2026 run 44808167679 was given `J-cex-spot-10`, ran
+ * J-cex-spot-10.pw.mjs alone, and #9286's seal read J-cex-spot-10 #1 #2 #3 #4 #6 #9, in J-cex-spot-10-venue.pw.mjs
+ * since #8787, as missing.) A name that is not a journey file or id at the head stays as given, so the run still
+ * refuses it.
  */
 export function dispatchTarget(input, journeyFiles) {
-  return withSiblings(
-    String(input ?? '')
-      .split(/[\s,]+/)
-      .filter(Boolean),
-    journeyFiles,
-  ).join(' ');
+  const idOf = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1];
+  const names = String(input ?? '')
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .flatMap((f) => {
+      if (!journeyFiles || JOURNEY_FILE_NAME.test(f)) return [f];
+      const files = [...journeyFiles].filter((j) => idOf(j) === f);
+      return files.length ? files : [f];
+    });
+  return withSiblings(names, journeyFiles).join(' ');
 }
 
 /** A service's own stack file: what `local:stack` starts that one service with. A test file beside them, or any other
