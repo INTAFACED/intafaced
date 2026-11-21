@@ -7,6 +7,7 @@
 //      without those calls (they stay as they were);
 //   4. with --refusals, refusals.mjs lists what the service's own tests see each new record's handler refuse;
 //   5. procedures:write regenerates the registry and procedures/<service>.schema.json;
+//   with --door (a service the Rust door serves, its router read --from-rev), door-check.mjs holds each record to it;
 //   6. doubles.mjs gives every test's API client double that reaches a record caller a `call` (its own query or mutate).
 // It starts only on a clean tree (nothing uncommitted under apps/, services/ or packages/contracts/), so step 3 can put
 // back exactly what step 1 wrote.
@@ -44,6 +45,7 @@ export function run(argv) {
     process.exit(1);
   }
 
+  const door = pass.includes('--door') ? ['--door', pass[pass.indexOf('--door') + 1]] : [];
   const summary = join(tmpdir(), `call-records-${process.pid}.json`);
   const unportable = join(tmpdir(), `call-records-unportable-${process.pid}.json`);
   const step1 = (extra = []) => {
@@ -75,7 +77,7 @@ export function run(argv) {
     build();
     let skipped;
     for (;;) {
-      sh('node', [here('samples.mjs'), '--unportable', unportable, ...recordFiles()]);
+      sh('node', [here('samples.mjs'), '--unportable', unportable, ...door, ...recordFiles()]);
       skipped = JSON.parse(readFileSync(unportable, 'utf8'));
       if (!Object.keys(skipped).length) break;
       const fixed = JSON.parse(out('node', [here('portable.mjs'), '--unportable', unportable, '--write', ...recordFiles()]));
@@ -101,6 +103,8 @@ export function run(argv) {
     sh(join(REPO, 'node_modules/.bin/prettier'), ['--write', '--log-level', 'warn', ...recordFiles()]);
   }
   build();
+  // A door's records are held to the door before anything else reads them: kind, access and the exact input tree.
+  if (door.length) sh('node', [here('door-check.mjs'), ...door, '--service', service, ...recordFiles()]);
   sh('pnpm', ['procedures:write'], { cwd: join(REPO, 'packages/contracts'), stdio: ['ignore', 'ignore', 'inherit'] });
   sh('node', [here('doubles.mjs'), '--write'], { stdio: ['ignore', 'ignore', 'inherit'] });
   for (const f of [summary, unportable, patchFile, skipFile]) if (existsSync(f)) rmSync(f);

@@ -229,7 +229,7 @@
       "path": "/trpc/postRecipe",
       "access": {
         "caller": "service",
-        "callers": ["svc-academy"]
+        "callers": ["svc-academy", "svc-agents"]
       },
       "refusals": {
         "ledger.recipe_unknown": "BAD_REQUEST",
@@ -443,6 +443,211 @@
             },
             "required": ["recipe", "input"],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "feeCharge"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "chargeId": {
+                    "type": "string",
+                    "maxLength": 128,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "module": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "const": "asset"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                  }
+                },
+                "required": ["chargeId", "userId", "module", "mode", "assetId", "amount"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "chargeEarn"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "module": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "saleId": {
+                    "type": "string",
+                    "maxLength": 128,
+                    "pattern": "^[^\\s:]+$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "memberUserId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "price": {
+                    "type": "object",
+                    "properties": {
+                      "perUnit": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                      }
+                    },
+                    "required": ["perUnit"],
+                    "additionalProperties": false
+                  },
+                  "units": {
+                    "type": "string",
+                    "pattern": "^[1-9][0-9]{0,18}$"
+                  }
+                },
+                "required": ["module", "saleId", "userId", "assetId", "price", "units"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "recipe": {
+                "type": "string",
+                "const": "chargeCollect"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "module": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                  },
+                  "userId": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                  },
+                  "to": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "treasury-wallet"
+                          },
+                          "walletId": {
+                            "type": "string",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9:_-]*$"
+                          }
+                        },
+                        "required": ["kind", "walletId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "venue-builder-account"
+                          },
+                          "venueId": {
+                            "type": "string",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9:_-]*$"
+                          }
+                        },
+                        "required": ["kind", "venueId"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "const": "partner-reserve"
+                          },
+                          "partnerId": {
+                            "type": "string",
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9][a-z0-9:_-]*$"
+                          }
+                        },
+                        "required": ["kind", "partnerId"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "paymentId": {
+                    "type": "string",
+                    "maxLength": 128,
+                    "pattern": "^[^\\s:]+$"
+                  },
+                  "assetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32,
+                    "pattern": "^[^\\s]+$"
+                  },
+                  "amount": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]{1,18})?$"
+                  }
+                },
+                "required": ["module", "userId", "to", "paymentId", "assetId", "amount"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["recipe", "input"],
+            "additionalProperties": false
           }
         ]
       },
@@ -545,6 +750,55 @@
           }
         },
         {
+          "verdict": "accept",
+          "input": {
+            "recipe": "feeCharge",
+            "input": {
+              "chargeId": "agent.usage:22222222-2222-4222-8222-222222222222:w1",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "module": "agents",
+              "mode": "asset",
+              "assetId": "USDC",
+              "amount": "0.25",
+              "reason": "agents.usage.metered"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "chargeEarn",
+            "input": {
+              "module": "agents",
+              "saleId": "22222222-2222-4222-8222-222222222222.w1",
+              "userId": "22222222-2222-4222-8222-222222222222",
+              "memberUserId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "price": {
+                "perUnit": "0.25"
+              },
+              "units": "1"
+            }
+          }
+        },
+        {
+          "verdict": "accept",
+          "input": {
+            "recipe": "chargeCollect",
+            "input": {
+              "module": "agents",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "to": {
+                "kind": "partner-reserve",
+                "partnerId": "reserve-a"
+              },
+              "paymentId": "pay_123",
+              "assetId": "USDC",
+              "amount": "0.25"
+            }
+          }
+        },
+        {
           "verdict": "refuse",
           "input": {
             "recipe": "deposit",
@@ -559,6 +813,121 @@
                 "walletId": "0x00000000000000000000000000000000000000aa"
               },
               "paymentId": "0xabababababababababababababababababababababababababababababababab"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "feeCharge",
+            "input": {
+              "chargeId": "agent.usage:22222222-2222-4222-8222-222222222222:w1",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "module": "agents",
+              "mode": "token",
+              "assetId": "USDC",
+              "amount": "0.25",
+              "reason": "agents.usage.metered"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "feeCharge",
+            "input": {
+              "chargeId": "a b",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "module": "agents",
+              "mode": "asset",
+              "assetId": "USDC",
+              "amount": "0.25",
+              "reason": "agents.usage.metered"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "chargeEarn",
+            "input": {
+              "module": "agents",
+              "saleId": "22222222-2222-4222-8222-222222222222.w1",
+              "userId": "22222222-2222-4222-8222-222222222222",
+              "memberUserId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "price": {
+                "perUnit": null
+              },
+              "units": "1"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "chargeEarn",
+            "input": {
+              "module": "agents",
+              "saleId": "22222222-2222-4222-8222-222222222222.w1",
+              "userId": "22222222-2222-4222-8222-222222222222",
+              "memberUserId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "price": {
+                "perUnit": "0.25"
+              },
+              "units": "0"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "chargeEarn",
+            "input": {
+              "module": "agents",
+              "saleId": "a:b",
+              "userId": "22222222-2222-4222-8222-222222222222",
+              "memberUserId": "11111111-1111-4111-8111-111111111111",
+              "assetId": "USDC",
+              "price": {
+                "perUnit": "0.25"
+              },
+              "units": "1"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "chargeCollect",
+            "input": {
+              "module": "agents",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "to": {
+                "kind": "partner-reserve",
+                "partnerId": "reserve-a"
+              },
+              "paymentId": "pay_123",
+              "assetId": "USDC",
+              "amount": "-1"
+            }
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": {
+            "recipe": "chargeCollect",
+            "input": {
+              "module": "agents",
+              "userId": "11111111-1111-4111-8111-111111111111",
+              "to": {
+                "kind": "vault",
+                "walletId": "w"
+              },
+              "paymentId": "pay_123",
+              "assetId": "USDC",
+              "amount": "0.25"
             }
           }
         },

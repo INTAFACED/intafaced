@@ -101,13 +101,6 @@ export function recordSignIn(url, body) {
 }
 
 /** One file per journey run, so a later step (a new worker after a failure) finds the account an earlier step made. */
-/** The account an earlier step of `journey` kept in its journey state (`run.write({ who })`); a step with none fails in words. */
-export function stepAccount(run, journey) {
-  const kept = run.read().who;
-  if (!kept) throw new Error(`${journey}: step 1 left no account, so this step has no one to sign in`);
-  return kept;
-}
-
 export function journeyState(id) {
   const file = path.join(RUN, `${id}.json`);
   return {
