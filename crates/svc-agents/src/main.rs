@@ -42,10 +42,22 @@ use svc_agents::metering::ports::{
     AffiliatesHttp, JetStreamBus, LedgerHttp, LedgerOnly, UsagePayment, UsagePaymentHttp,
 };
 use svc_agents::migrate;
+use svc_agents::navigator::Navigator;
+use svc_agents::navigator::onchain::ports::{
+    HttpSender, LinkedWalletsHttp, RpcChain, SelfFreezeHttp, parse_market,
+};
+use svc_agents::navigator::ports::{IdentitySessionHttp, TradeHttp};
+use svc_agents::navigator::research::{Research, parse_uncertainty_scale, research_environment};
+use svc_agents::own::Own;
+use svc_agents::own::catalog::parse_own_templates;
+use svc_agents::own::desk::{SupportDesk, SupportDeskHttp};
+use svc_agents::own::gates::parse_policy_baseline;
 use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
 use svc_agents::runtime::{Rt, Runtime};
 use svc_agents::self_freeze::IdentitySelfFreezeRead;
+use svc_agents::team::Team;
+use svc_agents::team::membership::TeamMembershipHttp;
 use svc_agents::timers::{self, Timer};
 
 fn process_env() -> BTreeMap<String, String> {
@@ -113,6 +125,10 @@ fn jobs<'a>(door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job
                     .map_err(|e| format!("finished background runs not announced: {e:?}"))?;
                 advanced
             }),
+        ),
+        (
+            "unpublished sweep",
+            Box::new(move || svc_agents::own::notices::sweep_unpublished(door)),
         ),
     ]
 }
@@ -328,6 +344,7 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
         transcript_retention_days: env.int("AGENTS_TRANSCRIPT_RETENTION_DAYS").unwrap_or(0),
         overage_grace: grace,
         tier_laws: parse_tier_laws(env.str("AGENTS_TIER_LAWS"))?,
+        navigator: navigator(env, fetch, &signer)?,
         // `env.IDENTITY_URL ? createIdentitySelfFreezeRead(...) : null`.
         self_freeze: env
             .str("IDENTITY_URL")
@@ -340,6 +357,57 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
                 )) as Box<dyn svc_agents::self_freeze::SelfFreezeRead>
             }),
     })
+}
+
+/// The navigator as `index.ts` builds it: svc-trade's public REST while `TRADE_URL` is set, svc-identity's session
+/// read, linked wallets and freeze while `IDENTITY_URL` is set, and the on-chain signer, its sender, the chain and the
+/// market from `AGENTS_NAVIGATOR_ONCHAIN_*`. A malformed market stops the boot.
+fn navigator(
+    env: &AgentsEnv,
+    fetch: &Arc<dyn Fetch>,
+    signer: &dyn Fn(&str) -> CallSigner,
+) -> Result<Navigator, String> {
+    let set = |k: &str| env.str(k).map(str::trim).filter(|v| !v.is_empty());
+    let mut nav = Navigator::unwired();
+    if let Some(url) = set("TRADE_URL") {
+        nav.trade_url = Some(url.to_owned());
+        nav.trade_data = Some(Box::new(TradeHttp::new(url, fetch.clone())));
+    }
+    if let Some(url) = set("IDENTITY_URL") {
+        nav.identity_session = Some(Box::new(IdentitySessionHttp::new(
+            url,
+            signer("svc-identity"),
+            fetch.clone(),
+        )));
+        nav.onchain.linked_wallets = Some(Box::new(LinkedWalletsHttp::new(
+            url,
+            signer("svc-identity"),
+            fetch.clone(),
+        )));
+        nav.onchain.self_freeze = Some(Box::new(SelfFreezeHttp::new(
+            url,
+            signer("svc-identity"),
+            fetch.clone(),
+        )));
+    }
+    nav.research = Research {
+        scale: parse_uncertainty_scale(env.str("AGENTS_RESEARCH_UNCERTAINTY_SCALE"))?,
+        environment: research_environment(env.str("APP_ENV").unwrap_or_default()).to_owned(),
+    };
+    nav.onchain.signer = set("AGENTS_NAVIGATOR_ONCHAIN_SIGNER").map(str::to_owned);
+    if let Some(url) = set("AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL") {
+        nav.onchain.sender = Some(Box::new(HttpSender {
+            url: url.to_owned(),
+            fetch: fetch.clone(),
+        }));
+    }
+    nav.onchain.market = set("AGENTS_NAVIGATOR_ONCHAIN_MARKET")
+        .map(parse_market)
+        .transpose()?;
+    if let Some(url) = set("AGENTS_NAVIGATOR_ONCHAIN_RPC_URL") {
+        nav.onchain.chain = Some(Box::new(RpcChain::new(url, fetch.clone())));
+    }
+    Ok(nav)
 }
 
 /// The door, built once from the environment, with the store, the meter, the gateway and what `/ready` reports.
@@ -392,6 +460,78 @@ fn advisors(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Advisors, String>
     Ok(a)
 }
 
+/// The own agents' templates and owner values, as `index.ts` hands them to `createAgentsRouter`: the support desk
+/// when `SUPPORT_URL` is set (its account read through `IDENTITY_URL`); absent refuses as `index.ts` leaves it unwired.
+/// The owner's freeze is read through the runtime's one reader.
+fn own(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Own, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    let identity = env.str("IDENTITY_URL").filter(|u| !u.is_empty());
+    let support_desk: Option<Box<dyn SupportDesk>> = env
+        .str("SUPPORT_URL")
+        .filter(|u| !u.is_empty())
+        .map(|url| -> Box<dyn SupportDesk> {
+            Box::new(SupportDeskHttp {
+                support_url: url.to_owned(),
+                identity_url: identity.map(str::to_owned),
+                identity_signer: signer("svc-identity"),
+                fetch: fetch.clone(),
+            })
+        });
+    Ok(Own {
+        templates: parse_own_templates(env.str("AGENTS_OWN_TEMPLATES"))?,
+        assistant_model: env.str("AGENTS_OWN_ASSISTANT_MODEL").map(str::to_owned),
+        baseline: parse_policy_baseline(env.str("AGENTS_POLICY_BASELINE"))?,
+        reviewer_model: env.str("AGENTS_REVIEWER_MODEL").map(str::to_owned),
+        approval_ttl_seconds: env.int("AGENTS_APPROVAL_TTL_SECONDS"),
+        support_desk,
+    })
+}
+
+/// The team's read (`index.ts`): svc-bank's team membership while `BANK_URL` is set, else none, so every team call
+/// refuses `agents.membership_unavailable`.
+fn team(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Team, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env.str("INTERNAL_SERVICE_SECRET").unwrap_or_default();
+    let mut team = Team::unwired();
+    if let Some(url) = env.str("BANK_URL").filter(|u| !u.is_empty()) {
+        team.membership = Some(Box::new(TeamMembershipHttp::new(
+            url,
+            CallSigner::new("svc-agents", "svc-bank", secret, keyed),
+            fetch.clone(),
+        )));
+    }
+    Ok(team)
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the door is built once from each part the binary made, in index.ts's order"
+)]
 fn door(
     env: &AgentsEnv,
     store: Store,
@@ -399,7 +539,8 @@ fn door(
     gateway: GatewaySlice,
     ready: ReadyInput,
     runtime: Runtime,
-    advisors: Advisors,
+    (advisors, team): (Advisors, Team),
+    fetch: &Arc<dyn Fetch>,
 ) -> Result<AgentsDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let door = AgentsDoor::new(DoorConfig {
@@ -417,6 +558,8 @@ fn door(
             step_ms: env.int("AGENTS_BACKGROUND_STEP_MS"),
         },
         advisors,
+        own: own(env, fetch)?,
+        team,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
@@ -493,7 +636,17 @@ fn serve(
     let metering = metering(env, bus.clone(), &fetch)?;
     let runtime = runtime(env, &fetch)?;
     let advisors = advisors(env, &fetch)?;
-    let door = door(env, store, metering, gateway, ready, runtime, advisors)?;
+    let team = team(env, &fetch)?;
+    let door = door(
+        env,
+        store,
+        metering,
+        gateway,
+        ready,
+        runtime,
+        (advisors, team),
+        &fetch,
+    )?;
 
     let app = App {
         wire: door,

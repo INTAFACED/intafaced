@@ -1,0 +1,78 @@
+{
+  "support.kb.search": {
+    "input": {
+      "kbQuery": "text, up to 200 characters",
+      "limit": "whole number from 1 to 500, the page size"
+    },
+    "output": {
+      "articles": "list of { articleKey, titleKey, bodyKey }"
+    }
+  },
+  "support.ticket.read": {
+    "input": {
+      "ticketId": "text, up to 120 characters"
+    },
+    "output": {
+      "ticket": "{ ticketId, ownerUserId, status, category }"
+    }
+  },
+  "identity.account.read": {
+    "input": {
+      "userId": "text"
+    },
+    "output": {
+      "account": "{ userId, status: active, frozen or closed, kycTier }"
+    }
+  },
+  "trade.quote": {
+    "input": {
+      "marketId": "text, up to 64 characters"
+    },
+    "output": {
+      "marketId": "text",
+      "last": "decimal string",
+      "asOf": "time"
+    }
+  },
+  "trade.markets.list": {
+    "input": {
+      "limit": "whole number from 1 to 500, optional"
+    },
+    "output": {
+      "markets": "list of { marketId, symbol, status: open, halted or closed }"
+    }
+  },
+  "trade.ticker": {
+    "input": {
+      "marketId": "text, up to 64 characters"
+    },
+    "output": {
+      "marketId": "text",
+      "last": "decimal string",
+      "volume24h": "decimal string",
+      "change24hBps": "whole number",
+      "asOf": "time"
+    }
+  },
+  "trade.book.top": {
+    "input": {
+      "marketId": "text, up to 64 characters"
+    },
+    "output": {
+      "marketId": "text",
+      "bid": "decimal string",
+      "ask": "decimal string",
+      "asOf": "time"
+    }
+  },
+  "support.ticket.comment": {
+    "input": {
+      "ticketId": "text, up to 120 characters",
+      "body": "text, up to 4000 characters"
+    },
+    "output": {
+      "ticketId": "text",
+      "commented": "yes"
+    }
+  }
+}

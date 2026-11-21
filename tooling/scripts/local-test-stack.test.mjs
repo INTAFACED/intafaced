@@ -121,6 +121,33 @@ const script = resolve(here, 'local-test-stack.mjs');
   );
 }
 
+// The empty agent catalogue (J-agents-01 #1): LOCAL_STACK_AGENTS_CATALOGUE=off moves svc-agents, and only svc-agents, to
+// a database of its own; without it svc-agents is on the stack's database like every other service.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
+  const { AGENTS_EMPTY_CATALOGUE_DB, onEmptyAgentsDb } = await import('./local-stack-services/agents.mjs');
+  const dbOf = (envs, name) => new URL(envs.find((d) => d.name === name).env.DATABASE_URL).pathname.slice(1);
+  const prior = process.env.LOCAL_STACK_AGENTS_CATALOGUE;
+  try {
+    delete process.env.LOCAL_STACK_AGENTS_CATALOGUE;
+    const shared = localTestServiceEnvs(PLAN_SECRETS);
+    assert.equal(dbOf(shared, 'agents'), 'intafaced_local_test', 'agents on the stack database by default');
+    process.env.LOCAL_STACK_AGENTS_CATALOGUE = 'off';
+    const empty = localTestServiceEnvs(PLAN_SECRETS);
+    assert.equal(dbOf(empty, 'agents'), AGENTS_EMPTY_CATALOGUE_DB, 'agents on its own empty database under the profile');
+    for (const { name, env } of empty)
+      if (name !== 'agents' && env.DATABASE_URL)
+        assert.equal(dbOf(empty, name), 'intafaced_local_test', `${name} stays on the stack database under the profile`);
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_AGENTS_CATALOGUE;
+    else process.env.LOCAL_STACK_AGENTS_CATALOGUE = prior;
+  }
+  assert.equal(
+    onEmptyAgentsDb('postgres://svc_agents:pw@127.0.0.1:5433/intafaced_local_test?sslmode=disable'),
+    `postgres://svc_agents:pw@127.0.0.1:5433/${AGENTS_EMPTY_CATALOGUE_DB}?sslmode=disable`,
+  );
+}
+
 // The empty notice board (J-support-public-07 #5): LOCAL_STACK_NOTIFY_NOTICES=off moves svc-notify, and only svc-notify,
 // to a database of its own; without it svc-notify is on the stack's database like every other service.
 {

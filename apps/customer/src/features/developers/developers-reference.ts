@@ -950,6 +950,15 @@ export const ROUTE_WORDS: readonly RouteWords[] = [
       'Candles of the venue’s own prints on one market we list, on one interval, oldest first: an interval with no print is not sent',
   },
   {
+    name: 'venueMarginRules',
+    method: 'GET',
+    path: '/api/v1/venue/margin-rules',
+    product: 'accounts',
+
+    summary:
+      'The maximum leverage and the one maintenance level the venue publishes on its listed perpetual on one asset: null where it publishes none',
+  },
+  {
     name: 'venueFundingHistory',
     method: 'GET',
     path: '/api/v1/venue/funding-history',

@@ -21,3 +21,23 @@ export function approvalState(
   if (read.approved === null) return read.failed ? 'needed' : 'reading';
   return feeBps !== null && parseAmount(read.approved) >= parseAmount(feeBps) ? 'approved' : 'needed';
 }
+
+/**
+ * The approval state Confirm acts on. The poll's answer may be a read that failed, or older than an
+ * approval just signed: unless it already shows the approval held, Confirm reads the venue once more and decides from
+ * that read, so a passing network error never asks the person to sign an approval they already hold. A fresh read that
+ * fails too still means `needed`: nothing is sent without a known approval.
+ */
+export async function approvalAtConfirm(
+  carries: boolean,
+  feeBps: string | null,
+  polled: ApprovalState,
+  readAgain: () => Promise<{ readonly ok: true; readonly data: { readonly value: string } } | { readonly ok: false }>,
+): Promise<ApprovalState> {
+  if (polled === 'approved' || polled === 'not_needed') return polled;
+  const fresh = carries ? await readAgain() : null;
+  return approvalState(carries, feeBps, {
+    approved: fresh?.ok ? fresh.data.value : null,
+    failed: fresh !== null && !fresh.ok,
+  });
+}

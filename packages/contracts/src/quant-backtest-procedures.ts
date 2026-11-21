@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { defineProcedure, NO_INPUT, type Refusals } from './procedure.js';
+import { defineProcedure, type Refusals } from './procedure.js';
 import {
   quantAccountRulesSchema,
   quantBacktestFeeSchema,
@@ -129,16 +129,23 @@ export const QUANT_BACKTEST_FEE = defineProcedure({
   ],
 });
 
-/** The simulated account's published margin rules (ENGINE RK-5), read only; a blank one reads null. */
+/**
+ * The simulated account's margin rules for a market (ENGINE RK-5, J-algo-dev-02 #5), read only: the venue's published
+ * maximum leverage and maintenance level on its perpetual for the symbol's asset, read from the venue now, and our
+ * margin-call warning; each null where it is not published or blank. A venue read that does not answer refuses.
+ */
 export const QUANT_BACKTEST_ACCOUNT_RULES = defineProcedure({
   ...base,
   name: 'quant.backtest.accountRules',
   kind: 'query',
   path: 'backtest.accountRules',
-  refusals: {},
-  input: NO_INPUT,
+  refusals: { 'quant.account_rule_unset': 'BAD_REQUEST' },
+  input: z.object({ symbol: z.string().min(1).max(32) }),
   output: quantAccountRulesSchema,
-  samples: [{ verdict: 'accept', input: undefined }],
+  samples: [
+    { verdict: 'accept', input: { symbol: 'BTC/USDT' } },
+    { verdict: 'refuse', input: { symbol: '' } },
+  ],
 });
 
 /**
