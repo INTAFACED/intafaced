@@ -1,7 +1,5 @@
-import { z } from 'zod';
 import {
   ACADEMY_PROGRAMMES_LIST_MAX,
-  academyProgrammeSchema,
   type AcademyProgramme,
   type AcademyProgrammeCourseState,
 } from '@intafaced/contracts/academy-programmes';
@@ -12,6 +10,8 @@ import { usePreferences } from '../../shared/preferences';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref, academyProgrammeHref, academyVerifyHref, formatDay } from './academy-lms';
 import { AcademyRefusal, pathLabel } from './AcademyLmsParts';
+import { ACADEMY_PROGRAMMES } from '@intafaced/contracts/academy-programmes-procedures';
+import { ACADEMY_PROGRAMME } from '@intafaced/contracts/academy-programme-procedures';
 
 /**
  * Course programmes (AC-programmes-01): ordered sets of published courses that staff make. The Programmes tab lists them
@@ -38,10 +38,7 @@ const COURSE_ACTIONS = {
 function useProgrammes(limit: number, mine = false) {
   const api = useApi();
   const { userId } = useSession();
-  return useResource(
-    (signal) => api.query('academy', 'programmes', { limit, mine }, z.array(academyProgrammeSchema), { signal }),
-    `programmes:${userId}:${limit}:${mine}`,
-  );
+  return useResource((signal) => api.call(ACADEMY_PROGRAMMES, { limit, mine }, { signal }), `programmes:${userId}:${limit}:${mine}`);
 }
 
 function Counts({ programme }: { programme: AcademyProgramme }) {
@@ -104,10 +101,7 @@ export function AcademyProgrammePage({ slug }: { slug: string }) {
   const api = useApi();
   const { userId } = useSession();
   const { t, Copy } = copy.useCopy();
-  const answer = useResource(
-    (signal) => api.query('academy', 'programme', { slug }, academyProgrammeSchema, { signal }),
-    `programme:${userId}:${slug}`,
-  );
+  const answer = useResource((signal) => api.call(ACADEMY_PROGRAMME, { slug }, { signal }), `programme:${userId}:${slug}`);
   return (
     <div className="academy-lms-stack">
       <a className="text-link" href="/academy/programmes">
@@ -174,7 +168,7 @@ function ProgrammeCertificate({ programme }: { programme: AcademyProgramme }) {
               {cert.status === 'revoked' ? (
                 <Copy k="programmeCertRevoked" />
               ) : (
-                <Copy k="programmeCertEarned" params={{ date: formatDay(cert.grantedAt.toISOString(), language) }} />
+                <Copy k="programmeCertEarned" params={{ date: formatDay(cert.grantedAt, language) }} />
               )}
             </p>
             <a className="academy-learning-link" href="/academy/certificates">
@@ -234,7 +228,7 @@ export function ProgrammeCertificates() {
                   {cert.status === 'revoked' ? (
                     <Copy k="programmeCertRevoked" />
                   ) : (
-                    <Copy k="programmeCertEarned" params={{ date: formatDay(cert.grantedAt.toISOString(), language) }} />
+                    <Copy k="programmeCertEarned" params={{ date: formatDay(cert.grantedAt, language) }} />
                   )}
                 </p>
                 <p data-testid="programme-certificate-serial">
