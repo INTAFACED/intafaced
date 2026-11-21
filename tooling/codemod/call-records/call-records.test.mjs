@@ -70,9 +70,14 @@ test("an importer counts only when its import resolves to the file: another fold
   writeFileSync(join(dir, 'service.ts'), 'export const a = 1;\n');
   writeFileSync(join(dir, 'portal/api.ts'), "import * as p from './schemas';\nexport const x = p.a;\n");
   writeFileSync(join(dir, 'router.ts'), "import { a } from './service.js';\nexport const y = a;\n");
-  assert.equal(importsFile(join(dir, 'portal/api.ts'), join(dir, 'schemas.ts'), 'schemas'), false);
-  assert.equal(importsFile(join(dir, 'portal/api.ts'), join(dir, 'portal/schemas.ts'), 'schemas'), true);
-  assert.equal(importsFile(join(dir, 'router.ts'), join(dir, 'service.ts'), 'service'), true);
+  // Its own `a`, beside another name it imports from the file: not an importer of `a`.
+  writeFileSync(join(dir, 'portal/own.ts'), "import { b } from '../schemas';\nexport const a = b;\n");
+  assert.equal(importsFile(join(dir, 'portal/api.ts'), join(dir, 'schemas.ts'), 'schemas', 'a'), false);
+  assert.equal(importsFile(join(dir, 'portal/api.ts'), join(dir, 'portal/schemas.ts'), 'schemas', 'a'), true);
+  assert.equal(importsFile(join(dir, 'portal/api.ts'), join(dir, 'portal/schemas.ts'), 'schemas', 'z'), false);
+  assert.equal(importsFile(join(dir, 'router.ts'), join(dir, 'service.ts'), 'service', 'a'), true);
+  assert.equal(importsFile(join(dir, 'portal/own.ts'), join(dir, 'schemas.ts'), 'schemas', 'a'), false);
+  assert.equal(importsFile(join(dir, 'portal/own.ts'), join(dir, 'schemas.ts'), 'schemas', 'b'), true);
 });
 
 test('a namespace import names each member it reads, so a schema whose last `s.x` reader moved is seen', () => {

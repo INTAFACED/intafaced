@@ -848,22 +848,43 @@ function importersOf(file, name) {
   try {
     return execFileSync('git', ['grep', '-l', '-w', name, '--', 'apps', 'packages', 'services'], { cwd: REPO, encoding: 'utf8' })
       .split('\n')
-      .filter((f) => f && join(REPO, f) !== file && importsFile(join(REPO, f), file, stem));
+      .filter((f) => f && join(REPO, f) !== file && importsFile(join(REPO, f), file, stem, name));
   } catch {
     return [];
   }
 }
 
-/** True when `from` has an import whose module is `file`: resolved when relative or `@/`, else by its last segment `stem`. */
-export function importsFile(from, file, stem) {
+/**
+ * True when `from` imports `name` from `file`: by name, as a member it reads through `import * as ns`, or by
+ * `export { name } from`. A relative or `@/` module counts when it resolves to `file`; a package one by its last segment `stem`.
+ */
+export function importsFile(from, file, stem, name) {
   const app = from.match(/^(.*\/apps\/[^/]+)\//)?.[1];
-  for (const m of readFileSync(from, 'utf8').matchAll(/from '([^']+)'/g)) {
-    const spec = m[1];
-    if (spec.startsWith('.')) {
-      if (resolveRelative(from, spec) === file) return true;
-    } else if (spec.startsWith('@/') && app) {
-      if (resolveRelative(join(app, 'src', 'x.ts'), `./${spec.slice(2)}`) === file) return true;
-    } else if (new RegExp(`/${stem}(\\.js)?$`).test(spec)) return true;
+  const isFile = (spec) =>
+    spec.startsWith('.')
+      ? resolveRelative(from, spec) === file
+      : spec.startsWith('@/') && app
+        ? resolveRelative(join(app, 'src', 'x.ts'), `./${spec.slice(2)}`) === file
+        : new RegExp(`/${stem}(\\.js)?$`).test(spec);
+  forget(from);
+  const p = load(from);
+  for (const stmt of p.program.body) {
+    if (!stmt.source || !isFile(stmt.source.value)) continue;
+    if (stmt.type === 'ExportAllDeclaration') return true;
+    for (const sp of stmt.specifiers ?? []) {
+      if (stmt.type === 'ExportNamedDeclaration' && (sp.local.name ?? sp.local.value) === name) return true;
+      if (sp.type === 'ImportSpecifier' && (sp.imported.name ?? sp.imported.value) === name) return true;
+      if (sp.type === 'ImportNamespaceSpecifier') {
+        let read = false;
+        walk(p.program, (n) => {
+          if (read) return false;
+          if (n.type === 'MemberExpression' && !n.computed && n.object.type === 'Identifier' && n.object.name === sp.local.name && n.property.name === name)
+            read = true;
+        });
+        if (read) return true;
+      }
+      if (sp.type === 'ImportDefaultSpecifier' && name === 'default') return true;
+    }
   }
   return false;
 }
