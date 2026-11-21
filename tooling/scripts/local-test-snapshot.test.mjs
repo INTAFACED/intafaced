@@ -121,10 +121,10 @@ test('an untracked file under a glob is not an input (build outputs never count)
   assert.equal(snapshotKey({ root }), before);
 });
 
-test("this repository's inputs hold every seed entry and the ledger's migrations", () => {
+test("this repository's inputs hold every seed entry and the TypeScript and Rust migrations", () => {
   const inputs = snapshotInputs();
   for (const e of SEED_ENTRIES) assert.ok(inputs.includes(e), e);
-  assert.ok(inputs.some((f) => f.startsWith('services/svc-ledger/drizzle/')));
+  assert.ok(inputs.some((f) => f.startsWith('services/svc-identity/drizzle/')));
   assert.ok(inputs.some((f) => f.startsWith('crates/svc-ledger/migrations/')));
   assert.ok(inputs.includes('tooling/scripts/local-stack-services/ledger.mjs'));
   assert.ok(!inputs.some((f) => f.includes('node_modules/')));
