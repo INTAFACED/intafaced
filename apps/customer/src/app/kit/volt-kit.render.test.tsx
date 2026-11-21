@@ -16,7 +16,25 @@ vi.mock('@intafaced/ui', async (original) => {
 // Signed out, the boot refresh answered: the kit page needs no session, and nothing on it reads.
 vi.mock('../../features/session/session', async (original) => {
   const real = await original<typeof import('../../features/session/session')>();
-  const api = { query: () => new Promise(() => undefined), mutate: () => new Promise(() => undefined), canWrite: () => false };
+  const api = {
+    query: () => new Promise(() => undefined),
+    mutate: () => new Promise(() => undefined),
+    canWrite: () => false,
+    call(
+      this: { query: (...args: never[]) => unknown; mutate: (...args: never[]) => unknown },
+      record: { kind: string; module: string; path: string; output: unknown },
+      input?: unknown,
+      opts?: unknown,
+    ) {
+      return Reflect.apply(record.kind === 'query' ? this.query : this.mutate, this, [
+        record.module,
+        record.path,
+        input,
+        record.output,
+        opts,
+      ]);
+    },
+  };
   const value = {
     session: null,
     userId: null,

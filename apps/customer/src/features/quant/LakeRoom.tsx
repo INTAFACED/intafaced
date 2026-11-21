@@ -1,4 +1,4 @@
-import { QUANT_LAKE_KINDS, quantLakeCatalogueSchema, type QuantLakeCatalogue } from '@intafaced/contracts/quant-research';
+import { QUANT_LAKE_KINDS, type QuantLakeCatalogue } from '@intafaced/contracts/quant-research';
 import { useState } from 'react';
 import { useResource } from '../../shared/resource';
 import { DataTable, Failure, Loading, Panel } from '../../shared/ui';
@@ -8,6 +8,7 @@ import { QuantRooms } from './QuantRooms';
 import { researchCopy } from './research-copy';
 import { refusalCode } from './StrategyTeam';
 import './algo.css';
+import { QUANT_LAKE_CATALOGUE } from '@intafaced/contracts/quant-lake-procedures';
 
 const utc = (iso: string) => iso.slice(0, 19).replace('T', ' ');
 type Dataset = QuantLakeCatalogue['symbols'][number]['datasets'][number];
@@ -21,10 +22,7 @@ export function LakeRoom({ paper }: { paper: boolean }) {
   const { t } = researchCopy.useCopy();
   const [kind, setKind] = useState('');
   const [symbol, setSymbol] = useState('');
-  const catalogue = useResource(
-    (signal) => api.query('quant', 'lake.catalogue', undefined, quantLakeCatalogueSchema, { signal }),
-    'quant-lake-catalogue',
-  );
+  const catalogue = useResource((signal) => api.call(QUANT_LAKE_CATALOGUE, undefined, { signal }), 'quant-lake-catalogue');
   const r = catalogue.resource;
   return (
     <>

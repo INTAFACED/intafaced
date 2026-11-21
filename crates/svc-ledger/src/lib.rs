@@ -1,4 +1,6 @@
-//! svc-ledger in Rust: its port from `services/svc-ledger`, which stays the service that runs until the switch. The
+//! svc-ledger: the single wallet graph for the whole platform, where every value movement is a double-entry transaction.
+//! It replaced the TypeScript service (`services/svc-ledger`, ported one slice at a time and deleted in the change that
+//! made this one serve; read it in git history). The
 //! shell holds what every slice stands on: the environment (`env`), the refusals and how each door answers them
 //! (`errors`, with the recorded user copy in `errors_table`), and the doors (`door`): every route `index.ts` serves,
 //! who may call each, and each door's first input check (`refines` holds the ledger's own checks inside those
@@ -9,7 +11,7 @@
 //! the account and transaction reads (`balances`); the `desk` slice the ledger desk's reads and account metadata writes
 //! (`desk`); the `ops-reads` slice svc-ops' five reads (`ops_reads`); the `posting` slice books `post` (`posting`: the
 //! caller binding, the recipe gate, the binding checks, the custody switch, the engine and the `ledgerTxPosted` relay).
-//! Past the door a call is owed by its slice; `PORT.md` lists the slices and what each ports.
+//! Past the door a call is owed by its slice; `README.md` lists the slices and what each ported.
 
 pub mod approval;
 pub mod assets;

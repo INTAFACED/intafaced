@@ -10,9 +10,10 @@
 //! sessions are switched by the `venue` slice's doors. Here they are read back from the journal on a cold start and
 //! every submit and amend is gated on them, as the base engine gates them.
 
+pub mod admission;
 pub mod reconcile;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
@@ -76,6 +77,8 @@ pub enum EngineError {
     Replay(String),
     /// A cold start met state a later slice owns.
     Owed { slice: Slice, why: String },
+    /// A publish during the cold start kept timing out (`StartupPublishError`): the process exits before it listens.
+    StartupPublish(String),
 }
 
 impl std::fmt::Display for EngineError {
@@ -87,6 +90,7 @@ impl std::fmt::Display for EngineError {
             EngineError::Owed { slice, why } => {
                 write!(f, "{why} (slice {} is not ported)", slice.name())
             }
+            EngineError::StartupPublish(message) => f.write_str(message),
         }
     }
 }
@@ -358,6 +362,15 @@ pub struct MatchingEngine {
     sink: Box<dyn SnapshotSink<Json> + Send>,
     enabled: bool,
     modes: Modes,
+    /// Set for the whole book when the replay hold check cannot be asked (`admissionClosed`). Not journalled: the next
+    /// boot asks again. While set, nothing matches.
+    admission_closed: Option<String>,
+    /// One market, when a bad hold could not be cancelled (`holdHalted`). Not an operator halt.
+    hold_halted: BTreeMap<String, String>,
+    /// From `recover` until `finish_startup_announce`: a publish that times out is tried again (`announcing`).
+    announcing: bool,
+    /// How the startup retry waits (`startupSleep`), in milliseconds.
+    startup_sleep: Box<dyn FnMut(u64) + Send>,
 }
 
 impl MatchingEngine {
@@ -372,7 +385,18 @@ impl MatchingEngine {
             sink: parts.sink,
             enabled: parts.enabled,
             modes: Modes::default(),
+            admission_closed: None,
+            hold_halted: BTreeMap::new(),
+            announcing: false,
+            startup_sleep: Box::new(|ms| std::thread::sleep(std::time::Duration::from_millis(ms))),
         }
+    }
+
+    /// `options.startupSleep`: how the startup publish retry waits.
+    #[must_use]
+    pub fn with_startup_sleep(mut self, sleep: Box<dyn FnMut(u64) + Send>) -> MatchingEngine {
+        self.startup_sleep = sleep;
+        self
     }
 
     pub fn journal(&self) -> &dyn EngineJournal {
@@ -586,9 +610,16 @@ impl MatchingEngine {
 
     fn emit(&mut self, events: Vec<Pending>) -> Result<(), EngineError> {
         for e in events {
-            self.bus
-                .publish(e.name, &e.payload, &e.key)
-                .map_err(EngineError::Publish)?;
+            if self.announcing {
+                admission::publish_with_startup_retry(
+                    &mut || self.bus.publish(e.name, &e.payload, &e.key),
+                    &mut self.startup_sleep,
+                )?;
+            } else {
+                self.bus
+                    .publish(e.name, &e.payload, &e.key)
+                    .map_err(EngineError::Publish)?;
+            }
         }
         Ok(())
     }
@@ -642,6 +673,9 @@ impl MatchingEngine {
         }
         if !self.enabled {
             return Ok(SubmitResult::refused(disabled(id)));
+        }
+        if let Some(r) = self.admission_refusal(market_id, id) {
+            return Ok(SubmitResult::refused(r));
         }
         if let Some(r) = mode_refusal(&self.modes, market_id, id) {
             return Ok(SubmitResult::refused(r));
@@ -813,6 +847,9 @@ impl MatchingEngine {
         if !self.enabled {
             return Some(AmendResult::refused(id, disabled(id)));
         }
+        if let Some(r) = self.admission_refusal(market_id, id) {
+            return Some(AmendResult::refused(id, r));
+        }
         if let Some(r) = mode_refusal(&self.modes, market_id, id) {
             return Some(AmendResult::refused(id, r));
         }
@@ -965,6 +1002,9 @@ impl MatchingEngine {
         if !self.enabled {
             return Ok(refuse(disabled(id)));
         }
+        if let Some(r) = self.admission_refusal(market_id, id) {
+            return Ok(refuse(r));
+        }
         if let Some(r) = mode_refusal(&self.modes, market_id, id) {
             return Ok(refuse(r));
         }
@@ -991,40 +1031,6 @@ impl MatchingEngine {
         Ok(MarkResult {
             accepted: true,
             applied: walked.changed,
-            rejected: None,
-        })
-    }
-
-    /// `sweepExpiry`: cancel every GTD and GTT order already due, market by market, even when no later order arrives.
-    /// Without the engine clock it refuses.
-    pub fn sweep_expiry(&mut self) -> Result<ExpirySweep, EngineError> {
-        let Some(now) = self.expiry_now() else {
-            return Ok(ExpirySweep {
-                accepted: false,
-                cancelled: Vec::new(),
-                rejected: Some(Reject::new(
-                    "engine_clock_missing",
-                    "GTD/GTT expires on the engine clock; refuse when that clock is missing",
-                )),
-            });
-        };
-        let mut markets: Vec<String> = self.books.keys().cloned().collect();
-        markets.sort_by(|a, b| js_sort_cmp(a, b));
-        let mut cancelled = Vec::new();
-        for market in markets {
-            let due = self
-                .books
-                .get(&market)
-                .map(|b| b.due_expiry(now))
-                .unwrap_or_default();
-            for id in due {
-                let r = self.cancel(&market, &id, CancelReason::Expired)?;
-                cancelled.extend(r.cancellation);
-            }
-        }
-        Ok(ExpirySweep {
-            accepted: true,
-            cancelled,
             rejected: None,
         })
     }
@@ -1065,6 +1071,9 @@ impl MatchingEngine {
         }
         self.books = into.books;
         self.modes = replay_modes(&records);
+        self.admission_closed = None;
+        self.hold_halted.clear();
+        self.announcing = true;
         let mut announced: Vec<Pending> = Vec::new();
         for (market, at, fill) in &into.fills {
             announced.push(filled_event(market, fill, at));
@@ -1110,14 +1119,6 @@ impl MarkResult {
             ("rejected", reject_or_null(self.rejected.as_ref())),
         ])
     }
-}
-
-/// What an expiry sweep answers (`ExpirySweepResult`). Every book here is readable, so it names no misses.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExpirySweep {
-    pub accepted: bool,
-    pub cancelled: Vec<CancelledRef>,
-    pub rejected: Option<Reject>,
 }
 
 /// What a cold start rebuilt.

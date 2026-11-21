@@ -928,15 +928,15 @@ Reads such as `GET /api/v1/account/balance` still answer. The mapping lives in o
 
 ## Service keys: ledger calls
 
-The ledger client signs with svc-trade's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The ledger client signs with svc-trade's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.
 
 ## Service keys: outgoing calls
 
-Every other outgoing call signs with svc-trade's own key too when `S2S_AUTH_MODE`, `S2S_KEYRING`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set, each for its callee: svc-identity (approval consume, operator entitlement, rank perks, sub-account ownership, affiliate accrue and payout), svc-matching (every engine call and the position close), svc-fix (drop-copy fill post) and svc-token (OTC stake read). The signature binds method, full URL, body and content type. `dual` also sends the shared secret, `keypair` the key only. Unset leaves the shared secret, exactly as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+Every other outgoing call signs with svc-trade's own key too when `S2S_AUTH_MODE`, `S2S_KEYRING`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set, each for its callee: svc-identity (approval consume, operator entitlement, rank perks, sub-account ownership, affiliate accrue and payout), svc-matching (every engine call and the position close), svc-fix (drop-copy fill post) and svc-token (OTC stake read). The signature binds method, full URL, body and content type. `dual` also sends the shared secret, `keypair` the key only. Unset leaves the shared secret, exactly as before. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.
 
 ## Service keys: inbound doors
 
-The internal doors (market lifecycle publication and read, funding-rate publish, copy-leader fixtures, outcomes settle, closure check) and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The internal doors (market lifecycle publication and read, funding-rate publish, copy-leader fixtures, outcomes settle, closure check) and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.
 
 ## LOCAL TEST tape history
 
