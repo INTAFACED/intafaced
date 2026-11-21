@@ -25,10 +25,11 @@ import { otherTraderKey, otherTraderRun, testVenue, venueAccount, venueForThisFi
 // TEST setup (beforeAll, not a step), so every source has moved money:
 // - wallet: TEST USD minted into the TEST wallet on the TEST chain (`fund <address> venue`), then a TEST USD transfer
 //   from that wallet to the venue's published deposit address, signed by the wallet's own key;
-// - venue: that deposit, which the venue sees and credits after its confirmations, one TEST buy of BTC the wallet's key
-//   signs on the venue, filled against a sell another TEST trader rests there first, and one TEST conversion of USDC to
-//   BTC (Convert on the person's own venue account, J-cex-spot-11: one venue order the wallet's key signs), filled
-//   against a second sell that trader rests;
+// - venue: that deposit, which the venue sees and credits after its confirmations; one TEST conversion of USDC to BTC
+//   (Convert on the person's own venue account, J-cex-spot-11: one venue order the wallet's key signs), filled against a
+//   sell another TEST trader rests, whose rest that trader then cancels; and one TEST limit buy of BTC the wallet's key
+//   signs, kept on the venue's book: half of it fills against a second sell that trader rests, and the venue holds the
+//   quote for the other half until #4 cancels it;
 // - partner: the person's bank money moved to the TEST partner bank (`testPartner.set({ custody: 'off' })`) and TEST
 //   USDT paid in there (`testPartner.fund`), then TEST USDT paid out to the person's own bank account
 //   (`testPartner.spend` kind payout), and a TEST fee the partner charges (`testPartner.spend` kind fee): a movement that
@@ -39,8 +40,9 @@ const SYMBOL = 'BTC-USDC';
 const PARTNER_BANK = 'TEST partner bank';
 /** The TEST chain's network as the app names it (features/protocol/blockers networkLabel). */
 const NETWORK = 'Base Sepolia test network';
-const DEPOSIT = '50';
-const BUY = { amount: '0.0005', price: '60100' };
+const DEPOSIT = '100';
+/** The TEST limit buy: `resting` asked for, `amount` of it filled at once, the rest kept on the venue's book until #4 cancels it. */
+const BUY = { amount: '0.0005', resting: '0.001', price: '60100' };
 const PARTNER_IN = '25';
 /** A TEST payout from the partner account to the person's own bank account (`testPartner.spend` kind payout): a withdrawal. */
 const PARTNER_OUT = '7';
@@ -186,7 +188,6 @@ test.beforeAll(async ({ browser }) => {
       )
       .toBe('credited');
 
-    // Venue: one TEST buy, signed by the wallet's key, against a sell another TEST trader rests first.
     const seller = `${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}-${owner.slice(2, 10)}`;
     await testVenue('/test/deposit', {
       account: await venueAccount(otherTraderKey(seller).address),
@@ -194,36 +195,9 @@ test.beforeAll(async ({ browser }) => {
       amount: '1',
       depositRef: `seed:${seller}:BTC`,
     });
-    const rested = await otherTraderRun(seller, {
-      kind: 'place_order',
-      symbol: SYMBOL,
-      side: 'sell',
-      type: 'limit',
-      amount: BUY.amount,
-      price: BUY.price,
-      timeInForce: 'GTC',
-      reduceOnly: false,
-      clientOrderKey: `order:${seller}:pf3-ask-${randomBytes(4).toString('hex')}`,
-      builderFee: null,
-    });
-    expect(rested.definite && rested.accepted, JSON.stringify(rested)).toBe(true);
-    const bought = await signOnVenue(walletKey, {
-      kind: 'place_order',
-      symbol: SYMBOL,
-      side: 'buy',
-      type: 'limit',
-      amount: BUY.amount,
-      price: BUY.price,
-      timeInForce: 'IOC',
-      reduceOnly: false,
-      clientOrderKey: `order:${owner}:btc-usdc:pf3${randomBytes(4).toString('hex')}`,
-      builderFee: null,
-    });
-    expect(bought.definite && bought.accepted, JSON.stringify(bought)).toBe(true);
-    await expect.poll(async () => (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.length).toBe(1);
-
-    // Venue: one TEST conversion of USDC to BTC, against a second sell the other TEST trader rests at the same price. A
-    // quote holds nothing; accepting it prepares its one venue order, which the wallet's key signs and the door sends once.
+    // Venue: one TEST conversion of USDC to BTC, against a sell the other TEST trader rests at BUY.price. A quote holds
+    // nothing; accepting it prepares its one venue order, which the wallet's key signs and the door sends once.
+    const convertAsk = `order:${seller}:pf3-cvt-${randomBytes(4).toString('hex')}`;
     const restedAgain = await otherTraderRun(seller, {
       kind: 'place_order',
       symbol: SYMBOL,
@@ -233,7 +207,7 @@ test.beforeAll(async ({ browser }) => {
       price: BUY.price,
       timeInForce: 'GTC',
       reduceOnly: false,
-      clientOrderKey: `order:${seller}:pf3-cvt-${randomBytes(4).toString('hex')}`,
+      clientOrderKey: convertAsk,
       builderFee: null,
     });
     expect(restedAgain.definite && restedAgain.accepted, JSON.stringify(restedAgain)).toBe(true);
@@ -277,6 +251,49 @@ test.beforeAll(async ({ browser }) => {
       )
       .toBeGreaterThan(0);
 
+    // What the conversion left of that sell is cancelled, so the buy below meets only the sell rested for it.
+    await otherTraderRun(seller, { kind: 'cancel_order', symbol: SYMBOL, clientOrderKey: convertAsk });
+    await expect
+      .poll(async () => (await venueRecord(otherTraderKey(seller).address, '/open-orders')).value.filter((o) => o.symbol === SYMBOL).length)
+      .toBe(0);
+
+    // Venue: one TEST limit buy for twice BUY.amount, signed by the wallet's key and kept on the venue's book: it fills
+    // BUY.amount against a sell another TEST trader rests first, and the venue holds the quote for the rest (#4).
+    const rested = await otherTraderRun(seller, {
+      kind: 'place_order',
+      symbol: SYMBOL,
+      side: 'sell',
+      type: 'limit',
+      amount: BUY.amount,
+      price: BUY.price,
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: `order:${seller}:pf3-ask-${randomBytes(4).toString('hex')}`,
+      builderFee: null,
+    });
+    expect(rested.definite && rested.accepted, JSON.stringify(rested)).toBe(true);
+    const buyKey = `order:${owner}:btc-usdc:pf3${randomBytes(4).toString('hex')}`;
+    const bought = await signOnVenue(walletKey, {
+      kind: 'place_order',
+      symbol: SYMBOL,
+      side: 'buy',
+      type: 'limit',
+      amount: BUY.resting,
+      price: BUY.price,
+      timeInForce: 'GTC',
+      reduceOnly: false,
+      clientOrderKey: buyKey,
+      builderFee: null,
+    });
+    expect(bought.definite && bought.accepted, JSON.stringify(bought)).toBe(true);
+    const buyFills = async () =>
+      (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.filter((f) => f.venueClientOrderId !== convertOrder);
+    await expect.poll(async () => (await buyFills()).length).toBe(1);
+    const buyOrder = (await buyFills())[0].venueClientOrderId;
+    const kept = (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: buyOrder })).value;
+    expect(kept.status).toBe('partially_filled');
+    expect([units(kept.filled), units(kept.remaining)]).toEqual([units(BUY.amount), units(BUY.resting) - units(BUY.amount)]);
+
     // Partner: the person's bank money at the TEST partner bank, with TEST USDT paid in there.
     await setPartner(who, { custody: 'off' });
     const tag = `${process.env.JOURNEY_RUN_ID ?? 'local'}${session.userId}`.replace(/[^A-Za-z0-9-]/g, '').slice(-40);
@@ -299,7 +316,7 @@ test.beforeAll(async ({ browser }) => {
     });
     expect(charged.status, JSON.stringify(charged.body)).toBe(200);
     expect(charged.body.result.data).toMatchObject({ label: PARTNER_BANK, amount: PARTNER_FEE });
-    run.write({ ledgerStart, txHash: txHash.toLowerCase(), convertOrder });
+    run.write({ ledgerStart, txHash: txHash.toLowerCase(), convertOrder, buyKey, buyOrder });
   } finally {
     await page.close();
   }
@@ -471,29 +488,31 @@ test(`${J} #4 opens an entry on the launch model: both legs of a venue fill, and
   stepPicture,
 }) => {
   test.setTimeout(240_000);
-  const { account: who, walletKey, owner, convertOrder } = state();
-  // The venue's own record of the buy: its one fill, the order it filled, and the order's state.
-  const fills = (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value;
-  const bought = fills.filter((f) => f.venueClientOrderId !== convertOrder);
-  expect(bought).toHaveLength(1);
-  const [fill] = bought;
-  expect(fill.side).toBe('buy');
-  expect(fill.venueClientOrderId, 'the venue names the order the fill belongs to').toBeTruthy();
-  const order = (await venueRecord(owner, '/order-history')).value
-    .map((r) => r.order)
-    .filter((o) => o.venueClientOrderId === fill.venueClientOrderId);
-  expect(order.map((o) => o.status)).toEqual(['filled']);
-  // The order was sent to fill at once or not at all, so the venue holds nothing for it: none is left resting.
-  expect((await venueRecord(owner, '/open-orders')).value.filter((o) => o.venueClientOrderId === fill.venueClientOrderId)).toEqual([]);
-  const [base, quote] = fill.symbol.split('-');
-  const paid = decimal((units(fill.price) * units(fill.amount) + SCALE - 1n) / SCALE);
-  const fee = units(fill.venueFee) + units(fill.builderFee);
-  const legs = [
-    ['Received', `+${shown(fill.amount)} ${base}`],
-    ['Paid', `−${shown(paid)} ${quote}`],
-    ...(fee === 0n
-      ? []
-      : [[fee < 0n ? 'Rebate' : 'Fee', `${fee < 0n ? '+' : '−'}${shown(decimal(fee < 0n ? -fee : fee))} ${fill.feeAsset}`]]),
+  const { account: who, walletKey, owner, buyKey, buyOrder } = state();
+  /** The venue's own record of the buy: its fills, and the order as the venue keeps it. */
+  const venueOrder = async () => ({
+    fills: (await venueRecord(owner, '/fills', { since: new Date(0).toISOString() })).value.filter(
+      (f) => f.venueClientOrderId === buyOrder,
+    ),
+    order: (await venueRecord(owner, '/order-by-client-id', { venueClientOrderId: buyOrder })).value,
+  });
+  const before = await venueOrder();
+  expect(before.fills.length, 'the venue filled part of the buy').toBeGreaterThan(0);
+  expect(before.order.status, 'the venue keeps the rest of the buy on its book').toBe('partially_filled');
+  expect(units(before.order.locked), 'the venue holds quote for the rest').toBeGreaterThan(0n);
+  const [base, quote] = before.order.symbol.split('-');
+  /** What one leg of the group shows: the venue's figure, signed, with its asset. */
+  const signed = (up, value, asset) => `${up ? '+' : '−'}${shown(value)} ${asset}`;
+  /** The fills' coin and fees as the venue records them, then what it held for the whole order (its limit × amount). */
+  const expected = (record) => [
+    ...record.fills.flatMap((f) => {
+      const fee = units(f.venueFee) + units(f.builderFee);
+      return [
+        ['received', f.fillId, signed(true, f.amount, base)],
+        ...(fee === 0n ? [] : [[fee < 0n ? 'rebate' : 'fee', f.fillId, signed(fee < 0n, decimal(fee < 0n ? -fee : fee), f.feeAsset)]]),
+      ];
+    }),
+    ['held', buyOrder, signed(false, decimal((units(record.order.price) * units(record.order.amount) + SCALE - 1n) / SCALE), quote)],
   ];
 
   await installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
@@ -502,30 +521,49 @@ test(`${J} #4 opens an entry on the launch model: both legs of a venue fill, and
   const list = page.getByTestId('activity-by-source');
   await expect(list).toBeVisible({ timeout: 30_000 });
   await connectWhenAsked(page, page.getByTestId('venue-wallet-address'));
-  const row = list.locator(`[data-testid="money-act"][data-source="venue"][data-ref="${fill.fillId}"]`);
+  const row = list.locator(`[data-testid="money-act"][data-source="venue"][data-ref="${before.fills[0].fillId}"]`);
   await expect(row).toHaveCount(1, { timeout: 30_000 });
 
-  // Opening the fill shows its parts as one group, under the venue's references for the fill and its order.
+  // Opening the fill shows its order's parts as one group, under the venue's references for the fill and its order.
   const open = row.getByRole('button', { name: `Bought ${base}`, exact: true });
   await expect(open).toHaveAttribute('aria-expanded', 'false');
   await open.click();
   await expect(open).toHaveAttribute('aria-expanded', 'true');
-  const parts = list.getByRole('region', { name: 'Parts of this fill', exact: true });
-  await expect(parts).toHaveCount(1);
-  await expect(parts.locator('[data-label="fill-reference"]')).toHaveText(`Fill reference ${fill.fillId}`);
-  await expect(parts.locator('[data-label="order-reference"]')).toHaveText(`Order reference ${fill.venueClientOrderId}`);
-  // Both legs, and the fee when the venue took one, each as the venue records it; no hold or release, as the venue holds
-  // nothing for an order that filled at once.
-  const shownParts = parts.getByTestId('money-act__part');
-  await expect(shownParts).toHaveCount(legs.length);
-  for (const [i, [part, amount]] of legs.entries()) {
-    await expect(shownParts.nth(i).locator('td').first()).toHaveText(part);
-    await expect(shownParts.nth(i).locator('[data-direction]')).toHaveText(amount);
-  }
-  await expect(parts).not.toContainText(/hold|release/i);
+  const group = list.getByRole('region', { name: 'Parts of this order', exact: true });
+  await expect(group).toHaveCount(1);
+  await expect(group.locator('[data-label="fill-reference"]')).toHaveText(`Fill reference ${before.fills[0].fillId}`);
+  await expect(group.locator('[data-label="order-reference"]')).toHaveText(`Order reference ${buyOrder}`);
+  const parts = group.getByTestId('money-act__part');
+  /** The group's parts as shown: which part, the venue reference it carries, and its signed amount. */
+  const shownParts = () =>
+    parts.evaluateAll((els) =>
+      els.map((el) => [
+        el.getAttribute('data-part'),
+        (el.querySelector('code')?.textContent ?? '').trim(),
+        (el.querySelector('[data-direction]')?.textContent ?? '').trim(),
+      ]),
+    );
+  // While the order rests: the coin each fill brought, any fee, and the quote the venue holds for the whole order (the
+  // fills are paid from it, so no payment is listed twice), with what it still holds for the rest named as the venue says.
+  await expect.poll(shownParts, { timeout: 30_000 }).toEqual(expected(before));
+  await expect(group.locator('[data-label="still-held"]')).toHaveText(
+    `The venue still holds ${shown(before.order.locked)} ${before.order.lockedAsset} for the rest of this order.`,
+  );
+
+  // The wallet cancels the rest of the order on the venue: the group shows the hold released, as the venue records it.
+  await signOnVenue(walletKey, { kind: 'cancel_order', symbol: before.order.symbol, clientOrderKey: buyKey });
+  await expect.poll(async () => (await venueOrder()).order.status, { timeout: 30_000 }).toBe('canceled');
+  const after = await venueOrder();
+  expect(units(after.order.locked)).toBe(0n);
+  const released = decimal((units(after.order.price) * units(after.order.remaining) + SCALE - 1n) / SCALE);
+  expect(units(released), 'what the venue held for the rest came back').toBe(units(before.order.locked));
+  await expect.poll(shownParts, { timeout: 30_000 }).toEqual([...expected(after), ['released', buyOrder, signed(true, released, quote)]]);
+  await expect(group.locator('[data-label="still-held"]')).toHaveCount(0);
+  await expect(parts.filter({ hasText: 'Held for the order' })).toHaveCount(1);
+  await expect(parts.filter({ hasText: 'Released when the order was cancelled' })).toHaveCount(1);
 
   // From a purchase, a link to the coin bought.
-  const coin = parts.getByRole('link', { name: `See ${base} history`, exact: true });
+  const coin = group.getByRole('link', { name: `See ${base} history`, exact: true });
   await expect(coin).toHaveAttribute('href', `/coin/${base}`);
   await stepPicture();
   await coin.click();

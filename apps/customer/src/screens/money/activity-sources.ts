@@ -299,3 +299,73 @@ export function unanswerable(f: ActivityFilters): Array<'note' | 'account' | 'ye
     ...(f.address.trim() ? (['address'] as const) : []),
   ];
 }
+
+/** The venue's own record of one order, as its by-client-id read answers it. */
+export interface VenueOrderRead {
+  side: 'buy' | 'sell';
+  price: string;
+  amount: string;
+  remaining: string;
+  status: string;
+  locked: string;
+  lockedAsset: string;
+}
+
+export type FillPartKind = 'received' | 'sold' | 'paid' | 'got' | 'fee' | 'rebate' | 'held' | 'released';
+export interface FillPart {
+  part: FillPartKind;
+  up: boolean;
+  asset: string;
+  amount: string;
+  /** The venue's fill reference of a fill's leg; null on the order's hold and release. */
+  fill: string | null;
+}
+
+/** An order the venue kept on its book: it held funds for it until it filled or was cancelled. */
+const RESTED = new Set(['open', 'partially_filled', 'canceled', 'cancelled']);
+const CANCELLED = new Set(['canceled', 'cancelled']);
+
+/**
+ * The parts of one venue order, as one group (J-portfolio-03 #4 on the launch model): each of its fills' legs and fees,
+ * and, for an order the venue kept on its book, what it held for the order and what it released when the order was
+ * cancelled, every figure from the venue's own fill and order records. A buy holds its quote at the limit price for the
+ * whole amount and a sell its base, as the venue locks them; the fills spend that hold, so a rested order's leg in the
+ * held asset is the hold and its release, never counted twice as a payment too. An order the venue never kept (filled at
+ * once, or not read) lists its fills' two legs. `fills` are the order's own venue trade lines.
+ */
+export function fillParts(fills: readonly SourceLine[], order: VenueOrderRead | null): FillPart[] {
+  const rested = order !== null && RESTED.has(order.status);
+  const out: FillPart[] = [];
+  for (const line of fills) {
+    if (line.detail?.kind !== 'trade') continue;
+    const buy = line.detail.side === 'buy';
+    const base: FillPart = { part: buy ? 'received' : 'sold', up: buy, asset: line.asset, amount: line.amount, fill: line.ref };
+    const quote: FillPart = {
+      part: buy ? 'paid' : 'got',
+      up: !buy,
+      asset: line.detail.quote.asset,
+      amount: line.detail.quote.amount,
+      fill: line.ref,
+    };
+    // A rested order's leg in the held asset (a buy's quote, a sell's base) is spent from the hold listed below.
+    if (!rested) out.push(base, quote);
+    else out.push(buy ? base : quote);
+    const fee = line.detail.fee;
+    if (fee) out.push({ part: fee.rebate ? 'rebate' : 'fee', up: fee.rebate, asset: fee.asset, amount: fee.amount, fill: line.ref });
+  }
+  if (rested && order) {
+    const buy = order.side === 'buy';
+    const asset = order.lockedAsset || (fills[0]?.detail?.kind === 'trade' ? (buy ? fills[0].detail.quote.asset : fills[0].asset) : '');
+    out.push({ part: 'held', up: false, asset, amount: buy ? product(order.price, order.amount) : order.amount, fill: null });
+    if (CANCELLED.has(order.status) && parseAmount(order.remaining) > 0n)
+      out.push({ part: 'released', up: true, asset, amount: buy ? product(order.price, order.remaining) : order.remaining, fill: null });
+  }
+  return out;
+}
+
+/** The venue trade lines of `line`'s order (the venue's client order id), `line` included; a line of no order is alone. */
+export function orderLines(lines: readonly SourceLine[], line: SourceLine): SourceLine[] {
+  const order = line.detail?.kind === 'trade' ? line.detail.order : null;
+  if (line.source !== 'venue' || !order) return [line];
+  return lines.filter((l) => l.source === 'venue' && l.detail?.kind === 'trade' && l.detail.order === order);
+}

@@ -17,9 +17,12 @@ import { stamp } from './time';
 import type { ActivityFilters } from './activity-filter';
 import {
   keepLine,
+  fillParts,
   oneList,
+  orderLines,
   partnerLines,
   typeOf,
+  type FillPartKind,
   unanswerable,
   venueLines,
   walletLines,
@@ -239,7 +242,15 @@ function Sources({
           </thead>
           <tbody>
             {shown.map((line) => (
-              <LineRow key={line.id} line={line} t={t} hidden={hidden} zone={timeZone} test={line.source === 'venue' && status.test} />
+              <LineRow
+                key={line.id}
+                line={line}
+                group={orderLines(all, line)}
+                t={t}
+                hidden={hidden}
+                zone={timeZone}
+                test={line.source === 'venue' && status.test}
+              />
             ))}
           </tbody>
         </table>
@@ -347,12 +358,15 @@ function sourceLabel(line: SourceLine, t: T): string {
 
 function LineRow({
   line,
+  group,
   t,
   hidden,
   zone,
   test,
 }: {
   line: SourceLine;
+  /** The venue trade lines of the same order as this one (this one included), for its opened group. */
+  group: readonly SourceLine[];
   t: T;
   hidden: boolean;
   zone: ReturnType<typeof usePreferences>['timeZone'];
@@ -442,66 +456,99 @@ function LineRow({
           )}
         </td>
       </tr>
-      {fill && open ? <FillParts id={partsId} line={line} fill={fill} t={t} hidden={hidden} /> : null}
+      {fill && open ? <FillParts id={partsId} line={line} group={group} t={t} hidden={hidden} /> : null}
     </>
   );
 }
 
-type FillDetail = Extract<SourceLine['detail'], { kind: 'trade' }>;
+function partWord(part: FillPartKind, t: T): string {
+  switch (part) {
+    case 'received':
+      return t('Part received');
+    case 'sold':
+      return t('Part sold');
+    case 'paid':
+      return t('Part paid');
+    case 'got':
+      return t('Part got');
+    case 'fee':
+      return t('Part fee');
+    case 'rebate':
+      return t('Part rebate');
+    case 'held':
+      return t('Part held');
+    case 'released':
+      return t('Part released');
+  }
+}
+const OPEN = new Set(['open', 'partially_filled']);
 
 /**
- * An opened venue fill (J-portfolio-03 #4 on the launch model): both of its legs, and its fee, as one group under the
- * venue's own references for the fill and its order, every figure as the venue records it. The venue reports no hold or
- * release of its own as a movement, so none is listed. From a purchase, a link to the coin bought.
+ * An opened venue fill (J-portfolio-03 #4 on the launch model): its order's parts as one group under the venue's own
+ * references (fillParts): each fill's legs and fee, and what the venue held for an order it kept on its book and released
+ * when it was cancelled. The order is read from the venue by its client id while the group is open, so a cancel shows.
+ * From a purchase, a link to the coin bought.
  */
-function FillParts({ id, line, fill, t, hidden }: { id: string; line: SourceLine; fill: FillDetail; t: T; hidden: boolean }) {
-  const got = fill.side === 'buy';
-  const legs = [
-    { part: got ? t('Part received') : t('Part sold'), up: got, amount: line.amount, asset: line.asset },
-    { part: got ? t('Part paid') : t('Part got'), up: !got, amount: fill.quote.amount, asset: fill.quote.asset },
-    ...(fill.fee
-      ? [{ part: fill.fee.rebate ? t('Part rebate') : t('Part fee'), up: fill.fee.rebate, amount: fill.fee.amount, asset: fill.fee.asset }]
-      : []),
-  ];
+function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLine; group: readonly SourceLine[]; t: T; hidden: boolean }) {
+  const venue = useVenueApi();
+  const owner = useOwner();
+  const order = line.detail?.kind === 'trade' ? line.detail.order : null;
+  const read = usePolled(
+    async (signal) => (owner && order ? venue.orderByClientId(owner, order, signal) : null),
+    `activity:order:${owner ?? 'none'}:${order ?? 'none'}`,
+    READ_EVERY_MS,
+  );
+  const record = read.data?.value ?? null;
+  const parts = fillParts(group, record);
+  const bought = line.detail?.kind === 'trade' && line.detail.side === 'buy';
   return (
     <tr data-testid="money-act__parts-row" className="money-act__parts-row">
       <td colSpan={4}>
-        <section id={id} data-testid="money-act__parts" aria-label={t('Parts of this fill')} className="money-act__parts">
-          <h3 className="money-detail__h">{t('Parts of this fill')}</h3>
+        <section id={id} data-testid="money-act__parts" aria-label={t('Parts of this order')} className="money-act__parts">
+          <h3 className="money-detail__h">{t('Parts of this order')}</h3>
           <p className="money-detail__note" data-label="fill-reference">
             {t('Fill reference')} <code className="money-code">{line.ref}</code>
           </p>
-          {fill.order ? (
+          {order ? (
             <p className="money-detail__note" data-label="order-reference">
-              {t('Order reference')} <code className="money-code">{fill.order}</code>
+              {t('Order reference')} <code className="money-code">{order}</code>
+            </p>
+          ) : null}
+          {record && OPEN.has(record.status) ? (
+            <p className="money-detail__note" data-label="still-held">
+              {t('Still held', { amount: exact(record.locked), asset: record.lockedAsset })}
             </p>
           ) : null}
           <table className="money-table money-table--activity">
             <thead>
               <tr>
                 <th scope="col">{t('Part')}</th>
+                <th scope="col">{t('Source reference')}</th>
                 <th scope="col" className="money-num">
                   {t('Amount')}
                 </th>
               </tr>
             </thead>
             <tbody>
-              {legs.map((leg) => (
-                <tr key={leg.part} data-testid="money-act__part">
-                  <td>{leg.part}</td>
+              {parts.map((part, index) => (
+                <tr key={`${part.part}:${part.fill ?? 'order'}:${index}`} data-testid="money-act__part" data-part={part.part}>
+                  <td>{partWord(part.part, t)}</td>
+                  <td>
+                    <code className="money-code">{part.fill ?? order ?? ''}</code>
+                  </td>
                   <td className="money-num">
                     <Amount
-                      value={`${leg.up ? '+' : '−'}${exact(leg.amount)} ${leg.asset}`}
+                      value={`${part.up ? '+' : '−'}${exact(part.amount)} ${part.asset}`}
                       hidden={hidden}
-                      className={leg.up ? 'text-up-text' : 'text-down-text'}
-                      data-direction={leg.up ? 'in' : 'out'}
+                      className={part.up ? 'text-up-text' : 'text-down-text'}
+                      data-direction={part.up ? 'in' : 'out'}
                     />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {got ? (
+          {bought ? (
             <Button variant="secondary" size={40} nativeButton={false} role="link" render={<a href={coinHref(line.asset, 'simple')} />}>
               {t('See {asset} history', { asset: line.asset })}
             </Button>
