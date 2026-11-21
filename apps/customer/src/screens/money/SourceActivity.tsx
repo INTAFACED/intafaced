@@ -394,16 +394,17 @@ function LineRow({
           <div className="money-act__what">
             <span className="money-act__text">
               {fill ? (
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size={28}
+                  shape="rounded"
                   data-testid="money-act__title"
-                  className="money-act__title money-act__open"
                   aria-expanded={open}
                   aria-controls={partsId}
                   onClick={() => setOpen((was) => !was)}
                 >
                   {titleOf(line, t)}
-                </button>
+                </Button>
               ) : (
                 <span data-testid="money-act__title" className="money-act__title">
                   {titleOf(line, t)}
