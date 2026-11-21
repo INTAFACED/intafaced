@@ -53,7 +53,6 @@ use svc_agents::own::approvals::{self, Request as Held};
 use svc_agents::own::desk::{CommentInput, DeskAccount, DeskComment, DeskSearch, SupportDesk};
 use svc_agents::own::gates::parse_policy_baseline;
 use svc_agents::own::notices::{self, APPROVAL_REQUESTED, Scope};
-use svc_agents::own::self_freeze::{Reading, SelfFreezeRead, Unavailable};
 use svc_agents::own::tool_try::{Call, approval_refused, decide_and_run, own_guardrail};
 use svc_agents::own::{Own, OwnError, guard, store};
 use svc_agents::runtime::act::{ActError, ActInput, ActResult, act, open_own_session};
@@ -62,6 +61,7 @@ use svc_agents::runtime::guardrails::{Refusal, parse_guardrail, serialise_guardr
 use svc_agents::runtime::{
     self, ACTION_COMPLETED, ACTION_REJECTED, Rt, RunError, Runtime, SessionRecord, ThinkInput,
 };
+use svc_agents::self_freeze::{Reading, SelfFreezeRead, Unavailable};
 
 const USER: &str = "11111111-1111-4111-8111-111111111111";
 const OTHER: &str = "22222222-2222-4222-8222-222222222222";
@@ -164,7 +164,7 @@ impl SupportDesk for FakeDesk {
 struct Open;
 impl SelfFreezeRead for Open {
     fn read(&self, _: &str) -> Result<Reading, Unavailable> {
-        Ok(Reading::Free)
+        Ok(Reading::Open)
     }
 }
 
@@ -244,6 +244,7 @@ fn runtime() -> Runtime {
     let mut r = Runtime::unwired();
     r.spend = false;
     r.tier_laws = parse_tier_laws(Some(TIER_LAWS)).unwrap();
+    r.self_freeze = Some(Box::new(Open));
     r
 }
 
@@ -308,7 +309,6 @@ impl World {
         own.approval_ttl_seconds = ttl;
         own.reviewer_model = reviewer.map(str::to_owned);
         own.support_desk = Some(Box::new(self.desk.clone()));
-        own.self_freeze = Some(Box::new(Open));
         own
     }
 
@@ -342,6 +342,7 @@ impl World {
             metering: self.metering(),
             runtime: runtime(),
             advisors: svc_agents::advisors::Advisors::unwired(),
+            background: svc_agents::background::Settings::default(),
             own: self.own(baseline, ttl, reviewer),
         })
         .unwrap();

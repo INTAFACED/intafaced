@@ -25,6 +25,7 @@ use service_kit::telemetry::{Logger, Telemetry};
 use svc_agents::advisors::Advisors;
 use svc_agents::advisors::grounding::AcademyCurriculum;
 use svc_agents::advisors::portfolio::{self, LedgerBalancesHttp, TradeTickerPrices};
+use svc_agents::background;
 use svc_agents::boot;
 use svc_agents::db::{self, Store};
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
@@ -45,10 +46,10 @@ use svc_agents::own::Own;
 use svc_agents::own::catalog::parse_own_templates;
 use svc_agents::own::desk::{SupportDesk, SupportDeskHttp};
 use svc_agents::own::gates::parse_policy_baseline;
-use svc_agents::own::self_freeze::{IdentitySelfFreeze, SelfFreezeRead};
-use svc_agents::runtime::Runtime;
 use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
+use svc_agents::runtime::{Rt, Runtime};
+use svc_agents::self_freeze::IdentitySelfFreezeRead;
 use svc_agents::timers::{self, Timer};
 
 fn process_env() -> BTreeMap<String, String> {
@@ -92,6 +93,29 @@ fn jobs<'a>(door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job
                     .refresh(door.store())
                     .map(|_| ())
                     .map_err(|e| e.to_string())
+            }),
+        ),
+        // `advanceSessionRuns`, then `publishCompletedRuns` whether or not the advance failed; the timer runs only while
+        // both owner values are set (`timers::timers`).
+        (
+            "background ticker",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                let m = door.metering();
+                let x = Rt {
+                    rt: door.runtime(),
+                    pool,
+                    gateway: &door.gateway().gateway,
+                    m,
+                    now: system_now(),
+                };
+                let step_ms = door.background().step_ms.unwrap_or(0);
+                let advanced = background::advance(&x, step_ms, 50)
+                    .map(|_| ())
+                    .map_err(|e| format!("background session runs did not advance: {e:?}"));
+                background::publish_completed(pool, m.bus.as_ref(), &m.producer, system_now(), 100)
+                    .map_err(|e| format!("finished background runs not announced: {e:?}"))?;
+                advanced
             }),
         ),
         (
@@ -312,6 +336,17 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
         transcript_retention_days: env.int("AGENTS_TRANSCRIPT_RETENTION_DAYS").unwrap_or(0),
         overage_grace: grace,
         tier_laws: parse_tier_laws(env.str("AGENTS_TIER_LAWS"))?,
+        // `env.IDENTITY_URL ? createIdentitySelfFreezeRead(...) : null`.
+        self_freeze: env
+            .str("IDENTITY_URL")
+            .filter(|u| !u.is_empty())
+            .map(|url| {
+                Box::new(IdentitySelfFreezeRead::new(
+                    url,
+                    signer("svc-identity"),
+                    fetch.clone(),
+                )) as Box<dyn svc_agents::self_freeze::SelfFreezeRead>
+            }),
     })
 }
 
@@ -366,8 +401,8 @@ fn advisors(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Advisors, String>
 }
 
 /// The own agents' templates and owner values, as `index.ts` hands them to `createAgentsRouter`: the support desk
-/// when `SUPPORT_URL` is set (its account read through `IDENTITY_URL`), and identity's freeze read when
-/// `IDENTITY_URL` is set; each absent refuses as `index.ts` leaves it unwired.
+/// when `SUPPORT_URL` is set (its account read through `IDENTITY_URL`); absent refuses as `index.ts` leaves it unwired.
+/// The owner's freeze is read through the runtime's one reader.
 fn own(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Own, String> {
     let s2s = s2s_from_env(
         env.str("S2S_AUTH_MODE").unwrap_or("off"),
@@ -397,14 +432,6 @@ fn own(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Own, String> {
                 fetch: fetch.clone(),
             })
         });
-    let self_freeze: Option<Box<dyn SelfFreezeRead>> =
-        identity.map(|url| -> Box<dyn SelfFreezeRead> {
-            Box::new(IdentitySelfFreeze {
-                base_url: url.to_owned(),
-                signer: signer("svc-identity"),
-                fetch: fetch.clone(),
-            })
-        });
     Ok(Own {
         templates: parse_own_templates(env.str("AGENTS_OWN_TEMPLATES"))?,
         assistant_model: env.str("AGENTS_OWN_ASSISTANT_MODEL").map(str::to_owned),
@@ -412,7 +439,6 @@ fn own(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Own, String> {
         reviewer_model: env.str("AGENTS_REVIEWER_MODEL").map(str::to_owned),
         approval_ttl_seconds: env.int("AGENTS_APPROVAL_TTL_SECONDS"),
         support_desk,
-        self_freeze,
     })
 }
 
@@ -441,6 +467,10 @@ fn door(
         gateway,
         ready,
         runtime,
+        background: background::Settings {
+            max_steps: env.int("AGENTS_SESSION_RUN_MAX_STEPS"),
+            step_ms: env.int("AGENTS_BACKGROUND_STEP_MS"),
+        },
         advisors,
         own: own(env, fetch)?,
     })?;

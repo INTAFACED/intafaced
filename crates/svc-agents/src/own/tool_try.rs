@@ -225,7 +225,7 @@ pub fn decide_and_run(
     .map_err(|reason| trpc("BAD_REQUEST", format!("agents.tool_refused.{reason}")))?;
     // Fails closed: the owner's account must read active from identity before anything is approved or run.
     guarded(
-        assert_owner_active(owner, c.desk(), c.own.self_freeze.as_deref()),
+        assert_owner_active(owner, c.desk(), c.x.rt.self_freeze.as_deref()),
         approval_refused,
     )?;
     let (agent, session) = owned_own_session(pool, owner, &stored.agent_id, &stored.session_id)?;
@@ -367,7 +367,7 @@ pub fn tool_try(c: &Call<'_>, input: &TryInput<'_>) -> Result<Json, OwnError> {
     let (tool, args) = (input.tool, &input.args[..]);
     let (agent, session) = owned_own_session(pool, owner, input.id, input.session_id)?;
     guarded(
-        assert_not_self_frozen(owner, c.own.self_freeze.as_deref()),
+        assert_not_self_frozen(owner, c.x.rt.self_freeze.as_deref()),
         owner_forbidden,
     )?;
     // A request id already held for the person is that request, whatever the rules say now: never a second call.

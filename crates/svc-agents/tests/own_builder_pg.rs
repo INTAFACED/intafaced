@@ -78,6 +78,7 @@ fn door(db: &TestDb, own: Own) -> AgentsDoor {
         metering: svc_agents::metering::Metering::unwired("IFC", 60),
         runtime: svc_agents::runtime::Runtime::unwired(),
         advisors: svc_agents::advisors::Advisors::unwired(),
+        background: svc_agents::background::Settings::default(),
         own,
     })
     .unwrap()

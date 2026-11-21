@@ -277,6 +277,8 @@ pub struct DoorConfig {
     pub metering: Metering,
     /// The runtime's own settings: the spend gate, the funds, the transcript and the grace (`runtime`).
     pub runtime: Runtime,
+    /// The owner's values for a session's background runs (`background`).
+    pub background: crate::background::Settings,
     /// The advisors' curriculum, holdings, prices and switches (`advisors`).
     pub advisors: Advisors,
     /// The own agents' templates and owner values (`own-builder`).
@@ -297,6 +299,7 @@ pub struct AgentsDoor {
     ready: ReadyInput,
     metering: Metering,
     runtime: Runtime,
+    background: crate::background::Settings,
     advisors: Advisors,
     own: Own,
 }
@@ -342,6 +345,7 @@ impl AgentsDoor {
             ready: config.ready,
             metering: config.metering,
             runtime: config.runtime,
+            background: config.background,
             advisors: config.advisors,
             own: config.own,
         })
@@ -368,9 +372,14 @@ impl AgentsDoor {
         &self.gateway
     }
 
-    /// The runtime every session, run and timer goes through.
+    /// The runtime's own settings.
     pub fn runtime(&self) -> &Runtime {
         &self.runtime
+    }
+
+    /// The owner's values for background runs.
+    pub fn background(&self) -> crate::background::Settings {
+        self.background
     }
 
     /// The slices' answers: the door's own call, the ported slices, and "not ported" for the rest.
@@ -388,6 +397,14 @@ impl AgentsDoor {
                 &self.gateway,
                 &self.metering,
                 &self.runtime,
+            ),
+            Slice::Background => crate::background::slice::handle(
+                ctx,
+                &self.store,
+                &self.gateway,
+                &self.metering,
+                &self.runtime,
+                self.background,
             ),
             Slice::Advisors => crate::advisors::slice::handle(
                 ctx,

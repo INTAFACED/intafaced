@@ -158,8 +158,6 @@ pub struct Own {
     /// svc-support's desk (`SUPPORT_URL`), also the owner's account read: absent, no door is wired and every account
     /// reads unread.
     pub support_desk: Option<Box<dyn desk::SupportDesk>>,
-    /// Identity's read of the owner's own freeze (`IDENTITY_URL`): absent refuses every agent action as unread.
-    pub self_freeze: Option<Box<dyn self_freeze::SelfFreezeRead>>,
 }
 
 impl Own {
@@ -172,7 +170,6 @@ impl Own {
             reviewer_model: None,
             approval_ttl_seconds: None,
             support_desk: None,
-            self_freeze: None,
         }
     }
 }

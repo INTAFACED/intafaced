@@ -541,6 +541,17 @@ test(`${J} #6 a buyer takes the take-profit leg: it fills on the venue, the stop
   try {
     const tpCloid = cloidOf(venueId, legKey(s, clientId, 'tp'));
     await expect(cell(page, clientId, 'where')).toHaveText(ENGINE);
+    // On our engine under the agent permission: both legs signed by the agent key the venue lists for the person.
+    const agent = (await (await api(s.account)).get(`/api/v1/venue/spot-agent?owner=${s.owner}`)).body;
+    expect(agent).toMatchObject({ approved: true, agentName: 'spot-orders' });
+    expect((await venueRecord(s.owner, '/agents')).value.map((a) => a.address.toLowerCase())).toContain(agent.agentAddress);
+    const placed = await conditional(s, clientId);
+    expect(placed).toMatchObject({ kind: 'oco', restsOn: 'engine', label: ENGINE, agentPermission: { agentAddress: agent.agentAddress } });
+    expect(placed.legs).toEqual([
+      expect.objectContaining({ role: 'take_profit', restsOn: 'venue', signedBy: 'agent', venueClientOrderId: tpCloid }),
+      expect.objectContaining({ role: 'stop_loss', restsOn: 'engine', signedBy: 'agent' }),
+    ]);
+    await expect(leg(page, clientId, 'stop_loss')).toContainText('run by INTAFACED on our engine');
     // The other TEST trader buys the whole take profit at 110.
     const taken = await traderOrder(TAKER, s, 'buy', '110', '1', 'IOC');
     expect(taken.status).toBe('filled');
