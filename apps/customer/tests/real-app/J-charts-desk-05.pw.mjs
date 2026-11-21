@@ -103,6 +103,17 @@ test.beforeAll(async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 2200 } });
   page = await context.newPage();
   await openWorkbench(page);
+  // The steps read a pixel and then click it, so the chart must not move on the page between the two. A chart whose last
+  // trade is young reads Live; once it is past the market's 30 s boundary a Delayed notice appears above the chart and
+  // pushes it down (runs 44861238200 and 44950507363 placed points 35 px off that way, in #5 and in #2). On the test
+  // stack the tape goes quiet after start-up, so the steps begin once the chart has left Live; a tape that keeps trading
+  // keeps it Live, shows no notice, and the steps begin after the wait.
+  const status = page.getByTestId('chart-status').first();
+  await expect(status).toBeVisible();
+  await expect
+    .poll(async () => await status.getAttribute('data-status'), { timeout: 45_000 })
+    .not.toMatch(/^(live|loading)$/)
+    .catch(() => {});
 });
 test.afterAll(async () => {
   await page?.context().close();
