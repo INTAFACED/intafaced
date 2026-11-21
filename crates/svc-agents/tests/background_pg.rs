@@ -333,7 +333,9 @@ impl World {
             metering: m,
             runtime: rt,
             background: settings,
+            own: svc_agents::own::Own::unwired(),
             advisors: svc_agents::advisors::Advisors::unwired(),
+            team: svc_agents::team::Team::unwired(),
         })
         .unwrap()
     }

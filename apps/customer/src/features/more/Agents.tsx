@@ -1330,14 +1330,27 @@ function Runs({ rows, onSendAgain }: { rows: RunRow[]; onSendAgain: (row: RunRow
   const { t } = agentsCatalogueCopy.useCopy();
   const preferences = usePreferences();
   return (
-    <DataTable headers={[t('runRequest'), t('runTask'), t('runStatus'), t('runCost'), '']} label={t('runs')}>
+    <DataTable headers={[t('runRequest'), t('runTask'), t('runStatus'), t('runCost')]} label={t('runs')}>
       {rows.map((row) => (
         <tr key={row.requestId}>
-          <td lang="zxx">{row.requestId}</td>
-          <td lang="zxx">{row.task}</td>
+          {/* Four columns, long ids wrapping and "Send again" under the status: the row fits the session workspace's
+              column, so its request, status and cost stay in view (J-agents-01 #5). */}
+          <td lang="zxx" className="break-all">
+            {row.requestId}
+          </td>
+          <td lang="zxx" className="break-all">
+            {row.task}
+          </td>
           <td>
             {t(`run_${row.status}`)}
             {row.code ? <small lang="zxx"> {row.code}</small> : null}
+            {row.status === 'completed' ? (
+              <div>
+                <Button variant="secondary" onClick={() => onSendAgain(row)}>
+                  {t('sendAgain')}
+                </Button>
+              </div>
+            ) : null}
           </td>
           <td data-testid="run-cost">
             {row.cost === null
@@ -1347,13 +1360,6 @@ function Runs({ rows, onSendAgain }: { rows: RunRow[]; onSendAgain: (row: RunRow
               : preferences.hideBalances
                 ? '••••'
                 : `${displayAmount(row.cost)} ${row.assetId}`}
-          </td>
-          <td>
-            {row.status === 'completed' ? (
-              <Button variant="secondary" onClick={() => onSendAgain(row)}>
-                {t('sendAgain')}
-              </Button>
-            ) : null}
           </td>
         </tr>
       ))}
