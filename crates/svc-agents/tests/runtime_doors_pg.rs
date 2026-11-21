@@ -3,8 +3,9 @@
 //! Without a URL it skips; with \`REQUIRE_POSTGRES=1\` it fails.
 //!
 //! Ported case for case from \`services/svc-agents/src/runtime.test.ts\`: "D26-P2-01h public doors — real AgentRuntime
-//! metering-off", "OWNER 107 — a run starts only when it can be paid for, priced and run by the person", and the kept
-//! transcript case of "operator agent log (opsLog) and kept transcripts". A case that calls the runtime directly calls
+//! metering-off", "OWNER 107 — a run starts only when it can be paid for, priced and run by the person", and "operator
+//! agent log (opsLog) and kept transcripts" (its kept transcript case, and the ops slice's log reads, exports,
+//! transcript opens and purge). A case that calls the runtime directly calls
 //! \`svc_agents::runtime\`; a case that goes through the router goes through the \`AgentsDoor\` with a signed principal.
 //! The ledger and the bus are fakes; the engine is the crate's deterministic mock under the id \`primary\`, and its call
 //! count is the TypeScript's \`counting(gateway)\`.
@@ -44,6 +45,8 @@ use svc_agents::metering::Metering;
 use svc_agents::metering::meter;
 use svc_agents::metering::ports::{Bus, Ledger, LedgerError, Recipe};
 use svc_agents::metering::spend;
+use svc_agents::ops::Ops;
+use svc_agents::ops::log::{log_read_key, purge_expired_transcripts};
 use svc_agents::runtime::funds::{Funds, Reading, Unread};
 use svc_agents::runtime::guardrails::{parse_guardrail, serialise_guardrail};
 use svc_agents::runtime::holds::{self, HoldError, ReserveInput};
@@ -338,6 +341,18 @@ impl World {
 
     /// A door over this world's database and ledger, with this runtime, metering on or off and this gateway.
     fn door(&self, rt: Runtime, enabled: bool, gateway: Arc<Gateway>, secret: &str) -> AgentsDoor {
+        self.door_with(rt, enabled, gateway, secret, Ops::unwired())
+    }
+
+    /// The same door with the operator desks' owner values.
+    fn door_with(
+        &self,
+        rt: Runtime,
+        enabled: bool,
+        gateway: Arc<Gateway>,
+        secret: &str,
+        ops: Ops,
+    ) -> AgentsDoor {
         let env: BTreeMap<String, String> = [
             ("APP_ENV", "test"),
             ("NODE_ENV", "test"),
@@ -365,6 +380,7 @@ impl World {
             ready: ReadyInput::unwired(),
             metering: self.metering(enabled),
             runtime: rt,
+            ops,
             background: svc_agents::background::Settings::default(),
             advisors: svc_agents::advisors::Advisors::unwired(),
             own: svc_agents::own::Own::unwired(),
@@ -1469,4 +1485,749 @@ fn a_kept_transcript_holds_the_prompt_while_retention_is_on_and_none_at_zero() {
         ),
         0
     );
+}
+
+const OPS_SECRET: &str = "an-agents-operator-log-test-secret-32";
+const OPERATOR: &str = "44444444-4444-4444-8444-444444444444";
+const OPS_SID: &str = "55555555-5555-4555-8555-555555555555";
+const REASONS: [&str; 2] = ["TEST customer complaint", "TEST incident review"];
+
+/// \`SETTINGS\`: the owner's reasons, a limit of 50 and a retention of one day.
+fn ops_settings() -> Ops {
+    Ops {
+        reasons: Some(REASONS.iter().map(|r| (*r).to_owned()).collect()),
+        actions_limit: Some(50),
+        retention_days: Some(1),
+        ..Ops::unwired()
+    }
+}
+
+/// \`operatorCtx(scopes, extra)\`.
+fn operator_principal(
+    scopes: &[&str],
+    kid: Option<&str>,
+    sub: Option<&str>,
+) -> Vec<(String, String)> {
+    principal(OPS_SECRET, OPERATOR, OPS_SID, scopes, kid, sub)
+}
+
+/// \`opsLog(settings)\`: the router with \`{ ...SETTINGS, ...settings }\`.
+fn ops_door(w: &World, edit: impl FnOnce(&mut Ops)) -> AgentsDoor {
+    let mut ops = ops_settings();
+    edit(&mut ops);
+    w.door_with(plain(), true, w.gateway.clone(), OPS_SECRET, ops)
+}
+
+fn ops_call(door: &AgentsDoor, call: &str, input: &Json) -> (u16, Json) {
+    let path = format!("opsLog.{call}");
+    if call == "reasons" {
+        query(
+            door,
+            &path,
+            &Json::Null,
+            &operator_principal(&["admin:read"], None, None),
+        )
+    } else {
+        mutate(
+            door,
+            &path,
+            input,
+            &operator_principal(&["admin:read"], None, None),
+        )
+    }
+}
+
+/// A refusal's message and tRPC code.
+fn refused(answer: &(u16, Json)) -> (String, String) {
+    let code = trpc_code(answer);
+    match answer.1.get("error").and_then(|e| e.get("message")) {
+        Some(Json::String(m)) => (m.clone(), code),
+        _ => panic!("no message: {}", answer.1.compact()),
+    }
+}
+
+fn reads(w: &World) -> i64 {
+    w.db.count("SELECT count(*) FROM agents.agent_log_reads")
+}
+
+fn read_input(fields: &[(&str, &str)]) -> Json {
+    Json::Object(
+        fields
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), Json::str(*v)))
+            .collect(),
+    )
+}
+
+fn sha256(text: &str) -> String {
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// \`history()\`: one executed engine call and one refused task for USER_A, run with retention on; the ran action's id,
+/// and the refused one's id and refusal code.
+fn history(w: &World) -> (String, String, String) {
+    let m = w.metering(true);
+    let rt = runtime_with(false, None, 1);
+    let x = w.x(&rt, &m);
+    let session = runtime::open_session(&x, USER_A, "probe").unwrap();
+    let ran = think(&x, &session.id, "ops-log-ran", "plan", &messages()).unwrap();
+    let r = think(&x, &session.id, "ops-log-refused", "vectors", &messages());
+    assert!(matches!(r, Err(RunError::Refused { .. })), "{r:?}");
+    let row = w
+        .db
+        .client()
+        .query_one(
+            "SELECT id::text, refusal_code FROM agents.agent_actions WHERE session_id = $1::text::uuid AND status = 'refused'",
+            &[&session.id],
+        )
+        .unwrap();
+    (ran.action.id, row.get(0), row.get(1))
+}
+
+fn ids(page: &Json) -> Vec<String> {
+    match page.get("items") {
+        Some(Json::Array(items)) => items.iter().map(|i| text_of(i, "id")).collect(),
+        _ => panic!("no items: {}", page.compact()),
+    }
+}
+
+fn int(v: &Json, key: &str) -> i64 {
+    match v.get(key) {
+        #[allow(clippy::cast_possible_truncation, reason = "a count")]
+        Some(Json::Number(n)) => *n as i64,
+        other => panic!("{key} is not a number: {other:?}"),
+    }
+}
+
+/// runtime.test.ts, opsLog: "refuses every read by its code while the owner’s reasons are blank, a missing or unlisted
+/// reason, or a blank limit, and writes no audit row".
+#[test]
+fn ops_log_refuses_every_read_by_its_code_and_writes_no_audit_row() {
+    let w = world_or_skip!();
+    let blank_reasons = ops_door(&w, |o| o.reasons = None);
+    let blank_limit = ops_door(&w, |o| o.actions_limit = None);
+    let set = ops_door(&w, |_| {});
+    assert_eq!(
+        refused(&ops_call(&blank_reasons, "reasons", &Json::Null)),
+        (
+            "agents.log_read_reason_unset".to_owned(),
+            "PRECONDITION_FAILED".to_owned()
+        )
+    );
+    let read = [("userId", USER_A), ("requestId", "ops-log:refuse:1")];
+    for door in ["actions", "export"] {
+        let with = |reason: &str| {
+            let mut f = read.to_vec();
+            f.push(("reason", reason));
+            read_input(&f)
+        };
+        assert_eq!(
+            refused(&ops_call(&blank_reasons, door, &with(REASONS[0]))).0,
+            "agents.log_read_reason_unset"
+        );
+        assert_eq!(
+            refused(&ops_call(&set, door, &read_input(&read))),
+            (
+                "agents.log_read_reason_required".to_owned(),
+                "BAD_REQUEST".to_owned()
+            )
+        );
+        assert_eq!(
+            refused(&ops_call(&set, door, &with("curiosity"))).0,
+            "agents.log_read_reason_unknown"
+        );
+        assert_eq!(
+            refused(&ops_call(&blank_limit, door, &with(REASONS[0]))),
+            (
+                "agents.ops_actions_limit_unset".to_owned(),
+                "PRECONDITION_FAILED".to_owned()
+            )
+        );
+    }
+    let t = read_input(&[
+        ("actionId", USER_B),
+        ("reason", REASONS[0]),
+        ("requestId", "ops-log:t:1"),
+    ]);
+    assert_eq!(
+        refused(&ops_call(&blank_reasons, "transcript", &t)).0,
+        "agents.log_read_reason_unset"
+    );
+    assert_eq!(
+        data(&ops_call(&set, "reasons", &Json::Null)).compact(),
+        r#"{"reasons":["TEST customer complaint","TEST incident review"]}"#
+    );
+    assert_eq!(reads(&w), 0);
+}
+
+/// runtime.test.ts, opsLog: "lists one customer’s actions with tool and refusal code and no prompt text, writing one
+/// audit row per read, once per request id".
+#[test]
+fn ops_log_lists_one_customers_actions_with_one_audit_row_per_read_once_per_request_id() {
+    let w = world_or_skip!();
+    let (ran, refused_id, code) = history(&w);
+    let door = ops_door(&w, |_| {});
+    let read = read_input(&[
+        ("userId", USER_A),
+        ("reason", REASONS[1]),
+        ("requestId", "ops-log:actions:1"),
+    ]);
+    let page = data(&ops_call(&door, "actions", &read));
+    assert_eq!(
+        (
+            page.get("more"),
+            int(&page, "limit"),
+            int(&page, "auditRows"),
+            int(&page, "subjectReads")
+        ),
+        (Some(&Json::Bool(false)), 50, 1, 1)
+    );
+    let item = |id: &str| match page.get("items") {
+        Some(Json::Array(items)) => items
+            .iter()
+            .find(|i| text_of(i, "id") == id)
+            .cloned()
+            .unwrap(),
+        _ => panic!(),
+    };
+    let r = item(&ran);
+    assert_eq!(
+        (
+            text_of(&r, "kind"),
+            text_of(&r, "tool"),
+            text_of(&r, "outcome"),
+            r.get("refusalCode")
+        ),
+        (
+            "completion".to_owned(),
+            "plan".to_owned(),
+            "executed".to_owned(),
+            Some(&Json::Null)
+        )
+    );
+    let f = item(&refused_id);
+    assert_eq!(
+        (
+            text_of(&f, "tool"),
+            text_of(&f, "outcome"),
+            text_of(&f, "refusalCode")
+        ),
+        ("vectors".to_owned(), "refused".to_owned(), code)
+    );
+    let tools = page.get("tools").unwrap().compact();
+    assert!(
+        tools.contains("\"plan\"") && tools.contains("\"vectors\""),
+        "{tools}"
+    );
+    assert!(!page.compact().contains("Where do I stake?"));
+    // The retried request writes no second row; a new request writes its own.
+    assert_eq!(
+        int(&data(&ops_call(&door, "actions", &read)), "auditRows"),
+        1
+    );
+    assert_eq!(reads(&w), 1);
+    let a = w
+        .db
+        .client()
+        .query_one(
+            "SELECT operator_id, subject_id, kind, reason, filter::text, action_id IS NULL, row_count FROM agents.agent_log_reads",
+            &[],
+        )
+        .unwrap();
+    let items = i32::try_from(ids(&page).len()).unwrap();
+    assert_eq!(
+        (
+            a.get::<_, String>(0),
+            a.get::<_, String>(1),
+            a.get::<_, String>(2),
+            a.get::<_, String>(3),
+            a.get::<_, String>(4),
+            a.get::<_, bool>(5),
+            a.get::<_, i32>(6)
+        ),
+        (
+            OPERATOR.to_owned(),
+            USER_A.to_owned(),
+            "actions".to_owned(),
+            REASONS[1].to_owned(),
+            "{}".to_owned(),
+            true,
+            items
+        )
+    );
+    let second = data(&ops_call(
+        &door,
+        "actions",
+        &read_input(&[
+            ("userId", USER_A),
+            ("reason", REASONS[1]),
+            ("requestId", "ops-log:actions:2"),
+        ]),
+    ));
+    assert_eq!(
+        (int(&second, "auditRows"), int(&second, "subjectReads")),
+        (1, 2)
+    );
+    assert_eq!(reads(&w), 2);
+    // Another customer's rows are not in this one's read, and their reads are counted apart.
+    let other = data(&ops_call(
+        &door,
+        "actions",
+        &read_input(&[
+            ("userId", USER_B),
+            ("reason", REASONS[1]),
+            ("requestId", "ops-log:actions:3"),
+        ]),
+    ));
+    assert_eq!((ids(&other).len(), int(&other, "subjectReads")), (0, 1));
+}
+
+/// runtime.test.ts, opsLog: "answers reads of one customer’s log in flight at once, each with its own audit row, and
+/// refuses none".
+#[test]
+fn ops_log_answers_reads_in_flight_at_once_each_with_its_own_audit_row() {
+    let w = world_or_skip!();
+    let (_, refused_id, _) = history(&w);
+    let door = ops_door(&w, |_| {});
+    let filters: [&[(&str, &str)]; 4] = [
+        &[],
+        &[("outcome", "refused")],
+        &[("outcome", "refused"), ("tool", "vectors")],
+        &[("tool", "plan")],
+    ];
+    let answers: Vec<(u16, Json)> = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..40)
+            .map(|i| {
+                let door = &door;
+                s.spawn(move || {
+                    let request = format!("ops-log:together:{i}");
+                    let mut f = vec![
+                        ("userId", USER_A),
+                        ("reason", REASONS[0]),
+                        ("requestId", request.as_str()),
+                    ];
+                    f.extend_from_slice(filters[i % 4]);
+                    ops_call(
+                        door,
+                        if i % 3 == 2 { "export" } else { "actions" },
+                        &read_input(&f),
+                    )
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    for a in &answers {
+        let d = data(a);
+        assert_eq!(int(&d, "auditRows"), 1);
+        let n = int(&d, "subjectReads");
+        assert!((1..=40).contains(&n), "{n}");
+    }
+    assert_eq!(reads(&w), 40);
+    // The refused-and-tool read answered its own filter, not another read's.
+    assert_eq!(ids(&data(&answers[6])), vec![refused_id]);
+    let after = data(&ops_call(
+        &door,
+        "actions",
+        &read_input(&[
+            ("userId", USER_A),
+            ("reason", REASONS[0]),
+            ("requestId", "ops-log:together:after"),
+        ]),
+    ));
+    assert_eq!(
+        (int(&after, "auditRows"), int(&after, "subjectReads")),
+        (1, 41)
+    );
+    // One request sent twice at once still writes one audit row, and both answers carry it.
+    let twice = read_input(&[
+        ("userId", USER_A),
+        ("reason", REASONS[0]),
+        ("requestId", "ops-log:together:twice"),
+    ]);
+    let both: Vec<i64> = std::thread::scope(|s| {
+        let a = s.spawn(|| ops_call(&door, "actions", &twice));
+        let b = s.spawn(|| ops_call(&door, "actions", &twice));
+        [a.join().unwrap(), b.join().unwrap()]
+            .iter()
+            .map(|r| int(&data(r), "auditRows"))
+            .collect()
+    });
+    assert_eq!(both, vec![1, 1]);
+    assert_eq!(reads(&w), 42);
+}
+
+/// runtime.test.ts, opsLog: "filters by outcome and tool, flags a page past the owner’s limit, and exports the same
+/// rows as CSV".
+#[test]
+fn ops_log_filters_by_outcome_and_tool_flags_a_capped_page_and_exports_the_same_rows() {
+    let w = world_or_skip!();
+    let (_, refused_id, code) = history(&w);
+    let door = ops_door(&w, |_| {});
+    let base = [
+        ("userId", USER_A),
+        ("reason", REASONS[0]),
+        ("outcome", "refused"),
+        ("tool", "vectors"),
+    ];
+    let with = |request: &str| {
+        let mut f = base.to_vec();
+        f.push(("requestId", request));
+        read_input(&f)
+    };
+    let page = data(&ops_call(&door, "actions", &with("ops-log:filter:1")));
+    assert_eq!(ids(&page), vec![refused_id.clone()]);
+    let file = data(&ops_call(&door, "export", &with("ops-log:export:1")));
+    assert_eq!(
+        (
+            int(&file, "rows"),
+            file.get("more"),
+            int(&file, "auditRows")
+        ),
+        (1, Some(&Json::Bool(false)), 1)
+    );
+    let csv = text_of(&file, "csv");
+    let lines: Vec<&str> = csv.trim().split('\n').collect();
+    let at = match page.get("items") {
+        Some(Json::Array(items)) => text_of(&items[0], "occurredAt"),
+        _ => panic!(),
+    };
+    assert_eq!(
+        lines,
+        vec![
+            "Time,Tool,Outcome,Refusal code,Input digest,Action id".to_owned(),
+            format!("{at},vectors,Refused,{code},,{refused_id}")
+        ]
+    );
+    let a = w
+        .db
+        .client()
+        .query_one(
+            "SELECT filter = '{\"outcome\":\"refused\",\"tool\":\"vectors\"}'::jsonb, row_count FROM agents.agent_log_reads WHERE kind = 'export'",
+            &[],
+        )
+        .unwrap();
+    assert_eq!((a.get::<_, bool>(0), a.get::<_, i32>(1)), (true, 1));
+    let capped_door = ops_door(&w, |o| o.actions_limit = Some(1));
+    let capped = data(&ops_call(
+        &capped_door,
+        "actions",
+        &read_input(&[
+            ("userId", USER_A),
+            ("reason", REASONS[0]),
+            ("requestId", "ops-log:capped:1"),
+        ]),
+    ));
+    assert_eq!(
+        (
+            capped.get("more"),
+            int(&capped, "limit"),
+            ids(&capped).len()
+        ),
+        (Some(&Json::Bool(true)), 1, 1)
+    );
+}
+
+/// runtime.test.ts, opsLog: "opens a kept transcript for a reason, with the digest computed from its text; refuses blank
+/// or zero retention, an unknown action and an unkept call".
+#[test]
+fn ops_log_opens_a_kept_transcript_for_a_reason_and_refuses_what_is_not_kept() {
+    let w = world_or_skip!();
+    let (ran, refused_id, _) = history(&w);
+    let open = |action: &str, request: &str, edit: fn(&mut Ops)| {
+        let door = ops_door(&w, edit);
+        ops_call(
+            &door,
+            "transcript",
+            &read_input(&[
+                ("actionId", action),
+                ("reason", REASONS[0]),
+                ("requestId", request),
+            ]),
+        )
+    };
+    assert_eq!(
+        refused(&open(&ran, "ops-log:t:unset", |o| o.retention_days = None)),
+        (
+            "agents.transcript_retention_unset".to_owned(),
+            "PRECONDITION_FAILED".to_owned()
+        )
+    );
+    assert_eq!(
+        refused(&open(&ran, "ops-log:t:zero", |o| o.retention_days = Some(0))).0,
+        "agents.transcript_not_kept"
+    );
+    assert_eq!(
+        refused(&open(
+            "99999999-9999-4999-8999-999999999999",
+            "ops-log:t:none",
+            |_| {}
+        )),
+        ("agents.action_not_found".to_owned(), "NOT_FOUND".to_owned())
+    );
+    assert_eq!(
+        refused(&open(&refused_id, "ops-log:t:refused", |_| {})).0,
+        "agents.transcript_not_kept"
+    );
+    let door = ops_door(&w, |_| {});
+    assert_eq!(
+        refused(&ops_call(
+            &door,
+            "transcript",
+            &read_input(&[("actionId", &ran), ("requestId", "ops-log:t:noreason")])
+        ))
+        .0,
+        "agents.log_read_reason_required"
+    );
+    assert_eq!(reads(&w), 0);
+
+    let shown = data(&open(&ran, "ops-log:t:ok", |_| {}));
+    let digest: String =
+        w.db.client()
+            .query_one(
+                "SELECT input_digest FROM agents.agent_actions WHERE id = $1::text::uuid",
+                &[&ran],
+            )
+            .unwrap()
+            .get(0);
+    assert_eq!(
+        (
+            text_of(&shown, "actionId"),
+            text_of(&shown, "userId"),
+            int(&shown, "auditRows"),
+            text_of(&shown, "inputDigest")
+        ),
+        (ran.clone(), USER_A.to_owned(), 1, digest.clone())
+    );
+    assert_eq!(text_of(&shown, "digest"), sha256(&text_of(&shown, "text")));
+    assert_eq!(text_of(&shown, "digest"), digest);
+    let a =
+        w.db.client()
+            .query_one(
+                "SELECT kind, action_id::text, subject_id, row_count FROM agents.agent_log_reads",
+                &[],
+            )
+            .unwrap();
+    assert_eq!(
+        (
+            a.get::<_, String>(0),
+            a.get::<_, String>(1),
+            a.get::<_, String>(2),
+            a.get::<_, i32>(3)
+        ),
+        ("transcript".to_owned(), ran.clone(), USER_A.to_owned(), 1)
+    );
+
+    // Kept under a longer retention than today's, the text is not read past today's retention.
+    let mut c = w.db.client();
+    c.execute(
+        "UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() + interval '1 day' WHERE action_id = $1::text::uuid",
+        &[&ran],
+    )
+    .unwrap();
+    assert_eq!(
+        refused(&open(&ran, "ops-log:t:shortened", |_| {})).0,
+        "agents.transcript_not_kept"
+    );
+    assert_eq!(
+        text_of(
+            &data(&open(&ran, "ops-log:t:longer", |o| o.retention_days = Some(3))),
+            "digest"
+        ),
+        digest
+    );
+    // Past its expiry the text is never read.
+    c.execute(
+        "UPDATE agents.agent_transcripts SET stored_at = now() - interval '2 days', expires_at = now() - interval '1 day' WHERE action_id = $1::text::uuid",
+        &[&ran],
+    )
+    .unwrap();
+    assert_eq!(
+        refused(&open(&ran, "ops-log:t:expired", |_| {})).0,
+        "agents.transcript_not_kept"
+    );
+}
+
+/// runtime.test.ts, opsLog: "refuses a request id reused for another customer, reason or filter, and returns nothing for
+/// it".
+#[test]
+fn ops_log_refuses_a_request_id_reused_for_another_customer_reason_or_filter() {
+    let w = world_or_skip!();
+    history(&w);
+    let door = ops_door(&w, |_| {});
+    let base = [
+        ("userId", USER_A),
+        ("reason", REASONS[0]),
+        ("requestId", "ops-log:reuse:1"),
+    ];
+    data(&ops_call(&door, "actions", &read_input(&base)));
+    for (k, v) in [
+        ("userId", USER_B),
+        ("reason", REASONS[1]),
+        ("outcome", "refused"),
+    ] {
+        let mut f: Vec<(&str, &str)> = base.iter().filter(|(bk, _)| *bk != k).copied().collect();
+        f.push((k, v));
+        assert_eq!(
+            refused(&ops_call(&door, "actions", &read_input(&f))),
+            (
+                "agents.log_read_request_reused".to_owned(),
+                "CONFLICT".to_owned()
+            )
+        );
+    }
+    assert_eq!(
+        int(
+            &data(&ops_call(&door, "actions", &read_input(&base))),
+            "auditRows"
+        ),
+        1
+    );
+    let rows: Vec<(String, String)> =
+        w.db.client()
+            .query("SELECT subject_id, reason FROM agents.agent_log_reads", &[])
+            .unwrap()
+            .iter()
+            .map(|r| (r.get(0), r.get(1)))
+            .collect();
+    assert_eq!(rows, vec![(USER_A.to_owned(), REASONS[0].to_owned())]);
+
+    // Past the retry window the same request id is refused: a fresh read needs its own row.
+    let key = log_read_key("actions", OPERATOR, "ops-log:reuse:stale");
+    w.db.client()
+        .execute(
+            "INSERT INTO agents.agent_log_reads (business_key, operator_id, subject_id, kind, reason, row_count, read_at)
+             VALUES ($1::text, $2::text, $3::text, 'actions', $4::text, 1, now() - interval '6 minutes')",
+            &[&key, &OPERATOR, &USER_A, &REASONS[0]],
+        )
+        .unwrap();
+    let stale = read_input(&[
+        ("userId", USER_A),
+        ("reason", REASONS[0]),
+        ("requestId", "ops-log:reuse:stale"),
+    ]);
+    assert_eq!(
+        refused(&ops_call(&door, "actions", &stale)),
+        (
+            "agents.log_read_request_reused".to_owned(),
+            "CONFLICT".to_owned()
+        )
+    );
+    assert_eq!(reads(&w), 2);
+}
+
+/// runtime.test.ts, opsLog: "purges every kept transcript past its expiry or older than today’s retention, on its own; 0
+/// keeps none and blank deletes nothing".
+#[test]
+fn ops_log_purge_deletes_what_is_past_expiry_or_retention_zero_keeps_none_blank_deletes_nothing() {
+    let w = world_or_skip!();
+    let pool = w.pool();
+    let kept = |w: &World| w.db.count("SELECT count(*) FROM agents.agent_transcripts");
+    let age = |id: &str, stored: &str, expires: &str| {
+        w.db.client()
+            .execute(
+                &format!(
+                    "UPDATE agents.agent_transcripts SET stored_at = now() - interval '{stored}', expires_at = now() {expires} WHERE action_id = $1::text::uuid"
+                ),
+                &[&id],
+            )
+            .unwrap();
+    };
+    let (ran, _, _) = history(&w);
+    assert_eq!(purge_expired_transcripts(pool, Some(1)).unwrap(), 0);
+    age(&ran, "2 days", "- interval '1 day'");
+    // An engine call with retention 0 keeps nothing and leaves the purge to the timer.
+    let m = w.metering(true);
+    let rt = plain();
+    let x = w.x(&rt, &m);
+    let session = runtime::open_session(&x, USER_A, "probe").unwrap();
+    think(&x, &session.id, "ops-log-purge", "plan", &messages()).unwrap();
+    assert_eq!(kept(&w), 1);
+    assert_eq!(purge_expired_transcripts(pool, Some(1)).unwrap(), 1);
+    assert_eq!(kept(&w), 0);
+
+    // Kept under a longer retention, a row older than today's goes before its own expiry.
+    let longer = history(&w).0;
+    age(&longer, "2 days", "+ interval '1 day'");
+    assert_eq!(purge_expired_transcripts(pool, Some(3)).unwrap(), 0);
+    assert_eq!(purge_expired_transcripts(pool, Some(1)).unwrap(), 1);
+
+    // Retention 0 keeps none: every kept row goes, however fresh.
+    history(&w);
+    assert_eq!(purge_expired_transcripts(pool, Some(1)).unwrap(), 0);
+    assert_eq!(purge_expired_transcripts(pool, Some(0)).unwrap(), 1);
+
+    // A blank retention is not a value: it deletes nothing, a fresh row or one past its own expiry.
+    let fresh = history(&w).0;
+    let old = history(&w).0;
+    age(&old, "9 days", "- interval '1 day'");
+    assert_eq!(purge_expired_transcripts(pool, None).unwrap(), 0);
+    let mut left: Vec<String> =
+        w.db.client()
+            .query("SELECT action_id::text FROM agents.agent_transcripts", &[])
+            .unwrap()
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+    left.sort();
+    let mut want = vec![fresh, old];
+    want.sort();
+    assert_eq!(left, want);
+}
+
+/// runtime.test.ts, opsLog: "needs admin:read, and an audit row is never rewritten".
+#[test]
+fn ops_log_needs_admin_read_from_an_operators_own_session_and_an_audit_row_is_never_rewritten() {
+    let w = world_or_skip!();
+    let door = ops_door(&w, |_| {});
+    let read = read_input(&[
+        ("userId", USER_A),
+        ("reason", REASONS[0]),
+        ("requestId", "ops-log:scope:1"),
+    ]);
+    let customer = operator_principal(&["agents:read", "agents:execute"], None, None);
+    assert_eq!(
+        trpc_code(&mutate(&door, "opsLog.actions", &read, &customer)),
+        "FORBIDDEN"
+    );
+    // Only an operator's own session reads: never a sub-account or an API key.
+    for (kid, sub) in [
+        (None, Some("66666666-6666-4666-8666-666666666666")),
+        (Some("key-ops-log"), None),
+    ] {
+        let via = operator_principal(&["admin:read"], kid, sub);
+        assert_eq!(
+            trpc_code(&mutate(&door, "opsLog.actions", &read, &via)),
+            "FORBIDDEN"
+        );
+    }
+    assert_eq!(reads(&w), 0);
+    data(&ops_call(
+        &door,
+        "actions",
+        &read_input(&[
+            ("userId", USER_A),
+            ("reason", REASONS[0]),
+            ("requestId", "ops-log:append:1"),
+        ]),
+    ));
+    let mut c = w.db.client();
+    let e = c
+        .execute(
+            "UPDATE agents.agent_log_reads SET reason = 'TEST other'",
+            &[],
+        )
+        .unwrap_err();
+    assert!(
+        e.to_string().contains("append-only") || format!("{e:?}").contains("append-only"),
+        "{e:?}"
+    );
+    let e = c
+        .execute("DELETE FROM agents.agent_log_reads", &[])
+        .unwrap_err();
+    assert!(format!("{e:?}").contains("append-only"), "{e:?}");
+    assert_eq!(reads(&w), 1);
 }
