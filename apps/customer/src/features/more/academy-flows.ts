@@ -3,6 +3,8 @@ import { academyQuizSchema } from '@intafaced/contracts/academy-catalogue';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { publicCertCode, type AcademyPath } from './academy-lms';
 import type { academyLmsCopy } from './academy-lms-copy';
+import { ACADEMY_CERT_VERIFY } from '@intafaced/contracts/academy-cert-verify-procedures';
+import { type ProcedureOutput } from '@intafaced/contracts/procedure';
 
 /**
  * The Academy procedures behind assessments, public certificate checks and programme enrolments, with the answers
@@ -51,19 +53,12 @@ export const readAttempts = (api: ApiClient, slug: string, signal?: AbortSignal)
 
 // ------------------------------------------------------------ certificate check
 
-export const verifiedCertificate = z.object({
-  certId: ref,
-  title: ref,
-  grantedAt: isoDate,
-  status: z.enum(['valid', 'revoked']),
-  holderName: z.string().min(1).optional(),
-});
-export type VerifiedCertificate = z.infer<typeof verifiedCertificate>;
+export type VerifiedCertificate = ProcedureOutput<typeof ACADEMY_CERT_VERIFY>;
 
 /** The public check. It needs no sign-in on the service; the code is the only input. */
 export const verifyCertificate = (api: ApiClient, code: string, signal?: AbortSignal) => {
   if (!publicCertCode.safeParse(code).success) throw new Error('A verification code is 32 lowercase hex characters');
-  return api.query('academy', 'certVerify', { publicId: code }, verifiedCertificate, { signal });
+  return api.call(ACADEMY_CERT_VERIFY, { publicId: code }, { signal });
 };
 
 // ----------------------------------------------------------------- enrolments

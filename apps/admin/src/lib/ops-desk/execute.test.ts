@@ -163,10 +163,25 @@ describe('academy ambassador freeze and unfreeze', () => {
   });
 });
 
+// svc-academy's whole answers (each record's answer schema, which the door's answers are replayed against): a fake
+// answer carries every field the real one does.
+const AT = '2026-10-17T02:00:00.000Z';
+const ambassador = (over: Record<string, unknown>) => ({
+  userId: USER,
+  status: 'active',
+  appointedBy: USER,
+  appointedAt: AT,
+  frozenAt: null,
+  frozenBy: null,
+  freezeReason: null,
+  confirmOperatorId: 'x',
+  ...over,
+});
+
 describe('academy appoint ambassador', () => {
   const appoint: DeskRequest = { kind: 'academy.ambassador.appoint', userId: USER };
   it('sends the person and both approval ids as the founder, and needs the record to say active', async () => {
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok({ userId: USER, status: 'active', confirmOperatorId: 'x' }));
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(ambassador({})));
     vi.stubGlobal('fetch', fn);
     expect(await opsExecute(ctx)(appoint, ids)).toMatchObject({ ok: true });
     const [url, init] = fn.mock.calls[0]!;
@@ -226,8 +241,20 @@ describe('academy appoint ambassador', () => {
 describe('academy residency decision', () => {
   const APPLICATION = '5a3b9c10-1111-4222-8333-444455556666';
   const decide = (decision: 'accepted' | 'rejected'): DeskRequest => ({ kind: 'academy.residency.decide', id: APPLICATION, decision });
+  const residency = (status: 'accepted' | 'rejected') => ({
+    id: APPLICATION,
+    userId: USER,
+    cohortSlug: 'cohort',
+    statement: 'a statement',
+    status,
+    appliedAt: AT,
+    decidedAt: AT,
+    decidedBy: USER,
+    decisionNote: null,
+    confirmOperatorId: 'x',
+  });
   it('sends the application, the decision and both approval ids, and needs the record to carry that decision', async () => {
-    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok({ id: APPLICATION, status: 'accepted', confirmOperatorId: 'x' }));
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(residency('accepted')));
     vi.stubGlobal('fetch', fn);
     expect(await opsExecute(ctx)(decide('accepted'), ids)).toMatchObject({ ok: true });
     const [url, init] = fn.mock.calls[0]!;
@@ -237,12 +264,12 @@ describe('academy residency decision', () => {
   it('rejected is sent as rejected; an answer that says the opposite is unknown, not success', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ok({ id: APPLICATION, status: 'accepted' })),
+      vi.fn(async () => ok(residency('accepted'))),
     );
     expect(await opsExecute(ctx)(decide('rejected'), ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ok({ id: APPLICATION, status: 'rejected' })),
+      vi.fn(async () => ok(residency('rejected'))),
     );
     expect(await opsExecute(ctx)(decide('rejected'), ids)).toMatchObject({ ok: true });
   });

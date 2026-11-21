@@ -698,3 +698,48 @@ test('a name a service file re-exports is followed to where it is declared, rena
   assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: local is re-exported as renamed']);
   assert.deepEqual(closureOf(repo, [root(3)]).problems, ['r: keyField is imported as passed']);
 });
+
+test("portable: a door answer's Date becomes its ISO string; a mounted service's stays named", async () => {
+  const { plan } = await import('./portable.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  writeFileSync(
+    join(dir, 'grants.ts'),
+    [
+      "import { z } from 'zod';",
+      'export const grantSchema = z.object({ grantedAt: z.coerce.date(), revokedAt: z.date().nullable() });',
+      '',
+    ].join('\n'),
+  );
+  const record = join(dir, 'grants-procedures.ts');
+  writeFileSync(
+    record,
+    [
+      "import { grantSchema } from './grants.js';",
+      "export const R = defineProcedure({ name: 'x.grant', input: NO_INPUT, output: grantSchema, samples: [] });",
+      '',
+    ].join('\n'),
+  );
+  const date = '(Date object (not JSON))';
+  const why = `x.grant.output cannot be exported without losing meaning: x.grant.output.grantedAt ${date}; x.grant.output.revokedAt ${date}`;
+  const door = plan({ grant: why }, [record], { door: true });
+  assert.deepEqual(door.left, []);
+  assert.deepEqual(
+    [...door.edits.get(join(dir, 'grants.ts')).edits.values()].map((e) => e.text),
+    ['z.iso.datetime({ offset: true })', 'z.iso.datetime({ offset: true })'],
+  );
+  const input = plan(
+    { grant: 'x.grant.input cannot be exported without losing meaning: input.scene (z.unknown (no shape: accepts anything))' },
+    [record],
+    { door: true },
+  );
+  assert.deepEqual(
+    input.left.map((l) => l.at),
+    ['input.scene'],
+  );
+  const mounted = plan({ grant: why }, [record]);
+  assert.equal(mounted.edits.size, 0);
+  assert.deepEqual(
+    mounted.left.map((l) => l.at),
+    ['x.grant.output.grantedAt', 'x.grant.output.revokedAt'],
+  );
+});
