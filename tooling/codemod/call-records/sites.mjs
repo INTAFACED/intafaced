@@ -58,7 +58,9 @@ export function findSites(repo) {
       }
       if (n.type === 'Property') {
         const key = keyOf(n);
-        if (key === 'procedure' && isString(n.value))
+        const desk = key === 'procedure' ? deskRead(p, n) : undefined;
+        if (desk) out.push({ file, line: line(n), node: n, shape: 'desk-read', ...desk });
+        else if (key === 'procedure' && isString(n.value))
           out.push({
             file,
             line: line(n),
@@ -82,4 +84,27 @@ export function findSites(repo) {
 /** `parseWith(schema)` or `schema.safeParse`-shaped: the call's answer as the service sends it, nothing of its own. */
 function isSchemaParse(n) {
   return n?.type === 'CallExpression' && n.callee.type === 'Identifier' && n.callee.name === 'parseWith' && n.arguments.length === 1;
+}
+
+/**
+ * An ops-desk read (`{ module: 'bank', procedure: 'health', ... }` in a file that has `readOf`): a query whose entry
+ * names its record as `...readOf(RECORD)`, the form the desk's catalog test asks for.
+ */
+function deskRead(p, n) {
+  if (!literal(n.value)) return undefined;
+  const obj = p.parents.get(n);
+  const moduleProp = obj?.properties?.find((pr) => pr.type === 'Property' && keyOf(pr) === 'module' && literal(pr.value));
+  if (!moduleProp || bindingOf(p, n, 'readOf').kind === 'none') return undefined;
+  const inputProp = obj.properties.find((pr) => pr.type === 'Property' && keyOf(pr) === 'input');
+  return { module: literal(moduleProp.value), path: literal(n.value), kind: 'query', moduleProp, inputProp, obj };
+}
+
+/** The ops-desk reads in one parsed file. */
+export function deskReadSite(p) {
+  const out = [];
+  walk(p.program, (n) => {
+    const desk = n.type === 'Property' && keyOf(n) === 'procedure' ? deskRead(p, n) : undefined;
+    if (desk) out.push(desk);
+  });
+  return out;
 }

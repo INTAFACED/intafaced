@@ -161,3 +161,23 @@ test('the router reader follows a builder member, an imported builder and both b
     ['flagged.shared: two procedures under one path (a switch router)'],
   );
 });
+
+test('an ops-desk read beside readOf is a site the codemod moves to ...readOf(RECORD)', async () => {
+  const { deskReadSite } = await import('./sites.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'catalog.ts');
+  writeFileSync(
+    file,
+    [
+      'export const readOf = (r: { module: string; path: string }) => ({ module: r.module, procedure: r.path });',
+      "export const a = { id: 'bank.health', module: 'bank', procedure: 'health', shape: 'record' };",
+      "export const b = { id: 'x', procedure: 'health' };",
+      '',
+    ].join('\n'),
+  );
+  const found = deskReadSite(load(file));
+  assert.deepEqual(
+    found.map((s) => `${s.module} ${s.path} ${s.kind}`),
+    ['bank health query'],
+  );
+});
