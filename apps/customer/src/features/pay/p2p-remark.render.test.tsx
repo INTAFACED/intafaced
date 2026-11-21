@@ -71,6 +71,8 @@ const methodRow = (methodId: string, noteRules: { guidance: string; forbidden: s
   label: 'TEST bank transfer',
   fields: [],
   enabled: true,
+  settlement: { instant: true as const },
+  kind: 'transfer' as const,
   noteRules,
   cashRules: null,
 });

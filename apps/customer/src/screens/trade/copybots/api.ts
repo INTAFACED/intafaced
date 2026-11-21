@@ -5,6 +5,14 @@
 import { QUANT_STUDIO_LIST } from '@intafaced/contracts/quant-studio-procedures';
 import { GRID_SET_EXITS, GRID_SET_IDLE_YIELD, GRID_SUBMIT_PERMISSION } from '@intafaced/contracts/trade-grid-procedures';
 import {
+  RECURRING_CREATE,
+  RECURRING_GET,
+  RECURRING_LIST,
+  RECURRING_SUBMIT_PERMISSION,
+  RECURRING_TERMINATE,
+  RECURRING_UPDATE,
+} from '@intafaced/contracts/trade-recurring-procedures';
+import {
   MARKET_SIGNALS_ARCHIVE,
   MARKET_SIGNALS_CRITERIA,
   MARKET_SIGNALS_EARNINGS,
@@ -308,6 +316,13 @@ export function createRoomApi(api: ApiClient) {
     gridSetExits: (input: GridExitsRequest) => api.call(GRID_SET_EXITS, input),
     gridSetIdleYield: (input: { botId: string; on: boolean }) => api.call(GRID_SET_IDLE_YIELD, input),
     gridWithdraw: (input: GridWithdrawRequest) => api.mutate('trade', 'bots.grid.withdrawProfit', input, gridWithdrawalSchema),
+    // The recurring buy of a basket on the person's own venue account (J-copy-bots-otc-16).
+    recurringCreate: (input: z.input<typeof RECURRING_CREATE.input>) => api.call(RECURRING_CREATE, input),
+    recurringSubmitPermission: (input: z.input<typeof RECURRING_SUBMIT_PERMISSION.input>) => api.call(RECURRING_SUBMIT_PERMISSION, input),
+    recurringGet: (ruleId: string, signal?: AbortSignal) => api.call(RECURRING_GET, { ruleId }, { signal }),
+    recurringList: (signal?: AbortSignal) => api.call(RECURRING_LIST, {}, { signal }),
+    recurringUpdate: (input: z.input<typeof RECURRING_UPDATE.input>) => api.call(RECURRING_UPDATE, input),
+    recurringTerminate: (ruleId: string) => api.call(RECURRING_TERMINATE, { ruleId }),
     // The room shows only strategies whose amounts read as unsigned amounts; a page with any other reads as unverified.
     studio: (signal?: AbortSignal) => api.call(QUANT_STUDIO_LIST, { limit: 50 }, { signal, accept: parsesAs(studioListSchema) }),
   };

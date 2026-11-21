@@ -115,7 +115,8 @@ describe('catalog — the key set is closed and complete', () => {
     // The agent dashboard's range refusals, a blank From, a blank To or not a range of days (J-agents-13 #1), add three refusal keys.
     // An operator's agent alert in the inbox (J-agents-16 #3) adds a title and a body key.
     // A copy skipped at the follower's most per contract or most per day (J-copy-bots-otc-02 #3) adds two reason bodies.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(338);
+    // A recurring buy suspended for insufficient funds (J-copy-bots-otc-16 #6) adds a title and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(340);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

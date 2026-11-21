@@ -1,0 +1,112 @@
+[
+  {
+    "file": "apps/admin/src/components/route-boundary.test.tsx",
+    "target": "../app/error.tsx",
+    "verdict": "rewrite",
+    "asserts": "A render error in a console page shows the error view with the digest and a retry, never the thrown text, and error.tsx is a client component.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/components/route-boundary.test.tsx#error.tsx renders the error view with the digest and the retry"
+    },
+    "why": "Calls the AppError boundary and asserts it is the RouteBoundary error view with the error's digest and reset as its retry, and that the thrown message is not rendered; 'use client' is held by next build, whose SWC transform refuses an error.tsx that is not a client component."
+  },
+  {
+    "file": "apps/admin/src/components/route-boundary.test.tsx",
+    "target": "../app/(console)/route-probe/crash/page.tsx",
+    "verdict": "rewrite",
+    "asserts": "The render-error probe page is not found unless ADMIN_ROUTE_PROBE is exactly 1, and only then throws its render error, after the founder check.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/components/route-boundary.test.tsx#is not found unless ADMIN_ROUTE_PROBE=1"
+    },
+    "why": "Calls the probe page with ADMIN_ROUTE_PROBE unset, blank, 0, true and ' 1' (not found each time) and with 1 (throws admin.route_probe.render_error, never notFound), and asserts the founder check runs first and a refused founder stops it."
+  },
+  {
+    "file": "apps/admin/src/lib/account-search/search.test.ts",
+    "target": "../../../../../services/svc-identity/src/ops/ops-router.ts",
+    "verdict": "rewrite",
+    "asserts": "The console's account search calls identity's accountDirectory.search query, which needs admin:compliance, accepts exactly the console's input and returns every field the console shows.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/lib/account-search/search.test.ts#matches the procedure identity serves, with the fields it returns"
+    },
+    "why": "Builds identity's own operator router and calls it: a query with a scope rule, refused FORBIDDEN for admin:read before any database read, answered for admin:compliance with the console's own input, the answer read by the console; its strict input and output schemas accept the console's input and a row of exactly the console's columns and refuse an extra field."
+  },
+  {
+    "file": "apps/admin/src/lib/kyc-documents/kyc-documents.test.tsx",
+    "target": "../../../../../services/svc-identity/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "The approval the console asks for to open a KYC document is bound to the hash identity consumes for kyc.doc.get over { documentId }.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/lib/kyc-documents/kyc-documents.test.tsx#is the approval identity’s own kyc.getDocument asks to consume for that document"
+    },
+    "why": "Calls identity's real router (createIdentityRouter(...).createCaller, kyc.getDocument) with an approvals service that records each consume and then refuses: the one consume asked carries the console's approval ids, the target service, target id and expected version of the console's propose input, and the console's payloadHashFor(request), which still equals identityActionPayloadHash('kyc.doc.get', { documentId })."
+  },
+  {
+    "file": "apps/admin/src/lib/kyc-selfies/kyc-selfies.test.tsx",
+    "target": "../../../../../services/svc-identity/src/router.ts",
+    "verdict": "rewrite",
+    "asserts": "The approval the console asks for to decide a selfie is bound to the hash identity consumes for kyc.selfie.decide over { selfieId, decision }.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/lib/kyc-selfies/kyc-selfies.test.tsx#is bound to the selfie and the decision exactly as identity consumes it"
+    },
+    "why": "The test still asserts the console's hash equals identityActionPayloadHash('kyc.selfie.decide', { selfieId, decision }) for both decisions; identity's router test 'decide: MFA, never the reviewer's own, ... the approval binds selfie and decision' (services/svc-identity/src/router.test.ts) asserts the consumed approval carries exactly that hash."
+  },
+  {
+    "file": "apps/admin/src/lib/module-page-guard.test.ts",
+    "target": "../app/(console)/page.tsx",
+    "verdict": "rewrite",
+    "asserts": "Every console page asks the module gate for its own module before anything else, so a switched-off module never renders.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/lib/module-page-guard.test.ts#asks for its own module first, and does not render while it is off"
+    },
+    "why": "Imports each page of MODULE_ROUTES and calls it with ADMIN_MODULES naming another module: it redirects to that module, the only guard call is its own module id, and the founder check is never reached."
+  },
+  {
+    "file": "apps/admin/src/lib/module-page-guard.test.ts",
+    "target": "../app/(console)/trade-ops/layout.tsx",
+    "verdict": "rewrite",
+    "asserts": "Every trade desk room is behind the tradeops module gate, through its layout.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/lib/module-page-guard.test.ts#guards every trade desk room through its layout"
+    },
+    "why": "Calls TradeOpsLayout with tradeops off (redirects, guard asked for tradeops) and on (renders its children)."
+  },
+  {
+    "file": "apps/admin/src/lib/ops-desk/catalog.test.ts",
+    "target": "../../../../../services/svc-bank/src/personal-pay/router.ts",
+    "verdict": "rewrite",
+    "asserts": "Each bills.ops.* and global.ops.* read on the pay desk names a query svc-bank serves.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/lib/ops-desk/catalog.test.ts#every read names a QUERY that exists in the owning router (drift guard)"
+    },
+    "why": "Looks the read up in svc-bank's recorded calls (wire-replay.golden/callers.json, written from the live router by procedureCallers and held equal to it by svc-bank's wire-replay test) and asserts it is a query."
+  },
+  {
+    "file": "apps/admin/src/lib/trade-ops/maker-programme-model.test.ts",
+    "target": "maker-programme-model.ts",
+    "verdict": "rewrite",
+    "asserts": "The console checks maker programme terms, members and launch plans by exactly svc-trade's rule.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/lib/trade-ops/maker-programme-model.test.ts#applies svc-trade’s own rule: the same exports, codes and answer for every input"
+    },
+    "why": "Imports both models and asserts the same exports and constants, the same answer (ok, code, message, bound value) for a battery of blank, padded, out-of-range and malformed inputs, and the same approval bodies."
+  },
+  {
+    "file": "apps/admin/src/lib/trade-ops/maker-programme-model.test.ts",
+    "target": "../../../../../services/svc-trade/src/admin/maker-programme-model.ts",
+    "verdict": "rewrite",
+    "asserts": "The console checks maker programme terms, members and launch plans by exactly svc-trade's rule.",
+    "guard": {
+      "kind": "test",
+      "ref": "apps/admin/src/lib/trade-ops/maker-programme-model.test.ts#applies svc-trade’s own rule: the same exports, codes and answer for every input"
+    },
+    "why": "Same rewrite as the console side: svc-trade's model is imported and called, not read."
+  }
+]

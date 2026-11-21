@@ -4,7 +4,7 @@
 //! Serving starts as `services/svc-ledger/src/index.ts` does: the pool, the chain tip, the bus, the custody boot check
 //! and the startup freeze, then the outbox recovery at boot and every five seconds, then the port. The TypeScript
 //! service stays the one that runs until the switch; until each slice is ported its calls answer 503
-//! `ledger.not_ported`.
+//! `ledger.not_ported`. `post` is ported (the `posting` slice), and its outbox relay runs at boot and on the timer.
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;
@@ -29,6 +29,8 @@ use svc_ledger::door::{DoorConfig, Keys, LedgerDoor};
 use svc_ledger::env::{self, DEFAULT_PORT, LedgerEnv};
 use svc_ledger::freeze::{Bus, FreezeRelay, JetStreamBus};
 use svc_ledger::migrate;
+use svc_ledger::posting::engine::{Conflict, EngineOptions};
+use svc_ledger::posting::{Posting, TxRelay};
 use svc_ledger::reconcile::{self, CustodyLayer};
 use svc_ledger::reconciler::{self, DEFAULT_MAX_CONSECUTIVE_INCOMPLETE, TickOptions, TickState};
 
@@ -87,6 +89,22 @@ fn door(
             mode,
         }),
     };
+    let posting = Posting::new(
+        bus.clone(),
+        str_of("SERVICE_NAME"),
+        env.str("LEDGER_CUSTODY_LAYER") == Some("on"),
+        EngineOptions {
+            conflict: if env.idempotency_conflict_mode == "refuse" {
+                Conflict::Refuse
+            } else {
+                Conflict::Detect
+            },
+            clock_skew_bound_ms: env.clock_skew_bound_ms,
+            clock_ms: system_ms,
+        },
+        keys.is_some(),
+        Some(log.clone()),
+    );
     LedgerDoor::new(DoorConfig {
         internal_secret: str_of("INTERNAL_SERVICE_SECRET"),
         // `registerS2sHttp(..., { bodyBind: 'require' })`: the live money plane always binds the body.
@@ -115,6 +133,7 @@ fn door(
         indexer_url: std::env::var("INDEXER_URL").ok(),
         // The same wire the approvals client uses.
         fetch,
+        posting,
     })
 }
 
@@ -185,8 +204,6 @@ fn serve(
     .map_err(|e| e.0)?;
     let bus = Arc::new(JetStreamBus(bus));
     let door = door(env, store, bus.clone(), fetch, log)?;
-    // The relays the outbox recovery drives. `ledgerTxPosted`'s comes with the `posting` slice; until then its intents
-    // stay committed and unsent, as they do while the bus is down.
     let freeze_relay = FreezeRelay {
         bus: &*bus,
         producer: str_of("SERVICE_NAME"),
@@ -205,21 +222,22 @@ fn serve(
     )
     .map_err(|e| failed(&e))?;
 
-    let relays: Vec<&dyn Relay> = vec![&freeze_relay];
-    // Outbox recovery is not inside the startup policy: that path only freezes. Committed, unsent intents drain here,
-    // then on the timer below.
-    if let Err(e) = boot::recover_outbox(door.store(), &relays) {
-        log.error(
-            vec![("err", Json::str(failed(&e)))],
-            "ledger outbox recover at boot failed",
-        );
-    }
-
     let app = App {
         wire: door,
         service_name: str_of("SERVICE_NAME"),
         ready_body: String::new(),
     };
+    // The relays the outbox recovery drives: `ledgerFreezeUpdated` and `ledgerTxPosted`.
+    let tx_relay = TxRelay(app.wire.posting());
+    let relays: Vec<&dyn Relay> = vec![&freeze_relay, &tx_relay];
+    // Outbox recovery is not inside the startup policy: that path only freezes. Committed, unsent intents drain here,
+    // then on the timer below.
+    if let Err(e) = boot::recover_outbox(app.wire.store(), &relays) {
+        log.error(
+            vec![("err", Json::str(failed(&e)))],
+            "ledger outbox recover at boot failed",
+        );
+    }
     let port_number = env.int("HTTP_PORT").unwrap_or(DEFAULT_PORT);
     let port = u16::try_from(port_number)
         .map_err(|_| format!("options.port should be >= 0 and < 65536. Received {port_number}."))?;

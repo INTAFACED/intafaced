@@ -41,7 +41,8 @@ export interface HttpTransport {
 /**
  * Who may call. The serving side mounts the matching guard (`procedure-mount.ts`): `public` checks nothing, `scope` is
  * `scopedProcedure(scope, guards)`, `anyScope` is `anyScopeProcedure(scopes, guards)`, `service` is `serviceProcedureFor(callers)` or, on a plain HTTP door, the service's
- * own signed-caller check against the same list; `signedIn` is `signedInProcedure(guards)`. `jurisdiction` needs no
+ * own signed-caller check against the same list; `signedIn` is `signedInProcedure(guards)`; `founder` is the serving service's
+ * own founder guard, handed to the mount (`ServiceParts` in `procedure-mount.ts`). `jurisdiction` needs no
  * principal but refuses a region the module is not served in (`publicJurisdictionProcedure(module, plane)`). The record
  * names the rule; the receiver reads the live facts.
  */
@@ -65,7 +66,13 @@ export type Access =
     }
   | { readonly caller: 'service'; readonly callers: readonly ServiceName[] }
   /** Any signed-in principal, no scope; then the module's jurisdiction check when `module` is named (`signedInProcedure`). */
-  | { readonly caller: 'signedIn'; readonly module?: ModuleId; readonly plane?: Plane };
+  | { readonly caller: 'signedIn'; readonly module?: ModuleId; readonly plane?: Plane }
+  /**
+   * A founder at the console: a signed interactive principal with MFA and no API key, whose founder entitlement the serving
+   * service reads live before the input is parsed. No scope says it (`admin:read` can sit on a long-lived key), so the
+   * service passes its own founder guard to the mount, and the handler reads `ctx.founderUserId`.
+   */
+  | { readonly caller: 'founder' };
 
 /** The tRPC codes a refusal is sent with (a plain HTTP door maps them to its status). */
 export type RefusalStatus =

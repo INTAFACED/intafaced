@@ -24,6 +24,10 @@
         "tooling/t3/setup-worktree.mjs",
         // Started by path: `verify look` (verify-app.mjs) and the look options' pictures, each through its own config.
         "tooling/scripts/{verify-look,look-options}.{pw,config}.mjs",
+        // Started by hand: the Rust crates' recorders, which write their recorded files from the TypeScript, and the
+        // svc-ledger port's run of the TypeScript's database tests against the binary.
+        "crates/*/scripts/*.mjs",
+        "crates/svc-ledger/tests/conformance/{run.mjs,vitest.config.mts}",
         // Run by hand: the count of customer rooms in Volt.
         "tooling/design/volt-count.mjs",
         "*.{mjs,js,cjs,ts}",

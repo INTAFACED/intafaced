@@ -31,6 +31,7 @@ import {
 import { UserVenueRouter, parseUserVenueUrls } from './venue-router.js';
 import { parseVenueEligibilityLevel } from './venue-eligibility.js';
 import { SqlVenueSellQuoteStore, VenueSellQuotes } from './venue-sell-quotes.js';
+import { SqlConvertQuoteStore, VenueConverts } from './venue-convert.js';
 
 export function wireUserVenue(deps: {
   app: FastifyInstance;
@@ -146,6 +147,17 @@ export function wireUserVenue(deps: {
   const venueSellQuotes = userVenue
     ? new VenueSellQuotes({ door: userVenue, store: new SqlVenueSellQuoteStore(sql), now: () => new Date() })
     : null;
+  // Convert on the customer's own venue account (J-cex-spot-11): quotes hold nothing; an accept is one venue order the
+  // wallet signs. On whichever door the request names. Off with the door.
+  const venueConverts = userVenueRouter
+    ? new VenueConverts({
+        store: new SqlConvertQuoteStore(sql),
+        now: () => new Date(),
+        enabled: env.TRADE_CONVERT_ENABLED,
+        windowMs: env.TRADE_CONVERT_ACCEPT_WINDOW_MS,
+        slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+      })
+    : null;
 
   /** The listing sweep, then each door's first connect; index.ts awaits it where the door has always connected. */
   async function startAtBoot(): Promise<void> {
@@ -170,5 +182,15 @@ export function wireUserVenue(deps: {
     }
   }
 
-  return { userVenueDoors, userVenue, userVenueRouter, userVenueStore, venueListings, venueDelistingNotices, venueSellQuotes, startAtBoot };
+  return {
+    userVenueDoors,
+    userVenue,
+    userVenueRouter,
+    userVenueStore,
+    venueListings,
+    venueDelistingNotices,
+    venueSellQuotes,
+    venueConverts,
+    startAtBoot,
+  };
 }

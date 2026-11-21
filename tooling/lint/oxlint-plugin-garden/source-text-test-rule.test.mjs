@@ -91,3 +91,27 @@ test('data files, tooling source, unknown paths and non-test code stay quiet', s
   });
   assert.deepEqual(countOf(diagnostics, RULE), { total: 0, files: {} });
 });
+
+test("a path under a folder the test made is a generator's output; each name is the declaration in scope where it is used", skip, () => {
+  const diagnostics = lint({
+    [TOOLING_TEST]: [
+      HEAD,
+      "import { mkdtempSync } from 'node:fs';",
+      "import { tmpdir } from 'node:os';",
+      "const repo = resolve(HERE, '..', '..');",
+      "test('reads the real tree', () => { readFileSync(join(repo, 'services', 'svc-edge', 'src', 'routes.ts'), 'utf8'); });",
+      "test('writes into its own folder', () => {",
+      "  const repo = mkdtempSync(join(tmpdir(), 'slice-new-'));",
+      "  readFileSync(join(repo, 'services', 'svc-academy', 'src', 'grade-reports.ts'), 'utf8');",
+      '});',
+      "test('and again', () => { const repo = mkdtempSync(join(tmpdir(), 'x-')); readFileSync(join(repo, 'apps/admin/src/a.ts'), 'utf8'); });",
+      "test('the outer name after them', () => { readFileSync(join(repo, 'packages/db/src/connection.ts'), 'utf8'); });",
+    ].join('\n'),
+  });
+  const found = diagnostics.filter((d) => d.code === 'garden(no-source-text-test)').map((d) => /\(`([^`]*)`\)/.exec(d.message)?.[1]);
+  assert.deepEqual(
+    found,
+    ['../../services/svc-edge/src/routes.ts', '../../packages/db/src/connection.ts'],
+    "the real tree's reads, named by the outer repo; the temp folders' never",
+  );
+});
