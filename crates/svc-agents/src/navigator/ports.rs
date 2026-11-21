@@ -183,8 +183,17 @@ impl TradeData for TradeHttp {
         Ok(rows
             .iter()
             .filter_map(|row| {
-                let (Some(Json::String(_)), Some(Json::String(symbol)), Some(Json::Bool(active)), Some(Json::Bool(open))) =
-                    (row.get("id"), row.get("symbol"), row.get("active"), row.get("sessionOpen"))
+                let (
+                    Some(Json::String(_)),
+                    Some(Json::String(symbol)),
+                    Some(Json::Bool(active)),
+                    Some(Json::Bool(open)),
+                ) = (
+                    row.get("id"),
+                    row.get("symbol"),
+                    row.get("active"),
+                    row.get("sessionOpen"),
+                )
                 else {
                     return None;
                 };
@@ -206,9 +215,11 @@ impl TradeData for TradeHttp {
             encode_uri_component(&symbol)
         ))?;
         let parse_failed = || PortError::Failed("trade ticker parse failed".to_owned());
-        let (Some(Json::String(body_symbol)), Some(Json::Number(_)), Some(Json::String(datetime))) =
-            (body.get("symbol"), body.get("timestamp"), body.get("datetime"))
-        else {
+        let (Some(Json::String(body_symbol)), Some(Json::Number(_)), Some(Json::String(datetime))) = (
+            body.get("symbol"),
+            body.get("timestamp"),
+            body.get("datetime"),
+        ) else {
             return Err(parse_failed());
         };
         let last = match body.get("last") {
@@ -244,9 +255,16 @@ pub struct IdentitySessionHttp {
 }
 
 impl IdentitySessionHttp {
-    pub fn new(identity_url: &str, signer: CallSigner, fetch: Arc<dyn Fetch>) -> IdentitySessionHttp {
+    pub fn new(
+        identity_url: &str,
+        signer: CallSigner,
+        fetch: Arc<dyn Fetch>,
+    ) -> IdentitySessionHttp {
         IdentitySessionHttp {
-            identity_url: identity_url.strip_suffix('/').unwrap_or(identity_url).to_owned(),
+            identity_url: identity_url
+                .strip_suffix('/')
+                .unwrap_or(identity_url)
+                .to_owned(),
             signer,
             fetch,
         }
@@ -285,7 +303,8 @@ impl IdentitySession for IdentitySessionHttp {
             Some(Json::String(s)) => Some(s.clone()),
             _ => None,
         };
-        let (session_id, user_id, status) = (field("sessionId")?, field("userId")?, field("status")?);
+        let (session_id, user_id, status) =
+            (field("sessionId")?, field("userId")?, field("status")?);
         if session_id.trim().is_empty() || user_id.trim().is_empty() {
             return None;
         }
@@ -311,7 +330,10 @@ mod tests {
         assert_eq!(market_id_to_symbol("btc"), None);
         assert_eq!(market_id_to_symbol("a-b-c"), None);
         assert_eq!(markets_page_limit(None), Err(PortError::MarketsLimitUnset));
-        assert_eq!(markets_page_limit(Some(0.5)), Err(PortError::MarketsLimitUnset));
+        assert_eq!(
+            markets_page_limit(Some(0.5)),
+            Err(PortError::MarketsLimitUnset)
+        );
         assert_eq!(markets_page_limit(Some(50.9)), Ok(50));
         assert_eq!(markets_page_limit(Some(9000.0)), Ok(500));
         assert_eq!(encode_uri_component("BTC/USDT"), "BTC%2FUSDT");

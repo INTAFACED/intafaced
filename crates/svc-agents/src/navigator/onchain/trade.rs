@@ -12,9 +12,9 @@ use super::OnchainDeps;
 use super::abi::{self, Spec};
 use super::ports::{Chain, LiveGrant, Market, Mined, SendError, SessionCall, Token};
 use super::rules::{
-    self, ACCOUNT_NOT_YOURS, ACCOUNT_UNPROVEN, MARKET_UNSET, MONEY_OUT_FORBIDDEN, NO_LIVE_KEY, RAIL_CRYPTO,
-    REQUEST_ID_REPLAY, Refused, TEST_CHAIN_ID, TRADE_CAP_UNIT, TRADE_OUT_OF_SCOPE, TRADE_OVER_CAP, TRADE_UNPARSED,
-    TRADE_UNQUOTED, Units,
+    self, ACCOUNT_NOT_YOURS, ACCOUNT_UNPROVEN, MARKET_UNSET, MONEY_OUT_FORBIDDEN, NO_LIVE_KEY,
+    RAIL_CRYPTO, REQUEST_ID_REPLAY, Refused, TEST_CHAIN_ID, TRADE_CAP_UNIT, TRADE_OUT_OF_SCOPE,
+    TRADE_OVER_CAP, TRADE_UNPARSED, TRADE_UNQUOTED, Units,
 };
 use super::store::{self, Binding, Order, ReserveInput, Reserved};
 
@@ -50,7 +50,11 @@ struct Key<'a> {
 
 /// `liveKey`: the newest binding not asked to be revoked, the same grant live on the chain, on an account a wallet
 /// linked to the person owns.
-fn live_key<'a>(deps: &'a OnchainDeps, pool: &Pool, user_id: &str) -> Result<Option<Key<'a>>, Fail> {
+fn live_key<'a>(
+    deps: &'a OnchainDeps,
+    pool: &Pool,
+    user_id: &str,
+) -> Result<Option<Key<'a>>, Fail> {
     let Some(signer) = deps.signer.as_deref() else {
         return Err(no(RAIL_CRYPTO));
     };
@@ -60,7 +64,10 @@ fn live_key<'a>(deps: &'a OnchainDeps, pool: &Pool, user_id: &str) -> Result<Opt
     let Some(binding) = store::live_binding(pool, user_id, TEST_CHAIN_ID, signer)? else {
         return Ok(None);
     };
-    let Some(grant) = chain.grant(&binding.account, signer).map_err(chain_failed)? else {
+    let Some(grant) = chain
+        .grant(&binding.account, signer)
+        .map_err(chain_failed)?
+    else {
         return Ok(None);
     };
     if !grant.live || grant.spec_hash.to_lowercase() != binding.spec_hash.to_lowercase() {
@@ -73,7 +80,10 @@ fn live_key<'a>(deps: &'a OnchainDeps, pool: &Pool, user_id: &str) -> Result<Opt
     let Some(super::ports::Linked::Usable(linked)) = wallets.read(user_id) else {
         return Err(no(ACCOUNT_UNPROVEN));
     };
-    if !linked.iter().any(|w| w.to_lowercase() == owner.to_lowercase()) {
+    if !linked
+        .iter()
+        .any(|w| w.to_lowercase() == owner.to_lowercase())
+    {
         return Err(no(ACCOUNT_NOT_YOURS));
     }
     Ok(Some(Key {
@@ -94,7 +104,12 @@ pub fn trading(deps: &OnchainDeps, pool: &Pool, user_id: &str) -> Result<Json, R
         Ok(None) | Err(Fail::No(_)) => return Ok(none()),
         Err(Fail::Run(e)) => return Err(e),
     };
-    let held = store::held_wei(pool, TEST_CHAIN_ID, &key.binding.account, &key.grant.spec_hash)?;
+    let held = store::held_wei(
+        pool,
+        TEST_CHAIN_ID,
+        &key.binding.account,
+        &key.grant.spec_hash,
+    )?;
     let spent = held.saturating_add(key.grant.spent_wei);
     let cap = key.grant.spend_limit_wei;
     let left = cap.saturating_sub(spent);
@@ -138,7 +153,10 @@ pub fn trade(deps: &OnchainDeps, pool: &Pool, input: &TradeInput<'_>) -> Result<
     if rules::ask_moves_money_out(input.text) {
         return Err(no(MONEY_OUT_FORBIDDEN));
     }
-    let order_key = format!("agents:navigator:order:{}:{}", input.session_id, input.request_id);
+    let order_key = format!(
+        "agents:navigator:order:{}:{}",
+        input.session_id, input.request_id
+    );
     // The same request id is the same order, whatever the cap now says: it was sent once.
     if let Some(earlier) = store::order(pool, input.user_id, &order_key)? {
         if earlier.text != input.text {
@@ -163,7 +181,8 @@ pub fn trade(deps: &OnchainDeps, pool: &Pool, input: &TradeInput<'_>) -> Result<
         return Err(no(TRADE_UNPARSED));
     };
     let router = market.router.to_lowercase();
-    if !grant.targets.contains(&router) || !grant.selectors.iter().any(|s| s == abi::SWAP_EXACT_IN) {
+    if !grant.targets.contains(&router) || !grant.selectors.iter().any(|s| s == abi::SWAP_EXACT_IN)
+    {
         return Err(no(TRADE_OUT_OF_SCOPE));
     }
     let pools = market
@@ -197,7 +216,10 @@ pub fn trade(deps: &OnchainDeps, pool: &Pool, input: &TradeInput<'_>) -> Result<
 
     // Above what is left of the cap: refused before a quote is asked for or anything is built or signed.
     let held_before = store::held_wei(pool, TEST_CHAIN_ID, &binding.account, &grant.spec_hash)?;
-    if over_cap([held_before, grant.spent_wei, amount_in], grant.spend_limit_wei) {
+    if over_cap(
+        [held_before, grant.spent_wei, amount_in],
+        grant.spend_limit_wei,
+    ) {
         return Err(no(TRADE_OVER_CAP));
     }
     let quoted = chain
@@ -242,7 +264,13 @@ pub fn trade(deps: &OnchainDeps, pool: &Pool, input: &TradeInput<'_>) -> Result<
         Reserved::Reserved(_) => {}
     }
 
-    let swap = abi::swap_exact_in(&pool_tokens.pool, &token_in.address, amount_in, min_out, &binding.account);
+    let swap = abi::swap_exact_in(
+        &pool_tokens.pool,
+        &token_in.address,
+        amount_in,
+        min_out,
+        &binding.account,
+    );
     let data = abi::execute_with_session(
         &Spec {
             key: signer.to_owned(),
@@ -269,15 +297,33 @@ pub fn trade(deps: &OnchainDeps, pool: &Pool, input: &TradeInput<'_>) -> Result<
         Ok(h) => h,
         // Only a signer that refused before sending frees the order's part of the cap; any other failure may come
         // after the call was broadcast, so the order stays sending and is never sent again.
-        Err(SendError::Refused(_)) => return Ok(store::settle_order(pool, input.user_id, &order_key, "failed", None)?),
+        Err(SendError::Refused(_)) => {
+            return Ok(store::settle_order(
+                pool,
+                input.user_id,
+                &order_key,
+                "failed",
+                None,
+            )?);
+        }
         Err(SendError::Unknown(_)) => return unchanged(),
     };
     store::settle_order(pool, input.user_id, &order_key, "sent", Some(&hash))?;
     match chain.receipt(&hash) {
         None => unchanged(),
         Some(m) => {
-            let status = if m == Mined::Success { "filled" } else { "reverted" };
-            Ok(store::settle_order(pool, input.user_id, &order_key, status, Some(&hash))?)
+            let status = if m == Mined::Success {
+                "filled"
+            } else {
+                "reverted"
+            };
+            Ok(store::settle_order(
+                pool,
+                input.user_id,
+                &order_key,
+                status,
+                Some(&hash),
+            )?)
         }
     }
 }

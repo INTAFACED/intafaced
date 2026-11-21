@@ -725,7 +725,10 @@ pub fn act(
     execute: impl FnOnce() -> Result<Json, RunError>,
 ) -> Result<ActResult, RunError> {
     let session = require_session(x.pool, input.session_id)?;
-    let key = input.idempotency_key.map(str::trim).filter(|k| !k.is_empty());
+    let key = input
+        .idempotency_key
+        .map(str::trim)
+        .filter(|k| !k.is_empty());
     let place_key = key.filter(|_| guardrails::is_place_tool(input.tool));
     let cx = Context {
         kind: "tool_call",
@@ -742,7 +745,9 @@ pub fn act(
         });
     }
     let state = state_of(x.pool, &session)?;
-    if let Err(refusal) = guardrails::evaluate_tool_call(&session.guardrail, &state, input.tool, input.approved, key) {
+    if let Err(refusal) =
+        guardrails::evaluate_tool_call(&session.guardrail, &state, input.tool, input.approved, key)
+    {
         return Err(append_refusal(x, &session, refusal, cx));
     }
     let mut claimed = false;
@@ -868,7 +873,12 @@ fn stored_place_intent(
 
 /// `claimPlaceIntent`: the claim is inserted before `execute`; a row already there with this tool's stored result is a
 /// replay, anything else a conflict.
-fn claim_place_intent(pool: &Pool, session_id: &str, key: &str, tool: &str) -> Result<Claim, RunError> {
+fn claim_place_intent(
+    pool: &Pool,
+    session_id: &str,
+    key: &str,
+    tool: &str,
+) -> Result<Claim, RunError> {
     let found = db::with_client(pool, |c| {
         let inserted = c.execute(
             "INSERT INTO agents.agent_place_intents (session_id, idempotency_key, tool, action_id, result_json)
@@ -904,7 +914,12 @@ fn claim_place_intent(pool: &Pool, session_id: &str, key: &str, tool: &str) -> R
 }
 
 /// `releasePlaceClaim`: a claim whose `execute` never returned is dropped; a stored place stays.
-fn release_place_claim(pool: &Pool, session_id: &str, key: &str, tool: &str) -> Result<(), RunError> {
+fn release_place_claim(
+    pool: &Pool,
+    session_id: &str,
+    key: &str,
+    tool: &str,
+) -> Result<(), RunError> {
     db::with_client(pool, |c| {
         c.execute(
             "DELETE FROM agents.agent_place_intents

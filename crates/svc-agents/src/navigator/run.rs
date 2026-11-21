@@ -42,7 +42,13 @@ pub struct RunInput<'a> {
     pub now: Instant,
 }
 
-fn metering(session_id: Option<&str>, billed: &str, asset: &str, closed: bool, settlements: Json) -> Json {
+fn metering(
+    session_id: Option<&str>,
+    billed: &str,
+    asset: &str,
+    closed: bool,
+    settlements: Json,
+) -> Json {
     Json::obj([
         ("sessionId", session_id.map_or(Json::Null, Json::str)),
         ("billedAmount", Json::str(billed)),
@@ -122,7 +128,12 @@ pub fn run_session(w: &Wiring<'_>, input: &RunInput<'_>) -> Result<Json, RunErro
     let fee = w.fee_asset_id;
     // Free refusals, before a session exists.
     if input.plane == Plane::Dark {
-        return Ok(refuse("trade_plane_dark", UNAVAILABLE, vec![], unmetered(fee)));
+        return Ok(refuse(
+            "trade_plane_dark",
+            UNAVAILABLE,
+            vec![],
+            unmetered(fee),
+        ));
     }
     let user_tier = match tier_gate(input.tier_law, input.user_tier) {
         TierGate::Refuse(reason) => {
@@ -141,19 +152,44 @@ pub fn run_session(w: &Wiring<'_>, input: &RunInput<'_>) -> Result<Json, RunErro
         ]));
     }
     let declared = declared_tools();
-    if !input.asks.iter().any(|a| declared.iter().any(|d| d == trim(&a.tool))) {
-        return Ok(refuse("tool_not_declared", UNAVAILABLE, vec![], unmetered(fee)));
+    if !input
+        .asks
+        .iter()
+        .any(|a| declared.iter().any(|d| d == trim(&a.tool)))
+    {
+        return Ok(refuse(
+            "tool_not_declared",
+            UNAVAILABLE,
+            vec![],
+            unmetered(fee),
+        ));
     }
-    if !input.asks.iter().any(|a| user_tier.1.iter().any(|t| t == trim(&a.tool))) {
-        return Ok(refuse("tier_not_granted", TIER_CLOSED, vec![], unmetered(fee)));
+    if !input
+        .asks
+        .iter()
+        .any(|a| user_tier.1.iter().any(|t| t == trim(&a.tool)))
+    {
+        return Ok(refuse(
+            "tier_not_granted",
+            TIER_CLOSED,
+            vec![],
+            unmetered(fee),
+        ));
     }
     let trade = nav.trade_data.as_deref();
-    let wants_markets = |a: &Ask| trim(&a.tool) == "trade.markets.list" && a.markets.as_ref().is_none_or(Vec::is_empty);
+    let wants_markets = |a: &Ask| {
+        trim(&a.tool) == "trade.markets.list" && a.markets.as_ref().is_none_or(Vec::is_empty)
+    };
     let mut prefetched: Option<Vec<Market>> = None;
     if input.asks.iter().any(wants_markets) {
         match read_live_markets(trade, input.markets_limit) {
             LiveMarkets::MarketsLimitUnset => {
-                return Ok(refuse("markets_limit_unset", MARKETS_LIMIT_UNSET, vec![], unmetered(fee)));
+                return Ok(refuse(
+                    "markets_limit_unset",
+                    MARKETS_LIMIT_UNSET,
+                    vec![],
+                    unmetered(fee),
+                ));
             }
             LiveMarkets::Ok(m) => prefetched = Some(m),
             LiveMarkets::NoLiveMarkets => {}
@@ -233,7 +269,10 @@ fn run_asks(
         }
         if input.plane == Plane::Live && tool == "identity.session.read" {
             // A live miss never falls back to the caller's fixture.
-            let asked_for = fixture.as_ref().map_or("", |f| f.session_id.as_str()).to_owned();
+            let asked_for = fixture
+                .as_ref()
+                .map_or("", |f| f.session_id.as_str())
+                .to_owned();
             fixture = read_live_session(nav.identity_session.as_deref(), &asked_for, input.user_id);
         }
         let mut got: Option<DataTool> = None;
@@ -264,13 +303,20 @@ fn run_asks(
         match acted {
             Ok(_) => {}
             Err(RunError::Refused { refusal, .. }) => {
-                gaps.push(unanswered(&tool, "guardrail", &refusal.code, &refusal.user_message_key));
+                gaps.push(unanswered(
+                    &tool,
+                    "guardrail",
+                    &refusal.code,
+                    &refusal.user_message_key,
+                ));
                 continue;
             }
             Err(e) => return Err(e),
         }
         match got {
-            Some(DataTool::Refuse { reason, key, .. }) => gaps.push(unanswered(&tool, "tool", reason, key)),
+            Some(DataTool::Refuse { reason, key, .. }) => {
+                gaps.push(unanswered(&tool, "tool", reason, key))
+            }
             Some(ok) => findings.push(ok.to_json()),
             None => return Err(RunError::Other("the data tool did not run".to_owned())),
         }

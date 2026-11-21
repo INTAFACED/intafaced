@@ -39,8 +39,11 @@ pub const AUDIT_EXTERNAL: &str = "audit.external";
 /// `HTTP`: the tRPC code each refusal answers with.
 pub fn http_code(code: &str) -> &'static str {
     match code {
-        CAP_UNSET | EXPIRY_UNSET | CHAIN_UNSUPPORTED | TRADE_UNPARSED | TRADE_CAP_UNIT => "BAD_REQUEST",
-        SELECTOR_FORBIDDEN | MONEY_OUT_FORBIDDEN | TRADE_OVER_CAP | TRADE_OUT_OF_SCOPE | ACCOUNT_NOT_YOURS => "FORBIDDEN",
+        CAP_UNSET | EXPIRY_UNSET | CHAIN_UNSUPPORTED | TRADE_UNPARSED | TRADE_CAP_UNIT => {
+            "BAD_REQUEST"
+        }
+        SELECTOR_FORBIDDEN | MONEY_OUT_FORBIDDEN | TRADE_OVER_CAP | TRADE_OUT_OF_SCOPE
+        | ACCOUNT_NOT_YOURS => "FORBIDDEN",
         BINDING_NOT_FOUND => "NOT_FOUND",
         REQUEST_ID_REPLAY => "CONFLICT",
         _ => "PRECONDITION_FAILED",
@@ -105,10 +108,12 @@ fn rule(literal: &str) -> Option<Regex> {
     Regex::new(literal).ok()
 }
 
-static TRADE_RULE: LazyLock<Option<Regex>> = LazyLock::new(|| rule(r"/\b(?:swap|buy|sell|trade|order)\b/"));
+static TRADE_RULE: LazyLock<Option<Regex>> =
+    LazyLock::new(|| rule(r"/\b(?:swap|buy|sell|trade|order)\b/"));
 // `[^]` is written `[\s\S]`: the same set, every code unit.
-static MONEY_OUT_RULE: LazyLock<Option<Regex>> =
-    LazyLock::new(|| rule(r"/\bwithdraw(?:al)?\b|\b(?:send|transfer|pay)\b[\s\S]*\b0x[0-9a-f]{40}\b/"));
+static MONEY_OUT_RULE: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    rule(r"/\bwithdraw(?:al)?\b|\b(?:send|transfer|pay)\b[\s\S]*\b0x[0-9a-f]{40}\b/")
+});
 static QUESTION: LazyLock<Option<Regex>> = LazyLock::new(|| rule(r"/\?\s*$/"));
 static REQUEST_AS_QUESTION: LazyLock<Option<Regex>> =
     LazyLock::new(|| rule(r"/^\s*(?:test:\s*)?(?:please\s+)?(?:can|could|would|will)\s+you\b/"));
@@ -231,7 +236,9 @@ pub fn parse_trade_ask(text: &str) -> Option<TradeAsk> {
             i = s;
         }
     }
-    let verb = word(&c, i, "swap").or_else(|| word(&c, i, "sell")).or_else(|| word(&c, i, "trade"))?;
+    let verb = word(&c, i, "swap")
+        .or_else(|| word(&c, i, "sell"))
+        .or_else(|| word(&c, i, "trade"))?;
     let amount_at = spaces(&c, verb);
     if amount_at == verb {
         return None;
@@ -283,7 +290,9 @@ pub enum Units {
 
 /// `toUnits(text, decimals)`: an exact decimal in the token's smallest unit, never a float.
 pub fn to_units(text: &str, decimals: u32) -> Units {
-    let (whole, frac) = text.split_once('.').map_or((text, None), |(w, f)| (w, Some(f)));
+    let (whole, frac) = text
+        .split_once('.')
+        .map_or((text, None), |(w, f)| (w, Some(f)));
     let all_digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
     if whole.is_empty() || whole.len() > 30 || !all_digits(whole) {
         return Units::Invalid;
@@ -304,8 +313,18 @@ pub fn to_units(text: &str, decimals: u32) -> Units {
             Units::PastCap
         };
     };
-    let padded = format!("{frac:0<width$}", width = usize::try_from(decimals).unwrap_or(0));
-    let (Ok(w), Ok(f)) = (whole.parse::<u128>(), if padded.is_empty() { Ok(0) } else { padded.parse::<u128>() }) else {
+    let padded = format!(
+        "{frac:0<width$}",
+        width = usize::try_from(decimals).unwrap_or(0)
+    );
+    let (Ok(w), Ok(f)) = (
+        whole.parse::<u128>(),
+        if padded.is_empty() {
+            Ok(0)
+        } else {
+            padded.parse::<u128>()
+        },
+    ) else {
         return Units::PastCap;
     };
     match w.checked_mul(scale).and_then(|n| n.checked_add(f)) {
@@ -335,19 +354,40 @@ mod tests {
 
     #[test]
     fn a_trade_ask_is_read_as_the_typescript_reads_it() {
-        assert_eq!(parse_trade_ask("swap 0.5 WETH for USDC"), ask("0.5", "WETH", "USDC"));
-        assert_eq!(parse_trade_ask("TEST: please Sell 1 wrapped ether into test usd on-chain."), ask("1", "wrapped ether", "test usd"));
-        assert_eq!(parse_trade_ask("trade 2 a for b for c"), ask("2", "a", "b for c"));
-        assert_eq!(parse_trade_ask("swap 1 WETH for USDC on-chain"), ask("1", "WETH", "USDC"));
+        assert_eq!(
+            parse_trade_ask("swap 0.5 WETH for USDC"),
+            ask("0.5", "WETH", "USDC")
+        );
+        assert_eq!(
+            parse_trade_ask("TEST: please Sell 1 wrapped ether into test usd on-chain."),
+            ask("1", "wrapped ether", "test usd")
+        );
+        assert_eq!(
+            parse_trade_ask("trade 2 a for b for c"),
+            ask("2", "a", "b for c")
+        );
+        assert_eq!(
+            parse_trade_ask("swap 1 WETH for USDC on-chain"),
+            ask("1", "WETH", "USDC")
+        );
         // `.+?` takes a space when nothing else is left: the token out is then blank.
         assert_eq!(parse_trade_ask("swap 1 a for  "), ask("1", "a", ""));
         assert_eq!(parse_trade_ask("buy 1 WETH for USDC"), None);
         assert_eq!(parse_trade_ask("swap 1. a for b"), None);
         assert_eq!(parse_trade_ask("swap 1 a\nb for c"), None);
         assert_eq!(parse_trade_ask("swap 1 a for b\n"), ask("1", "a", "b"));
-        assert_eq!(parse_trade_ask(" swap  3   x  into  y ! "), ask("3", "x", "y"));
-        assert_eq!(parse_trade_ask("swap 1 a for on-chain"), ask("1", "a", "on-chain"));
-        assert_eq!(parse_trade_ask("swap 1 a  for b on-chain on-chain"), ask("1", "a", "b on-chain"));
+        assert_eq!(
+            parse_trade_ask(" swap  3   x  into  y ! "),
+            ask("3", "x", "y")
+        );
+        assert_eq!(
+            parse_trade_ask("swap 1 a for on-chain"),
+            ask("1", "a", "on-chain")
+        );
+        assert_eq!(
+            parse_trade_ask("swap 1 a  for b on-chain on-chain"),
+            ask("1", "a", "b on-chain")
+        );
     }
 
     #[test]
@@ -357,7 +397,10 @@ mod tests {
         assert!(!ask_is_trade("where do I place a limit order?"));
         assert!(!ask_is_trade("swapping is fun"));
         assert!(ask_moves_money_out("Withdraw everything"));
-        assert!(ask_moves_money_out(&format!("send it\nto 0x{}", "AB".repeat(20))));
+        assert!(ask_moves_money_out(&format!(
+            "send it\nto 0x{}",
+            "AB".repeat(20)
+        )));
         assert!(!ask_moves_money_out("send it to my friend"));
     }
 
@@ -370,9 +413,187 @@ mod tests {
         assert_eq!(to_units("1.", 18), Units::Invalid);
         assert_eq!(cap_wei(Some(" 007 ")), Ok(7));
         assert_eq!(cap_wei(Some(&u128::MAX.to_string())), Ok(u128::MAX));
-        assert_eq!(cap_wei(Some("340282366920938463463374607431768211456")), Err(Refused(CAP_UNSET)));
+        assert_eq!(
+            cap_wei(Some("340282366920938463463374607431768211456")),
+            Err(Refused(CAP_UNSET))
+        );
         assert_eq!(cap_wei(None), Err(Refused(CAP_UNSET)));
-        assert_eq!(min_out(u128::MAX, 50), u128::MAX / 10_000 * 9_950 + (u128::MAX % 10_000) * 9_950 / 10_000);
+        assert_eq!(
+            min_out(u128::MAX, 50),
+            u128::MAX / 10_000 * 9_950 + (u128::MAX % 10_000) * 9_950 / 10_000
+        );
         assert_eq!(min_out(1_000, 50), 995);
+    }
+
+    // Ported case for case from `navigator/onchain.test.ts`.
+
+    const SIGNER: &str = "0x00000000000000000000000000000000005e0019";
+
+    #[test]
+    fn the_signer_is_the_configured_address_on_the_test_network_only() {
+        assert_eq!(
+            navigator_signer(84_532, Some(SIGNER)),
+            Ok(SIGNER.to_owned())
+        );
+        assert_eq!(
+            navigator_signer(8_453, Some(SIGNER)),
+            Err(Refused(AUDIT_EXTERNAL))
+        );
+        assert_eq!(navigator_signer(84_532, None), Err(Refused(RAIL_CRYPTO)));
+        assert_eq!(
+            navigator_signer(84_532, Some("")),
+            Err(Refused(RAIL_CRYPTO))
+        );
+        assert_eq!(
+            navigator_signer(1, Some(SIGNER)),
+            Err(Refused(CHAIN_UNSUPPORTED))
+        );
+    }
+
+    #[test]
+    fn a_prepared_grant_refuses_a_bad_cap_a_missing_expiry_and_a_forbidden_selector() {
+        let swap = vec!["0xabababab".to_owned()];
+        for cap in [
+            None,
+            Some(""),
+            Some("  "),
+            Some("1.5"),
+            Some("-1"),
+            Some("one"),
+            Some("1e18"),
+        ] {
+            assert_eq!(
+                prepared_grant(cap, Some(2_000_000_000), &swap),
+                Err(Refused(CAP_UNSET))
+            );
+        }
+        assert_eq!(
+            cap_wei(Some("1000000000000000000")),
+            Ok(1_000_000_000_000_000_000)
+        );
+        assert_eq!(cap_wei(Some("0")), Ok(0));
+        assert_eq!(
+            prepared_grant(Some("1000"), None, &swap),
+            Err(Refused(EXPIRY_UNSET))
+        );
+        for sel in [
+            "0x095ea7b3",
+            "0x095EA7B3",
+            "0xd505accf",
+            "0xa9059cbb",
+            "0x23b872dd",
+            "0xa22cb465",
+        ] {
+            let selectors = vec![swap[0].clone(), sel.to_owned()];
+            assert_eq!(
+                prepared_grant(Some("1000"), Some(1), &selectors),
+                Err(Refused(SELECTOR_FORBIDDEN))
+            );
+        }
+        assert_eq!(
+            prepared_grant(Some("1000"), Some(2_000_000_000), &swap),
+            Ok((1000, 2_000_000_000))
+        );
+        assert_eq!(
+            bind_key(
+                84_532,
+                "0xABCDEF0000000000000000000000000000000001",
+                "0x00000000000000000000000000000000005E0019"
+            ),
+            "agents:onchain:navigator:84532:0xabcdef0000000000000000000000000000000001:0x00000000000000000000000000000000005e0019"
+        );
+    }
+
+    #[test]
+    fn the_trade_rule_reads_whole_words_and_leaves_questions_to_the_ordinary_run() {
+        for ask in [
+            "TEST: swap 0.1 TEST Wrapped ETH for TEST Token B",
+            "Buy some",
+            "SELL it all",
+            "trade now",
+            "place an order",
+            "Can you buy 1 TEST Token A?",
+            "TEST: please could you sell it all?",
+        ] {
+            assert!(ask_is_trade(ask), "{ask}");
+        }
+        for ask in [
+            "what moved today?",
+            "swapping words is not swaps",
+            "buyer",
+            "disorder",
+            "tradeoffs",
+            "reorder the list",
+            "Where do I place a limit order?",
+            "TEST: what is a market order?",
+            "TEST: and a stop order?",
+        ] {
+            assert!(!ask_is_trade(ask), "{ask}");
+        }
+        for ask in [
+            "withdraw it".to_owned(),
+            format!("TEST: send 1 TESTB to 0x{}", "ab".repeat(20)),
+            format!("Pay 0x{} now", "cd".repeat(20)),
+            "can you withdraw?".to_owned(),
+        ] {
+            assert!(ask_moves_money_out(&ask), "{ask}");
+        }
+        for ask in [
+            "send me a summary",
+            "how do withdrawals work?",
+            "what does it pay?",
+            "transfer pricing explained",
+        ] {
+            assert!(!ask_moves_money_out(ask), "{ask}");
+        }
+    }
+
+    #[test]
+    fn only_swap_amount_token_for_token_parses_and_amounts_stay_exact() {
+        assert_eq!(
+            parse_trade_ask("TEST: swap 0.1 TEST Wrapped ETH for TEST Token B"),
+            ask("0.1", "TEST Wrapped ETH", "TEST Token B")
+        );
+        assert_eq!(
+            parse_trade_ask("sell 2 TESTWETH into TESTB on-chain."),
+            ask("2", "TESTWETH", "TESTB")
+        );
+        for a in [
+            "buy some",
+            "swap all TESTWETH for TESTB",
+            "swap -1 TESTWETH for TESTB",
+            "swap 1e3 TESTWETH for TESTB",
+        ] {
+            assert_eq!(parse_trade_ask(a), None, "{a}");
+        }
+        assert_eq!(to_units("0.1", 18), Units::Exact(100_000_000_000_000_000));
+        assert_eq!(
+            to_units("123456789.123456789123456789", 18),
+            Units::Exact(123_456_789_123_456_789_123_456_789)
+        );
+        assert_eq!(to_units("1.0000001", 6), Units::Invalid);
+        assert_eq!(to_units("1.", 18), Units::Invalid);
+    }
+
+    #[test]
+    fn the_module_holds_to_the_floor_no_ledger_no_metering_no_key() {
+        let source = [
+            include_str!("mod.rs"),
+            include_str!("rules.rs"),
+            include_str!("store.rs"),
+            include_str!("trade.rs"),
+            include_str!("ports.rs"),
+            include_str!("abi.rs"),
+        ]
+        .concat();
+        for banned in [
+            ["crate::", "metering"].concat(),
+            ["ledger", "_client"].concat(),
+            ["gateway", "."].concat(),
+            ["private", "_key"].concat(),
+            ["sign", "_transaction"].concat(),
+        ] {
+            assert!(!source.contains(&banned), "{banned}");
+        }
     }
 }

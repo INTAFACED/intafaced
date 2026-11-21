@@ -49,7 +49,8 @@ impl Binding {
             ("updatedAt", Json::str(self.updated_at.iso())),
             (
                 "revokeRequestedAt",
-                self.revoke_requested_at.map_or(Json::Null, |t| Json::str(t.iso())),
+                self.revoke_requested_at
+                    .map_or(Json::Null, |t| Json::str(t.iso())),
             ),
         ])
     }
@@ -160,10 +161,15 @@ fn order_of(r: &postgres::Row) -> Result<Order, StoreError> {
 
 /// A chain id the schema checked as a positive integer; one past `integer` is a database error there, and here.
 fn chain(chain_id: i64) -> Result<i32, StoreError> {
-    i32::try_from(chain_id).map_err(|_| StoreError::new("value out of range for type integer", Some("22003")))
+    i32::try_from(chain_id)
+        .map_err(|_| StoreError::new("value out of range for type integer", Some("22003")))
 }
 
-fn query(pool: &Pool, sql: &str, params: &[&(dyn ToSql + Sync)]) -> Result<Vec<postgres::Row>, StoreError> {
+fn query(
+    pool: &Pool,
+    sql: &str,
+    params: &[&(dyn ToSql + Sync)],
+) -> Result<Vec<postgres::Row>, StoreError> {
     db::with_client(pool, |c| Ok(c.query(sql, params)?))
 }
 
@@ -219,8 +225,12 @@ pub fn bind(pool: &Pool, b: &BindInput<'_>) -> Result<Binding, StoreError> {
     if let Some(r) = rows.first() {
         return binding_of(r);
     }
-    binding(pool, b.user_id, b.chain_id, b.account, b.session_key)?
-        .ok_or_else(|| StoreError::new("navigator binding vanished between its write and its read", None))
+    binding(pool, b.user_id, b.chain_id, b.account, b.session_key)?.ok_or_else(|| {
+        StoreError::new(
+            "navigator binding vanished between its write and its read",
+            None,
+        )
+    })
 }
 
 pub fn binding(
@@ -318,13 +328,26 @@ fn wei(text: &str) -> u128 {
 }
 
 /// `heldWei`: what every person's orders under one grant on one account hold of its cap.
-pub fn held_wei(pool: &Pool, chain_id: i64, account: &str, spec_hash: &str) -> Result<u128, StoreError> {
+pub fn held_wei(
+    pool: &Pool,
+    chain_id: i64,
+    account: &str,
+    spec_hash: &str,
+) -> Result<u128, StoreError> {
     let rows = query(
         pool,
         HELD_SQL,
-        &[&chain(chain_id)?, &account.to_lowercase(), &spec_hash.to_lowercase()],
+        &[
+            &chain(chain_id)?,
+            &account.to_lowercase(),
+            &spec_hash.to_lowercase(),
+        ],
     )?;
-    let n: String = rows.first().map(|r| r.try_get(0)).transpose()?.unwrap_or_else(|| "0".to_owned());
+    let n: String = rows
+        .first()
+        .map(|r| r.try_get(0))
+        .transpose()?
+        .unwrap_or_else(|| "0".to_owned());
     Ok(wei(&n))
 }
 
@@ -365,7 +388,10 @@ pub fn reserve_order(pool: &Pool, o: &ReserveInput<'_>) -> Result<Reserved, Stor
     let lock = format!("agents:navigator:cap:{}:{account}:{spec_hash}", o.chain_id);
     let chain_id = chain(o.chain_id)?;
     db::transaction(pool, IsolationLevel::ReadCommitted, |tx| {
-        tx.execute("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", &[&lock])?;
+        tx.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+            &[&lock],
+        )?;
         let found = tx.query(
             &format!(
                 "SELECT {} FROM agents.navigator_orders WHERE user_id = $1 AND order_key = $2",
@@ -377,7 +403,11 @@ pub fn reserve_order(pool: &Pool, o: &ReserveInput<'_>) -> Result<Reserved, Stor
             return Ok(Reserved::Existing(order_of(r)?));
         }
         let held = tx.query(HELD_SQL, &[&chain_id, &account, &spec_hash])?;
-        let held: String = held.first().map(|r| r.try_get(0)).transpose()?.unwrap_or_else(|| "0".to_owned());
+        let held: String = held
+            .first()
+            .map(|r| r.try_get(0))
+            .transpose()?
+            .unwrap_or_else(|| "0".to_owned());
         let total = wei(&held)
             .checked_add(o.chain_spent_wei)
             .and_then(|n| n.checked_add(o.amount_in_wei));
@@ -436,10 +466,12 @@ pub fn settle_order(
         ),
         &[&user_id, &order_key, &status, &tx_hash],
     )?;
-    rows.first()
-        .map(order_of)
-        .transpose()?
-        .ok_or_else(|| StoreError::new("navigator order vanished between its write and its update", None))
+    rows.first().map(order_of).transpose()?.ok_or_else(|| {
+        StoreError::new(
+            "navigator order vanished between its write and its update",
+            None,
+        )
+    })
 }
 
 /// `orders`: the person's orders in one session, newest first, at most 100.

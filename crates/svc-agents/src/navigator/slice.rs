@@ -95,7 +95,12 @@ fn answer(
     let nav = &rt.navigator;
     let user = ctx.principal.map_or("", |p| p.user_id.as_str());
     let tier = ctx.principal.map_or("", |p| p.tier.as_str());
-    let plane = || effective_plane(text(input, "plane").unwrap_or("dark"), nav.trade_url.as_deref());
+    let plane = || {
+        effective_plane(
+            text(input, "plane").unwrap_or("dark"),
+            nav.trade_url.as_deref(),
+        )
+    };
     let law = rt.tier_laws.navigator.as_ref();
     match path {
         "navigator.policy" => Ok(tools::policy()),
@@ -170,7 +175,10 @@ fn audited(result: &DataTool, occurred_at: &str) -> Json {
 fn invoke(ctx: &Ctx<'_>, rt: &Runtime, user: &str, tier: &str) -> Json {
     let input = &ctx.input;
     let nav = &rt.navigator;
-    let plane = effective_plane(text(input, "plane").unwrap_or("dark"), nav.trade_url.as_deref());
+    let plane = effective_plane(
+        text(input, "plane").unwrap_or("dark"),
+        nav.trade_url.as_deref(),
+    );
     let tool = service_kit::schema::js_trim(text(input, "tool").unwrap_or("")).to_owned();
     let occurred_at = text(input, "occurredAt").map_or_else(|| ctx.now.iso(), str::to_owned);
     let mut quote = quote_of(input.get("quote"));
@@ -207,7 +215,10 @@ fn invoke(ctx: &Ctx<'_>, rt: &Runtime, user: &str, tier: &str) -> Json {
     }
     let mut session = session_of(input.get("session"));
     if plane == tools::Plane::Live && tool == "identity.session.read" {
-        let asked_for = session.as_ref().map_or("", |s| s.session_id.as_str()).to_owned();
+        let asked_for = session
+            .as_ref()
+            .map_or("", |s| s.session_id.as_str())
+            .to_owned();
         // A live miss never falls back to the caller's fixture.
         session = read_live_session(nav.identity_session.as_deref(), &asked_for, user);
     }

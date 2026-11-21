@@ -39,8 +39,11 @@ use svc_agents::metering::ports::{
 };
 use svc_agents::migrate;
 use svc_agents::navigator::Navigator;
-use svc_agents::navigator::onchain::ports::{HttpSender, LinkedWalletsHttp, RpcChain, SelfFreezeHttp, parse_market};
+use svc_agents::navigator::onchain::ports::{
+    HttpSender, LinkedWalletsHttp, RpcChain, SelfFreezeHttp, parse_market,
+};
 use svc_agents::navigator::ports::{IdentitySessionHttp, TradeHttp};
+use svc_agents::navigator::research::{Research, parse_uncertainty_scale, research_environment};
 use svc_agents::runtime::Runtime;
 use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
@@ -320,10 +323,26 @@ fn navigator(
         nav.trade_data = Some(Box::new(TradeHttp::new(url, fetch.clone())));
     }
     if let Some(url) = set("IDENTITY_URL") {
-        nav.identity_session = Some(Box::new(IdentitySessionHttp::new(url, signer("svc-identity"), fetch.clone())));
-        nav.onchain.linked_wallets = Some(Box::new(LinkedWalletsHttp::new(url, signer("svc-identity"), fetch.clone())));
-        nav.onchain.self_freeze = Some(Box::new(SelfFreezeHttp::new(url, signer("svc-identity"), fetch.clone())));
+        nav.identity_session = Some(Box::new(IdentitySessionHttp::new(
+            url,
+            signer("svc-identity"),
+            fetch.clone(),
+        )));
+        nav.onchain.linked_wallets = Some(Box::new(LinkedWalletsHttp::new(
+            url,
+            signer("svc-identity"),
+            fetch.clone(),
+        )));
+        nav.onchain.self_freeze = Some(Box::new(SelfFreezeHttp::new(
+            url,
+            signer("svc-identity"),
+            fetch.clone(),
+        )));
     }
+    nav.research = Research {
+        scale: parse_uncertainty_scale(env.str("AGENTS_RESEARCH_UNCERTAINTY_SCALE"))?,
+        environment: research_environment(env.str("APP_ENV").unwrap_or_default()).to_owned(),
+    };
     nav.onchain.signer = set("AGENTS_NAVIGATOR_ONCHAIN_SIGNER").map(str::to_owned);
     if let Some(url) = set("AGENTS_NAVIGATOR_ONCHAIN_SENDER_URL") {
         nav.onchain.sender = Some(Box::new(HttpSender {
@@ -331,7 +350,9 @@ fn navigator(
             fetch: fetch.clone(),
         }));
     }
-    nav.onchain.market = set("AGENTS_NAVIGATOR_ONCHAIN_MARKET").map(parse_market).transpose()?;
+    nav.onchain.market = set("AGENTS_NAVIGATOR_ONCHAIN_MARKET")
+        .map(parse_market)
+        .transpose()?;
     if let Some(url) = set("AGENTS_NAVIGATOR_ONCHAIN_RPC_URL") {
         nav.onchain.chain = Some(Box::new(RpcChain::new(url, fetch.clone())));
     }

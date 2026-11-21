@@ -80,9 +80,12 @@ fn failed(f: Fail) -> RunError {
 
 /// `storeOf`: no database refuses `agents.capability_unavailable`.
 fn store_of(store: &Store) -> Result<&Pool, RunError> {
-    store
-        .pool()
-        .map_err(|_| RunError::Trpc(TrpcError::plain("PRECONDITION_FAILED", "agents.capability_unavailable")))
+    store.pool().map_err(|_| {
+        RunError::Trpc(TrpcError::plain(
+            "PRECONDITION_FAILED",
+            "agents.capability_unavailable",
+        ))
+    })
 }
 
 pub const OWNER_FROZEN_SELF: &str = "agents.identity.owner_frozen_self";
@@ -99,10 +102,17 @@ fn self_freeze_gate(user_id: &str, freeze: Option<&dyn SelfFreeze>) -> Result<()
 }
 
 /// The person's own Navigator session; another person's, another agent's or none read the same: not found.
-fn navigator_session(pool: &Pool, session_id: &str, user_id: &str) -> Result<runtime::SessionRecord, RunError> {
+fn navigator_session(
+    pool: &Pool,
+    session_id: &str,
+    user_id: &str,
+) -> Result<runtime::SessionRecord, RunError> {
     match runtime::session(pool, session_id)? {
         Some(s) if s.user_id == user_id && s.agent_id == NAVIGATOR_AGENT_ID => Ok(s),
-        _ => Err(RunError::Trpc(TrpcError::plain("NOT_FOUND", "agents.refused.session_closed"))),
+        _ => Err(RunError::Trpc(TrpcError::plain(
+            "NOT_FOUND",
+            "agents.refused.session_closed",
+        ))),
     }
 }
 
@@ -112,11 +122,17 @@ fn text<'a>(v: &'a Value, key: &str) -> &'a str {
 
 /// A number the schema checked as an integer.
 fn int(v: &Value, key: &str) -> Option<i64> {
-    v.get(key).as_number().filter(|n| n.fract() == 0.0).map(|n| {
-        #[allow(clippy::cast_possible_truncation, reason = "an integer the schema checked")]
-        let n = n as i64;
-        n
-    })
+    v.get(key)
+        .as_number()
+        .filter(|n| n.fract() == 0.0)
+        .map(|n| {
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "an integer the schema checked"
+            )]
+            let n = n as i64;
+            n
+        })
 }
 
 fn texts(v: &Value, key: &str) -> Vec<String> {
@@ -134,7 +150,8 @@ pub fn handle(ctx: &Ctx<'_>, store: &Store, rt: &Runtime) -> Result<Json, RunErr
     let input = &ctx.input;
     let user = ctx.principal.map_or("", |p| p.user_id.as_str());
     let chain_id = int(input, "chainId").unwrap_or(0);
-    let signer = || rules::navigator_signer(chain_id, deps.signer.as_deref()).map_err(|r| refused(&r));
+    let signer =
+        || rules::navigator_signer(chain_id, deps.signer.as_deref()).map_err(|r| refused(&r));
     match ctx.call.path {
         "navigator.onchain.signer" => {
             let s = signer()?;
@@ -145,9 +162,18 @@ pub fn handle(ctx: &Ctx<'_>, store: &Store, rt: &Runtime) -> Result<Json, RunErr
                 ("network", Json::str("testnet")),
                 (
                     "pools",
-                    Json::Array(deps.market.as_ref().map_or_else(Vec::new, |m| m.pools.iter().map(|p| lower(p)).collect())),
+                    Json::Array(
+                        deps.market
+                            .as_ref()
+                            .map_or_else(Vec::new, |m| m.pools.iter().map(|p| lower(p)).collect()),
+                    ),
                 ),
-                ("router", deps.market.as_ref().map_or(Json::Null, |m| lower(&m.router))),
+                (
+                    "router",
+                    deps.market
+                        .as_ref()
+                        .map_or(Json::Null, |m| lower(&m.router)),
+                ),
             ]))
         }
         "navigator.onchain.bind" => {
@@ -190,7 +216,10 @@ pub fn handle(ctx: &Ctx<'_>, store: &Store, rt: &Runtime) -> Result<Json, RunErr
             let s = signer()?;
             let pool = store_of(store)?;
             let b = store::binding(pool, user, chain_id, text(input, "account"), &s)?;
-            Ok(Json::obj([("binding", b.map_or(Json::Null, |b| b.to_json()))]))
+            Ok(Json::obj([(
+                "binding",
+                b.map_or(Json::Null, |b| b.to_json()),
+            )]))
         }
         "navigator.ask" => {
             // The store is asked for first: without one there is no session to read either.
@@ -198,7 +227,10 @@ pub fn handle(ctx: &Ctx<'_>, store: &Store, rt: &Runtime) -> Result<Json, RunErr
             let session_id = text(input, "sessionId");
             let session = navigator_session(pool, session_id, user)?;
             if session.status != "open" {
-                return Err(RunError::Trpc(TrpcError::plain("BAD_REQUEST", "agents.refused.session_closed")));
+                return Err(RunError::Trpc(TrpcError::plain(
+                    "BAD_REQUEST",
+                    "agents.refused.session_closed",
+                )));
             }
             let asked = text(input, "text");
             if !rules::ask_is_trade(asked) && !rules::ask_moves_money_out(asked) {
@@ -217,7 +249,10 @@ pub fn handle(ctx: &Ctx<'_>, store: &Store, rt: &Runtime) -> Result<Json, RunErr
                 },
             )
             .map_err(failed)?;
-            Ok(Json::obj([("kind", Json::str("order")), ("order", order.to_json())]))
+            Ok(Json::obj([
+                ("kind", Json::str("order")),
+                ("order", order.to_json()),
+            ]))
         }
         "navigator.orders" => {
             let pool = store_of(store)?;
@@ -233,6 +268,8 @@ pub fn handle(ctx: &Ctx<'_>, store: &Store, rt: &Runtime) -> Result<Json, RunErr
             let pool = store_of(store)?;
             trade::trading(deps, pool, user)
         }
-        other => Err(RunError::Other(format!("{other} is not a navigator on-chain call"))),
+        other => Err(RunError::Other(format!(
+            "{other} is not a navigator on-chain call"
+        ))),
     }
 }

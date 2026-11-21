@@ -1,10 +1,12 @@
 //! The navigator slice (`PORT.md`): `router.ts`'s `navigator` router and `navigator/`. The pure Stage-1 and Stage-2
 //! tools (`tools`: the declared toolset, the plane, the tier gate, tool selection, the data tools and their audit
 //! row), the live reads of svc-trade and svc-identity (`ports`), the metered answer run through the runtime's `act`
-//! (`run`), and the on-chain session key with the orders the Navigator places through it (`onchain`).
+//! (`run`), the on-chain session key with the orders the Navigator places through it (`onchain`), and a research
+//! answer's provenance for a Navigator session's `run.complete` (`research`).
 
 pub mod onchain;
 pub mod ports;
+pub mod research;
 pub mod run;
 pub mod slice;
 pub mod tools;
@@ -19,6 +21,8 @@ pub struct Navigator {
     pub identity_session: Option<Box<dyn ports::IdentitySession>>,
     /// The on-chain key, the market and the reads the trading calls make.
     pub onchain: onchain::OnchainDeps,
+    /// Research answers' provenance: `AGENTS_RESEARCH_UNCERTAINTY_SCALE` and where the market data is (`APP_ENV`).
+    pub research: research::Research,
 }
 
 impl Navigator {
@@ -29,6 +33,7 @@ impl Navigator {
             trade_data: None,
             identity_session: None,
             onchain: onchain::OnchainDeps::unwired(),
+            research: research::Research::unwired(),
         }
     }
 }

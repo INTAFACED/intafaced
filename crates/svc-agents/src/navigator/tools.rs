@@ -82,7 +82,10 @@ pub fn guardrail() -> Guardrail {
             ]),
         ),
     ]);
-    #[allow(clippy::expect_used, reason = "a fixed guardrail the parser's own tests hold")]
+    #[allow(
+        clippy::expect_used,
+        reason = "a fixed guardrail the parser's own tests hold"
+    )]
     parse_guardrail(&raw).expect("the navigator's guardrail parses")
 }
 
@@ -105,7 +108,11 @@ pub fn policy() -> Json {
     let has = |t: &str| Json::int(i64::from(MONEY_WRITE_TOOLS.contains(&t)));
     let count = i64::try_from(MONEY_WRITE_TOOLS.len()).unwrap_or(0);
     let flag = |t: &str| i64::from(MONEY_WRITE_TOOLS.contains(&t));
-    let (lp, to, bt) = (flag("ledger.post"), flag("trade.order"), flag("bank.transfer"));
+    let (lp, to, bt) = (
+        flag("ledger.post"),
+        flag("trade.order"),
+        flag("bank.transfer"),
+    );
     Json::obj([
         ("moneyWriteTools", strings(&MONEY_WRITE_TOOLS)),
         (
@@ -174,7 +181,10 @@ pub fn stage1_guardrail() -> Json {
                             ("name".to_owned(), Json::str(t.name.clone())),
                             ("module".to_owned(), Json::str(t.module.clone())),
                             ("mode".to_owned(), Json::str(t.mode.clone())),
-                            ("requiresApproval".to_owned(), Json::Bool(t.requires_approval)),
+                            (
+                                "requiresApproval".to_owned(),
+                                Json::Bool(t.requires_approval),
+                            ),
                         ];
                         if let Some(n) = t.max_calls_per_session {
                             fields.push(("maxCallsPerSession".to_owned(), Json::int(n)));
@@ -187,8 +197,14 @@ pub fn stage1_guardrail() -> Json {
         (
             "limits",
             Json::obj([
-                ("maxActionsPerSession", Json::int(g.limits.max_actions_per_session)),
-                ("maxOutputTokensPerCall", Json::int(g.limits.max_output_tokens_per_call)),
+                (
+                    "maxActionsPerSession",
+                    Json::int(g.limits.max_actions_per_session),
+                ),
+                (
+                    "maxOutputTokensPerCall",
+                    Json::int(g.limits.max_output_tokens_per_call),
+                ),
                 (
                     "maxSpendPerSession",
                     g.limits.max_spend_per_session.map_or(Json::Null, |a| {
@@ -197,11 +213,23 @@ pub fn stage1_guardrail() -> Json {
                 ),
                 (
                     "allowedModules",
-                    Json::Array(g.limits.allowed_modules.iter().map(|s| Json::str(s.clone())).collect()),
+                    Json::Array(
+                        g.limits
+                            .allowed_modules
+                            .iter()
+                            .map(|s| Json::str(s.clone()))
+                            .collect(),
+                    ),
                 ),
                 (
                     "allowedTasks",
-                    Json::Array(g.limits.allowed_tasks.iter().map(|s| Json::str(s.clone())).collect()),
+                    Json::Array(
+                        g.limits
+                            .allowed_tasks
+                            .iter()
+                            .map(|s| Json::str(s.clone()))
+                            .collect(),
+                    ),
                 ),
             ]),
         ),
@@ -211,7 +239,10 @@ pub fn stage1_guardrail() -> Json {
 /// `navigatorTierGate`'s answer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TierGate {
-    Ok { user_tier: String, allowed_tools: Vec<String> },
+    Ok {
+        user_tier: String,
+        allowed_tools: Vec<String>,
+    },
     /// `tier_law_blank` or `tier_not_granted`, always `agents.navigator.tier_closed`.
     Refuse(&'static str),
 }
@@ -449,7 +480,10 @@ fn fresh(as_of: &str, max_age_ms: f64, now: Instant) -> bool {
     let Some(t) = date_parse(as_of) else {
         return false;
     };
-    #[allow(clippy::cast_precision_loss, reason = "a millisecond difference, as JavaScript holds it")]
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "a millisecond difference, as JavaScript holds it"
+    )]
     let age = (now.0 - t.0) as f64;
     age <= max_age_ms && age >= 0.0
 }
@@ -480,7 +514,9 @@ pub fn invoke_data_tool(input: &DataToolInput<'_>) -> DataTool {
     }
     match tool.as_str() {
         "trade.quote" => {
-            let Some(q) = input.quote.filter(|q| !service_kit::schema::js_trim(&q.market_id).is_empty())
+            let Some(q) = input
+                .quote
+                .filter(|q| !service_kit::schema::js_trim(&q.market_id).is_empty())
             else {
                 return refuse("missing_fixture", UNAVAILABLE);
             };
@@ -504,7 +540,10 @@ pub fn invoke_data_tool(input: &DataToolInput<'_>) -> DataTool {
                 return refuse("empty_markets", UNAVAILABLE);
             };
             let blank = |s: &str| service_kit::schema::js_trim(s).is_empty();
-            if markets.iter().any(|m| blank(&m.market_id) || blank(&m.symbol)) {
+            if markets
+                .iter()
+                .any(|m| blank(&m.market_id) || blank(&m.symbol))
+            {
                 return refuse("missing_fixture", UNAVAILABLE);
             }
             DataTool::Markets(markets.to_vec())
@@ -568,14 +607,29 @@ mod tests {
     #[test]
     fn the_tier_gate_refuses_closed_until_a_matrix_grants_the_tier() {
         assert_eq!(tier_gate(None, "pro"), TierGate::Refuse("tier_law_blank"));
-        assert_eq!(tier_gate(Some(&Law::Unpublished), "pro"), TierGate::Refuse("tier_law_blank"));
-        assert_eq!(tier_gate(Some(&Law::Published(vec![])), "pro"), TierGate::Refuse("tier_law_blank"));
+        assert_eq!(
+            tier_gate(Some(&Law::Unpublished), "pro"),
+            TierGate::Refuse("tier_law_blank")
+        );
+        assert_eq!(
+            tier_gate(Some(&Law::Published(vec![])), "pro"),
+            TierGate::Refuse("tier_law_blank")
+        );
         let l = law("pro", &["trade.quote"]);
-        assert_eq!(tier_gate(Some(&l), " "), TierGate::Refuse("tier_not_granted"));
-        assert_eq!(tier_gate(Some(&l), "free"), TierGate::Refuse("tier_not_granted"));
+        assert_eq!(
+            tier_gate(Some(&l), " "),
+            TierGate::Refuse("tier_not_granted")
+        );
+        assert_eq!(
+            tier_gate(Some(&l), "free"),
+            TierGate::Refuse("tier_not_granted")
+        );
         assert_eq!(
             tier_gate(Some(&l), " pro "),
-            TierGate::Ok { user_tier: "pro".into(), allowed_tools: vec!["trade.quote".into()] }
+            TierGate::Ok {
+                user_tier: "pro".into(),
+                allowed_tools: vec!["trade.quote".into()]
+            }
         );
     }
 
@@ -583,15 +637,30 @@ mod tests {
     fn tool_select_never_selects_a_money_write_an_undeclared_or_a_repeated_tool() {
         let c = |l: &[&str]| l.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
         assert_eq!(
-            select_tools(Plane::Live, &c(&["trade.quote", " trade.quote", "ledger.post", "x.y", ""])).compact(),
+            select_tools(
+                Plane::Live,
+                &c(&["trade.quote", " trade.quote", "ledger.post", "x.y", ""])
+            )
+            .compact(),
             r#"{"status":"ok","selected":["trade.quote"],"refused":[{"tool":"ledger.post","reason":"money_write"},{"tool":"x.y","reason":"not_declared"}]}"#
         );
-        assert_eq!(select_tools(Plane::Live, &[]).compact(), r#"{"status":"refuse","reason":"no_candidates"}"#);
+        assert_eq!(
+            select_tools(Plane::Live, &[]).compact(),
+            r#"{"status":"refuse","reason":"no_candidates"}"#
+        );
     }
 
     #[test]
     fn a_data_tool_refuses_what_it_cannot_ground_and_echoes_only_what_it_was_given() {
-        let l = law("pro", &["trade.quote", "trade.markets.list", "identity.session.read", "trade.order"]);
+        let l = law(
+            "pro",
+            &[
+                "trade.quote",
+                "trade.markets.list",
+                "identity.session.read",
+                "trade.order",
+            ],
+        );
         let now = zod_datetime("2026-11-21T00:00:10Z", false).unwrap_or(Instant(0));
         let q = |last: Option<&str>, as_of: &str| Quote {
             market_id: "btc-usdt".into(),
@@ -618,13 +687,43 @@ mod tests {
         };
         assert_eq!(reason(run("trade.order", None)), "money_write");
         assert_eq!(reason(run("trade.quote", None)), "missing_fixture");
-        assert_eq!(reason(run("trade.quote", Some(&q(None, "2026-11-21T00:00:00Z")))), "incomplete_quote");
-        assert_eq!(reason(run("trade.quote", Some(&q(Some("-1"), "2026-11-21T00:00:00Z")))), "invalid_decimal");
-        assert_eq!(reason(run("trade.quote", Some(&q(Some("1.5"), "2026-11-20T00:00:00Z")))), "stale");
-        assert_eq!(reason(run("trade.quote", Some(&q(Some("1.5"), "2026-11-21T00:00:20Z")))), "stale");
-        assert_eq!(reason(run("trade.quote", Some(&q(Some("1.5"), "2026-11-21T00:00:00Z")))), "ok");
+        assert_eq!(
+            reason(run("trade.quote", Some(&q(None, "2026-11-21T00:00:00Z")))),
+            "incomplete_quote"
+        );
+        assert_eq!(
+            reason(run(
+                "trade.quote",
+                Some(&q(Some("-1"), "2026-11-21T00:00:00Z"))
+            )),
+            "invalid_decimal"
+        );
+        assert_eq!(
+            reason(run(
+                "trade.quote",
+                Some(&q(Some("1.5"), "2026-11-20T00:00:00Z"))
+            )),
+            "stale"
+        );
+        assert_eq!(
+            reason(run(
+                "trade.quote",
+                Some(&q(Some("1.5"), "2026-11-21T00:00:20Z"))
+            )),
+            "stale"
+        );
+        assert_eq!(
+            reason(run(
+                "trade.quote",
+                Some(&q(Some("1.5"), "2026-11-21T00:00:00Z"))
+            )),
+            "ok"
+        );
         assert_eq!(reason(run("trade.markets.list", None)), "empty_markets");
-        assert_eq!(reason(run("identity.session.read", None)), "no_live_session");
+        assert_eq!(
+            reason(run("identity.session.read", None)),
+            "no_live_session"
+        );
         assert_eq!(reason(run("scanner.rank", None)), "tool_not_declared");
     }
 }

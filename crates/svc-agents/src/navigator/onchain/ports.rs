@@ -55,7 +55,13 @@ pub trait Chain: Send + Sync {
     fn grant(&self, account: &str, session_key: &str) -> Result<Option<LiveGrant>, String>;
     fn owner(&self, account: &str) -> Result<String, String>;
     fn pool(&self, pool: &str) -> Result<PoolTokens, String>;
-    fn quote(&self, router: &str, pool: &str, token_in: &str, amount_in: u128) -> Result<u128, String>;
+    fn quote(
+        &self,
+        router: &str,
+        pool: &str,
+        token_in: &str,
+        amount_in: u128,
+    ) -> Result<u128, String>;
     /// The receipt's status, or none when it is not mined within the wait.
     fn receipt(&self, hash: &str) -> Option<Mined>;
 }
@@ -142,7 +148,11 @@ pub fn parse_market(raw: &str) -> Result<Market, String> {
     };
     let slippage_bps = match v.get("slippageBps") {
         Some(Json::Number(n)) if n.fract() == 0.0 && (1.0..=5_000.0).contains(n) => {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, reason = "an integer from 1 to 5000")]
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "an integer from 1 to 5000"
+            )]
             let n = *n as u32;
             n
         }
@@ -206,12 +216,17 @@ impl RpcChain {
             };
             return Err(msg);
         }
-        v.get("result").cloned().ok_or_else(|| "RPC answer without a result".to_owned())
+        v.get("result")
+            .cloned()
+            .ok_or_else(|| "RPC answer without a result".to_owned())
     }
 
     fn call(&self, to: &str, data: String) -> Result<String, String> {
         let params = Json::Array(vec![
-            Json::obj([("data", Json::str(data)), ("to", Json::str(to.to_lowercase()))]),
+            Json::obj([
+                ("data", Json::str(data)),
+                ("to", Json::str(to.to_lowercase())),
+            ]),
             Json::str("latest"),
         ]);
         match self.rpc("eth_call", params)? {
@@ -235,7 +250,8 @@ impl RpcChain {
 
     fn token(&self, address: &str) -> Result<Token, String> {
         let text = |sel: &str| -> Result<String, String> {
-            abi::decode_string(&self.call(address, sel.to_owned())?).ok_or_else(|| "not a string".to_owned())
+            abi::decode_string(&self.call(address, sel.to_owned())?)
+                .ok_or_else(|| "not a string".to_owned())
         };
         let decimals = abi::word_uint(&self.word(address, abi::DECIMALS.to_owned())?)
             .and_then(|n| u32::try_from(n).ok())
@@ -269,7 +285,10 @@ impl Chain for RpcChain {
                 ("address", Json::str(account.to_lowercase())),
                 (
                     "topics",
-                    Json::Array(vec![Json::str(abi::SESSION_GRANTED), Json::str(format!("0x{key_word}"))]),
+                    Json::Array(vec![
+                        Json::str(abi::SESSION_GRANTED),
+                        Json::str(format!("0x{key_word}")),
+                    ]),
                 ),
                 ("fromBlock", Json::str("0x0")),
             ])]),
@@ -278,7 +297,9 @@ impl Chain for RpcChain {
             return Err("eth_getLogs answered no list".to_owned());
         };
         let granted = logs.iter().rev().find_map(|log| match log.get("data") {
-            Some(Json::String(d)) => abi::decode_granted(d).filter(|g| g.spec_hash.to_lowercase() == spec_hash),
+            Some(Json::String(d)) => {
+                abi::decode_granted(d).filter(|g| g.spec_hash.to_lowercase() == spec_hash)
+            }
             _ => None,
         });
         let Some(g) = granted else {
@@ -310,7 +331,13 @@ impl Chain for RpcChain {
         })
     }
 
-    fn quote(&self, router: &str, pool: &str, token_in: &str, amount_in: u128) -> Result<u128, String> {
+    fn quote(
+        &self,
+        router: &str,
+        pool: &str,
+        token_in: &str,
+        amount_in: u128,
+    ) -> Result<u128, String> {
         let w = self.word(
             router,
             format!(
@@ -328,7 +355,10 @@ impl Chain for RpcChain {
         let started = std::time::Instant::now();
         let limit = Duration::from_millis(self.receipt_timeout_ms);
         loop {
-            if let Ok(r) = self.rpc("eth_getTransactionReceipt", Json::Array(vec![Json::str(hash)])) {
+            if let Ok(r) = self.rpc(
+                "eth_getTransactionReceipt",
+                Json::Array(vec![Json::str(hash)]),
+            ) {
                 match r.get("status") {
                     Some(Json::String(s)) if s == "0x1" => return Some(Mined::Success),
                     Some(Json::String(s)) if s == "0x0" => return Some(Mined::Reverted),
@@ -379,7 +409,10 @@ impl Sender for HttpSender {
         let parsed = json::parse(&res.body).ok();
         match parsed.as_ref().and_then(|b| b.get("hash")) {
             Some(Json::String(h)) if res.ok() && is_hash(h) => Ok(h.clone()),
-            _ => Err(SendError::Unknown(format!("navigator signer answered no hash ({})", res.status))),
+            _ => Err(SendError::Unknown(format!(
+                "navigator signer answered no hash ({})",
+                res.status
+            ))),
         }
     }
 }
@@ -415,7 +448,9 @@ fn keys_are(v: &Json, keys: &[&str]) -> bool {
 /// `linkedWalletsSchema`, strict.
 pub fn linked_of(v: &Json) -> Option<Linked> {
     match v.get("state") {
-        Some(Json::String(s)) if s == "account_inactive" && keys_are(v, &["state"]) => Some(Linked::AccountInactive),
+        Some(Json::String(s)) if s == "account_inactive" && keys_are(v, &["state"]) => {
+            Some(Linked::AccountInactive)
+        }
         Some(Json::String(s)) if s == "usable" && keys_are(v, &["state", "wallets"]) => {
             let Some(Json::Array(ws)) = v.get("wallets") else {
                 return None;
@@ -426,14 +461,19 @@ pub fn linked_of(v: &Json) -> Option<Linked> {
                         Some(Json::String(a))
                             if a.len() == 42
                                 && a.starts_with("0x")
-                                && a.bytes().skip(2).all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) =>
+                                && a.bytes()
+                                    .skip(2)
+                                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) =>
                         {
                             a.clone()
                         }
                         _ => return None,
                     };
                     match w.get("linkedAt") {
-                        Some(Json::String(t)) if keys_are(w, &["address", "linkedAt"]) && zod_datetime(t, false).is_some() => {
+                        Some(Json::String(t))
+                            if keys_are(w, &["address", "linkedAt"])
+                                && zod_datetime(t, false).is_some() =>
+                        {
                             Some(address)
                         }
                         _ => None,
@@ -449,7 +489,10 @@ pub fn linked_of(v: &Json) -> Option<Linked> {
 impl LinkedWallets for LinkedWalletsHttp {
     fn read(&self, user_id: &str) -> Option<Linked> {
         let raw = Json::obj([("userId", Json::str(user_id))]).compact();
-        let signed = self.signer.sign(&raw, "POST", LINKED_WALLETS_PATH, "application/json").ok()?;
+        let signed = self
+            .signer
+            .sign(&raw, "POST", LINKED_WALLETS_PATH, "application/json")
+            .ok()?;
         let mut headers = vec![("content-type".to_owned(), "application/json".to_owned())];
         headers.extend(signed);
         let res = self
@@ -515,7 +558,11 @@ pub fn freeze_of(v: &Json, user_id: &str) -> Option<Freeze> {
     if !is_guid(id) || id.to_lowercase() != user_id.to_lowercase() {
         return None;
     }
-    Some(if *frozen { Freeze::Frozen { since } } else { Freeze::Open })
+    Some(if *frozen {
+        Freeze::Frozen { since }
+    } else {
+        Freeze::Open
+    })
 }
 
 impl SelfFreeze for SelfFreezeHttp {
@@ -553,7 +600,8 @@ mod tests {
     #[test]
     fn a_market_is_read_strictly_and_a_bad_one_stops_the_boot() {
         let a = format!("0x{}", "1".repeat(40));
-        let ok = format!(r#"{{"router":"{a}","spendToken":"{a}","pools":["{a}"],"slippageBps":50}}"#);
+        let ok =
+            format!(r#"{{"router":"{a}","spendToken":"{a}","pools":["{a}"],"slippageBps":50}}"#);
         assert_eq!(parse_market(&ok).map(|m| m.slippage_bps), Ok(50));
         assert!(parse_market(&ok.replace("50", "0")).is_err());
         assert!(parse_market(&ok.replace(r#"["0x"#, r#"[]"#)).is_err());
@@ -566,16 +614,26 @@ mod tests {
         let usable = json::parse(&format!(
             r#"{{"state":"usable","wallets":[{{"address":"{a}","linkedAt":"2026-11-01T00:00:00.000Z"}}]}}"#
         ));
-        assert_eq!(usable.ok().as_ref().and_then(linked_of), Some(Linked::Usable(vec![a.clone()])));
+        assert_eq!(
+            usable.ok().as_ref().and_then(linked_of),
+            Some(Linked::Usable(vec![a.clone()]))
+        );
         let upper = json::parse(&format!(
             r#"{{"state":"usable","wallets":[{{"address":"{}","linkedAt":"2026-11-01T00:00:00.000Z"}}]}}"#,
             a.to_uppercase().replace("0X", "0x")
         ));
         assert_eq!(upper.ok().as_ref().and_then(linked_of), None);
         let id = "00000000-0000-4000-8000-000000000001";
-        let frozen = json::parse(&format!(r#"{{"userId":"{id}","frozen":true,"since":null}}"#));
-        assert_eq!(frozen.ok().as_ref().and_then(|v| freeze_of(v, id)), Some(Freeze::Frozen { since: None }));
-        let other = json::parse(&format!(r#"{{"userId":"{id}","frozen":false,"since":null,"x":1}}"#));
+        let frozen = json::parse(&format!(
+            r#"{{"userId":"{id}","frozen":true,"since":null}}"#
+        ));
+        assert_eq!(
+            frozen.ok().as_ref().and_then(|v| freeze_of(v, id)),
+            Some(Freeze::Frozen { since: None })
+        );
+        let other = json::parse(&format!(
+            r#"{{"userId":"{id}","frozen":false,"since":null,"x":1}}"#
+        ));
         assert_eq!(other.ok().as_ref().and_then(|v| freeze_of(v, id)), None);
     }
 }
