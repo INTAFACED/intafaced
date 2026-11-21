@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hmac::{Hmac, Mac};
-use service_kit::approvals::{ConsumeInput, Consumed};
+use service_kit::approvals::{ConsumeInput, Consumed, Replay};
 use service_kit::json::{self, Json};
 use service_kit::s2s::{self, system_seconds};
 use service_kit::s2s_verify::BodyBind;
@@ -138,7 +138,7 @@ impl Approvals for Identity {
             input.target_id.to_owned(),
             input.payload_hash.to_owned(),
             input.expected_version.to_owned(),
-            input.request_id.map(str::to_owned),
+            input.replay.map(|r| r.request_id.to_owned()),
         ));
         let mut rows = self.rows.lock().unwrap();
         let Some(row) = rows.get_mut(input.approval_id) else {
@@ -151,7 +151,7 @@ impl Approvals for Identity {
         if !binds {
             return Err(refused("payload_mismatch"));
         }
-        let request = input.request_id.map(str::to_owned);
+        let request = input.replay.map(|r| r.request_id.to_owned());
         if row.consumed_by.is_some() && row.consumed_by != request {
             return Err(refused("action_approval.consumed"));
         }
@@ -486,7 +486,10 @@ fn fails_closed_after_a_lost_reply_and_the_approval_must_be_given_again() {
             target_service: "svc-ledger",
             target_id: "USDT",
             expected_version: "0",
-            request_id: Some("asset-edit:USDT:1"),
+            replay: Some(Replay {
+                request_id: "asset-edit:USDT:1",
+                consumer_principal_id: None,
+            }),
         })
         .unwrap();
     let r = apply_with(&store, &identity, "ap-1", "asset-edit:USDT:1", &usdt());

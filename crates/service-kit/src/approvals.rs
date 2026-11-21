@@ -21,8 +21,7 @@ pub const ACTION_APPROVAL_CONSUME_FAILED: &str = "action_approval.consume_failed
 /// `REFUSAL_DETAIL_MAX`.
 const REFUSAL_DETAIL_MAX: usize = 300;
 
-/// `ActionApprovalConsumeInput`: the six fields, in schema order, and the caller's replay key (`requestId`) when it
-/// sends one.
+/// `ActionApprovalConsumeInput`: the six fields, in schema order, and the replay key when the consume has one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConsumeInput<'a> {
     pub approval_id: &'a str,
@@ -31,9 +30,16 @@ pub struct ConsumeInput<'a> {
     pub target_service: &'a str,
     pub target_id: &'a str,
     pub expected_version: &'a str,
-    /// `requestId`: the same key after a lost reply answers the consumed row again
-    /// (`consumption: already_consumed_by_this_request`). None is a one-shot consume.
-    pub request_id: Option<&'a str>,
+    /// `requestId` and `consumerPrincipalId`: the same key after a lost reply answers the first consume again.
+    pub replay: Option<Replay<'a>>,
+}
+
+/// A replayable consume's key and, when the caller sends one, the operator who consumes it (identity then answers the
+/// replay only to that operator). svc-ledger's asset edit sends the key alone, as `applyAssetEdit` does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Replay<'a> {
+    pub request_id: &'a str,
+    pub consumer_principal_id: Option<&'a str>,
 }
 
 /// The fields of the consumed `ActionApproval` a service reads after the echo check.
@@ -78,7 +84,7 @@ fn bounded(s: &str, max: usize) -> bool {
 
 /// `actionApprovalConsumeInputSchema.parse(input)` and `JSON.stringify` of what it returns.
 fn consume_payload(input: &ConsumeInput<'_>) -> Result<String, ConsumeError> {
-    let fields = [
+    let mut fields = vec![
         ("approvalId", input.approval_id, 128),
         ("operationId", input.operation_id, 128),
         ("payloadHash", input.payload_hash, 128),
@@ -86,25 +92,23 @@ fn consume_payload(input: &ConsumeInput<'_>) -> Result<String, ConsumeError> {
         ("targetId", input.target_id, 256),
         ("expectedVersion", input.expected_version, 128),
     ];
-    for (name, value, max) in fields {
+    if let Some(r) = input.replay {
+        fields.push(("requestId", r.request_id, 128));
+        if let Some(consumer) = r.consumer_principal_id {
+            fields.push(("consumerPrincipalId", consumer, 128));
+        }
+    }
+    for &(name, value, max) in &fields {
         if !bounded(value, max) {
             return Err(ConsumeError::Thrown(format!(
                 "the approval consume input's {name} is out of bounds"
             )));
         }
     }
-    let mut out: Vec<(String, Json)> = fields
+    let out: Vec<(String, Json)> = fields
         .iter()
         .map(|(k, v, _)| ((*k).to_owned(), Json::str(*v)))
         .collect();
-    if let Some(key) = input.request_id {
-        if !bounded(key, 128) {
-            return Err(ConsumeError::Thrown(
-                "the approval consume input's requestId is out of bounds".to_owned(),
-            ));
-        }
-        out.push(("requestId".to_owned(), Json::str(key)));
-    }
     Ok(Json::Object(out).compact())
 }
 
@@ -379,7 +383,7 @@ mod tests {
             target_service: "svc-academy",
             target_id: "academy.season.create",
             expected_version: "1",
-            request_id: None,
+            replay: None,
         }
     }
 
@@ -465,7 +469,10 @@ mod tests {
     fn a_replay_key_travels_after_the_six_fields_and_is_bounded() {
         let (c, fake) = client(200, trpc(approval("CONSUMED", Json::str("appr"))));
         let keyed = ConsumeInput {
-            request_id: Some("asset-edit:USDT:1"),
+            replay: Some(Replay {
+                request_id: "asset-edit:USDT:1",
+                consumer_principal_id: None,
+            }),
             ..input()
         };
         c.consume(&keyed).unwrap();
@@ -477,7 +484,10 @@ mod tests {
         );
         let long = "k".repeat(129);
         let too_long = ConsumeInput {
-            request_id: Some(&long),
+            replay: Some(Replay {
+                request_id: &long,
+                consumer_principal_id: None,
+            }),
             ..input()
         };
         assert!(matches!(c.consume(&too_long), Err(ConsumeError::Thrown(_))));
@@ -588,6 +598,27 @@ mod tests {
             refusal_detail(r#"[{"error":{"json":{"message":"m"}}}]"#),
             "m"
         );
+    }
+
+    #[test]
+    fn a_replayable_consume_sends_its_key_and_consumer_after_the_six_fields() {
+        let mut asked = input();
+        assert_eq!(
+            consume_payload(&asked).unwrap(),
+            r#"{"approvalId":"ap-1","operationId":"op-1","payloadHash":"sha256:abc","targetService":"svc-academy","targetId":"academy.season.create","expectedVersion":"1"}"#
+        );
+        asked.replay = Some(Replay {
+            request_id: "op-1",
+            consumer_principal_id: Some("founder-a"),
+        });
+        assert!(consume_payload(&asked).unwrap().ends_with(
+            r#""expectedVersion":"1","requestId":"op-1","consumerPrincipalId":"founder-a"}"#
+        ));
+        asked.replay = Some(Replay {
+            request_id: "op-1",
+            consumer_principal_id: Some(""),
+        });
+        assert!(consume_payload(&asked).is_err());
     }
 
     #[test]

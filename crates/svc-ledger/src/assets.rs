@@ -15,7 +15,7 @@
 
 use postgres::IsolationLevel;
 use postgres::types::ToSql;
-use service_kit::approvals::ConsumeInput;
+use service_kit::approvals::{ConsumeInput, Replay};
 use service_kit::json::{self, Json};
 use service_kit::schema::{self, Issue, Outcome as Parsed, Value, js_trim};
 use sha2::{Digest, Sha256};
@@ -525,7 +525,10 @@ pub fn apply_edit(
         target_service: approval::TARGET_SERVICE,
         target_id: id,
         expected_version: &version,
-        request_id: Some(&asked.operation_id),
+        replay: Some(Replay {
+            request_id: &asked.operation_id,
+            consumer_principal_id: None,
+        }),
     })?;
     approval::assert_founders(&consumed, ACTION_TYPE, id)?;
     let Some(approver_id) = consumed.approver_id.clone() else {

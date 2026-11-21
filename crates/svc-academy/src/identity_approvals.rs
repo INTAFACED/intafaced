@@ -46,7 +46,7 @@ impl Approvals for IdentityApprovals {
                 target_service: input.target_service,
                 target_id: &input.target_id,
                 expected_version: input.expected_version,
-                request_id: None,
+                replay: None,
             })
             .map_err(|e| match e {
                 ConsumeError::Refused(message) => Refusal::Approval {

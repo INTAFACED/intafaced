@@ -13,10 +13,12 @@
 //! `/health` and `/ready` (the `store` slice, `crate::status`), the freeze doors (the `freeze` slice, `freeze.rs`), the
 //! asset registry's doors (the `assets` slice, `assets.rs`), the history doors (the `history` slice, `history.rs`),
 //! `/operator/reconcile` (the `reconcile` slice, `reconcile.rs`), the account and transaction reads (the `balances`
-//! slice, `crate::balances`) and the five report doors (the `reports` slice, `crate::reports`).
+//! slice, `crate::balances`), the five report doors (the `reports` slice, `crate::reports`) and the ledger desk's reads
+//! and account metadata writes (the `desk` slice, `desk.rs` over `crate::desk`).
 
 mod assets;
 mod callers;
+mod desk;
 mod freeze;
 mod history;
 mod reconcile;
@@ -675,6 +677,11 @@ impl LedgerDoor {
 
     /// Decides one request, or names the slice that owes its answer.
     pub fn decide(&self, req: &Request<'_>) -> Outcome {
+        self.decide_as(req, &self.ids.next())
+    }
+
+    /// [`LedgerDoor::decide`] for the request with this id (Fastify's `req.id`, which an access row names).
+    pub fn decide_as(&self, req: &Request<'_>, request_id: &str) -> Outcome {
         let path = req.url.split_once('?').map_or(req.url, |(p, _)| p);
         let Some((route, params)) = find(req.method, path) else {
             let body = Json::Object(vec![
@@ -697,7 +704,9 @@ impl LedgerDoor {
         match route.guard {
             Guard::Open => self.open(route),
             Guard::Service(door) => self.service(req, route, door, &body, raw.as_deref()),
-            Guard::Operator(authority) => self.operator(req, route, authority, &body, &params),
+            Guard::Operator(authority) => {
+                self.operator(req, route, authority, &body, &params, request_id)
+            }
         }
     }
 
@@ -802,6 +811,7 @@ impl LedgerDoor {
         authority: Authority,
         body: &Body,
         params: &[(&str, String)],
+        request_id: &str,
     ) -> Outcome {
         let header = service_kit::trpc::header(req, "authorization");
         let Some(token) = tokens::bearer_token(header.as_deref()) else {
@@ -825,6 +835,9 @@ impl LedgerDoor {
             // The registry's handlers parse the body themselves, as sent.
             Slice::Assets => {
                 Outcome::Answer(self.assets_operator(route.path, &principal, &body_value(body)))
+            }
+            Slice::Desk => {
+                Outcome::Answer(self.desk_door(route, &principal, &input, body, params, request_id))
             }
             Slice::Reconcile => Outcome::Answer(self.reconcile_door(&principal, &input)),
             slice => Outcome::Owed(slice),
@@ -872,7 +885,7 @@ impl LedgerDoor {
                     LookupFrom::Nothing => Vec::new(),
                 };
                 match parse(name, Value::from_json(&Json::Object(fields))) {
-                    Ok(Parsed::Ok(_)) => Outcome::Owed(route.slice),
+                    Ok(Parsed::Ok(input)) => past(input),
                     _ => answer(errors::lookup_invalid(invalid)),
                 }
             }
@@ -959,8 +972,8 @@ impl Door for LedgerDoor {
     }
 
     /// The door's answer; a call its slice has not ported yet is [`not_ported`].
-    fn handle_as(&self, req: &Request<'_>, _request_id: &str) -> Response {
-        match self.decide(req) {
+    fn handle_as(&self, req: &Request<'_>, request_id: &str) -> Response {
+        match self.decide_as(req, request_id) {
             Outcome::Answer(r) => r,
             Outcome::Owed(slice) => not_ported(slice),
         }
@@ -968,6 +981,6 @@ impl Door for LedgerDoor {
 
     /// `/health` and `/ready` read the freeze from the book, so the door answers them, not the kit's fixed bodies.
     fn status(&self, req: &Request<'_>) -> Option<Response> {
-        Some(self.handle_as(req, ""))
+        Some(self.handle_as(req, &self.ids.next()))
     }
 }
