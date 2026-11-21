@@ -6,7 +6,6 @@ import {
   scopedProcedure,
   supportKbArticleSchema,
   supportKbLibraryNameProblem,
-  supportKbLibrarySchema,
   supportKbPublishTextInputSchema,
   supportKbSaveCategoryInputSchema,
   supportKbSaveSectionInputSchema,
@@ -17,6 +16,9 @@ import {
   type SupportKbArticle,
   type SupportKbLibrary,
 } from '@intafaced/contracts';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { SUPPORT_KB_LIBRARY } from '@intafaced/contracts/support-desk-settings-procedures';
+import { supportRefusal } from './record-refusal.js';
 import { KbCategoryUnknownError, type KbCategoryRow, type KbLibraryBook, type KbSectionRow } from './kb-library.js';
 import { namesVendor } from './kb-catalog.js';
 import { assertListKbLimit, kbViewerOf, requireSupportOps, type SupportService } from './support-service.js';
@@ -51,34 +53,38 @@ export function kbLibraryProcedures(
   mapError: (err: unknown) => never,
 ) {
   return {
-    kbLibrary: publicProcedure.output(supportKbLibrarySchema).query(async ({ ctx }): Promise<SupportKbLibrary> => {
-      await helpCentreOpen(ctx.principal);
-      const [categories, sections, articles] = await Promise.all([
-        book.categories(),
-        book.sections(),
-        support.listKbVisible(kbViewerOf(ctx.principal)),
-      ]);
-      const counts = new Map<string, number>();
-      for (const article of articles) if (article.sectionId) counts.set(article.sectionId, (counts.get(article.sectionId) ?? 0) + 1);
-      return {
-        categories: categories
-          .filter((category) => !category.retired)
-          .map((category) => ({
-            id: category.id,
-            name: category.name,
-            position: category.position,
-            sections: sections
-              .filter((section) => section.categoryId === category.id && !section.retired)
-              .map((section) => ({
-                id: section.id,
-                categoryId: section.categoryId,
-                name: section.name,
-                position: section.position,
-                articleCount: counts.get(section.id) ?? 0,
-              })),
-          })),
-      };
-    }),
+    kbLibrary: mountRecord(
+      SUPPORT_KB_LIBRARY,
+      async ({ ctx }): Promise<SupportKbLibrary> => {
+        await helpCentreOpen(ctx.principal);
+        const [categories, sections, articles] = await Promise.all([
+          book.categories(),
+          book.sections(),
+          support.listKbVisible(kbViewerOf(ctx.principal)),
+        ]);
+        const counts = new Map<string, number>();
+        for (const article of articles) if (article.sectionId) counts.set(article.sectionId, (counts.get(article.sectionId) ?? 0) + 1);
+        return {
+          categories: categories
+            .filter((category) => !category.retired)
+            .map((category) => ({
+              id: category.id,
+              name: category.name,
+              position: category.position,
+              sections: sections
+                .filter((section) => section.categoryId === category.id && !section.retired)
+                .map((section) => ({
+                  id: section.id,
+                  categoryId: section.categoryId,
+                  name: section.name,
+                  position: section.position,
+                  articleCount: counts.get(section.id) ?? 0,
+                })),
+            })),
+        };
+      },
+      supportRefusal,
+    ),
 
     kbSection: publicProcedure
       .input(supportKbSectionReadInputSchema)

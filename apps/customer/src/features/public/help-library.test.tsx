@@ -20,6 +20,15 @@ vi.mock('../session', () => {
       return world.answer(procedure, input);
     },
     mutate: async () => ({ ok: false }),
+    // A call by its record reaches this double's query or mutate under the record's module and path.
+    call(record: { kind: string; module: string; path: string }, input?: unknown): Promise<unknown> {
+      const send = (record.kind === 'query' ? api.query : api.mutate) as (
+        module: string,
+        path: string,
+        input?: unknown,
+      ) => Promise<unknown>;
+      return send(record.module, record.path, input);
+    },
   };
   return { useApi: () => api, useSession: () => ({ api, userId: null, session: null }) };
 });

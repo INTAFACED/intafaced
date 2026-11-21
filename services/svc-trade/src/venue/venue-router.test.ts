@@ -60,7 +60,7 @@ function gate(): VenueRoutingGate {
   };
 }
 
-function router() {
+function router(published: { builder?: typeof BUILDER | null; builderAddress?: string | null } = {}) {
   const store = new InMemoryPreparedActionStore();
   const listings = gate();
   const doors = servers.map(
@@ -70,7 +70,8 @@ function router() {
         appEnv: 'test',
         store,
         stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
-        builder: BUILDER,
+        builder: published.builder === undefined ? BUILDER : published.builder,
+        ...(published.builderAddress !== undefined ? { builderAddress: published.builderAddress } : {}),
         // A labelled TEST bound, the widest; the bound is proven in user-venue-protection.test.ts.
         slippageCapBps: TEST_SLIPPAGE_CAP_BPS,
         // A labelled TEST spread limit, wide of the TEST books here.
@@ -229,6 +230,49 @@ describe('UserVenueRouter', () => {
     }
     const back = await r.marketVenues(owner, 'BTC-USDC');
     expect(back.venues.map((v) => v.health.state)).toEqual(['up', 'up']);
+  });
+
+  it("J-derivatives-30 #2 #3: a revoke is the owner wallet's signed approval of zero, never an agent's, and it holds while the fee is blank", async () => {
+    const { router: r } = router();
+    const d = await r.door(A);
+    const signer = { role: 'owner' as const, address: owner };
+    const account = { venueId: A, owner, subAccount: null };
+    const approve = { kind: 'approve_builder_fee' as const, builder: BUILDER.address, maxFeeBps: BUILDER.feeBps };
+    const ap = await d.prepare(USER, { owner, signer, intent: approve, actionKey: `builder-approval:${owner}:${A}:j30` });
+    await r.submit(USER, ap.actionKey, await sign(ap.prepared));
+    expect((await sim(A).builderFeeApproval(account, BUILDER.address)).value).toBe(BUILDER.feeBps);
+
+    const revoke = { ...approve, maxFeeBps: 0n };
+    // An agent key signs no revoke: refused before anything is prepared, and the approval stands.
+    const agent = { role: 'agent' as const, address: '0x00000000000000000000000000000000000a6e70' };
+    await expect(
+      d.prepare(USER, { owner, signer: agent, intent: revoke, actionKey: `builder-revoke:${owner}:${A}:j30-agent` }),
+    ).rejects.toMatchObject({
+      refusal: { code: 'agent_not_permitted' },
+    });
+    expect((await sim(A).builderFeeApproval(account, BUILDER.address)).value).toBe(BUILDER.feeBps);
+
+    // The fee blank, the address still published: the status names the address, and the revoke prepares and lands.
+    const blank = router({ builder: null, builderAddress: BUILDER.address });
+    const bd = await blank.router.door(A);
+    const status = await bd.status();
+    expect(status).toMatchObject({ builder: null, builderAddress: BUILDER.address });
+    // An approval needs the fee published; a revoke needs only the address.
+    await expect(
+      bd.prepare(USER, { owner, signer, intent: approve, actionKey: `builder-approval:${owner}:${A}:j30-blank` }),
+    ).rejects.toMatchObject({
+      refusal: { code: 'builder_fee_not_published' },
+    });
+    const rv = await bd.prepare(USER, { owner, signer, intent: revoke, actionKey: `builder-revoke:${owner}:${A}:j30` });
+    expect(rv.prepared.signer).toEqual(signer);
+    expect((await blank.router.submit(USER, rv.actionKey, await sign(rv.prepared))).outcome).toMatchObject({
+      definite: true,
+      accepted: true,
+    });
+    expect((await sim(A).builderFeeApproval(account, BUILDER.address)).value).toBe(0n);
+    // Sent once: the same key again is the stored answer, never a second signed action.
+    const again = await bd.prepare(USER, { owner, signer, intent: revoke, actionKey: `builder-revoke:${owner}:${A}:j30` });
+    expect(again).toMatchObject({ actionKey: rv.actionKey, reused: true, signed: true, lastOutcome: { definite: true, accepted: true } });
   });
 
   it('#8 and #6: the approval names B and our published fee, the order then fills there; the report shows it by venue', async () => {

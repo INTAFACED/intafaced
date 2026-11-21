@@ -45,6 +45,8 @@ export const venueStatusSchema = z.union([
       .nullable()
       .optional(),
     builder: z.object({ address, feeBps: decimalSchema }).nullable(),
+    // J-derivatives-30 #1: our builder address alone, published even while the fee is blank (null: blank too).
+    builderAddress: address.nullable().optional(),
     // J-derivatives-03 #9: the most orders the venue takes in one signed action; above 1, a reverse is signed once.
     ordersPerAction: z.number().int().positive().optional(),
     // J-cex-spot-05: whether the venue lowers an order in place, and how many it cancels in one signed action (0: one each).

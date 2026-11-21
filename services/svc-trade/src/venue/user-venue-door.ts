@@ -7,7 +7,7 @@ import {
 } from './venue-eligibility.js';
 import { createHash } from 'node:crypto';
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
-import { div, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
+import { compare, div, formatAmount, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import { AuthError, isApiKeyPrincipal, requireTradeTier, TIER_ORDER, tradeTier, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import {
@@ -397,6 +397,17 @@ export function parseBuilderFee(address: string | undefined, feeBps: string | un
   return { address: a, feeBps: fee };
 }
 
+/**
+ * Our builder address alone (TRADE_USER_VENUE_BUILDER_ADDRESS), published even while the fee is blank, so a person can
+ * still read and revoke the approval they gave it (J-derivatives-30 #1). Blank is null.
+ */
+export function parseBuilderAddress(address: string | undefined): string | null {
+  const a = (address ?? '').trim().toLowerCase();
+  if (a === '') return null;
+  if (!ADDRESS_RE.test(a)) throw new Error(`TRADE_USER_VENUE_BUILDER_ADDRESS must be a 0x address, got ${JSON.stringify(address)}`);
+  return a;
+}
+
 /** A venue the door reaches, with the chain its actions name and its deposit route when it has one. */
 export type ConnectedUserVenue = UserVenue & { readonly chainId?: number; readonly depositRoute?: UserVenueDepositRoute | null };
 
@@ -408,6 +419,11 @@ export interface UserVenueDoorDeps {
   readonly store: PreparedActionStore;
   readonly stepUp: StepUpCheck;
   readonly builder: BuilderFeeValue | null;
+  /**
+   * Our builder address, published on its own even while the fee is blank (`parseBuilderAddress`): where a person's
+   * approval is read and revoked (J-derivatives-30). Absent: the address of `builder`, if any.
+   */
+  readonly builderAddress?: string | null;
   /**
    * The owner's market price protection in basis points (TRADE_MARKET_SLIPPAGE_CAP_BPS), or null when blank. Every spot
    * market order is checked against it here, on preview and on prepare: blank refuses `trade.slippage_cap_unset`, and a
@@ -746,6 +762,8 @@ export class UserVenueDoor {
       // Where the customer's own wallet sends a token to fund this venue account: the customer's transfer, never ours.
       deposit: venue.depositRoute ?? null,
       builder: this.deps.builder ? { address: this.deps.builder.address, feeBps: formatAmount(this.deps.builder.feeBps) } : null,
+      // J-derivatives-30 #1: our builder address alone, so an approval stays readable and revocable while the fee is blank.
+      builderAddress: this.publishedBuilderAddress(),
     };
   }
 
@@ -939,6 +957,11 @@ export class UserVenueDoor {
   /** Our builder address on the venue: the owner value, or null when it is blank. */
   private builderAddress(): string | null {
     return this.deps.builder?.address ?? null;
+  }
+
+  /** Our builder address as published on its own (J-derivatives-30): set even while the fee is blank. */
+  publishedBuilderAddress(): string | null {
+    return this.deps.builderAddress ?? this.deps.builder?.address ?? null;
   }
 
   /**
@@ -1564,7 +1587,8 @@ export class UserVenueDoor {
     finalIntent = await eachOrder(finalIntent, (order) => this.withBuilderFee(venue, order));
     await this.assertEligible(principal, venue, finalIntent);
     if (intent.kind === 'approve_builder_fee') {
-      const builder = this.builderAddress();
+      // An approval needs our fee published; a revoke (zero) needs only our address, so a person can always withdraw it.
+      const builder = compare(intent.maxFeeBps, ZERO) === 0 ? this.publishedBuilderAddress() : this.builderAddress();
       if (!builder) {
         throw new VenueRefusalError({
           venueId: venue.venue.id,

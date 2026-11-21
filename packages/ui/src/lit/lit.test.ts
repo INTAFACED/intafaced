@@ -7,6 +7,7 @@ import { accents, directions, roleNames, roleVar, templateSlots, templates, type
 import { formattedLitCss } from './format.js';
 import { looks } from '../theme/tokens.js';
 import { accentSets, accentTextLight, directionSets, flat, flatTypeMap, lit, litLight } from './tokens.js';
+import { contrastRatio, deltaE2000, hue, toHex } from './colour.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const require = createRequire(import.meta.url);
@@ -279,6 +280,70 @@ describe('lit directions keep the same contrast floors in both schemes', () => {
     const ember = directionSets.ember.dark.accent!;
     expect(Math.abs(hue(ember) - hue('#F7931A')), 'Bitcoin orange').toBeGreaterThanOrEqual(15);
     expect(Math.abs(hue(ember) - hue(lit['warn-text'])), 'warning amber').toBeGreaterThanOrEqual(15);
+  });
+});
+
+describe('Volt: the chartreuse spark (intafaced issue 9302)', () => {
+  const dark = { ...lit, ...directionSets.volt.both, ...directionSets.volt.dark };
+  const light = { ...lit, ...litLight, ...directionSets.volt.both, ...directionSets.volt.light };
+  const stops = (gradient: string) => [...gradient.matchAll(/#[0-9A-F]{6}/gi)].map((m) => m[0]);
+
+  it('the colour measures agree with known values', () => {
+    expect(contrastRatio('#000000', '#FFFFFF')).toBeCloseTo(21, 5);
+    expect(contrastRatio('rgb(10, 10, 9)', '#0A0A09')).toBeCloseTo(1, 5);
+    expect(toHex('rgba(255, 255, 255, 0.5)', '#000000')).toBe('#808080');
+    expect(toHex('rgb(255 255 255 / 50%)')).toBe('#808080');
+    expect(toHex('rgb(224, 248, 58)')).toBe('#E0F83A');
+    expect(deltaE2000('#E0F83A', '#E0F83A')).toBe(0);
+    expect(deltaE2000('#FAF33E', '#FFC452')).toBeCloseTo(17.5, 1);
+  });
+
+  it('is chartreuse, not lemon: its hue sits on the green side of yellow, as in the references', () => {
+    expect(hue(dark.accent)).toBeGreaterThanOrEqual(64);
+    expect(hue(dark.accent)).toBeLessThanOrEqual(80);
+    expect(hue('#FAF33E')).toBeLessThan(64);
+  });
+
+  it('reads as another colour than the warning and the gain, in both schemes (CIEDE2000 at least 20)', () => {
+    for (const m of [dark, light]) {
+      expect(deltaE2000(m.accent, m['warn-text']), 'warning').toBeGreaterThanOrEqual(20);
+      expect(deltaE2000(m['accent-text'], m['warn-text']), 'warning as text').toBeGreaterThanOrEqual(20);
+      expect(deltaE2000(m.accent, m.up), 'gain').toBeGreaterThanOrEqual(20);
+    }
+  });
+
+  it('passes AA as text on the page and every solid surface, dark and light', () => {
+    for (const m of [dark, light])
+      for (const s of ['page', 'solid-bg', 'solid-bg-raised', 'solid-bg-sunken'] as const)
+        expect(contrastRatio(m['accent-text'], m[s]), s).toBeGreaterThanOrEqual(4.5);
+    expect(dark['accent-text']).toBe(dark.accent);
+  });
+
+  it('carries its text as a fill at every stop of its gradients, and on the light primary', () => {
+    for (const m of [dark, light]) {
+      for (const stop of [m['accent-fill'], m['accent-fill-2'], ...stops(m['object-spark-bg'])])
+        expect(contrastRatio(m['on-accent'], stop), stop).toBeGreaterThanOrEqual(4.5);
+    }
+    for (const stop of stops(dark['primary-bg'])) expect(contrastRatio(dark['primary-fg'], stop), stop).toBeGreaterThanOrEqual(4.5);
+    for (const stop of stops(light['primary-bg'])) expect(contrastRatio(light['primary-fg'], stop), stop).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('a warning or a refusal stays readable on its badge (its own colour at 15%, as Badge draws it) over every light surface', () => {
+    const tint = (fg: string, bg: string) =>
+      '#' +
+      [1, 3, 5]
+        .map((i) => Math.round(parseInt(fg.slice(i, i + 2), 16) * 0.15 + parseInt(bg.slice(i, i + 2), 16) * 0.85))
+        .map((c) => c.toString(16).padStart(2, '0'))
+        .join('');
+    for (const t of ['warn-text', 'error-text'] as const)
+      for (const s of ['page', 'solid-bg', 'solid-bg-raised', 'solid-bg-sunken'] as const)
+        expect(contrastRatio(light[t], tint(light[t], light[s])), `${t} on its tint over ${s}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('as a ring it stands 3:1 off the page in both schemes; the focus ring itself stays white or ink, never the spark', () => {
+    expect(contrastRatio(dark.accent, dark.page)).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(light['accent-text'], light.page)).toBeGreaterThanOrEqual(3);
+    for (const m of [dark, light]) expect([m.accent, m['accent-text'], m['accent-fill']]).not.toContain(m.focus);
   });
 });
 

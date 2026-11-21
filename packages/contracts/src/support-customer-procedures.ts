@@ -16,7 +16,7 @@ import {
   supportAttachmentIdInputSchema,
   supportAttachmentLimitsSchema,
   supportAttachmentSchema,
-  supportAttachmentTypesUnique,
+  supportAttachmentTypesDistinct,
 } from './support-attachments.js';
 import { supportCategoriesSchema } from './support-categories.js';
 import { supportRequestFormsSchema } from './support-forms.js';
@@ -441,7 +441,7 @@ export const SUPPORT_ATTACHMENT_LIMITS = defineProcedure({
   refusals: refuse(),
   input: NO_INPUT,
   output: supportAttachmentLimitsSchema,
-  accept: { typesUnique: { says: 'no media type is listed twice in allowedTypes', holds: supportAttachmentTypesUnique } },
+  accept: { typesUnique: { says: 'no media type is listed twice in allowedTypes', holds: supportAttachmentTypesDistinct } },
   samples: [{ verdict: 'accept' }],
 });
 

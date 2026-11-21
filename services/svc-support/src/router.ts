@@ -111,6 +111,7 @@ import {
   SUPPORT_SEARCH_KB,
   SUPPORT_TICKET_ATTACHMENTS,
 } from '@intafaced/contracts/support-customer-procedures';
+import { SUPPORT_DESK_ATTACH_OPS, SUPPORT_DESK_ATTACHMENT_DOWNLOAD_OPS } from '@intafaced/contracts/support-desk-settings-procedures';
 import { SLA_POLICY_STALE, SLA_TARGETS_UNSET } from './response-targets.js';
 
 const queueEntrySchema = z.object({
@@ -891,24 +892,14 @@ export function createSupportRouter(
      * Operator attach, for the operator the ticket is assigned to. The file is the ticket owner's and names the operator
      * in `uploadedBy`. Limits, scanner and store are the owner attach's; another operator's ticket answers like none.
      */
-    attachOps: scopedProcedure('support:ops')
-      .input(
-        z.object({
-          ticketId: z.string().guid(),
-          clientRequestId: z.string().min(1).max(200),
-          contentType: z.string().min(1).max(200),
-          bodyBase64: z.string(),
-        }),
-      )
-      .output(supportAttachmentSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return attachmentWire(await support.attachAsOperator({ operatorId: ctx.principal!.userId, ...input }));
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    attachOps: mountRecord(
+      SUPPORT_DESK_ATTACH_OPS,
+      async ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return attachmentWire(await support.attachAsOperator({ operatorId: ctx.principal.userId, ...input }));
+      },
+      supportRefusal,
+    ),
 
     /** Owner read of one attachment's metadata. */
     attachment: scopedProcedure('support:read')
@@ -972,21 +963,14 @@ export function createSupportRouter(
     ),
 
     /** Operator download. support:ops, and only a file on a ticket assigned to them; the same rules as the owner's. */
-    attachmentDownloadOps: scopedProcedure('support:ops')
-      .input(supportAttachmentIdInputSchema)
-      .output(supportAttachmentDownloadSchema)
-      .query(async ({ ctx, input }) => {
-        try {
-          requireSupportOps(ctx.principal!);
-          return await support.attachmentDownload({
-            userId: ctx.principal!.userId,
-            attachmentId: input.attachmentId,
-            asOperator: true,
-          });
-        } catch (err) {
-          mapError(err);
-        }
-      }),
+    attachmentDownloadOps: mountRecord(
+      SUPPORT_DESK_ATTACHMENT_DOWNLOAD_OPS,
+      ({ ctx, input }) => {
+        requireSupportOps(ctx.principal);
+        return support.attachmentDownload({ userId: ctx.principal.userId, attachmentId: input.attachmentId, asOperator: true });
+      },
+      supportRefusal,
+    ),
 
     /** One vote per account per published article version. A repeat updates nothing. */
     kbFeedback: mountRecord(

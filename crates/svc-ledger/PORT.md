@@ -17,9 +17,17 @@ The `store` slice is ported. It added:
 - `src/boot.rs` and `src/main.rs`: the chain-tip check, the custody boot check, the startup freeze, and the outbox recovery at boot and every five seconds.
 - `tests/store_pg.rs`: `scripts/migrate.test.ts` case for case, and the boot and status doors, on a real Postgres.
 
+The `freeze` slice is ported. It added:
+
+- `src/freeze.rs`: the switch (`writeFreeze`), its attribution and four-eyes thaw rules, the `ledgerFreezeUpdated` intent written beside it, and the relay that publishes each intent once it committed. The startup freeze publishes through it, as `LedgerService.freeze` does.
+- `src/approval.rs`: the identity approval each operator write spends, bound to its action, target and version; a thaw also needs identity's founder pair. The client is the kit's `service_kit::approvals`, shared with svc-academy.
+- `src/clock.rs`: the clock integrity read against `LEDGER_CLOCK_SKEW_BOUND_MS`.
+- `src/door/freeze.rs`: `GET` and `POST /operator/freeze`, `POST /operator/unfreeze` and `GET /operator/integrity/clock`. `freezeSchema` is recorded as zod runs it: its trim, then its pipe (`service_kit::schema` runs pipes).
+- `tests/freeze_pg.rs`: the freeze cases of `service.freeze.test.ts`, the clock-skew Postgres case and the freeze doors of `operator-http.test.ts`, on a real Postgres.
+
 Left to later slices:
 
-- The recovery's relays are empty. `posting` adds the `ledgerTxPosted` relay and `freeze` the `ledgerFreezeUpdated` one. Until then a committed intent, the startup freeze's included, waits unsent.
+- The recovery has one relay. `posting` adds the `ledgerTxPosted` one; until then a committed post's intent waits unsent.
 - The reconcile timer is `reconcile`'s.
 - `/metrics` is in no slice yet. The switch needs it, since Prometheus scrapes it.
 
