@@ -972,6 +972,8 @@ fn door_parts(db: &TestDb) -> DoorConfig {
         log: Logger::new("info", Box::new(std::io::sink())),
         custody: svc_ledger::reconcile::CustodyLayer::On,
         reconcile_statement_timeout_ms: svc_ledger::reconcile::DEFAULT_STATEMENT_TIMEOUT_MS,
+        indexer_url: None,
+        fetch: Arc::new(service_kit::http::UreqFetch::new()),
     }
 }
 

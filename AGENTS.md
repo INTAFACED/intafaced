@@ -23,7 +23,7 @@ Within the floor, these win over any agent's or reviewer's preference.
 - **One automatic review per PR, the CI review, and proof in CI:** no `/code-review` of the author's own, no council, no review round before opening; journeys prove in CI on the PR's head, never a local run. The CI review's own rules change through a normal PR.
 - **The front end is React** (`apps/customer` with Vite, `apps/admin` with Next.js).
 - **Nothing is hidden.** Parked means visible with its real blocker named. No "coming soon": every room gets its full layout and every control, with an honest empty or refusal state. `/chain`, `/dex` and `/protocol` stay visible with honest labels. Never call Base INTACHAIN mainnet, and never set `audited: true` (the audit is external).
-- **The look is chosen by the owner at three moments:** the direction, from 2–3 rendered options of real screens built from the owner's references (project-state `design/new-look`), each shown in light and dark; the kit, once; the beta, walked on a live link. Between those the kit and its checks decide, and nothing asks the owner. Customer rooms take their look only from `packages/ui` role tokens (`.claude/rules/design.md`; `tooling/ci/look-drift.mjs`).
+- **The owner has chosen the look's direction and kit** (project-state `design/new-look`; the beta is dark only) **and walks the beta once, on a live link.** Between those the kit and its checks decide, and nothing asks the owner. Customer rooms take their look only from `packages/ui` role tokens (`.claude/rules/design.md`; `tooling/ci/look-drift.mjs`).
 
 ## How work flows
 
