@@ -85,6 +85,12 @@ The `posting` slice is ported, not served yet (the switch is its own item). It a
 - `tests/posting_pg.rs`: the intent and its relay, a failed publish and its retry, the freeze and the custody switch, on a real Postgres.
 - `tests/conformance/`: the TypeScript's own database tests against the binary (`run.mjs`). The ledger conformance suite through the TypeScript door and the Rust one; the four binding files (`*-binding.pg.test.ts`) unmodified on the Rust door; the engine's Postgres tests (`ledger/`) with every post sent through each door. It needs Postgres, NATS and `cargo build -p svc-ledger`; CI does not run it yet.
 
+The `post-recipe` slice is ported, not served yet (the switch is its own item). It added:
+
+- `src/posting/recipe_door.rs`: `postRecipe`, in `handleS2sPostRecipe`'s order: the recipe named, a proven caller's grant for it, the record's input (`postRecipe` in `schemas.json`), the recipe, the grant's module, `post`'s own input, then the booking through `posting::post` and the reply checked against the record's output (`postRecipeReply`). The door's two recipes (`academyPurchase`, `academyPurchaseRefund`) build their legs as `academy-purchase.ts` does.
+- `tests/fixtures/post-recipe.golden.jsonl`, recorded by `record-door.mjs`: what the TypeScript door answers five callers for 239 bodies, its refusal or the post it hands its ledger. `tests/post_recipe_parity.rs` holds the Rust door to every answer, and to the TypeScript door's list of recipes.
+- `tests/conformance/`: `post-recipe-door.pg.test.ts`, unmodified, on the Rust binary (project `post-recipe-pg`, `rust-s2s-register.ts`), custody off as the test sets it.
+
 Left to later slices:
 
 - The tick's due-controls run (`runDueReconciliationControls`) is `controls`'s.
