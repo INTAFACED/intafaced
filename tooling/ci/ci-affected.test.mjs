@@ -117,6 +117,11 @@ test('classify: a change that reaches Rust runs the Rust job, and Rust files alo
     { files: ['services/svc-tax/src/wire-replay.golden.json'], expected: { full: false, affected: true, rust: true } },
     { files: ['services/svc-taxes/src/a.ts'], expected: { full: false, affected: true, rust: false } },
     { files: ['services/svc-bank/src/a.ts'], expected: { full: false, affected: true, rust: false } },
+    // A crate's tests read its own service's records, and only those (project-state#3522).
+    { files: ['packages/contracts/procedures/svc-tax.schema.json'], expected: { full: false, affected: true, rust: true } },
+    { files: ['packages/contracts/procedures/svc-academy.schema.json'], expected: { full: false, affected: true, rust: true } },
+    { files: ['packages/contracts/procedures/svc-market.schema.json'], expected: { full: false, affected: true, rust: false } },
+    { files: ['packages/contracts/procedures/svc-taxes.schema.json'], expected: { full: false, affected: true, rust: false } },
     { files: ['tooling/ci/gates.mjs'], expected: { full: true, affected: false, rust: false } },
     { files: ['docs/x.md'], expected: { full: false, affected: false, rust: false } },
     { files: ['vendor/x/y.ts'], expected: { full: true, affected: false, rust: false } },

@@ -23,7 +23,7 @@
     "test": "tsc -p tsconfig.json && vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo",
-    "procedures:write": "node scripts/procedure-registry.mjs . CONTRACT_PROCEDURES ./procedure.js && tsc -p tsconfig.json && node scripts/write-procedures.mjs && prettier --write procedures.schema.json"
+    "procedures:write": "node scripts/procedure-registry.mjs . CONTRACT_PROCEDURES ./procedure.js && tsc -p tsconfig.json && node scripts/write-procedures.mjs ./dist/procedure-registry.js CONTRACT_PROCEDURES && prettier --write procedures"
   },
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "8.5.0",
