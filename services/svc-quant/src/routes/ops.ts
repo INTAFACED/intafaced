@@ -11,23 +11,7 @@ import {
   quantDisclosureCountsOutputSchema,
   quantDisclosurePublishInputSchema,
   quantDisclosurePublishOutputSchema,
-  quantDisputeOpenInputSchema,
-  quantDisputeResolveInputSchema,
-  quantEscapeCorpusInputSchema,
-  quantEscapeCorpusSchema,
   quantLakeCaptureInputSchema,
-  quantModerationEntrySchema,
-  quantModerationInputSchema,
-  quantModerationQueueInputSchema,
-  quantModerationQueueSchema,
-  quantPromotionAuditSchema,
-  quantQuotaAssignInputSchema,
-  quantQuotaAssignOutputSchema,
-  quantQuotaProfileSchema,
-  quantQuotaSetInputSchema,
-  quantQuotaSetOutputSchema,
-  quantSandboxLimitSetInputSchema,
-  quantSandboxLimitSetOutputSchema,
   quantSupportSourceSchema,
   quantTemplateListingInputSchema,
   quantTemplateListingSchema,
@@ -46,7 +30,22 @@ import { requireRunLimits } from '../sandbox/limits.js';
 import { runSandbox } from '../sandbox/run.js';
 import { withQuantSpan } from '../tracing.js';
 import { z } from 'zod';
-import { toTrpc, missingStrategy, type QuantCore } from './core.js';
+import { toTrpc, missingStrategy, type QuantCore, quantRefusal } from './core.js';
+import {
+  QUANT_OPS_LIBRARY_QUEUE,
+  QUANT_OPS_LIBRARY_HIDE,
+  QUANT_OPS_LIBRARY_UNHIDE,
+  QUANT_OPS_LIBRARY_REMOVE,
+  QUANT_OPS_LIBRARY_DISPUTE_OPEN,
+  QUANT_OPS_LIBRARY_DISPUTE_RESOLVE,
+  QUANT_OPS_QUOTA_PROFILE,
+  QUANT_OPS_QUOTA_SET,
+  QUANT_OPS_QUOTA_SANDBOX,
+  QUANT_OPS_QUOTA_ASSIGN,
+  QUANT_OPS_SANDBOX_CORPUS,
+  QUANT_OPS_LIFECYCLE_AUDIT,
+} from '@intafaced/contracts/quant-ops-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
 
 export function opsRoutes(core: QuantCore) {
   const { deps, strategies, runs, now, judgement, disclosure, templates, quota, lifecycle, runDeps, quotaReason, team, library } = core;
@@ -208,67 +207,73 @@ export function opsRoutes(core: QuantCore) {
      * reason. Operators never see a listing's source. No money moves.
      */
     library: router({
-      queue: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
-        .input(quantModerationQueueInputSchema)
-        .output(quantModerationQueueSchema)
-        .query(async ({ input }) => {
+      queue: mountRecord(
+        QUANT_OPS_LIBRARY_QUEUE,
+        async ({ input }) => {
           try {
             return await library.queue({ cursor: input?.cursor ?? null });
           } catch (err) {
             toTrpc(err);
           }
-        }),
-      hide: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
-        .input(quantModerationInputSchema)
-        .output(quantModerationEntrySchema)
-        .mutation(async ({ input, ctx }) => {
+        },
+        quantRefusal,
+      ),
+      hide: mountRecord(
+        QUANT_OPS_LIBRARY_HIDE,
+        async ({ input, ctx }) => {
           try {
             return await library.moderate(ctx.principal.userId, input, 'hide');
           } catch (err) {
             toTrpc(err);
           }
-        }),
-      unhide: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
-        .input(quantModerationInputSchema)
-        .output(quantModerationEntrySchema)
-        .mutation(async ({ input, ctx }) => {
+        },
+        quantRefusal,
+      ),
+      unhide: mountRecord(
+        QUANT_OPS_LIBRARY_UNHIDE,
+        async ({ input, ctx }) => {
           try {
             return await library.moderate(ctx.principal.userId, input, 'unhide');
           } catch (err) {
             toTrpc(err);
           }
-        }),
-      remove: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
-        .input(quantModerationInputSchema)
-        .output(quantModerationEntrySchema)
-        .mutation(async ({ input, ctx }) => {
+        },
+        quantRefusal,
+      ),
+      remove: mountRecord(
+        QUANT_OPS_LIBRARY_REMOVE,
+        async ({ input, ctx }) => {
           try {
             return await library.moderate(ctx.principal.userId, input, 'remove');
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        quantRefusal,
+      ),
       dispute: router({
-        open: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
-          .input(quantDisputeOpenInputSchema)
-          .output(quantModerationEntrySchema)
-          .mutation(async ({ input, ctx }) => {
+        open: mountRecord(
+          QUANT_OPS_LIBRARY_DISPUTE_OPEN,
+          async ({ input, ctx }) => {
             try {
               return await library.openDispute(ctx.principal.userId, input);
             } catch (err) {
               toTrpc(err);
             }
-          }),
-        resolve: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
-          .input(quantDisputeResolveInputSchema)
-          .output(quantModerationEntrySchema)
-          .mutation(async ({ input, ctx }) => {
+          },
+          quantRefusal,
+        ),
+        resolve: mountRecord(
+          QUANT_OPS_LIBRARY_DISPUTE_RESOLVE,
+          async ({ input, ctx }) => {
             try {
               return await library.resolveDispute(ctx.principal.userId, input);
             } catch (err) {
               toTrpc(err);
             }
-          }),
+          },
+          quantRefusal,
+        ),
       }),
     }),
 
@@ -277,16 +282,18 @@ export function opsRoutes(core: QuantCore) {
        * The promotion audit (AL-lifecycle-01, J-algo-dev-13 #3): every stored gate decision across accounts, newest
        * first, with the one stage row an approval wrote, who pressed and the criteria the gate judged by.
        */
-      audit: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
-        .output(quantPromotionAuditSchema)
-        .query(async () => {
+      audit: mountRecord(
+        QUANT_OPS_LIFECYCLE_AUDIT,
+        async () => {
           try {
             const found = await lifecycle.audit(QUANT_PROMOTION_AUDIT_PAGE);
             return { rows: found.rows.map((row) => ({ ...row })), total: found.total, asOf: new Date().toISOString() };
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        quantRefusal,
+      ),
     }),
 
     criteria: router({
@@ -354,10 +361,9 @@ export function opsRoutes(core: QuantCore) {
 
     quota: router({
       /** Sets one limit of one profile; blank is "not set". A reason is required and kept with the actor. */
-      set: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
-        .input(quantQuotaSetInputSchema)
-        .output(quantQuotaSetOutputSchema)
-        .mutation(async ({ input, ctx }) => {
+      set: mountRecord(
+        QUANT_OPS_QUOTA_SET,
+        async ({ input, ctx }) => {
           try {
             const reason = quotaReason(input.reason);
             const saved = await quota.set({
@@ -372,13 +378,14 @@ export function opsRoutes(core: QuantCore) {
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        quantRefusal,
+      ),
 
       /** Attaches an account to a profile. A reason is required and kept with the actor. */
-      assign: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
-        .input(quantQuotaAssignInputSchema)
-        .output(quantQuotaAssignOutputSchema)
-        .mutation(async ({ input, ctx }) => {
+      assign: mountRecord(
+        QUANT_OPS_QUOTA_ASSIGN,
+        async ({ input, ctx }) => {
           try {
             const reason = quotaReason(input.reason);
             return await quota.assign({
@@ -391,7 +398,9 @@ export function opsRoutes(core: QuantCore) {
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        quantRefusal,
+      ),
 
       /** Publishes or withdraws the compute tier on one profile (RC-algo-dev-05). A reason is required and kept with the actor. */
       tier: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
@@ -420,10 +429,9 @@ export function opsRoutes(core: QuantCore) {
         }),
 
       /** Sets one sandbox limit of one profile (J-algo-dev-12); blank is "not set". A reason is required and kept with the actor. */
-      sandbox: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
-        .input(quantSandboxLimitSetInputSchema)
-        .output(quantSandboxLimitSetOutputSchema)
-        .mutation(async ({ input, ctx }) => {
+      sandbox: mountRecord(
+        QUANT_OPS_QUOTA_SANDBOX,
+        async ({ input, ctx }) => {
           try {
             const reason = quotaReason(input.reason);
             const saved = await quota.setSandboxLimit({
@@ -438,13 +446,14 @@ export function opsRoutes(core: QuantCore) {
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        quantRefusal,
+      ),
 
       /** One profile's limits and sandbox limits as stored. */
-      profile: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
-        .input(z.object({ profile: z.string().trim().min(1).max(80) }))
-        .output(quantQuotaProfileSchema)
-        .query(async ({ input }) => {
+      profile: mountRecord(
+        QUANT_OPS_QUOTA_PROFILE,
+        async ({ input }) => {
           try {
             const [rows, sandboxRows] = await Promise.all([quota.limits(input.profile), quota.sandboxLimits(input.profile)]);
             return {
@@ -461,7 +470,9 @@ export function opsRoutes(core: QuantCore) {
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        quantRefusal,
+      ),
     }),
 
     sandbox: router({
@@ -470,10 +481,9 @@ export function opsRoutes(core: QuantCore) {
        * goes through the same door as a developer's run; each must end in a typed refusal, and the control run after
        * them must still run. Nothing is stored and no order reaches anything: the paper book of each case is its own.
        */
-      corpus: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
-        .input(quantEscapeCorpusInputSchema)
-        .output(quantEscapeCorpusSchema)
-        .mutation(async ({ input }) =>
+      corpus: mountRecord(
+        QUANT_OPS_SANDBOX_CORPUS,
+        async ({ input }) =>
           withQuantSpan('quant.ops.sandbox.corpus', { language: 'none' }, async () => {
             try {
               const run = requireRunLimits({ name: input.profile, source: 'assigned' }, await quota.sandboxLimits(input.profile));
@@ -503,7 +513,8 @@ export function opsRoutes(core: QuantCore) {
               toTrpc(err);
             }
           }),
-        ),
+        quantRefusal,
+      ),
     }),
 
     template: router({

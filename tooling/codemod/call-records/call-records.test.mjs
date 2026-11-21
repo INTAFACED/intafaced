@@ -6,9 +6,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { answerChecks, Changes, pruneImports, pruneSchemas, recordName, rewriteSite } from './index.mjs';
-import { applyEdits, freeNames, load, text } from './ast.mjs';
+import { applyEdits, freeNames, load, resolveRelative, text } from './ast.mjs';
 import { findSites } from './sites.mjs';
-import { CALL_METHOD, doublesIn } from './doubles.mjs';
+import { closureOf } from './closure.mjs';
+import { CALL_METHOD, callMethodFor, doublesIn } from './doubles.mjs';
 import { armsOf, callsOf } from './door.mjs';
 import { canon, doorTree, treeOf } from './door-check.mjs';
 import { samplesFor } from './samples.mjs';
@@ -106,6 +107,39 @@ test("a test's API client double gets a call that sends the record to its own qu
     ['query', 'notify', 'notify.list', { limit: 1 }, 'schema', { signal: 's' }],
     ['mutate', 'notify', 'notify.list', { id: 'x' }, 'schema', undefined],
   ]);
+});
+
+test('a useApi mock with only mutate (or only query) gets a call to it, and the other kind is refused as before', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-'));
+  const file = join(dir, 'b.test.tsx');
+  writeFileSync(
+    file,
+    [
+      "vi.mock('../session/session', () => ({ useApi: () => ({ mutate: async () => 1 }) }));",
+      "vi.mock('./reads', () => ({ useApi: () => ({ query: async () => 2 }) }));",
+      'const hook = { mutate: () => 3 };',
+      '',
+    ].join('\n'),
+  );
+  assert.equal(doublesIn(file).out.length, 2, "an object with mutate that isn't a useApi mock is left");
+  // Such a test reaches its component by `await import('./Room')`, with no extension, a .tsx file.
+  writeFileSync(join(dir, 'Room.tsx'), 'export const Room = 1;\n');
+  assert.equal(resolveRelative(file, './Room'), join(dir, 'Room.tsx'));
+  const strip = (m) =>
+    m
+      .replace(/^call\(\s*this:[^\n]*\n/, 'call(\n')
+      .replace(/: \{ kind[^}]*\}/, '')
+      .replace(/\?: unknown/g, '')
+      .replace(/,$/, '');
+  const sent = [];
+  const writes = new Function('m', `return { mutate: (...a) => (m.push(a), 'm'), ${strip(callMethodFor(['mutate']))} };`)(sent);
+  const record = { kind: 'mutation', module: 'quant', path: 'preview.act', output: 'schema' };
+  assert.equal(writes.call(record, { room: 'editor' }), 'm');
+  assert.deepEqual(sent, [['quant', 'preview.act', { room: 'editor' }, 'schema', undefined]]);
+  assert.throws(() => writes.call({ ...record, kind: 'query' }), /no query/);
+  const reads = new Function(`return { query: () => 'q', ${strip(callMethodFor(['query']))} };`)();
+  assert.equal(reads.call({ ...record, kind: 'query' }), 'q');
+  assert.throws(() => reads.call(record), /no mutate/);
 });
 
 test("a schema the caller's own function builds is an answer check, so its call stays", () => {
@@ -530,7 +564,9 @@ test("portable: a service's wire replay samples a JSON-value schema as main's z.
     assert.ok(once.includes('function acceptsAnyJson(schema: unknown): boolean'));
     assert.equal(withReplayJson(once), once);
   }
-  assert.equal(withReplayJson('const y = 2;\n'), undefined);
+  // A replay that reads the service's schemas through another sampler is refused; one that reads none is left as it is.
+  assert.equal(withReplayJson("const s = readFileSync('svc.schema.json');\n"), undefined);
+  assert.equal(withReplayJson('const y = 2;\n'), 'const y = 2;\n');
 });
 
 test("a door's match arms: a pattern over lines, each arm to the next, a literal that is no call skipped", () => {
@@ -613,4 +649,47 @@ test('a schema const the moved call left unread goes, and the one it read after 
   assert.match(out, /const read = z\.string\(\);/);
   assert.match(out, /^const shared = z\.number\(\);$/m);
   assert.match(out, /const impure = makeSchema\(\);/);
+});
+
+test('a name a service file re-exports is followed to where it is declared, renamed or not, and a renamed declaration is named', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'call-records-reexport-'));
+  const put = (path, lines) => {
+    mkdirSync(dirname(join(repo, path)), { recursive: true });
+    writeFileSync(join(repo, path), `${lines.join('\n')}\n`);
+  };
+  put('packages/contracts/src/wire.ts', ['export const quantAccountField = { accountId: z.string().optional() };']);
+  put('svc/core.ts', [
+    "import { z } from 'zod';",
+    "import { quantAccountField as accountField } from '@intafaced/contracts/wire';",
+    'const keyField = { key: z.string() };',
+    'const local = { n: z.number() };',
+    'export { accountField, keyField };',
+    'export { local as renamed };',
+    "export { keyField as passed } from './more.js';",
+  ]);
+  put('svc/more.ts', ["import { z } from 'zod';", 'export const keyField = { more: z.string() };']);
+  put('svc/router.ts', [
+    "import { z } from 'zod';",
+    "import { accountField, keyField, renamed, passed } from './core.js';",
+    'const a = z.object({ ...accountField });',
+    'const b = z.object({ ...keyField });',
+    'const c = z.object({ ...renamed });',
+    'const d = z.object({ ...passed });',
+  ]);
+  const p = load(join(repo, 'svc/router.ts'));
+  const root = (i) => ({ p, node: p.program.body[2 + i].declarations[0].init, where: 'r' });
+  const a = closureOf(repo, [root(0)]);
+  assert.deepEqual(
+    [...a.fromContracts].map(([n, c]) => [n, c.imported]),
+    [['accountField', 'quantAccountField']],
+  );
+  assert.deepEqual(a.problems, []);
+  const b = closureOf(repo, [root(1)]);
+  assert.deepEqual(
+    b.moved.map((m) => m.name),
+    ['keyField'],
+  );
+  assert.deepEqual(b.problems, []);
+  assert.deepEqual(closureOf(repo, [root(2)]).problems, ['r: local is re-exported as renamed']);
+  assert.deepEqual(closureOf(repo, [root(3)]).problems, ['r: keyField is imported as passed']);
 });

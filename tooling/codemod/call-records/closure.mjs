@@ -113,35 +113,44 @@ export function closureOf(repo, roots) {
         continue;
       }
       if (b.kind === 'import') {
-        const from = b.from;
-        if (from === '@intafaced/contracts' || from.startsWith('@intafaced/contracts/')) {
-          const file = index.get(b.imported);
-          if (!file) problems.push(`${where}: ${b.imported} from ${from} not found in contracts' files`);
-          else if (nodeOnly(file)) inlineOrRefuse(p, name, file, b.imported);
-          else fromContracts.set(name, { file, imported: b.imported, typeOnly: b.typeOnly });
-          continue;
-        }
-        if (CONTRACT_DEPS.has(from)) {
-          addPkg(from, b.imported === name ? name : `${b.imported} as ${name}`);
-          continue;
-        }
-        const file = resolveRelative(p.file, from);
-        if (!file) {
-          problems.push(`${where}: ${name} comes from ${from}, which contracts does not depend on`);
-          continue;
-        }
-        const q = load(file);
-        const target = topLevel(q, b.imported);
-        if (!target) {
-          problems.push(`${where}: ${b.imported} is not a declaration in ${relative(repo, file)}`);
-          continue;
-        }
-        if (b.imported !== name) problems.push(`${where}: ${b.imported} is imported as ${name}`);
-        take(q, b.imported, target);
+        viaImport(p, name, b, where);
         continue;
       }
       take(p, name, b);
     }
+  };
+  // `name`, read in `p` and bound there by the import `b`: followed through each file that re-exports it (`export { x }`,
+  // `export { x as y }`, with or without `from`) to the contracts name, package or declaration it is.
+  const viaImport = (p, name, b, where) => {
+    const from = b.from;
+    if (from === '@intafaced/contracts' || from.startsWith('@intafaced/contracts/')) {
+      const file = index.get(b.imported);
+      if (!file) problems.push(`${where}: ${b.imported} from ${from} not found in contracts' files`);
+      else if (nodeOnly(file)) inlineOrRefuse(p, name, file, b.imported);
+      else fromContracts.set(name, { file, imported: b.imported, typeOnly: b.typeOnly });
+      return;
+    }
+    if (CONTRACT_DEPS.has(from)) {
+      addPkg(from, b.imported === name ? name : `${b.imported} as ${name}`);
+      return;
+    }
+    const file = resolveRelative(p.file, from);
+    if (!file) {
+      problems.push(`${where}: ${name} comes from ${from}, which contracts does not depend on`);
+      return;
+    }
+    const q = load(file);
+    const target = topLevel(q, b.imported);
+    if (target) {
+      if (b.imported !== name) problems.push(`${where}: ${b.imported} is imported as ${name}`);
+      take(q, b.imported, target);
+      return;
+    }
+    const again = reExport(q, b.imported);
+    if (!again) problems.push(`${where}: ${b.imported} is not a declaration in ${relative(repo, file)}`);
+    else if (again.kind === 'import') viaImport(q, name, { ...again, typeOnly: b.typeOnly || again.typeOnly }, where);
+    else if (again.local !== name) problems.push(`${where}: ${again.local} is re-exported as ${name}`);
+    else take(q, again.local, again.target);
   };
   // A contracts name in a file the browser can't load: an `as const` list of literals is written out; anything else refuses.
   const inlineOrRefuse = (p, name, file, imported) => {
@@ -186,6 +195,27 @@ export function closureOf(repo, roots) {
     names.set(m.name, key);
   }
   return { moved: order.map((k) => moved.get(k)), fromContracts, fromPackages, problems };
+}
+
+/**
+ * What a file's `export { local as name }` (or `export { local as name } from 'x'`) hands out as `name`: the import that
+ * binds `local` there (`kind: 'import'`), or the declaration `local` is (`{ local, target }`); null when it exports no `name`.
+ */
+function reExport(q, name) {
+  for (const stmt of q.program.body) {
+    if (stmt.type !== 'ExportNamedDeclaration' || stmt.declaration) continue;
+    for (const sp of stmt.specifiers ?? []) {
+      if ((sp.exported.name ?? sp.exported.value) !== name) continue;
+      const local = sp.local.name ?? sp.local.value;
+      const typeOnly = stmt.exportKind === 'type' || sp.exportKind === 'type';
+      if (stmt.source) return { kind: 'import', from: stmt.source.value, imported: local, typeOnly };
+      const b = bindingOf(q, stmt, local);
+      if (b.kind === 'import') return { ...b, typeOnly: typeOnly || b.typeOnly };
+      const target = topLevel(q, local);
+      return target ? { local, target } : null;
+    }
+  }
+  return null;
 }
 
 /** A top-level declaration of `name` in a file. */
