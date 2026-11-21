@@ -16,7 +16,7 @@ import { VerificationSelfie } from './VerificationSelfie';
 import { VerificationTradingChecks } from './VerificationTradingChecks';
 import { verificationTradingCopy } from './verification-trading-copy';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
-import { kycProfileSchema } from '@intafaced/contracts/identity-kyc-profile';
+import { IDENTITY_KYC_PROFILE_READ } from '@intafaced/contracts/identity-kyc-profile-procedures';
 import {
   finishVerification,
   readVerification,
@@ -75,10 +75,7 @@ export function Verification() {
   const trading = verificationTradingCopy.useCopy();
   // A guided draft the person left (J-identity-08 #2): its steps open on their own when they return.
   const guidedDraft = useResource(
-    (signal) =>
-      userId
-        ? api.query('identity', 'kyc.profile.read', undefined, kycProfileSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+    (signal) => (userId ? api.call(IDENTITY_KYC_PROFILE_READ, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null })),
     `verification-bank-draft:${userId}`,
   );
   const [openedSearch] = useState(() => window.location.search);

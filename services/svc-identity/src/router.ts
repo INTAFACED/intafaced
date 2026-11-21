@@ -5,7 +5,7 @@ import {
   IDENTITY_USERS_RESOLVE_HANDLE,
   IDENTITY_USERS_SEARCH_PAYEES,
 } from '@intafaced/contracts/identity-handles';
-import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { mountRecord, type RefusalOf } from '@intafaced/contracts/procedure-mount';
 import { codedRefusal, signedInUser } from './record-refusal.js';
 import { SecurityLockError } from './auth/security-lock.js';
 import { SignInChallengeError, type SignInAdmission, type SignInChallengeService } from './auth/signin-challenge.js';
@@ -36,16 +36,14 @@ import {
   kycPoaSubmissionSchema,
   kycPoaSubmitInputSchema,
 } from '@intafaced/contracts/identity-kyc-poa';
+import { kycProfileDraftExactSchema, kycProfileSaveStepInputSchema } from '@intafaced/contracts/identity-kyc-profile';
 import {
-  kycDocumentTypesInputSchema,
-  kycDocumentTypesSchema,
-  kycProfileDraftSchema,
-  kycProfileSaveStepInputSchema,
-  kycProfileSchema,
-  kycProfileStartInputSchema,
-  kycProfileSubmitInputSchema,
-  kycProfileUploadInputSchema,
-} from '@intafaced/contracts/identity-kyc-profile';
+  IDENTITY_KYC_DOCUMENT_TYPES_READ,
+  IDENTITY_KYC_PROFILE_READ,
+  IDENTITY_KYC_PROFILE_START,
+  IDENTITY_KYC_PROFILE_SUBMIT,
+  IDENTITY_KYC_PROFILE_UPLOAD,
+} from '@intafaced/contracts/identity-kyc-profile-procedures';
 import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
 import {
   kycTradingChecksResultSchema,
@@ -199,6 +197,12 @@ function canonicalBase64(raw: string): Buffer {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'bytesBase64 is not valid base64' });
   return bytes;
 }
+
+/** Guided verification's named refusals: a `KycProfileError` the router sent with its code, other than an unreadable draft (a fault). */
+const kycProfileRefusal: RefusalOf = (err) =>
+  err instanceof TRPCError && err.cause instanceof KycProfileError && err.cause.code !== 'kyc.profile_unreadable'
+    ? { code: err.cause.code, error: err }
+    : undefined;
 
 export function toTrpcError(err: unknown): TRPCError {
   // Already shaped for the wire — do not re-wrap.
@@ -2910,16 +2914,17 @@ export function createIdentityRouter(
        * published reads `published: false`, never an empty list that looks like "nothing accepted".
        */
       documentTypes: router({
-        read: scopedProcedure('identity:read')
-          .input(kycDocumentTypesInputSchema)
-          .output(kycDocumentTypesSchema)
-          .query(({ input }) => {
+        read: mountRecord(
+          IDENTITY_KYC_DOCUMENT_TYPES_READ,
+          ({ input }) => {
             try {
               return requireKycProfile().documentTypes(input.country);
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
       }),
 
       /**
@@ -2955,28 +2960,31 @@ export function createIdentityRouter(
           }),
       }),
       profile: router({
-        read: scopedProcedure('identity:read')
-          .output(kycProfileSchema)
-          .query(async ({ ctx }) => {
+        read: mountRecord(
+          IDENTITY_KYC_PROFILE_READ,
+          async ({ ctx }) => {
             try {
               return await requireKycProfile().read(ctx.principal.userId);
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
-        start: scopedProcedure('identity:write')
-          .input(kycProfileStartInputSchema)
-          .output(kycProfileDraftSchema)
-          .mutation(async ({ ctx, input }) => {
+          },
+          kycProfileRefusal,
+        ),
+        start: mountRecord(
+          IDENTITY_KYC_PROFILE_START,
+          async ({ ctx, input }) => {
             try {
               return await requireKycProfile().start(ctx.principal.userId, input.tier);
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
         saveStep: scopedProcedure('identity:write')
           .input(kycProfileSaveStepInputSchema)
-          .output(kycProfileDraftSchema)
+          .output(kycProfileDraftExactSchema)
           .mutation(async ({ ctx, input }) => {
             try {
               return await requireKycProfile().saveStep(ctx.principal.userId, input);
@@ -2984,10 +2992,9 @@ export function createIdentityRouter(
               throw toTrpcError(err);
             }
           }),
-        upload: scopedProcedure('identity:write')
-          .input(kycProfileUploadInputSchema)
-          .output(kycProfileDraftSchema)
-          .mutation(async ({ ctx, input }) => {
+        upload: mountRecord(
+          IDENTITY_KYC_PROFILE_UPLOAD,
+          async ({ ctx, input }) => {
             try {
               const bytes = canonicalBase64(input.bytesBase64);
               return await requireKycProfile().upload(ctx.principal.userId, {
@@ -2998,17 +3005,20 @@ export function createIdentityRouter(
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
-        submit: scopedProcedure('identity:write')
-          .input(kycProfileSubmitInputSchema)
-          .output(z.object({ recordId: z.string().uuid(), documentCheck: z.literal('not_connected') }))
-          .mutation(async ({ ctx, input }) => {
+          },
+          kycProfileRefusal,
+        ),
+        submit: mountRecord(
+          IDENTITY_KYC_PROFILE_SUBMIT,
+          async ({ ctx, input }) => {
             try {
               return await requireKycProfile().submit(ctx.principal.userId, input.version);
             } catch (err) {
               throw toTrpcError(err);
             }
-          }),
+          },
+          kycProfileRefusal,
+        ),
       }),
 
       /**
