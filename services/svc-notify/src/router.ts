@@ -71,6 +71,7 @@ import {
   NOTIFY_VERIFY_TARGET,
 } from '@intafaced/contracts/notify-procedures';
 import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { jsonValueSchema } from '@intafaced/contracts/procedure-strict-schema';
 import { notifyRefusal } from './record-refusal.js';
 import { BLANK_INBOX_SETTINGS, describeInboxPolicy, type InboxSettings } from './inbox-policy.js';
 import { describeAlertsPolicy } from './alerts-policy.js';
@@ -164,7 +165,7 @@ const notificationOutput = z.object({
   title: z.string(),
   /** Catalog-resolved body. Unknown keys are the key string, never invented English. */
   body: z.string(),
-  params: z.record(z.string(), z.unknown()),
+  params: z.record(z.string(), jsonValueSchema),
   href: z.string().nullable(),
   severity: severitySchema,
   readAt: z.string().nullable(),
