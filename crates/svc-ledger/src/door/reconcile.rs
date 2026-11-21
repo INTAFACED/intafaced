@@ -52,6 +52,7 @@ impl LedgerDoor {
             custody: self.cfg.custody,
             statement_timeout_ms: self.cfg.reconcile_statement_timeout_ms,
             now_ms: self.cfg.now_ms,
+            controls: Some(&*self.cfg.reconciliation_sources),
         }
     }
 

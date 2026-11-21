@@ -14,11 +14,12 @@
 //! 500.
 
 use postgres::{GenericClient, IsolationLevel};
-use service_kit::json::{self, Json};
+use service_kit::json::Json;
 use service_kit::money::{Amount, format_amount, parse_amount};
 use service_kit::schema::{Outcome as Parsed, Value};
 use service_kit::time::{Instant, zod_datetime};
 
+use crate::controls::{ControlError, RunRow, run_columns, to_run};
 use crate::db::{Store, StoreError, transaction};
 use crate::door;
 use crate::errors::{self, Failure};
@@ -566,16 +567,6 @@ pub fn restore_reply(at: &Watermark, read_at: Instant, as_of: Option<&str>) -> J
 
 // ── reconciliationEvaluations ─────────────────────────────────────────────────────────────────────────────────────
 
-/// `comparedOf`: how many asset figures had both sides known.
-fn compared_of(assets: &[Json]) -> i64 {
-    let unset = |a: &Json, k| matches!(a.get(k), Some(Json::String(s)) if s == "unset");
-    let count = assets
-        .iter()
-        .filter(|a| a.get("missing").is_none() && !unset(a, "expected") && !unset(a, "difference"))
-        .count();
-    i64::try_from(count).unwrap_or(i64::MAX)
-}
-
 /// `{ status: 'set', value }`, or `{ status: 'unset' }`.
 fn set_or_unset(value: Option<String>) -> Json {
     match value {
@@ -584,70 +575,16 @@ fn set_or_unset(value: Option<String>) -> Json {
     }
 }
 
-/// A stored jsonb column, read as text: postgres.js hands the parsed value over.
-fn jsonb(r: &postgres::Row, i: usize) -> Result<Json, Failure> {
-    let t: String = r.try_get(i)?;
-    json::parse(&t).map_err(|_| Failure::Fault)
-}
-
-/// `toRun` without its account list: the stored run as `controls.runs` shows it, checked against
-/// `reconciliationControlRunSchema`, which also gives it its keys in the contract's order.
+/// `toRun` without its account list (`const { accounts, ...run } = toRun(row)`): the stored run as `controls.runs`
+/// shows it.
 fn evaluated_run(r: &postgres::Row) -> Result<Json, Failure> {
-    let evidence = jsonb(r, 9)?;
-    let list = |k| match evidence.get(k) {
-        Some(Json::Null) | None => Json::Array(Vec::new()),
-        Some(v) => v.clone(),
-    };
-    let assets = list("assets");
-    let compared = match evidence.get("compared") {
-        Some(Json::Null) | None => Json::int(match &assets {
-            Json::Array(a) => compared_of(a),
-            _ => 0,
-        }),
-        Some(v) => v.clone(),
-    };
-    let nonblank = |i| -> Result<Option<String>, Failure> {
-        let s: String = r.try_get(i)?;
-        Ok(Some(s).filter(|s| !s.is_empty()))
-    };
-    let margin: String = r.try_get(7)?;
-    let mut run = vec![
-        ("id".to_owned(), Json::str(r.try_get::<_, String>(0)?)),
-        (
-            "controlId".to_owned(),
-            Json::str(r.try_get::<_, String>(1)?),
-        ),
-        ("status".to_owned(), Json::str(r.try_get::<_, String>(2)?)),
-        ("phase".to_owned(), set_or_unset(nonblank(3)?)),
-        ("errorCode".to_owned(), set_or_unset(nonblank(4)?)),
-        ("asOf".to_owned(), Json::str(r.try_get::<_, String>(5)?)),
-        ("readAt".to_owned(), Json::str(r.try_get::<_, String>(6)?)),
-        (
-            "margin".to_owned(),
-            set_or_unset(Some(margin).filter(|m| m != "unset")),
-        ),
-        ("sources".to_owned(), jsonb(r, 8)?),
-        (
-            "outsideSide".to_owned(),
-            Json::str(r.try_get::<_, String>(10)?),
-        ),
-        (
-            "periodStart".to_owned(),
-            Json::str(r.try_get::<_, String>(11)?),
-        ),
-        (
-            "periodEnd".to_owned(),
-            Json::str(r.try_get::<_, String>(12)?),
-        ),
-        ("accounts".to_owned(), list("accounts")),
-        ("assets".to_owned(), assets),
-        ("compared".to_owned(), compared),
-    ];
-    match evidence.get("reconcilingItems") {
-        None | Some(Json::Null | Json::Bool(false)) => {}
-        Some(items) => run.push(("reconcilingItems".to_owned(), items.clone())),
-    }
-    let Json::Object(fields) = contract("controlRun", &Json::Object(run))? else {
+    let run = RunRow::read(r)
+        .and_then(|row| to_run(&row))
+        .map_err(|e| match e {
+            ControlError::Store(e) => store(e),
+            _ => Failure::Fault,
+        })?;
+    let Json::Object(fields) = run else {
         return Err(Failure::Fault);
     };
     Ok(Json::Object(
@@ -679,14 +616,10 @@ pub fn reconciliation_evaluations(
         _ => None,
     };
     let columns = format!(
-        "r.id::text, r.control_id::text, r.status, r.phase, r.error_code, {}, {}, r.margin, r.sources::text,
-         r.evidence::text, r.outside_side, {}, {},
+        "{},
          to_char(r.finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS finished_iso,
          c.severity",
-        iso("r.as_of"),
-        iso("r.read_at"),
-        iso("r.period_start"),
-        iso("r.period_end"),
+        run_columns("r."),
     );
     let head = format!(
         "SELECT {columns}

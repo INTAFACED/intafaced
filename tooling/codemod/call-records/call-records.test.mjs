@@ -181,3 +181,54 @@ test('a useBankRead, payCall and founderEdgeCall call each moves to its record f
     /= founderEdgeRecordCall\(config, IDENTITY_RECIPIENTS_ADD, input, undefined, signIn\);$/m,
   );
 });
+
+test('the report sorts each hand reason into the kind one script change or one decision closes', async () => {
+  const { reasonOf } = await import('./report.mjs');
+  assert.equal(
+    reasonOf('its own schema checks the answer, mine() builds the schema (a.ts:3): move it'),
+    "schema built by the caller's own function",
+  );
+  assert.equal(
+    reasonOf('its own schema checks the answer, .refine() (a.ts:3): move it'),
+    'caller schema checks the answer (.refine and the like)',
+  );
+  assert.equal(reasonOf('identity.x: no accepted input found; write its samples by hand'), 'no sample inputs');
+  assert.equal(
+    reasonOf('helper amountString clashes with another amountString in this record file: a rerun places it'),
+    'helper name clash (a rerun places it)',
+  );
+  assert.equal(reasonOf('something new'), 'other');
+});
+
+test('the router reader follows a builder member, an imported builder and both branches of a switch, and names a path two branches define', async () => {
+  const { procedures } = await import('./router.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'call-records-svc-'));
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(
+    join(dir, 'src/parts.ts'),
+    [
+      'export function partRoutes() { return { customer: { one: p.input(a).query(h) } }; }',
+      'export function liveRouter() { return router({ shared: p.query(h), live: p.query(h) }); }',
+      'export function standIn() { return router({ shared: p.query(h2) }); }',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(dir, 'src/router.ts'),
+    [
+      "import { partRoutes, liveRouter, standIn } from './parts.js';",
+      'export function createSvcRouter(flag: boolean) {',
+      '  const part = partRoutes();',
+      '  return router({ ...part.customer, flagged: flag ? liveRouter() : standIn() });',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  const { procedures: found, unread } = procedures(dir);
+  assert.deepEqual([...found.keys()].sort(), ['flagged.live', 'one']);
+  assert.deepEqual(
+    unread.map((u) => `${u.path}: ${u.why}`),
+    ['flagged.shared: two procedures under one path (a switch router)'],
+  );
+});

@@ -260,6 +260,7 @@ fn doors(db: &TestDb) -> Doors {
         indexer_url: None,
         fetch: std::sync::Arc::new(service_kit::http::UreqFetch::new()),
         posting: support::idle_posting(),
+        reconciliation_sources: std::sync::Arc::new(svc_ledger::controls::sources::Unset),
     })
     .unwrap();
     Doors { door, signers }

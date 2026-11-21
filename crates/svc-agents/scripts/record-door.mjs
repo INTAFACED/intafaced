@@ -7,6 +7,9 @@
 // - `src/errors_table.rs`: every `AgentErrorCode`, and whether `AGENT_ERROR_CODES` lists it.
 // - `tests/fixtures/input-parity/`: zod's own verdict on a few thousand inputs, made from each schema.
 // - `tests/fixtures/env-parity.golden.json`: what `env.ts` answers for a set of environments.
+// - `src/boot_agents.json`: every `agent_definitions` row the boot upserts (`index.ts`: the product factories, the Coach,
+//   the catalogue-only agents), in boot order, as `runtime.registerAgent` writes it. The TypeScript test
+//   `services/svc-agents/src/fleet/boot-agents-rust.test.ts` fails while it is stale.
 //
 // Run from the repository root, with the workspace packages built (`pnpm --filter "@intafaced/svc-agents^..." build`):
 //   TZ=UTC node --import tsx crates/svc-agents/scripts/record-door.mjs          writes the files
@@ -1073,12 +1076,35 @@ ${errorCodes.map((c) => `    (${rustStr(c)}, ${AGENT_ERROR_CODES.includes(c)}),`
 ];
 `;
 
+/** The rows the TypeScript boot upserts, captured from its own three calls on a runtime that only records them. */
+const { registerProductAgentsAtBoot } = await import(`${SVC}fleet/boot-register.ts`);
+const { registerCoachAgent } = await import(`${SVC}coach/coach-run.ts`);
+const { registerCatalogueOnlyAgents } = await import(`${SVC}fleet/catalogue-only.ts`);
+const { parseGuardrail, serialiseGuardrail } = await import(`${SVC}fleet/guardrails.ts`);
+const bootAgents = [];
+const recording = {
+  async registerAgent(input, options = {}) {
+    const guardrail = parseGuardrail(input);
+    bootAgents.push({
+      agentId: guardrail.agentId,
+      version: guardrail.version,
+      guardrail: serialiseGuardrail(guardrail),
+      enabled: options.enabled ?? true,
+    });
+    return guardrail;
+  },
+};
+await registerProductAgentsAtBoot(recording);
+await registerCoachAgent(recording);
+await registerCatalogueOnlyAgents(recording);
+
 const outputs = [
   [`${CRATE}src/door/calls.rs`, callsRs],
   [`${CRATE}src/errors_table.rs`, errorsRs],
   [`${CRATE}src/door/schemas.json`, `${JSON.stringify({ nodes, inputs })}\n`],
   ...parityFiles(),
   [`${CRATE}tests/fixtures/env-parity.golden.json`, `${JSON.stringify({ cases: envCases }, null, 1)}\n`],
+  [`${CRATE}src/boot_agents.json`, `${JSON.stringify(bootAgents, null, 2)}\n`],
 ];
 
 /** Each file leaves in the shape the repo's checks hold it to: `cargo fmt --check` for Rust, `format:check` for JSON. */

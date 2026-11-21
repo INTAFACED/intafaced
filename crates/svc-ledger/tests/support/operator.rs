@@ -57,6 +57,7 @@ pub fn door_config(db: &TestDb, bus: Arc<MemoryBus>, approvals: Box<dyn Approval
         custody: CustodyLayer::On,
         reconcile_statement_timeout_ms: DEFAULT_STATEMENT_TIMEOUT_MS,
         posting: super::idle_posting(),
+        reconciliation_sources: Arc::new(svc_ledger::controls::sources::Unset),
     }
 }
 

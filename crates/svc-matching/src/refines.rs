@@ -5,7 +5,7 @@
 //! (`amendBodySchema`, `door-inputs.ts`).
 
 use service_kit::json::Json;
-use service_kit::schema::{Outcome, Refiner, Value, js_trim};
+use service_kit::schema::{Added, Outcome, Refiner, Value, js_trim};
 use sha2::{Digest, Sha256};
 
 /// `marketLifecycleStateSchema`'s states that permit no trading action.
@@ -154,12 +154,18 @@ impl Refiner for MatchingRefines {
         }
     }
 
-    fn super_refine(&self, id: &str, value: &Value) -> Result<Vec<(Vec<Json>, String)>, String> {
-        match id {
-            "snapshot_actions" => Ok(snapshot_actions(value)),
-            "lifecycle_proof" => lifecycle_proof(value),
-            "amend_changes_something" => Ok(amend_changes_something(value)),
-            other => Err(format!("no superRefine named {other}")),
-        }
+    fn super_refine(&self, id: &str, value: &Value) -> Result<Vec<Added>, String> {
+        let added = match id {
+            "snapshot_actions" => snapshot_actions(value),
+            "lifecycle_proof" => lifecycle_proof(value)?,
+            "amend_changes_something" => amend_changes_something(value),
+            other => return Err(format!("no superRefine named {other}")),
+        };
+        // Each a path and a message, as `addIssue({ code, path, message })` writes them; an empty path is one it named
+        // none.
+        Ok(added
+            .into_iter()
+            .map(|(path, message)| Added::at(path, message))
+            .collect())
     }
 }
