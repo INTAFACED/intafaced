@@ -62,9 +62,5 @@ export async function uploadTicketFile(
     contentType: params.contentType,
     bodyBase64: Buffer.from(bytes).toString('base64'),
   };
-  // On the ticket it was added to, and added by an operator, not its owner.
-  return heldTo(
-    await founderRecordCall(ctx, SUPPORT_DESK_ATTACH_OPS, input),
-    (file) => file.ticketId === params.ticketId && file.uploadedBy !== null,
-  );
+  return heldTo(await founderRecordCall(ctx, SUPPORT_DESK_ATTACH_OPS, input), (file) => addedByOperatorOn(file, params.ticketId));
 }
