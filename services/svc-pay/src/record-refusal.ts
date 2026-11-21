@@ -1,5 +1,6 @@
 import { TRPCError } from '@intafaced/contracts';
 import type { RefusalOf } from '@intafaced/contracts/procedure-mount';
+import { PayHaltError } from './halts/store.js';
 import { PayError } from './payment-service.js';
 import { PayGuardRefusal } from './seams/guards.js';
 import { AllowlistError } from './withdrawals/allowlist/errors.js';
@@ -8,7 +9,15 @@ import { WithdrawalNetworkRuleError } from './withdrawals/network-rules/service.
 import { WithdrawalQuoteError } from './withdrawals/quotes/errors.js';
 
 /** svc-pay's typed errors: each carries the code a record lists. */
-const TYPED = [AllowlistError, PayError, PayGuardRefusal, WithdrawalApprovalError, WithdrawalNetworkRuleError, WithdrawalQuoteError];
+const TYPED = [
+  AllowlistError,
+  PayError,
+  PayHaltError,
+  PayGuardRefusal,
+  WithdrawalApprovalError,
+  WithdrawalNetworkRuleError,
+  WithdrawalQuoteError,
+];
 
 /**
  * svc-pay's one reader of its refusals for a door mounted from a record (`mountRecord`): each handler runs inside the

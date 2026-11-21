@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { payCall, type PayCallContext } from './pay-call';
+import { PAY_HALTS_HISTORY, PAY_HALTS_SET } from '@intafaced/contracts/pay-halt-procedures';
+import { payCall, payRecordCall, type PayCallContext } from './pay-call';
 
 const ctx: PayCallContext = {
   session: {
@@ -105,5 +106,22 @@ describe('payCall', () => {
     expect((await payCall(ctx, 'x', 'GET', {}, () => null)).kind).toBe('invalid');
     stub(Response.json({ hello: 'world' }));
     expect((await payCall(ctx, 'x', 'GET', {}, identity)).kind).toBe('invalid');
+  });
+});
+
+describe('payRecordCall: a call through its record', () => {
+  it('sends the record path and method, parses the answer with the record, and never sends an input the record refuses', async () => {
+    const fetchFn = vi.fn(async (_url: string) => Response.json({ result: { data: [] } }));
+    vi.stubGlobal('fetch', fetchFn);
+    expect(await payRecordCall(ctx, PAY_HALTS_HISTORY, { limit: 5 })).toEqual({ kind: 'ok', data: [] });
+    expect(fetchFn.mock.calls[0]?.[0]).toBe(
+      `http://edge:4000/api/pay/trpc/payHalts.history?input=${encodeURIComponent(JSON.stringify({ limit: 5 }))}`,
+    );
+    stub(Response.json({ result: { data: [{ not: 'an event' }] } }));
+    expect(await payRecordCall(ctx, PAY_HALTS_HISTORY, { limit: 5 })).toEqual({ kind: 'invalid', requestId: null });
+    const unsent = stub(Response.json({ result: { data: {} } }));
+    const refused = await payRecordCall(ctx, PAY_HALTS_SET, { reason: 'no' } as never);
+    expect(refused).toMatchObject({ kind: 'refused', refusal: { code: null, status: 400 } });
+    expect(unsent).not.toHaveBeenCalled();
   });
 });
