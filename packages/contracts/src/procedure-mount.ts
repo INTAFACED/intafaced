@@ -33,6 +33,8 @@ export type RecordHandler<R extends ProcedureRecord> = (args: {
   /** A `scope`, `anyScope` or `signedIn` record's guard has verified the principal, so its handler reads it without a check of its own. */
   ctx: R['access'] extends { readonly caller: 'scope' | 'anyScope' | 'signedIn' } ? Context & { principal: Principal } : Context;
   input: z.output<R['input']>;
+  /** Aborted when the caller goes away, for a handler whose outside reads should stop with it. */
+  signal?: AbortSignal | undefined;
 }) => Promise<z.input<R['output']>> | z.input<R['output']>;
 
 /** Reads a thrown value as one of the service's named refusals, already in its wire form; `undefined` when it is not one. */
@@ -109,9 +111,9 @@ export function mountRecord(record: ProcedureRecord, handler: RecordHandler<Proc
   const guarded = guardFor(record.access);
   const typed = record.input === NO_INPUT ? guarded : guarded.input(record.input);
   const withOutput = typed.output(record.output);
-  const resolve = async ({ ctx, input }: { ctx: Context; input: unknown }) => {
+  const resolve = async ({ ctx, input, signal }: { ctx: Context; input: unknown; signal?: AbortSignal | undefined }) => {
     try {
-      return await handler({ ctx, input });
+      return await handler({ ctx, input, signal });
     } catch (err) {
       const refusal = refusalOf(err);
       if (refusal === undefined) throw err;

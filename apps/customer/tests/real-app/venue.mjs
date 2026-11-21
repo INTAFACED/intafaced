@@ -90,6 +90,13 @@ export async function testVenueAt(base, path, body) {
   return { status: res.status, body: await res.json() };
 }
 
+/** One call to either TEST venue that must answer 200: its JSON answer (a refusal fails the step with its words). */
+export async function venueOk(base, path, body) {
+  const { status, body: out } = await testVenueAt(base, path, body);
+  expect(status, JSON.stringify(out).slice(0, 300)).toBe(200);
+  return out;
+}
+
 /** The venue's id and the chain its signatures name. */
 export async function venueInfo() {
   const { status, body } = await testVenue('/venue');

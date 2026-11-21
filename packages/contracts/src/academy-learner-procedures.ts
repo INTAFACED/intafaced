@@ -257,6 +257,86 @@ export const ACADEMY_CREATE_ROOM = defineProcedure({
   ],
 });
 
+/**
+ * A session as the room read and the host's start and end answer it. Its stored scene is any JSON object, which a record
+ * cannot export, so these replies do not declare it: the scene is read only through `academy.session`, as Scene v1.
+ * `scheduleSession`, `invite` and `updateScene` have no record: the door coerces their dates and takes any scene object,
+ * which no exported schema reaches the same verdicts on (`academy-learner-procedures.test.ts`).
+ */
+export const academySessionSchema = z.object({
+  id: uuid,
+  roomId: uuid,
+  title: z.string(),
+  hostId: uuid,
+  status: z.enum(['scheduled', 'live', 'ended', 'cancelled']),
+  startsAt: z.string(),
+  endsAt: z.string().nullable(),
+  streamProvider: z.string().nullable(),
+  sceneFingerprint: z.string().min(1),
+});
+export type AcademySession = z.infer<typeof academySessionSchema>;
+
+const HOST = { 'academy.session_not_found': 'NOT_FOUND', 'academy.not_host': 'FORBIDDEN' } as const;
+const SESSION_IN = [
+  { verdict: 'accept', input: { sessionId: ID } },
+  { verdict: 'refuse', input: { sessionId: 'not-an-id' } },
+] as const;
+
+/** One room, what is on in it, and the lessons its host pinned. */
+export const ACADEMY_ROOM = defineProcedure({
+  ...base,
+  name: 'academy.room',
+  kind: 'query',
+  path: 'room',
+  access: READ,
+  refusals: refuse({ ...ROOM_LISTS, 'academy.sessions_list_limit_unset': 'PRECONDITION_FAILED' }),
+  input: z.object({ roomId: uuid, limit: z.number().optional() }),
+  output: z.object({
+    room: academyRoomSchema,
+    sessions: z.array(academySessionSchema),
+    pinnedLessons: z.array(academyCurriculumSummarySchema),
+  }),
+  accept: {
+    stakeIsAmount: {
+      says: STAKE_SAYS,
+      holds: (reply) => {
+        const read = z.object({ room: academyRoomSchema }).safeParse(reply);
+        return read.success && stakeIsAmount(read.data.room);
+      },
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { roomId: ID, limit: 50 } },
+    { verdict: 'refuse', input: { roomId: 'not-an-id' } },
+  ],
+});
+
+/** The host opens a scheduled session. */
+export const ACADEMY_START_SESSION = defineProcedure({
+  ...base,
+  name: 'academy.startSession',
+  kind: 'mutation',
+  path: 'startSession',
+  access: WRITE,
+  refusals: refuse(HOST),
+  input: z.object({ sessionId: uuid }),
+  output: academySessionSchema,
+  samples: SESSION_IN,
+});
+
+/** The host ends a live session. */
+export const ACADEMY_END_SESSION = defineProcedure({
+  ...base,
+  name: 'academy.endSession',
+  kind: 'mutation',
+  path: 'endSession',
+  access: WRITE,
+  refusals: refuse(HOST),
+  input: z.object({ sessionId: uuid }),
+  output: academySessionSchema,
+  samples: SESSION_IN,
+});
+
 // ── Course discussions ───────────────────────────────────────────────────────
 
 const COURSE = { 'academy.course_not_found': 'NOT_FOUND', 'academy.enrolment_required': 'FORBIDDEN' } as const;
@@ -627,6 +707,62 @@ export const ACADEMY_CERT_PROGRESS = defineProcedure({
   ],
 });
 
+/** The learner enrols in a certificate path. */
+export const ACADEMY_ENROLL_CERT_PATH = defineProcedure({
+  ...base,
+  name: 'academy.enrollCertPath',
+  kind: 'mutation',
+  path: 'enrollCertPath',
+  access: WRITE,
+  refusals: refuse({ 'academy.path_not_found': 'NOT_FOUND', 'academy.enrolment_closed': 'PRECONDITION_FAILED' }),
+  input: z.object({ pathSlug: z.string().min(1).max(64) }),
+  output: z.object({ userId: uuid, pathSlug: z.string(), enrolledAt: z.iso.datetime({ offset: true }) }),
+  samples: [
+    { verdict: 'accept', input: { pathSlug: 'foundations' } },
+    { verdict: 'refuse', input: { pathSlug: '' } },
+  ],
+});
+
+/** A certificate's grant, with the XP it sent and the perks it opened or the perk refusal. */
+export const academyCertGrantSchema = z.object({
+  grant: z.object({ userId: uuid, certId: z.string(), grantedAt: z.iso.datetime({ offset: true }), idempotencyKey: z.string() }),
+  alreadyGranted: z.boolean(),
+  xp: z.discriminatedUnion('emitted', [
+    z.object({ emitted: z.literal(true), idempotencyKey: z.string(), xpDelta: z.number().int().positive() }),
+    z.object({ emitted: z.literal(false), reason: z.string() }),
+  ]),
+  perks: z.discriminatedUnion('status', [
+    z.object({ status: z.literal('real'), sot: z.literal('svc-identity'), academyHoldsPerkMoney: z.literal(false) }),
+    z.object({ status: z.literal('refuse'), message: z.string(), code: z.string() }),
+  ]),
+});
+export type AcademyCertGrant = z.infer<typeof academyCertGrantSchema>;
+
+/** The learner claims a certificate they completed; granting twice answers the first grant. */
+export const ACADEMY_GRANT_CERT = defineProcedure({
+  ...base,
+  name: 'academy.grantCert',
+  kind: 'mutation',
+  path: 'grantCert',
+  access: WRITE,
+  refusals: refuse({ 'academy.cert_not_found': 'NOT_FOUND', 'academy.cert_incomplete': 'CONFLICT' }),
+  input: z.object({ certId: z.string().min(1).max(64) }),
+  output: academyCertGrantSchema,
+  accept: {
+    xpKeyedByGrant: {
+      says: 'XP sent for a grant is keyed academy.cert:<the grant key>',
+      holds: (reply) => {
+        const read = academyCertGrantSchema.safeParse(reply);
+        return read.success && (!read.data.xp.emitted || read.data.xp.idempotencyKey === `academy.cert:${read.data.grant.idempotencyKey}`);
+      },
+    },
+  },
+  samples: [
+    { verdict: 'accept', input: { certId: 'foundations' } },
+    { verdict: 'refuse', input: { certId: '' } },
+  ],
+});
+
 // ── Quizzes ──────────────────────────────────────────────────────────────────
 
 const QUIZ = {
@@ -860,6 +996,9 @@ export const ACADEMY_LEARNER_PROCEDURES = [
   ACADEMY_JOIN,
   ACADEMY_LEAVE,
   ACADEMY_CREATE_ROOM,
+  ACADEMY_ROOM,
+  ACADEMY_START_SESSION,
+  ACADEMY_END_SESSION,
   ACADEMY_DISCUSSION_COURSES,
   ACADEMY_DISCUSSION_TOPICS,
   ACADEMY_DISCUSSION_POSTS,
@@ -877,6 +1016,8 @@ export const ACADEMY_LEARNER_PROCEDURES = [
   ACADEMY_MARK_CURRICULUM_COMPLETE,
   ACADEMY_CERT_DEFINITIONS,
   ACADEMY_CERT_PROGRESS,
+  ACADEMY_ENROLL_CERT_PATH,
+  ACADEMY_GRANT_CERT,
   ACADEMY_ASSESSMENT_START,
   ACADEMY_ASSESSMENT_CURRENT,
   ACADEMY_ASSESSMENT_ANSWER,

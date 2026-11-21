@@ -499,6 +499,10 @@ const fullTrade = (over: Partial<Trade> = {}): Trade => ({
   escrowedAt: '2026-10-18T10:00:01Z',
   resolvedAt: null,
   settledAt: null,
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
   ...over,
 });
 

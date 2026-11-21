@@ -32,6 +32,25 @@ function createPersistentTestGuard(storage: JournalStorage) {
   return createPayMutationGuard(storage, true, { durable: () => storage, locks: () => locks });
 }
 
+/** The fields svc-p2p always sends on an order, and the ones `trades.get` adds. */
+const TRADE_WIRE = {
+  sharedFrom: false,
+  releaseWindowSeconds: null,
+  escrowKind: 'ledger',
+  contract: null,
+  terms: null,
+  displayStatus: 'completed',
+  feeBps: 30,
+  fee: null,
+  netAmount: null,
+  settlement: { instant: true },
+  releasePreview: null,
+  escrowHeld: '0',
+  reminders: { count: 0, lastAt: null, nextAt: null, max: null },
+  mismatch: null,
+  paymentValidation: { blocker: null },
+  cancelReason: null,
+} as const;
 describe('Personal Pay network boundary', () => {
   it('sends exact asset units from the caller’s ledger space with one stable transfer identity', async () => {
     const requests: { url: string; method: string; body?: unknown }[] = [];
@@ -193,6 +212,7 @@ describe('Unconfirmed Pay outcomes', () => {
       escrowedAt: '2026-10-07T12:00:00Z',
       resolvedAt: released ? '2026-10-07T12:01:00Z' : null,
       settledAt: settled ? '2026-10-07T12:02:00Z' : null,
+      ...TRADE_WIRE,
     });
     const api = createApiClient({
       fetch: async (_url, options) => {
@@ -1313,6 +1333,7 @@ describe('Exact original P2P reconciliation identity', () => {
                   escrowedAt: '2026-10-10T00:01:00Z',
                   resolvedAt: '2026-10-10T00:02:00Z',
                   settledAt: '2026-10-10T00:03:00Z',
+                  ...TRADE_WIRE,
                 },
           );
         },
