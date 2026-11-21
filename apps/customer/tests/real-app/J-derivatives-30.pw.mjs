@@ -411,9 +411,12 @@ test(`${J} #5 with the second wallet, confirms an order on a venue where it neve
     const approval = sheet.getByTestId('venue-route-approval');
     await expect(approval).toBeVisible();
     await approval.getByRole('button', { name: 'Approve in wallet', exact: true }).click();
-    await expect(sheet.getByTestId('venue-route-approval-limit')).toHaveText(
+    const limit = sheet.getByTestId('venue-route-approval-limit');
+    await expect(limit).toHaveText(
       `${v.a.displayName} refused the approval: this account already holds ${LIMIT} active builder fee approvals, the most ${v.a.displayName} allows at a time (${LIMIT}). Revoking one of the other builders you approved there frees a place. No order was sent.`,
     );
+    // In words the person can read: on screen, not cut off below the review's fold.
+    await expect(limit).toBeInViewport({ ratio: 1 });
     // The venue refused before the wallet was asked; no order was prepared or sent, and nothing was approved.
     expect(wallet.requests).toHaveLength(0);
     expect(prepares.map((p) => p.intent.kind)).toEqual(['approve_builder_fee']);

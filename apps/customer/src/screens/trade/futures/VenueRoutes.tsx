@@ -303,6 +303,12 @@ export function routeWhy(t: RoutesT, route: RoutePreview): string {
 type Step = 'review' | 'approval' | 'declined';
 
 /**
+ * Brings a refusal into view inside the dialog as it appears, so the person who pressed Approve reads why it failed rather
+ * than a line cut off below the dialog's fold (J-derivatives-30 #5).
+ */
+const reveal = (el: HTMLElement | null) => el?.scrollIntoView?.({ block: 'nearest' });
+
+/**
  * The venue's own reason when it refused our approval because the wallet already holds the most active builder approvals
  * it allows (J-derivatives-30 #5), at prepare or at submit; null for any other answer.
  */
@@ -531,7 +537,7 @@ export function RoutedReview({
               {t('Decline')}
             </Button>
             {approvalLimit(approving) ? (
-              <p className="failure" role="alert" data-testid="venue-route-approval-limit">
+              <p className="failure" role="alert" data-testid="venue-route-approval-limit" ref={reveal}>
                 {t('Approval limit words', { venue: chosen.displayName, detail: approvalLimit(approving) ?? '' })}
               </p>
             ) : (
