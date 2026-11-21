@@ -38,6 +38,7 @@ use svc_agents::metering::ports::{
     AffiliatesHttp, JetStreamBus, LedgerHttp, LedgerOnly, UsagePayment, UsagePaymentHttp,
 };
 use svc_agents::migrate;
+use svc_agents::ops::{Ops, alerts, log as oplog};
 use svc_agents::runtime::Runtime;
 use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
@@ -76,15 +77,36 @@ type Job<'a> = Box<dyn Fn() -> Result<(), String> + Sync + 'a>;
 /// The work each timer runs. Each comes with its slice (`timers::timers` names it); until then the timer does not run,
 /// as it would not in a process without that work.
 fn jobs<'a>(door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job<'a>)> {
-    vec![(
-        "route table sync",
-        Box::new(move || {
-            door.gateway()
-                .refresh(door.store())
-                .map(|_| ())
-                .map_err(|e| e.to_string())
-        }),
-    )]
+    vec![
+        (
+            "route table sync",
+            Box::new(move || {
+                door.gateway()
+                    .refresh(door.store())
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }),
+        ),
+        (
+            "transcript purge",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                oplog::purge_expired_transcripts(pool, door.ops().retention_days)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }),
+        ),
+        (
+            "alert evaluation",
+            Box::new(move || {
+                let pool = door.store().pool().map_err(|e| e.to_string())?;
+                alerts::evaluate_alert_rules(pool).map_err(|e| e.to_string())?;
+                alerts::publish_pending_agent_alerts(pool, door.metering(), system_now())
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }),
+        ),
+    ]
 }
 
 /// A record value of the environment (`AGENTS_UPSTREAM_HEADERS`, `AGENTS_UPSTREAM_MODELS`), in its order.
@@ -309,6 +331,7 @@ fn door(
     gateway: GatewaySlice,
     ready: ReadyInput,
     runtime: Runtime,
+    ops: Ops,
 ) -> Result<AgentsDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let door = AgentsDoor::new(DoorConfig {
@@ -321,6 +344,7 @@ fn door(
         gateway,
         ready,
         runtime,
+        ops,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
@@ -396,7 +420,14 @@ fn serve(
     let tasks = gateway.gateway.base().routes.len();
     let metering = metering(env, bus.clone(), &fetch)?;
     let runtime = runtime(env, &fetch)?;
-    let door = door(env, store, metering, gateway, ready, runtime)?;
+    let ops = Ops::from_env(
+        env.str("AGENTS_LOG_READ_REASONS"),
+        env.int("AGENTS_OPS_ACTIONS_LIMIT"),
+        env.int("AGENTS_TRANSCRIPT_RETENTION_DAYS"),
+        env.int("AGENTS_REGISTRY_LIST_LIMIT"),
+        env.str("AGENTS_POLICY_BASELINE"),
+    )?;
+    let door = door(env, store, metering, gateway, ready, runtime, ops)?;
 
     let app = App {
         wire: door,

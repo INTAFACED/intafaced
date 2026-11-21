@@ -1468,6 +1468,7 @@ fn door_of(w: World) -> (AgentsDoor, FakeLedger, TestDb) {
         ready: svc_agents::gateway::readiness::ReadyInput::unwired(),
         metering: m,
         runtime: svc_agents::runtime::Runtime::unwired(),
+        ops: svc_agents::ops::Ops::unwired(),
     })
     .unwrap();
     (door, ledger, db)

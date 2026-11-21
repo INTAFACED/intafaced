@@ -37,6 +37,7 @@ use crate::db::Store;
 use crate::gateway::desk::GatewaySlice;
 use crate::gateway::readiness::{self, ReadyInput};
 use crate::metering::Metering;
+use crate::ops::Ops;
 use crate::runtime::Runtime;
 
 /// A query answers GET, a mutation POST.
@@ -272,6 +273,8 @@ pub struct DoorConfig {
     pub metering: Metering,
     /// The runtime's own settings: the spend gate, the funds, the transcript and the grace (`runtime`).
     pub runtime: Runtime,
+    /// The operator desks' owner values: the log's reasons, limit and retention, the registry's page, the baseline.
+    pub ops: Ops,
 }
 
 pub struct AgentsDoor {
@@ -288,6 +291,7 @@ pub struct AgentsDoor {
     ready: ReadyInput,
     metering: Metering,
     runtime: Runtime,
+    ops: Ops,
 }
 
 /// The system clock.
@@ -331,6 +335,7 @@ impl AgentsDoor {
             ready: config.ready,
             metering: config.metering,
             runtime: config.runtime,
+            ops: config.ops,
         })
     }
 
@@ -355,6 +360,11 @@ impl AgentsDoor {
         &self.gateway
     }
 
+    /// The operator desks' owner values.
+    pub fn ops(&self) -> &Ops {
+        &self.ops
+    }
+
     /// The slices' answers: the door's own call, the ported slices, and "not ported" for the rest.
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
@@ -371,6 +381,7 @@ impl AgentsDoor {
                 &self.metering,
                 &self.runtime,
             ),
+            Slice::Ops => crate::ops::handle(ctx, &self.store, &self.metering, &self.ops),
             other => Err(not_ported(other)),
         }
     }

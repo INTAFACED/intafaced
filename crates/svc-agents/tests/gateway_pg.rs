@@ -97,6 +97,7 @@ impl Desk {
             ready: ReadyInput::unwired(),
             metering: svc_agents::metering::Metering::unwired("USDC", 15),
             runtime: svc_agents::runtime::Runtime::unwired(),
+            ops: svc_agents::ops::Ops::unwired(),
         })
         .unwrap();
         door.gateway().refresh(door.store()).unwrap();

@@ -18,6 +18,7 @@ pub mod errors_table;
 pub mod gateway;
 pub mod metering;
 pub mod migrate;
+pub mod ops;
 pub mod refines;
 pub mod runtime;
 pub mod timers;
