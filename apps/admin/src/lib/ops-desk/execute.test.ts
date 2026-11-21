@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DeskRequest } from '@/lib/desk/approval-packet';
+import type { DeskRequest } from '@/lib/desk';
 import { opsExecute, readAmbassadorAnswer, readCardStatusAnswer, readResidencyAnswer } from './execute';
 
 const FOUNDER = '11111111-1111-4111-8111-111111111111';

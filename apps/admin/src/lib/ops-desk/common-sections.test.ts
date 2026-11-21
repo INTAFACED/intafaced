@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DESKS, MINING_DESK } from './catalog';
 import { COMMON_SECTION_IDS, COMMON_SECTION_SETS, exportableSections, resolveCommonSections, type CommonDeskId } from './common-sections';
 import type { ModuleId } from '@intafaced/config';
-import { killRefusalFor } from '@/lib/desk/module-kill-model';
+import { killRefusalFor } from '@/lib/desk';
 import type { DeskSpec } from './types';
 
 const DESK_FOR: Record<CommonDeskId, DeskSpec | null> = {

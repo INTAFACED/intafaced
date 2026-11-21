@@ -1,6 +1,8 @@
-import { router, scopedProcedure } from '@intafaced/contracts';
-import { notifyReconAlertFeedInputSchema, notifyReconAlertFeedSchema } from '@intafaced/contracts/ops-reconciliation-alerts';
+import { router } from '@intafaced/contracts';
 import type { ReconAlertFeedStore } from './feed.js';
+import { NOTIFY_RECONCILIATION_ALERT_FEED_LIST } from '@intafaced/contracts/notify-reconciliation-alert-feed-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { notifyRefusal } from '../record-refusal.js';
 
 /**
  * `reconciliationAlertFeed.list` (`admin:read`): the transitions svc-notify received for one reconciliation alert, one per
@@ -9,12 +11,13 @@ import type { ReconAlertFeedStore } from './feed.js';
  */
 export function reconAlertFeedRouter(store: ReconAlertFeedStore, attached: () => boolean) {
   return router({
-    list: scopedProcedure('admin:read', { module: 'notify' })
-      .input(notifyReconAlertFeedInputSchema)
-      .output(notifyReconAlertFeedSchema)
-      .query(async ({ input }) => {
+    list: mountRecord(
+      NOTIFY_RECONCILIATION_ALERT_FEED_LIST,
+      async ({ input }) => {
         const alertId = input.alertId.toLowerCase();
         return { alertId, bus: attached() ? ('attached' as const) : ('detached' as const), entries: await store.list(alertId) };
-      }),
+      },
+      notifyRefusal,
+    ),
   });
 }

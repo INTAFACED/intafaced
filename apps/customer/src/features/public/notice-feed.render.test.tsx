@@ -8,9 +8,10 @@ import { NoticeDetail, NoticeList, NoticeMissing } from './NoticeFeed';
 import { feedNotices, isNoticeId, maintenancePhase, readNotice, type Notice } from './notices-api';
 import type { ApiClient } from '../../shared/api';
 import { entrySchema } from '../../shared/notify-reads';
+import { noticeWireOutput } from '@intafaced/contracts/notify-call-schemas';
 
 const notice = (over: Partial<Notice>): Notice =>
-  entrySchema.parse({
+  noticeWireOutput.parse({
     id: '11111111-1111-4111-8111-111111111111',
     kind: 'announcement',
     title: 'Test notice',
@@ -21,6 +22,11 @@ const notice = (over: Partial<Notice>): Notice =>
     endsAt: null,
     version: 1,
     changelog: null,
+    asset: null,
+    network: null,
+    phase: null,
+    category: null,
+    audience: 'everyone',
     ...over,
   });
 
@@ -80,7 +86,10 @@ describe('public notice feed', () => {
   });
 
   it('reads a notice the service says does not exist as not published, and any other refusal as a failed read', async () => {
-    const api = (code: string) => ({ query: async () => ({ ok: false, reason: 'error', message: 'x', code }) }) as unknown as ApiClient;
+    const api = (code: string) => {
+      const refuse = async () => ({ ok: false, reason: 'error', message: 'x', code });
+      return { query: refuse, call: refuse } as unknown as ApiClient;
+    };
     const id = '11111111-1111-4111-8111-111111111111';
     expect(await readNotice(api('notify.notice_not_found'), id)).toEqual({ ok: true, data: null });
     expect(await readNotice(api('notify.unavailable'), id)).toMatchObject({ ok: false });

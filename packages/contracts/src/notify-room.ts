@@ -22,8 +22,6 @@ export const notificationSchema = z.object({
   createdAt: date,
 });
 
-export const notifyListSchema = z.object({ items: z.array(notificationSchema).max(100), nextCursor: z.string().guid().nullable() });
-
 export const notifyOutOfAppSchema = z.enum(['email', 'push', 'sms']);
 export const notifyPrefsSchema = z.array(z.object({ channel: notifyOutOfAppSchema, muted: z.boolean() })).max(3);
 export const notifyDeliverySchema = z.object({

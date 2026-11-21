@@ -1,5 +1,5 @@
 import type { MerchantControlProfile, PayCap, PayPricingRule } from '@intafaced/contracts';
-import { compareDecimal, formatAmount, isDecimalString, permille } from './money';
+import { compareDecimal, formatAmount, isDecimalString, permille } from '@/lib/money';
 
 /**
  * Merchant control room (svc-pay `founderAdmin.control.*`, `founderAdmin.changes.*`).

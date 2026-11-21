@@ -10,8 +10,8 @@ vi.mock('../../shared/preferences', async (original) => {
 
 const asked = vi.hoisted(() => [] as unknown[]);
 const who = vi.hoisted(() => ({ userId: 'user-1' }));
-vi.mock('../session/session', async (original) => {
-  const real = await original<typeof import('../session/session')>();
+vi.mock('../session', async (original) => {
+  const real = await original<typeof import('../session')>();
   const api = {
     query: async (_module: string, _procedure: string, input?: unknown) => {
       asked.push(input);

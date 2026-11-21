@@ -14,8 +14,8 @@ import {
 } from '@/components/merchants';
 import { payoutApprovalChip } from '@/lib/merchants/chips';
 import { CAP_LABEL, ageView, bpsText, ttlText, type TierView } from '@/lib/merchants/control-model';
-import { buildCsv } from '@/lib/merchants/csv';
-import { formatMoney } from '@/lib/merchants/money';
+import { buildCsv } from '@/lib/csv';
+import { formatMoney } from '@/lib/money';
 import type { PayFailure } from '@/lib/merchants/pay-call';
 import { formatUtc } from '@/lib/merchants/time';
 import { auditFilterOf, hasAuditFilter, jsonPreview } from '@/lib/founder-ops/control-model';

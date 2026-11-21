@@ -1,5 +1,5 @@
 /**
- * Money display for the Merchants panel.
+ * Money display for the console: shared by the Merchants panel, the account limits and the founder ops screens.
  *
  * Amounts are unsigned decimal strings on the wire (at most 18 places). They are
  * never turned into a JS `number` here. Comparison and addition use scaled
@@ -40,10 +40,6 @@ export function compareDecimal(a: string, b: string): -1 | 0 | 1 {
 
 export function addDecimal(a: string, b: string): string {
   return fromScaled(toScaled(a) + toScaled(b));
-}
-
-export function isZeroDecimal(value: string): boolean {
-  return toScaled(value) === 0n;
 }
 
 /**

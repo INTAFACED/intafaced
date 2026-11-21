@@ -91,6 +91,8 @@ const NOTICE = {
   authorId: USER_ID,
   createdAt: '2026-10-23T10:00:00.000Z',
 };
+// svc-notify sends every notice with its audience (a row from before audiences comes as 'everyone'); a stub's own wins.
+const wire = (n: object) => ({ audience: 'everyone', ...n });
 const DEFINITION = {
   components: [],
   componentCap: null,
@@ -113,7 +115,7 @@ describe('announcement desk BFF', () => {
   it('reads announcements with their category, the category list and approvals; a list it cannot read is a failed part', async () => {
     configure();
     const c = upstream({
-      'notify.operatorNotices': () => ok([NOTICE]),
+      'notify.operatorNotices': () => ok([wire(NOTICE)]),
       'statusPage.definition': () => ok(DEFINITION),
       'notify.noticeAudiences': () => ok(AUDIENCES),
       'actionApproval.list': () => ok({ approvals: [] }),
@@ -124,7 +126,7 @@ describe('announcement desk BFF', () => {
     expect(body.categories).toEqual({ kind: 'ok', data: { list: DEFINITION.noticeCategories, revision: 4 } });
     expect(calls(c).find((x) => x.url.includes('notify.operatorNotices'))!.url).toContain('announcement');
     upstream({
-      'notify.operatorNotices': () => ok([{ ...NOTICE, category: 'listings' }]),
+      'notify.operatorNotices': () => ok([wire({ ...NOTICE, category: 'listings' })]),
       'statusPage.definition': () => ok({ ...DEFINITION, noticeCategories: null }),
       'notify.noticeAudiences': () => ok(AUDIENCES),
       'actionApproval.list': () => ok({ approvals: [] }),
@@ -136,7 +138,7 @@ describe('announcement desk BFF', () => {
 
   it('drafts an announcement under a category, keyed by its content; none is sent as null', async () => {
     configure();
-    const c = upstream({ 'notify.draftNotice': () => ok(NOTICE) });
+    const c = upstream({ 'notify.draftNotice': () => ok(wire(NOTICE)) });
     expect(await (await POST(post(DRAFT))).json()).toEqual({ ok: true, what: 'drafted' });
     await POST(post(DRAFT));
     await POST(post({ ...DRAFT, category: '' }));
@@ -184,7 +186,8 @@ describe('announcement desk BFF', () => {
   it('reads who an announcement is for: a row from before audiences is for everyone, and the list svc-notify offers', async () => {
     configure();
     upstream({
-      'notify.operatorNotices': () => ok([NOTICE, { ...NOTICE, id: '44444444-4444-4444-8444-444444444444', audience: 'p2p-merchants' }]),
+      'notify.operatorNotices': () =>
+        ok([wire(NOTICE), wire({ ...NOTICE, id: '44444444-4444-4444-8444-444444444444', audience: 'p2p-merchants' })]),
       'statusPage.definition': () => ok(DEFINITION),
       'notify.noticeAudiences': () => ok([AUDIENCES[0], { id: 'p2p-merchants', available: false }]),
       'actionApproval.list': () => ok({ approvals: [] }),
@@ -193,7 +196,7 @@ describe('announcement desk BFF', () => {
     expect(body.announcements.data.map((n: { audience: string }) => n.audience)).toEqual(['everyone', 'p2p-merchants']);
     expect(body.audiences).toEqual({ kind: 'ok', data: [AUDIENCES[0], { id: 'p2p-merchants', available: false }] });
     upstream({
-      'notify.operatorNotices': () => ok([{ ...NOTICE, audience: 'whales' }]),
+      'notify.operatorNotices': () => ok([wire({ ...NOTICE, audience: 'whales' })]),
       'statusPage.definition': () => ok(DEFINITION),
       'notify.noticeAudiences': () => ok([{ id: 'whales', available: true }]),
       'actionApproval.list': () => ok({ approvals: [] }),
@@ -205,7 +208,7 @@ describe('announcement desk BFF', () => {
 
   it('drafts for P2P merchants under its own key; for everyone the key is as before; an unknown audience never leaves', async () => {
     configure();
-    const c = upstream({ 'notify.draftNotice': () => ok(NOTICE) });
+    const c = upstream({ 'notify.draftNotice': () => ok(wire(NOTICE)) });
     await POST(post(DRAFT));
     await POST(post({ ...DRAFT, audience: 'everyone' }));
     await POST(post({ ...DRAFT, audience: 'p2p-merchants' }));

@@ -258,3 +258,20 @@ export async function founderAskedCall<R extends TrpcCallRecord>(
   );
   return result.kind === 'ok' ? { ...result, data: result.data.reply } : result;
 }
+
+/**
+ * `founderRecordCall` whose page reads the record's answer into its own view: `read` gets the answer the record already
+ * parsed, and its null reads as unreadable, as it did when the page called by name.
+ */
+export async function founderRecordRead<R extends TrpcCallRecord, T>(
+  ctx: FounderCallContext,
+  record: R,
+  input: ProcedureInput<R>,
+  read: (reply: ProcedureOutput<R>) => T | null,
+  options: FounderCallOptions = {},
+): Promise<FounderCallResult<T>> {
+  const result = await founderRecordCall(ctx, record, input, options);
+  if (result.kind !== 'ok') return result;
+  const view = read(result.data);
+  return view === null ? { kind: 'invalid', requestId: result.requestId } : { ...result, data: view };
+}
