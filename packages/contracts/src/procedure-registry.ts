@@ -785,6 +785,12 @@ import {
   SUPPORT_HELP_CENTRE,
   SUPPORT_DESK_HELP_CENTRE_TRANSLATIONS,
 } from './support-desk-settings-procedures.js';
+import { SUPPORT_LIST_QUEUE } from './support-list-queue-procedures.js';
+import { SUPPORT_OFFICIAL_CHANNELS } from './support-official-channels-procedures.js';
+import { SUPPORT_SAFETY_MINE, SUPPORT_SAFETY_MULE_POLICY } from './support-safety-procedures.js';
+import { SUPPORT_TICKET_CHARTS_LOOKUP } from './support-ticket-charts-lookup-procedures.js';
+import { SUPPORT_VIEWS_LIST } from './support-views-list-procedures.js';
+import { SUPPORT_VIEWS_SAVE } from './support-views-save-procedures.js';
 import {
   TAX_HEALTH,
   TAX_LOT_BOOK,
@@ -1577,6 +1583,13 @@ export const CONTRACT_PROCEDURES: readonly ProcedureRecord[] = [
   SUPPORT_DESK_SET_CONTACT_CHANNELS,
   SUPPORT_HELP_CENTRE,
   SUPPORT_DESK_HELP_CENTRE_TRANSLATIONS,
+  SUPPORT_LIST_QUEUE,
+  SUPPORT_OFFICIAL_CHANNELS,
+  SUPPORT_SAFETY_MINE,
+  SUPPORT_SAFETY_MULE_POLICY,
+  SUPPORT_TICKET_CHARTS_LOOKUP,
+  SUPPORT_VIEWS_LIST,
+  SUPPORT_VIEWS_SAVE,
   TAX_HEALTH,
   TAX_LOT_BOOK,
   TAX_PNL_OVER_TIME,

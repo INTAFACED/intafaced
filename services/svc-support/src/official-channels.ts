@@ -1,4 +1,7 @@
-import { officialChannelListSchema, officialChannelsAnswerSchema, publicProcedure, type OfficialChannelList } from '@intafaced/contracts';
+import { officialChannelListSchema, type OfficialChannelList } from '@intafaced/contracts';
+import { SUPPORT_OFFICIAL_CHANNELS } from '@intafaced/contracts/support-official-channels-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { supportRefusal } from './record-refusal.js';
 
 /**
  * The owner's official channel list from `SUPPORT_OFFICIAL_CHANNELS` (I-signin-sessions-26, J-identity-13 #1). Blank is
@@ -21,8 +24,10 @@ export function officialChannelsFromEnv(raw: string | undefined): OfficialChanne
 /** `officialChannels` (public): the published list, or `{ published: false }`. */
 export function officialChannelProcedures(list: OfficialChannelList | null) {
   return {
-    officialChannels: publicProcedure
-      .output(officialChannelsAnswerSchema)
-      .query(() => (list ? { published: true as const, ...list } : { published: false as const })),
+    officialChannels: mountRecord(
+      SUPPORT_OFFICIAL_CHANNELS,
+      () => (list ? { published: true as const, ...list } : { published: false as const }),
+      supportRefusal,
+    ),
   };
 }

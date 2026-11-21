@@ -1,6 +1,7 @@
 import 'server-only';
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { createHash } from 'node:crypto';
-import { supportChartsLookupSchema, supportTicketSchema, supportViewListSchema, supportViewSchema } from '@intafaced/contracts';
+import { supportTicketSchema } from '@intafaced/contracts';
 import {
   SUPPORT_DESK_ACCOUNT_STATE,
   SUPPORT_DESK_ASSIGN,
@@ -50,13 +51,12 @@ import {
 } from '@intafaced/contracts/support-desk-procedures';
 import { SUPPORT_COMMENT, SUPPORT_EVENTS, SUPPORT_GET, SUPPORT_LIST_COMMENTS } from '@intafaced/contracts/support-customer-procedures';
 import {
-  founderCall,
   founderRecordCall,
-  parseWith,
   type FounderCallContext,
   type FounderCallResult,
   partFrom,
   type PartLabels,
+  founderRecordRead,
 } from '@/lib/desk';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
 import { DESK_COMMENTS_READ, QUEUE_PAGE, readQueueResult, type SupportActionRequest } from './model';
@@ -82,6 +82,10 @@ import type {
   SupportViewsView,
   TicketExtrasView,
 } from './types';
+import { SUPPORT_LIST_QUEUE } from '@intafaced/contracts/support-list-queue-procedures';
+import { SUPPORT_VIEWS_LIST } from '@intafaced/contracts/support-views-list-procedures';
+import { SUPPORT_TICKET_CHARTS_LOOKUP } from '@intafaced/contracts/support-ticket-charts-lookup-procedures';
+import { SUPPORT_VIEWS_SAVE } from '@intafaced/contracts/support-views-save-procedures';
 
 /**
  * svc-support's operator desk, read and used as the signed-in founder.
@@ -121,14 +125,14 @@ export async function loadQueue(
 ): Promise<SupportQueueView> {
   const asOf = now.toISOString();
   let query = asked;
-  const plain = () => founderCall(ctx, 'support', 'listQueue', 'GET', { limit: QUEUE_PAGE }, readQueuePage);
+  const plain = () => founderRecordRead(ctx, SUPPORT_LIST_QUEUE, { limit: QUEUE_PAGE }, readQueuePage);
   if (isQueryEmpty(query)) return { asOf, queue: partFrom(await plain(), (d) => d, LABELS), query };
 
-  let filter: unknown = query.filter ?? undefined;
-  let sort: unknown = undefined;
+  let filter: JsonValue | undefined = query.filter ?? undefined;
+  let sort: JsonValue | undefined = undefined;
   let view: SupportQueueView['view'] = null;
   if (query.viewId) {
-    const views = await founderCall(ctx, 'support', 'viewsList', 'GET', {}, parseWith(supportViewListSchema));
+    const views = await founderRecordCall(ctx, SUPPORT_VIEWS_LIST, undefined);
     const found = views.kind === 'ok' ? (views.data.views.find((v) => v.id === query.viewId) ?? null) : null;
     if (!found) {
       const code = views.kind === 'ok' ? 'admin.support_view_not_found' : views.kind;
@@ -147,7 +151,7 @@ export async function loadQueue(
     ...(sort !== undefined ? { sort } : {}),
     ...(query.q ? { q: query.q } : {}),
   };
-  const result = await founderCall(ctx, 'support', 'listQueue', 'GET', input, readQueuePage);
+  const result = await founderRecordRead(ctx, SUPPORT_LIST_QUEUE, input, readQueuePage);
   if (result.kind === 'refused') {
     const code = refusalCode(result.refusal);
     // Named by what svc-support refused: only `support.filter_invalid` is about a typed filter's field.
@@ -166,7 +170,7 @@ export async function loadQueue(
 /** The saved views this founder may open, with one count each. Two reads, each its own part. */
 export async function loadViews(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportViewsView> {
   const [list, counts] = await Promise.all([
-    founderCall(ctx, 'support', 'viewsList', 'GET', {}, parseWith(supportViewListSchema)),
+    founderRecordCall(ctx, SUPPORT_VIEWS_LIST, undefined),
     founderRecordCall(ctx, SUPPORT_DESK_VIEWS_COUNTS, undefined),
   ]);
   return {
@@ -258,7 +262,7 @@ export async function loadChartsLookup(
   ticketId: string,
   now: Date = new Date(),
 ): Promise<SupportChartsLookupView> {
-  const result = await founderCall(ctx, 'support', 'ticketChartsLookup', 'GET', { ticketId }, parseWith(supportChartsLookupSchema));
+  const result = await founderRecordCall(ctx, SUPPORT_TICKET_CHARTS_LOOKUP, { ticketId });
   return {
     asOf: now.toISOString(),
     lookup: partFrom(result, (l) => l, {
@@ -528,14 +532,13 @@ export async function runSupportAction(ctx: FounderCallContext, request: Support
         (reply) => readBulkResults(reply, { batchKey: request.batchKey, ticketIds: request.ticketIds }),
       );
     case 'view_save':
-      return founderCall(
-        ctx,
-        'support',
-        'viewsSave',
-        'POST',
-        { name: request.name, expectedRevision: 0, shared: request.shared, filter: request.filter, reason: request.reason },
-        parseWith(supportViewSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_VIEWS_SAVE, {
+        name: request.name,
+        expectedRevision: 0,
+        shared: request.shared,
+        filter: request.filter,
+        reason: request.reason,
+      });
     case 'kb_publish':
       return founderRecordCall(ctx, SUPPORT_DESK_PUBLISH_KB, {
         id: request.id,
