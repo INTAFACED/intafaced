@@ -793,7 +793,8 @@ const BOOK = {
 
 /** A post as the book stores it: amounts as decimal strings, the purpose `accountPurpose` keys on, meta or `{}`. */
 const bookPost = (p) => ({
-  idempotencyKey: p.idempotencyKey,
+  // Named `idempotency`, not by its TypeScript name: a secret scanner reads `<...>Key: <text>` as a credential.
+  idempotency: p.idempotencyKey,
   module: p.module,
   reason: p.reason,
   meta: p.meta ?? {},

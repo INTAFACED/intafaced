@@ -68,7 +68,7 @@ fn migrated() -> Option<TestDb> {
 /// windows assume.
 fn post(c: &mut Client, p: &Json) {
     let mut tx = c.transaction().unwrap();
-    let key = s(p, "idempotencyKey");
+    let key = s(p, "idempotency");
     let meta = p.get("meta").unwrap().compact();
     let tx_id: String = tx
         .query_one(

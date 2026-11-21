@@ -1,7 +1,7 @@
 {
   "history": [
     {
-      "idempotencyKey": "hist-deposit-1",
+      "idempotency": "hist-deposit-1",
       "module": "bank",
       "reason": "bank.transfer.in",
       "meta": {},
@@ -27,7 +27,7 @@
       ]
     },
     {
-      "idempotencyKey": "hist-spend-1",
+      "idempotency": "hist-spend-1",
       "module": "trade",
       "reason": "trade.fill",
       "meta": {},
@@ -53,7 +53,7 @@
       ]
     },
     {
-      "idempotencyKey": "hist-refund-1",
+      "idempotency": "hist-refund-1",
       "module": "bank",
       "reason": "bank.transfer.in",
       "meta": {},
@@ -79,7 +79,7 @@
       ]
     },
     {
-      "idempotencyKey": "hist-stranger-1",
+      "idempotency": "hist-stranger-1",
       "module": "bank",
       "reason": "bank.transfer.in",
       "meta": {},
@@ -105,7 +105,7 @@
       ]
     },
     {
-      "idempotencyKey": "hist-stranger-2",
+      "idempotency": "hist-stranger-2",
       "module": "trade",
       "reason": "trade.fill",
       "meta": {},
@@ -131,7 +131,7 @@
       ]
     },
     {
-      "idempotencyKey": "hist-quiet-open",
+      "idempotency": "hist-quiet-open",
       "module": "bank",
       "reason": "bank.transfer.in",
       "meta": {},
@@ -159,7 +159,7 @@
   ],
   "page": [
     {
-      "idempotencyKey": "pg-usdt-1",
+      "idempotency": "pg-usdt-1",
       "module": "bank",
       "reason": "bank.transfer.in",
       "meta": {},
@@ -185,7 +185,7 @@
       ]
     },
     {
-      "idempotencyKey": "pg-usd-1",
+      "idempotency": "pg-usd-1",
       "module": "bank",
       "reason": "bank.transfer.in",
       "meta": {},
@@ -211,7 +211,7 @@
       ]
     },
     {
-      "idempotencyKey": "pg-usdt-2",
+      "idempotency": "pg-usdt-2",
       "module": "bank",
       "reason": "bank.transfer.in",
       "meta": {},
@@ -237,7 +237,7 @@
       ]
     },
     {
-      "idempotencyKey": "pg-other-1",
+      "idempotency": "pg-other-1",
       "module": "bank",
       "reason": "bank.transfer.in",
       "meta": {},
@@ -265,7 +265,7 @@
   ],
   "rails": [
     {
-      "idempotencyKey": "deposit:crypto-native:r1",
+      "idempotency": "deposit:crypto-native:r1",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "r1" },
@@ -291,7 +291,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:bank-crypto-ledger:r2",
+      "idempotency": "deposit:bank-crypto-ledger:r2",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "bank-crypto-ledger", "railRef": "r2" },
@@ -317,7 +317,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:local-test:r2b",
+      "idempotency": "deposit:local-test:r2b",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "local-test", "railRef": "r2b" },
@@ -343,7 +343,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:not-a-known-rail:r3",
+      "idempotency": "deposit:not-a-known-rail:r3",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "not-a-known-rail", "railRef": "r3" },
@@ -369,7 +369,7 @@
       ]
     },
     {
-      "idempotencyKey": "rail-nonstring",
+      "idempotency": "rail-nonstring",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": { "x": 1 }, "secret": "must-not-leak" },
@@ -395,7 +395,7 @@
       ]
     },
     {
-      "idempotencyKey": "rail-none",
+      "idempotency": "rail-none",
       "module": "bank",
       "reason": "bank.transfer.in",
       "meta": {},
@@ -423,7 +423,7 @@
   ],
   "products": [
     {
-      "idempotencyKey": "mm.seed.fund:product-btc:BTC",
+      "idempotency": "mm.seed.fund:product-btc:BTC",
       "module": "trade",
       "reason": "mm.seed.funded",
       "meta": { "seedId": "product-btc", "rail": "mm-seed" },
@@ -449,7 +449,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:crypto-native:product-u",
+      "idempotency": "deposit:crypto-native:product-u",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "product-u" },
@@ -475,7 +475,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:product-taker-desk",
+      "idempotency": "order.hold:product-taker-desk",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "product-taker-desk" },
@@ -501,7 +501,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold.mm:product-maker-desk",
+      "idempotency": "order.hold.mm:product-maker-desk",
       "module": "trade",
       "reason": "order.hold.mm",
       "meta": { "orderId": "product-maker-desk", "house": "market-maker" },
@@ -527,7 +527,7 @@
       ]
     },
     {
-      "idempotencyKey": "trade.fill.mm-maker:product-fill-desk",
+      "idempotency": "trade.fill.mm-maker:product-fill-desk",
       "module": "trade",
       "reason": "trade.fill.mm_maker",
       "meta": {
@@ -579,7 +579,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:product-taker-convert",
+      "idempotency": "order.hold:product-taker-convert",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "product-taker-convert" },
@@ -605,7 +605,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold.mm:product-maker-convert",
+      "idempotency": "order.hold.mm:product-maker-convert",
       "module": "trade",
       "reason": "order.hold.mm",
       "meta": { "orderId": "product-maker-convert", "house": "market-maker" },
@@ -631,7 +631,7 @@
       ]
     },
     {
-      "idempotencyKey": "trade.fill.mm-maker:product-fill-convert",
+      "idempotency": "trade.fill.mm-maker:product-fill-convert",
       "module": "trade",
       "reason": "trade.fill.mm_maker",
       "meta": {
@@ -684,7 +684,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:product-taker-odd",
+      "idempotency": "order.hold:product-taker-odd",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "product-taker-odd" },
@@ -710,7 +710,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold.mm:product-maker-odd",
+      "idempotency": "order.hold.mm:product-maker-odd",
       "module": "trade",
       "reason": "order.hold.mm",
       "meta": { "orderId": "product-maker-odd", "house": "market-maker" },
@@ -736,7 +736,7 @@
       ]
     },
     {
-      "idempotencyKey": "trade.fill.mm-maker:product-fill-odd",
+      "idempotency": "trade.fill.mm-maker:product-fill-odd",
       "module": "trade",
       "reason": "trade.fill.mm_maker",
       "meta": {
@@ -791,7 +791,7 @@
   ],
   "withdrawals": [
     {
-      "idempotencyKey": "deposit:crypto-native:wd-dep",
+      "idempotency": "deposit:crypto-native:wd-dep",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "wd-dep" },
@@ -817,7 +817,7 @@
       ]
     },
     {
-      "idempotencyKey": "withdraw.hold:7a7a7a7a-0000-4000-8000-000000000001:0",
+      "idempotency": "withdraw.hold:7a7a7a7a-0000-4000-8000-000000000001:0",
       "module": "ledger",
       "reason": "withdraw.held",
       "meta": { "rail": "crypto-native", "withdrawalId": "7a7a7a7a-0000-4000-8000-000000000001:0" },
@@ -843,7 +843,7 @@
       ]
     },
     {
-      "idempotencyKey": "withdraw.reverse:7a7a7a7a-0000-4000-8000-000000000001:0",
+      "idempotency": "withdraw.reverse:7a7a7a7a-0000-4000-8000-000000000001:0",
       "module": "ledger",
       "reason": "withdraw.reversed",
       "meta": { "rail": "crypto-native", "withdrawalId": "7a7a7a7a-0000-4000-8000-000000000001:0" },
@@ -869,7 +869,7 @@
       ]
     },
     {
-      "idempotencyKey": "withdraw.hold:7a7a7a7a-0000-4000-8000-000000000001:1",
+      "idempotency": "withdraw.hold:7a7a7a7a-0000-4000-8000-000000000001:1",
       "module": "ledger",
       "reason": "withdraw.held",
       "meta": { "rail": "crypto-native", "withdrawalId": "7a7a7a7a-0000-4000-8000-000000000001:1" },
@@ -897,7 +897,7 @@
   ],
   "orderIds": [
     {
-      "idempotencyKey": "deposit:crypto-native:oid-taker-usdt",
+      "idempotency": "deposit:crypto-native:oid-taker-usdt",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "oid-taker-usdt" },
@@ -923,7 +923,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:crypto-native:oid-maker-btc",
+      "idempotency": "deposit:crypto-native:oid-maker-btc",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "oid-maker-btc" },
@@ -949,7 +949,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:crypto-native:oid-self-usdt",
+      "idempotency": "deposit:crypto-native:oid-self-usdt",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "oid-self-usdt" },
@@ -975,7 +975,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:crypto-native:oid-self-btc",
+      "idempotency": "deposit:crypto-native:oid-self-btc",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "oid-self-btc" },
@@ -1001,7 +1001,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:d1111111-1111-4111-8111-d11111111111",
+      "idempotency": "order.hold:d1111111-1111-4111-8111-d11111111111",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "d1111111-1111-4111-8111-d11111111111" },
@@ -1027,7 +1027,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold.amend:d1111111-1111-4111-8111-d11111111111:1",
+      "idempotency": "order.hold.amend:d1111111-1111-4111-8111-d11111111111:1",
       "module": "trade",
       "reason": "order.hold.amend",
       "meta": { "orderId": "d1111111-1111-4111-8111-d11111111111", "sequence": 1 },
@@ -1053,7 +1053,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:d2222222-2222-4222-8222-d22222222222",
+      "idempotency": "order.hold:d2222222-2222-4222-8222-d22222222222",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "d2222222-2222-4222-8222-d22222222222" },
@@ -1079,7 +1079,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:d3333333-3333-4333-8333-d33333333333",
+      "idempotency": "order.hold:d3333333-3333-4333-8333-d33333333333",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "d3333333-3333-4333-8333-d33333333333" },
@@ -1105,7 +1105,7 @@
       ]
     },
     {
-      "idempotencyKey": "trade.fill:oid-fill-1",
+      "idempotency": "trade.fill:oid-fill-1",
       "module": "trade",
       "reason": "trade.fill",
       "meta": {
@@ -1174,7 +1174,7 @@
       ]
     },
     {
-      "idempotencyKey": "trade.fill:oid-fill-2",
+      "idempotency": "trade.fill:oid-fill-2",
       "module": "trade",
       "reason": "trade.fill",
       "meta": {
@@ -1243,7 +1243,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.release:d1111111-1111-4111-8111-d11111111111:0",
+      "idempotency": "order.release:d1111111-1111-4111-8111-d11111111111:0",
       "module": "trade",
       "reason": "order.hold.released",
       "meta": { "orderId": "d1111111-1111-4111-8111-d11111111111" },
@@ -1269,7 +1269,7 @@
       ]
     },
     {
-      "idempotencyKey": "mm.seed.fund:oid-seed-btc:BTC",
+      "idempotency": "mm.seed.fund:oid-seed-btc:BTC",
       "module": "trade",
       "reason": "mm.seed.funded",
       "meta": { "seedId": "oid-seed-btc", "rail": "mm-seed" },
@@ -1295,7 +1295,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:d4444444-4444-4444-8444-d44444444444",
+      "idempotency": "order.hold:d4444444-4444-4444-8444-d44444444444",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "d4444444-4444-4444-8444-d44444444444" },
@@ -1321,7 +1321,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold.mm:mm-side-1",
+      "idempotency": "order.hold.mm:mm-side-1",
       "module": "trade",
       "reason": "order.hold.mm",
       "meta": { "orderId": "mm-side-1", "house": "market-maker" },
@@ -1347,7 +1347,7 @@
       ]
     },
     {
-      "idempotencyKey": "trade.fill.mm-maker:oid-mm-fill",
+      "idempotency": "trade.fill.mm-maker:oid-mm-fill",
       "module": "trade",
       "reason": "trade.fill.mm_maker",
       "meta": {
@@ -1417,7 +1417,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:d5555555-5555-4555-8555-d55555555555",
+      "idempotency": "order.hold:d5555555-5555-4555-8555-d55555555555",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "d5555555-5555-4555-8555-d55555555555" },
@@ -1443,7 +1443,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:d6666666-6666-4666-8666-d66666666666",
+      "idempotency": "order.hold:d6666666-6666-4666-8666-d66666666666",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "d6666666-6666-4666-8666-d66666666666" },
@@ -1469,7 +1469,7 @@
       ]
     },
     {
-      "idempotencyKey": "trade.fill:oid-self-fill",
+      "idempotency": "trade.fill:oid-self-fill",
       "module": "trade",
       "reason": "trade.fill",
       "meta": {
@@ -1538,7 +1538,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:crypto-native:oid-free-usdt",
+      "idempotency": "deposit:crypto-native:oid-free-usdt",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "oid-free-usdt" },
@@ -1564,7 +1564,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:crypto-native:oid-free-maker-btc",
+      "idempotency": "deposit:crypto-native:oid-free-maker-btc",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "oid-free-maker-btc" },
@@ -1590,7 +1590,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:d7777777-7777-4777-8777-d77777777777",
+      "idempotency": "order.hold:d7777777-7777-4777-8777-d77777777777",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "d7777777-7777-4777-8777-d77777777777" },
@@ -1616,7 +1616,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:d8888888-8888-4888-8888-d88888888888",
+      "idempotency": "order.hold:d8888888-8888-4888-8888-d88888888888",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "d8888888-8888-4888-8888-d88888888888" },
@@ -1642,7 +1642,7 @@
       ]
     },
     {
-      "idempotencyKey": "trade.fill:oid-free-fill",
+      "idempotency": "trade.fill:oid-free-fill",
       "module": "trade",
       "reason": "trade.fill",
       "meta": {
@@ -1693,7 +1693,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:crypto-native:oid-bb-fee",
+      "idempotency": "deposit:crypto-native:oid-bb-fee",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "oid-bb-fee" },
@@ -1719,7 +1719,7 @@
       ]
     },
     {
-      "idempotencyKey": "fee:trade:oid-bb-fee",
+      "idempotency": "fee:trade:oid-bb-fee",
       "module": "trade",
       "reason": "fee.charged",
       "meta": { "mode": "asset" },
@@ -1745,7 +1745,7 @@
       ]
     },
     {
-      "idempotencyKey": "token.fee.sweep:buyback:oid-bb:trade:USDT",
+      "idempotency": "token.fee.sweep:buyback:oid-bb:trade:USDT",
       "module": "token",
       "reason": "token.fee.swept",
       "meta": { "windowId": "buyback:oid-bb", "sourceModule": "trade" },
@@ -1771,7 +1771,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold.buyback:oid-bb-order",
+      "idempotency": "order.hold.buyback:oid-bb-order",
       "module": "trade",
       "reason": "order.hold.buyback",
       "meta": { "orderId": "oid-bb-order", "house": "buyback" },
@@ -1797,7 +1797,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:crypto-native:oid-bb-maker-btc",
+      "idempotency": "deposit:crypto-native:oid-bb-maker-btc",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "oid-bb-maker-btc" },
@@ -1823,7 +1823,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:d9999999-9999-4999-8999-d99999999999",
+      "idempotency": "order.hold:d9999999-9999-4999-8999-d99999999999",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "d9999999-9999-4999-8999-d99999999999" },
@@ -1849,7 +1849,7 @@
       ]
     },
     {
-      "idempotencyKey": "trade.fill.buyback:oid-bb-fill",
+      "idempotency": "trade.fill.buyback:oid-bb-fill",
       "module": "trade",
       "reason": "trade.fill.buyback",
       "meta": {
@@ -1912,7 +1912,7 @@
   ],
   "holdings": [
     {
-      "idempotencyKey": "deposit:crypto-native:hh-usdt",
+      "idempotency": "deposit:crypto-native:hh-usdt",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "hh-usdt" },
@@ -1938,7 +1938,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:crypto-native:hh-btc",
+      "idempotency": "deposit:crypto-native:hh-btc",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "hh-btc" },
@@ -1964,7 +1964,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:e1111111-1111-4111-8111-e11111111111",
+      "idempotency": "order.hold:e1111111-1111-4111-8111-e11111111111",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "e1111111-1111-4111-8111-e11111111111" },
@@ -1990,7 +1990,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:e2222222-2222-4222-8222-e22222222222",
+      "idempotency": "order.hold:e2222222-2222-4222-8222-e22222222222",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "e2222222-2222-4222-8222-e22222222222" },
@@ -2016,7 +2016,7 @@
       ]
     },
     {
-      "idempotencyKey": "trade.fill:hh-fill-1",
+      "idempotency": "trade.fill:hh-fill-1",
       "module": "trade",
       "reason": "trade.fill",
       "meta": {
@@ -2085,7 +2085,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.release:e1111111-1111-4111-8111-e11111111111:0",
+      "idempotency": "order.release:e1111111-1111-4111-8111-e11111111111:0",
       "module": "trade",
       "reason": "order.hold.released",
       "meta": { "orderId": "e1111111-1111-4111-8111-e11111111111" },
@@ -2111,7 +2111,7 @@
       ]
     },
     {
-      "idempotencyKey": "withdraw.hold:hh-w-settled",
+      "idempotency": "withdraw.hold:hh-w-settled",
       "module": "ledger",
       "reason": "withdraw.held",
       "meta": { "rail": "crypto-native", "withdrawalId": "hh-w-settled" },
@@ -2137,7 +2137,7 @@
       ]
     },
     {
-      "idempotencyKey": "withdraw.settle:hh-w-settled",
+      "idempotency": "withdraw.settle:hh-w-settled",
       "module": "ledger",
       "reason": "withdraw.settled",
       "meta": { "rail": "crypto-native", "withdrawalId": "hh-w-settled" },
@@ -2163,7 +2163,7 @@
       ]
     },
     {
-      "idempotencyKey": "withdraw.hold:hh-w-reversed",
+      "idempotency": "withdraw.hold:hh-w-reversed",
       "module": "ledger",
       "reason": "withdraw.held",
       "meta": { "rail": "crypto-native", "withdrawalId": "hh-w-reversed" },
@@ -2189,7 +2189,7 @@
       ]
     },
     {
-      "idempotencyKey": "withdraw.reverse:hh-w-reversed",
+      "idempotency": "withdraw.reverse:hh-w-reversed",
       "module": "ledger",
       "reason": "withdraw.reversed",
       "meta": { "rail": "crypto-native", "withdrawalId": "hh-w-reversed" },
@@ -2215,7 +2215,7 @@
       ]
     },
     {
-      "idempotencyKey": "withdraw.hold:hh-w-open",
+      "idempotency": "withdraw.hold:hh-w-open",
       "module": "ledger",
       "reason": "withdraw.held",
       "meta": { "rail": "crypto-native", "withdrawalId": "hh-w-open" },
@@ -2243,7 +2243,7 @@
   ],
   "holdingsMinute": [
     {
-      "idempotencyKey": "bank.transfer.p2p:hh-t-in:0",
+      "idempotency": "bank.transfer.p2p:hh-t-in:0",
       "module": "bank",
       "reason": "bank.transfer.manual",
       "meta": { "transferId": "hh-t-in", "occurrence": 0 },
@@ -2269,7 +2269,7 @@
       ]
     },
     {
-      "idempotencyKey": "bank.transfer.p2p:hh-t-back:0",
+      "idempotency": "bank.transfer.p2p:hh-t-back:0",
       "module": "bank",
       "reason": "bank.transfer.manual",
       "meta": { "transferId": "hh-t-back", "occurrence": 0 },
@@ -2295,7 +2295,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:crypto-native:hh-bb-fee",
+      "idempotency": "deposit:crypto-native:hh-bb-fee",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "hh-bb-fee" },
@@ -2321,7 +2321,7 @@
       ]
     },
     {
-      "idempotencyKey": "fee:trade:hh-bb-fee",
+      "idempotency": "fee:trade:hh-bb-fee",
       "module": "trade",
       "reason": "fee.charged",
       "meta": { "mode": "asset" },
@@ -2347,7 +2347,7 @@
       ]
     },
     {
-      "idempotencyKey": "token.fee.sweep:buyback:hh-bb:trade:USDT",
+      "idempotency": "token.fee.sweep:buyback:hh-bb:trade:USDT",
       "module": "token",
       "reason": "token.fee.swept",
       "meta": { "windowId": "buyback:hh-bb", "sourceModule": "trade" },
@@ -2373,7 +2373,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold.buyback:hh-bb-order",
+      "idempotency": "order.hold.buyback:hh-bb-order",
       "module": "trade",
       "reason": "order.hold.buyback",
       "meta": { "orderId": "hh-bb-order", "house": "buyback" },
@@ -2399,7 +2399,7 @@
       ]
     },
     {
-      "idempotencyKey": "deposit:crypto-native:hh-bb-btc",
+      "idempotency": "deposit:crypto-native:hh-bb-btc",
       "module": "ledger",
       "reason": "deposit.credited",
       "meta": { "rail": "crypto-native", "railRef": "hh-bb-btc" },
@@ -2425,7 +2425,7 @@
       ]
     },
     {
-      "idempotencyKey": "order.hold:e3333333-3333-4333-8333-e33333333333",
+      "idempotency": "order.hold:e3333333-3333-4333-8333-e33333333333",
       "module": "trade",
       "reason": "order.hold",
       "meta": { "orderId": "e3333333-3333-4333-8333-e33333333333" },
@@ -2451,7 +2451,7 @@
       ]
     },
     {
-      "idempotencyKey": "trade.fill.buyback:hh-bb-fill",
+      "idempotency": "trade.fill.buyback:hh-bb-fill",
       "module": "trade",
       "reason": "trade.fill.buyback",
       "meta": {
