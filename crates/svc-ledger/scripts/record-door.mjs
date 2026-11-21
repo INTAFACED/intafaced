@@ -1229,9 +1229,7 @@ const recipeAnswerIndex = new Map();
     for (const caller of POST_RECIPE_CALLERS) {
       let answer;
       try {
-        await s2sHttp.handleS2sPostRecipe(POSTING_ONLY, body === undefined ? undefined : JSON.parse(text), {
-          ...(caller ? { caller } : {}),
-        });
+        await s2sHttp.handleS2sPostRecipe(POSTING_ONLY, body === undefined ? undefined : JSON.parse(text), caller ? { caller } : {});
         throw new Error('record-door: postRecipe answered without posting');
       } catch (err) {
         if (err instanceof Reached) answer = JSON.stringify({ post: recipeWire(err.post) });
