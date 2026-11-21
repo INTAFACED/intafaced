@@ -1,5 +1,5 @@
 {
-  "about": "Cases for READ.md, run by `node tooling/ci/brief-cases.mjs read` (project-state#2847). A bad case is a step whose test a reader called FAITHFUL and a hand check found WEAK; it scores 1 when the read is WEAK or MISMATCH. A control is a step two independent readers called FAITHFUL with no dispute; it passes when the read is FAITHFUL. `head` is the intafaced commit the test is read at; `words` the project-state commit its step words are read at, never copied here.",
+  "about": "Cases for READ.md, run by `node tooling/ci/brief-cases.mjs read` (project-state#2847). A bad case is a step whose test a reader called FAITHFUL and a hand check found WEAK; it scores 1 when the read is WEAK or MISMATCH. A control is a step two independent readers called FAITHFUL with no dispute; it passes when the read is FAITHFUL. `head` is the intafaced commit the test is read at; `words` the project-state commit its step words are read at, never copied here. A case with `picture` (a file beside the cases, kept from a past journeys run) scores on the picture alone (#9183): a bad one when it reads BROKEN, a control when it reads anything else.",
   "cases": [
     {
       "id": "copy-bots-otc-10-4",
@@ -98,6 +98,22 @@
       "kind": "control",
       "head": "70c14549ab44df4daeb3f58603792ed3dab91e1d",
       "words": "2d539bb4c94d4a51b650e453296240f2edc525ef"
+    },
+    {
+      "id": "cex-spot-03-2-unstyled",
+      "step": "J-cex-spot-03 #2",
+      "kind": "bad",
+      "head": "63359bcfb9c619f2ab2d49c482c374170188381e",
+      "words": "cb135d9deb3e0ce5186683dccf604590761deab8",
+      "picture": "read-pictures/cex-spot-03-2-unstyled.png"
+    },
+    {
+      "id": "cex-spot-01-2-laid-out",
+      "step": "J-cex-spot-01 #2",
+      "kind": "control",
+      "head": "63359bcfb9c619f2ab2d49c482c374170188381e",
+      "words": "cb135d9deb3e0ce5186683dccf604590761deab8",
+      "picture": "read-pictures/cex-spot-01-2-laid-out.png"
     }
   ]
 }
