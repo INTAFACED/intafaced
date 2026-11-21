@@ -77,6 +77,8 @@ describe('protocol trust desk words', () => {
       'Public · Ownership proven by 0xabc at block 7',
     );
     expect(TRUST_TAB_WAITS['Name tags']).toBeUndefined();
+    expect(TRUST_TAB_WAITS.Blocklist).toBeUndefined();
+    expect(trustRefusalWords('protocol.blocklist.already_blocked')).toContain('already on the blocklist');
     expect(trustRefusalWords('protocol.nametags.no_proof')).toMatch(/^No proof of ownership/);
   });
 });

@@ -22,6 +22,9 @@ use service_kit::s2s_verify::ServiceVerifier;
 use service_kit::server::{self, App};
 use service_kit::telemetry::{Logger, Telemetry};
 
+use svc_agents::advisors::Advisors;
+use svc_agents::advisors::grounding::AcademyCurriculum;
+use svc_agents::advisors::portfolio::{self, LedgerBalancesHttp, TradeTickerPrices};
 use svc_agents::boot;
 use svc_agents::db::{self, Store};
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
@@ -302,6 +305,55 @@ fn runtime(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Runtime, String> {
 }
 
 /// The door, built once from the environment, with the store, the meter, the gateway and what `/ready` reports.
+/// The advisors' reads (`index.ts`): svc-academy's curriculum when `ACADEMY_URL` is set; the person's balances in
+/// svc-ledger and svc-trade's prices when `TRADE_URL` and `PORTFOLIO_QUOTE_ASSET` are both set; planning switched on
+/// only by `AGENTS_PORTFOLIO_ENABLED`.
+fn advisors(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Advisors, String> {
+    let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = str_of("INTERNAL_SERVICE_SECRET");
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    let mut a = Advisors::unwired();
+    if let Some(url) = env.str("ACADEMY_URL").filter(|u| !u.is_empty()) {
+        a.curriculum = Box::new(AcademyCurriculum {
+            base_url: url.to_owned(),
+            signer: signer("svc-academy"),
+            fetch: fetch.clone(),
+        });
+    }
+    a.portfolio_killed =
+        portfolio::killed(env.raw.get("AGENTS_PORTFOLIO_ENABLED").map(String::as_str));
+    if let (Some(trade), Some(quote)) = (
+        env.str("TRADE_URL").filter(|u| !u.is_empty()),
+        env.str("PORTFOLIO_QUOTE_ASSET").filter(|q| !q.is_empty()),
+    ) {
+        a.holdings = Some((
+            Box::new(LedgerBalancesHttp::new(
+                &str_of("LEDGER_URL"),
+                signer("svc-ledger"),
+                fetch.clone(),
+            )),
+            Box::new(TradeTickerPrices {
+                base_url: trade.to_owned(),
+                quote_asset_id: quote.to_owned(),
+                fetch: fetch.clone(),
+                timeout_ms: 3_000,
+            }),
+        ));
+    }
+    Ok(a)
+}
+
 fn door(
     env: &AgentsEnv,
     store: Store,
@@ -309,6 +361,7 @@ fn door(
     gateway: GatewaySlice,
     ready: ReadyInput,
     runtime: Runtime,
+    advisors: Advisors,
 ) -> Result<AgentsDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let door = AgentsDoor::new(DoorConfig {
@@ -321,6 +374,7 @@ fn door(
         gateway,
         ready,
         runtime,
+        advisors,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
@@ -396,7 +450,8 @@ fn serve(
     let tasks = gateway.gateway.base().routes.len();
     let metering = metering(env, bus.clone(), &fetch)?;
     let runtime = runtime(env, &fetch)?;
-    let door = door(env, store, metering, gateway, ready, runtime)?;
+    let advisors = advisors(env, &fetch)?;
+    let door = door(env, store, metering, gateway, ready, runtime, advisors)?;
 
     let app = App {
         wire: door,
