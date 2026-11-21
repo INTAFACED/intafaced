@@ -250,14 +250,6 @@ export const tradeRooms = areaRooms('trade', tradeCopy, [
     area: 'trade',
     hidden: true,
   },
-  {
-    path: '/trade/bots/dca/share/:id',
-    title: 'Trading bots',
-    description: 'Automated strategies',
-    door: 'Trade',
-    area: 'trade',
-    hidden: true,
-  },
   { path: '/bots', title: 'Trading bots', description: 'Automated strategies', area: 'trade', alias: '/trade/bots' },
   {
     path: '/trade/risk',

@@ -364,7 +364,7 @@ test(`${J} #8 opens the share page: cost always shown; value reads "Not set" wit
   page.on('request', (req) => req.method() !== 'GET' && req.url().includes('/api/') && writes.push(req.url()));
   await signIn(page, who);
   writes.length = 0;
-  await page.goto(`/trade/bots/dca/share/${encodeURIComponent(ruleId)}`);
+  await page.goto(`/trade/bots/dca?share=${encodeURIComponent(ruleId)}`);
   const card = page.getByRole('region', { name: 'Recurring buy result' });
   await expect(card).toContainText(/Cost\s*10 USDC/);
   await expect(card).toContainText(/Value\s*Not set/);

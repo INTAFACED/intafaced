@@ -35,7 +35,7 @@ import { InfoNote, RefusalNote } from './parts';
  * The recurring buy of a basket on the person's own venue account (J-copy-bots-otc-16; svc-trade
  * src/recurring/recurring-buys.ts). INTAFACED holds and moves nothing: each slot buys each coin as one venue order on the
  * person's own account, placed by the recurring-buy agent permission their wallet signs once. The form opens from a coin
- * page; the rules are managed at /trade/bots/dca, and each has a share page at /trade/bots/dca/share/<ruleId>.
+ * page; the rules are managed at /trade/bots/dca, and each has a share page at /trade/bots/dca?share=<ruleId>.
  */
 
 export type RecurringRule = z.output<typeof recurringRuleSchema>;
@@ -395,22 +395,22 @@ function RecurringEditor({ asset, status, header, onClose }: { asset: string; st
   );
 }
 
-/** `/trade/bots/dca`: the person's recurring buys, each managed in place; `/trade/bots/dca/share/<id>`: its share page. */
+/** `/trade/bots/dca`: the person's recurring buys, each managed in place; `/trade/bots/dca?share=<id>`: its share page. */
 export function RecurringRoom({ path }: { path: string }) {
   const { t } = roomCopy.useCopy();
   const { session } = useSession();
   const venueMode = useVenueMode();
-  const pathname = new URL(path, 'http://x').pathname.replace(/\/+$/, '');
-  const share = /^\/trade\/bots\/dca\/share\/([^/]+)$/.exec(pathname);
+  const url = new URL(path, 'http://x');
+  const share = url.searchParams.get('share');
   const body = !session ? (
     <EmptyState
       variant="refused"
       title={t('You are signed out')}
       reason={t('Sign in to see your recurring buys.')}
-      action={{ label: t('Sign in'), href: `/login?redirect=${encodeURIComponent(pathname)}` }}
+      action={{ label: t('Sign in'), href: `/login?redirect=${encodeURIComponent(url.pathname + url.search)}` }}
     />
   ) : share ? (
-    <RecurringShare ruleId={decodeURIComponent(share[1]!)} />
+    <RecurringShare ruleId={share} />
   ) : (
     <RecurringList />
   );
@@ -571,7 +571,7 @@ function RecurringManage({ ruleId, onClose }: { ruleId: string; onClose: () => v
                 }))}
               />
             ) : null}
-            <Button nativeButton={false} variant="secondary" render={<a href={`${DCA_HREF}/share/${encodeURIComponent(shown.ruleId)}`} />}>
+            <Button nativeButton={false} variant="secondary" render={<a href={`${DCA_HREF}?share=${encodeURIComponent(shown.ruleId)}`} />}>
               {t('Open the share page')}
             </Button>
             {shown.status !== 'terminated' ? (
