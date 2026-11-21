@@ -143,6 +143,55 @@ pub fn transaction<T>(
     Ok(out)
 }
 
+/// A transaction body's error that may carry a database failure, so a serialization failure or a deadlock can be
+/// told apart from the body's own refusal.
+pub trait Retryable {
+    fn store(&self) -> Option<&StoreError>;
+}
+
+impl Retryable for StoreError {
+    fn store(&self) -> Option<&StoreError> {
+        Some(self)
+    }
+}
+
+/// `transaction(sql, fn, { isolation, maxAttempts })` (`@intafaced/db`): `f` in one transaction, run again from the
+/// start on a serialization failure (40001) or a deadlock (40P01), at most `attempts` times; any other failure, and
+/// the body's own refusals, end it at once. Rolled back whenever `f` fails.
+pub fn transaction_retrying<T, E: Retryable + From<StoreError>>(
+    pool: &Pool,
+    isolation: IsolationLevel,
+    attempts: u32,
+    mut f: impl FnMut(&mut Transaction<'_>) -> Result<T, E>,
+) -> Result<T, E> {
+    let mut attempt = 1;
+    loop {
+        let out: Result<T, E> = (|| {
+            let mut conn = pool.get().map_err(StoreError::from)?;
+            let client: &mut Client = conn.client().map_err(StoreError::from)?;
+            let mut tx = client
+                .build_transaction()
+                .isolation_level(isolation)
+                .start()
+                .map_err(StoreError::from)?;
+            let out = f(&mut tx)?;
+            tx.commit().map_err(StoreError::from)?;
+            Ok(out)
+        })();
+        match out {
+            Err(e)
+                if attempt < attempts
+                    && e.store()
+                        .and_then(|s| s.code.as_deref())
+                        .is_some_and(|c| c == "40001" || c == "40P01") =>
+            {
+                attempt += 1;
+            }
+            other => return other,
+        }
+    }
+}
+
 /// One statement or query outside a transaction.
 pub fn with_client<T>(
     pool: &Pool,

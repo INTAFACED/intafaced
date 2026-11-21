@@ -34,6 +34,7 @@ use service_kit::time::Instant;
 use service_kit::trpc::{self, TrpcError};
 
 use crate::db::Store;
+use crate::metering::Metering;
 
 /// A query answers GET, a mutation POST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,13 +204,14 @@ pub fn not_ported(slice: Slice) -> TrpcError {
     )
 }
 
-/// The slices' answers. Only the door's own call is served by the shell.
-fn handle(ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
+/// The slices' answers: the door's own call, and each ported slice's; every other slice is owed.
+fn handle(ctx: &Ctx<'_>, store: &Store, metering: &Metering) -> Result<Option<Json>, TrpcError> {
     match ctx.call.slice {
         Slice::Door => Ok(Some(Json::obj([
             ("ok", Json::Bool(true)),
             ("service", Json::str("svc-agents")),
         ]))),
+        Slice::Metering => crate::metering::slice::handle(ctx, store, metering),
         other => Err(not_ported(other)),
     }
 }
@@ -271,6 +273,8 @@ pub struct DoorConfig {
     pub now: fn() -> Instant,
     /// The `agents` schema, opened once by the binary (`db::open`).
     pub store: Store,
+    /// The meter, its settings and what it asks outside the process (`metering`).
+    pub metering: Metering,
 }
 
 pub struct AgentsDoor {
@@ -283,6 +287,7 @@ pub struct AgentsDoor {
     requests: RequestIds,
     edge_key: Option<EdgeKey>,
     store: Store,
+    metering: Metering,
 }
 
 /// The system clock.
@@ -322,6 +327,7 @@ impl AgentsDoor {
             requests: RequestIds::new(),
             edge_key: None,
             store: config.store,
+            metering: config.metering,
         })
     }
 
@@ -329,6 +335,11 @@ impl AgentsDoor {
     pub fn with_edge_key(mut self, key: EdgeKey) -> AgentsDoor {
         self.edge_key = Some(key);
         self
+    }
+
+    /// The meter every metering call and timer goes through.
+    pub fn metering(&self) -> &Metering {
+        &self.metering
     }
 
     /// The database every slice reads and writes through.
@@ -479,14 +490,18 @@ impl AgentsDoor {
             }
         }
 
-        handle(&Ctx {
-            call,
-            input,
-            principal: principal.as_ref(),
-            service: service.as_deref(),
-            region: &region,
-            now,
-        })
+        handle(
+            &Ctx {
+                call,
+                input,
+                principal: principal.as_ref(),
+                service: service.as_deref(),
+                region: &region,
+                now,
+            },
+            &self.store,
+            &self.metering,
+        )
     }
 }
 
