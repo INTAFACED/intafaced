@@ -6,8 +6,9 @@
 //! and `/ready` (`status`), and what the binary does before it serves (`boot`). The `freeze` slice adds the posting
 //! switch (`freeze`, with `approval` and `clock`); the `history` slice the history reads (`history`); the `reconcile`
 //! slice the proof of the book (`chain`, `reconcile`) and what runs and acts on it (`reconciler`); the `balances` slice
-//! the account and transaction reads (`balances`); the `ops-reads` slice svc-ops' five reads (`ops_reads`). Past the
-//! door a call is owed by its slice; `PORT.md` lists the slices and what each ports.
+//! the account and transaction reads (`balances`); the `desk` slice the ledger desk's reads and account metadata writes
+//! (`desk`); the `ops-reads` slice svc-ops' five reads (`ops_reads`). Past the door a call is owed by its slice;
+//! `PORT.md` lists the slices and what each ports.
 
 pub mod approval;
 pub mod balances;
@@ -15,6 +16,7 @@ pub mod boot;
 pub mod chain;
 pub mod clock;
 pub mod db;
+pub mod desk;
 pub mod door;
 pub mod env;
 pub mod errors;
