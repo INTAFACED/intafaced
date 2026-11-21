@@ -73,6 +73,17 @@ const offer = (over: Partial<Offer> = {}): Offer => ({
   terms: 'Pay within 15 minutes',
   status: 'active',
   createdAt: '2026-10-17T00:00:00Z',
+  totalAmount: '500',
+  filledAmount: '0',
+  tradesCompleted: 0,
+  nonInstantMethods: [],
+  acceptsNonInstant: false,
+  releaseWindowSeconds: null,
+  pauseReason: null,
+  closeReason: null,
+  visibility: 'public',
+  statusSince: '2026-10-17T00:00:00Z',
+  relistedFrom: null,
   ...over,
 });
 

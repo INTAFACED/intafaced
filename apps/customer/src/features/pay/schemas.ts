@@ -7,6 +7,12 @@ import {
   P2P_MERCHANTS_PRESENCE,
   P2P_MERCHANTS_TODOS,
   P2P_MODERATION,
+  P2P_BOARD_SORTS,
+  P2P_OFFERS_BULK,
+  P2P_OFFERS_EDIT_QUOTA,
+  P2P_OFFERS_GET,
+  P2P_OFFERS_PAGE,
+  P2P_OFFERS_SHARE_LINKS_LIST,
   P2P_REPUTATION_APPEAL,
   P2P_REPUTATION_GET,
   P2P_REVIEWS_FOR_TRADE,
@@ -54,48 +60,9 @@ export const sendInput = z.object({
   stepUpApprovalId: z.string().min(1).max(64).optional(),
 });
 export const sendOutput = z.object({ ledgerTxId: z.string().min(1), amount });
-export const offerSchema = z.object({
-  id,
-  makerId: z.string(),
-  side: z.enum(['buy', 'sell']),
-  asset,
-  fiatCurrency: z.string(),
-  priceType: z.enum(['fixed', 'float']),
-  price: amount,
-  minAmount: amount,
-  maxAmount: amount,
-  remainingAmount: amount,
-  methods: z.array(z.unknown()),
-  /**
-   * P-disputes-security-09: the listed methods whose money arrives within a settlement window, with the longest window
-   * any market sets (null: the published payment time applies). Instant methods are not listed.
-   */
-  nonInstantMethods: z.array(z.object({ methodId: z.string(), windowSeconds: z.number().int().positive().nullable() })).optional(),
-  /** P-disputes-security-09: the seller accepted non-instant methods when posting. */
-  acceptsNonInstant: z.boolean().optional(),
-  terms: z.string(),
-  status: z.enum(['active', 'paused', 'closed']),
-  /** P-ads-merchant-18: why the service paused the ad; null when it was not the service (or it is not paused). */
-  pauseReason: z.enum(['method_removed']).nullable().optional(),
-  /** P-ads-merchant-06: why the ad is closed (by the person, or sold out); null when not closed or closed before reasons. */
-  closeReason: z.enum(['by_you', 'sold_out']).nullable().optional(),
-  /** P-ads-merchant-07: `public` (on the board) or `private` (by share link only). */
-  visibility: z.enum(['public', 'private']).optional(),
-  /** P-ads-merchant-06: when the ad came into its present status. */
-  statusSince: z.string().optional(),
-  /** P-ads-merchant-06: the closed ad this one relisted. */
-  relistedFrom: id.nullable().optional(),
-  /** P-ads-merchant-06: on My Ads' closed list, the ad this closed one was relisted as. */
-  relistedAs: id.nullable().optional(),
-  createdAt: z.string(),
-  /** Board reads, floating ads only: the market reference, or null when no market feed prices the pair. */
-  referencePrice: amount.nullable().optional(),
-});
 /** One board page (`offers.page`): continue with `nextCursor` under the same filters and sort. */
-export const offerPageSchema = z.object({ offers: z.array(offerSchema), nextCursor: z.string().nullable() });
-export type OfferPage = z.infer<typeof offerPageSchema>;
-export const BOARD_SORTS = ['price_asc', 'price_desc'] as const;
-export type BoardSort = (typeof BOARD_SORTS)[number];
+export type OfferPage = ProcedureOutput<typeof P2P_OFFERS_PAGE>;
+export type BoardSort = (typeof P2P_BOARD_SORTS)[number];
 /** What the board asks the service for. Everything is filtered and sorted there, so paging never misses a row. */
 export type BoardQuery = {
   asset?: string;
@@ -180,7 +147,6 @@ export const disputeOpenedSchema = z.object({
 /** A versioned acceptance: the owner-published version and when this person accepted it (advertiser terms). */
 export type P2PRiskNotice = ProcedureOutput<typeof P2P_MERCHANTS_ADVERTISER_TERMS>;
 /** P-ads-merchant-01: the caller's free balance of one coin, as svc-p2p reads it from the ledger. */
-export const p2pSellBalanceSchema = z.object({ asset: z.string(), available: amount });
 /** P-ads-merchant-12: the posting checklist for one fiat, every check with the person's value and the target. */
 export type P2PPostingEligibility = ProcedureOutput<typeof P2P_MERCHANTS_POSTING_ELIGIBILITY>;
 /** P-ads-merchant-01: what the post-an-ad form sends to `offers.create`, besides its key and the terms version. */
@@ -445,7 +411,9 @@ export const webhookDeliverySchema = z.object({
   createdAt: z.string(),
   deliveredAt: z.string().nullable(),
 });
-export type Offer = z.infer<typeof offerSchema>;
+export type Offer = ProcedureOutput<typeof P2P_OFFERS_GET>;
+/** P-ads-merchant-06: the person's ad edits today against the daily cap, and when the count starts again. */
+export type OfferEditQuota = ProcedureOutput<typeof P2P_OFFERS_EDIT_QUOTA>;
 export type MethodSettlement = z.infer<typeof P2P_SETTLEMENT>;
 type TradeBase = ProcedureOutput<typeof P2P_TRADES_TAKE>;
 /** One order: every trade call's fields, and the ones only `trades.get` adds (its terms, readable status, fee split and more). */
@@ -487,14 +455,6 @@ export const methodRemovalImpactSchema = z.object({
   ads: z.array(z.object({ offerId: id, asset, fiatCurrency: z.string(), pauses: z.boolean() })),
 });
 
-/** P-ads-merchant-06: the person's ad edits today against the daily cap, and when the count starts again. */
-export const offerEditQuotaSchema = z.object({
-  limit: z.number().int().positive(),
-  used: z.number().int().nonnegative(),
-  remaining: z.number().int().nonnegative(),
-  resetsAt: z.string().datetime(),
-});
-
 /** P-ads-merchant-08: the person's presence. A scheduled week is a list of windows in their own time zone. */
 export type Presence = ProcedureOutput<typeof P2P_MERCHANTS_PRESENCE>;
 export type PresenceWindow = Presence['windows'][number];
@@ -502,20 +462,7 @@ export type PresenceWindow = Presence['windows'][number];
 export type TodoItem = ProcedureOutput<typeof P2P_MERCHANTS_TODOS>['items'][number];
 
 /** P-ads-merchant-08: a bulk action's answer, one result per ad. */
-export const bulkOutcomeSchema = z.object({
-  action: z.enum(['pause', 'resume', 'remove']),
-  replayed: z.boolean(),
-  more: z.boolean(),
-  results: z.array(
-    z.object({
-      offerId: z.string(),
-      ok: z.boolean(),
-      status: z.enum(['active', 'paused', 'closed']).nullable(),
-      code: z.string().nullable(),
-    }),
-  ),
-});
-export type BulkOutcome = z.infer<typeof bulkOutcomeSchema>;
+export type BulkOutcome = ProcedureOutput<typeof P2P_OFFERS_BULK>;
 
 /** P-ads-merchant-06: the fields an edit of a published ad may change; only the changed ones are sent. */
 export type OfferUpdateInput = {
@@ -528,11 +475,4 @@ export type OfferUpdateInput = {
 };
 
 /** P-ads-merchant-07: a share link to the person's own ad, as svc-p2p lists it (never its token). */
-export const shareLinkSchema = z.object({
-  id,
-  offerId: id,
-  createdAt: z.string().datetime(),
-  expiresAt: z.string().datetime(),
-  revokedAt: z.string().datetime().nullable(),
-});
-export type ShareLink = z.infer<typeof shareLinkSchema>;
+export type ShareLink = ProcedureOutput<typeof P2P_OFFERS_SHARE_LINKS_LIST>[number];

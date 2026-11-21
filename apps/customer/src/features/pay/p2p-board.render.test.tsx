@@ -35,6 +35,17 @@ const offer = (n: number, extra: Partial<Offer> = {}): Offer => ({
   terms: '',
   status: 'active',
   createdAt: '2026-10-23T00:00:00.000Z',
+  totalAmount: '500',
+  filledAmount: '0',
+  tradesCompleted: 0,
+  nonInstantMethods: [],
+  acceptsNonInstant: false,
+  releaseWindowSeconds: null,
+  pauseReason: null,
+  closeReason: null,
+  visibility: 'public',
+  statusSince: '2026-10-17T00:00:00Z',
+  relistedFrom: null,
   ...extra,
 });
 
