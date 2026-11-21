@@ -8,15 +8,21 @@ import {
   academyRevokePrivateLinkInputSchema,
 } from '@intafaced/contracts/academy-courses';
 import {
-  founderCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
   partFrom,
   type PartLabels,
   explainRefusal,
+  founderRecordRead,
 } from '@/lib/desk';
 import type { LinksDeskReply, LinksView, PreviewView } from './links-model';
+import {
+  ACADEMY_ADMIN_PREVIEW_COURSE,
+  ACADEMY_ADMIN_PRIVATE_LINKS,
+  ACADEMY_ADMIN_CREATE_PRIVATE_LINK,
+  ACADEMY_ADMIN_REVOKE_PRIVATE_LINK,
+} from '@intafaced/contracts/academy-admin-records';
 
 /**
  * Preview as new learner and private links as the signed-in founder. The preview is svc-academy's own learner view of
@@ -36,12 +42,12 @@ const readCreated = parseWith(academyCreatedPrivateLinkSchema);
 const readLink = parseWith(academyPrivateLinkSchema);
 
 export async function loadPreview(ctx: FounderCallContext, courseId: string): Promise<PreviewView> {
-  const view = await founderCall(ctx, 'academy', 'admin.previewCourse', 'GET', { courseId }, readView);
+  const view = await founderRecordRead(ctx, ACADEMY_ADMIN_PREVIEW_COURSE, { courseId }, readView);
   return { view: partFrom(view, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
 
 export async function loadLinks(ctx: FounderCallContext, courseId: string): Promise<LinksView> {
-  const links = await founderCall(ctx, 'academy', 'admin.privateLinks', 'GET', { courseId }, readLinks);
+  const links = await founderRecordRead(ctx, ACADEMY_ADMIN_PRIVATE_LINKS, { courseId }, readLinks);
   return { links: partFrom(links, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
 
@@ -83,12 +89,12 @@ export async function changeLinks(
     const parsed = academyCreatePrivateLinkInputSchema.safeParse(input);
     if (!parsed.success) return { why: 'Which course, and why make a link? Say why in up to 500 characters.' };
     return reply(
-      await founderCall(ctx, 'academy', 'admin.createPrivateLink', 'POST', parsed.data, readCreated),
+      await founderRecordRead(ctx, ACADEMY_ADMIN_CREATE_PRIVATE_LINK, parsed.data, readCreated),
       'private link made',
       (d) => d.path,
     );
   }
   const parsed = academyRevokePrivateLinkInputSchema.safeParse(input);
   if (!parsed.success) return { why: 'Which link, and why revoke it? Say why in up to 500 characters.' };
-  return reply(await founderCall(ctx, 'academy', 'admin.revokePrivateLink', 'POST', parsed.data, readLink), 'link revoked', () => null);
+  return reply(await founderRecordRead(ctx, ACADEMY_ADMIN_REVOKE_PRIVATE_LINK, parsed.data, readLink), 'link revoked', () => null);
 }

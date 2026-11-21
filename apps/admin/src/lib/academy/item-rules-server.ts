@@ -5,15 +5,20 @@ import {
   academySetCourseItemPrerequisitesInputSchema,
 } from '@intafaced/contracts/academy-course-item-rules';
 import {
-  founderCall,
   parseWith,
   type FounderCallContext,
   type FounderCallResult,
   partFrom,
   type PartLabels,
   explainRefusal,
+  founderRecordRead,
 } from '@/lib/desk';
 import type { AcademyCourseItemRules, ItemRulesDeskReply, ItemRulesView } from './item-rules-model';
+import {
+  ACADEMY_ADMIN_COURSE_ITEM_RULES,
+  ACADEMY_ADMIN_SET_COURSE_ITEM_PREREQUISITES,
+  ACADEMY_ADMIN_GRANT_COURSE_EXTENSION,
+} from '@intafaced/contracts/academy-admin-records';
 
 /**
  * A course's prerequisites and learners' own due dates as the signed-in founder (AC-release-access-02). svc-academy
@@ -30,7 +35,7 @@ const ACADEMY: PartLabels = {
 const readRules = parseWith(academyCourseItemRulesSchema);
 
 export async function loadItemRules(ctx: FounderCallContext, courseId: string): Promise<ItemRulesView> {
-  const rules = partFrom(await founderCall(ctx, 'academy', 'admin.courseItemRules', 'GET', { courseId }, readRules), (d) => d, ACADEMY);
+  const rules = partFrom(await founderRecordRead(ctx, ACADEMY_ADMIN_COURSE_ITEM_RULES, { courseId }, readRules), (d) => d, ACADEMY);
   return { rules, asOf: new Date().toISOString() };
 }
 
@@ -59,13 +64,13 @@ function reply(result: FounderCallResult<AcademyCourseItemRules | null>, what: s
 const OPS = {
   setPrerequisites: {
     schema: academySetCourseItemPrerequisitesInputSchema,
-    procedure: 'admin.setCourseItemPrerequisites',
+    record: ACADEMY_ADMIN_SET_COURSE_ITEM_PREREQUISITES,
     what: 'prerequisites saved',
     why: 'Choose up to 20 other assignments or quizzes of this course, and say why in up to 500 characters.',
   },
   grantExtension: {
     schema: academyGrantCourseExtensionInputSchema,
-    procedure: 'admin.grantCourseExtension',
+    record: ACADEMY_ADMIN_GRANT_COURSE_EXTENSION,
     what: 'due date moved for the learner',
     why: 'Choose an assignment, give the learner’s account id and a new due date and time, and say why in up to 500 characters.',
   },
@@ -83,5 +88,5 @@ export async function changeItemRules(
   const { op: _op, ...input } = body;
   const parsed = spec.schema.safeParse(input);
   if (!parsed.success) return { why: spec.why };
-  return reply(await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, readRules), spec.what);
+  return reply(await founderRecordRead(ctx, spec.record, parsed.data, readRules), spec.what);
 }
