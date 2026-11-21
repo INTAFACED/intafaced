@@ -177,6 +177,7 @@ const HTTP: Record<RefusalStatus, number> = {
   TOO_MANY_REQUESTS: 429,
   SERVICE_UNAVAILABLE: 503,
   TIMEOUT: 408,
+  PAYLOAD_TOO_LARGE: 413,
 };
 
 /** The doors whose `support.macro_*` refusals come from the macro book (`MacroError`); everywhere else a code is a `SupportError`. */
