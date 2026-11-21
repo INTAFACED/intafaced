@@ -212,7 +212,7 @@ export function table({ rows }, nFiles) {
  * one repository never share a ref); a repository with no `origin` remote has only its own origin/main. null: the fetch
  * failed, and nothing is judged with rules that may be old.
  */
-function mainRef() {
+export function mainRef() {
   if (process.env.GITHUB_ACTIONS && process.env.GITHUB_REPOSITORY) {
     const url = `${process.env.GITHUB_SERVER_URL ?? 'https://github.com'}/${process.env.GITHUB_REPOSITORY}`;
     if (gitOr(['fetch', '--no-tags', '--quiet', url, '+refs/heads/main:refs/lint-ratchet/main']) === null) return null;
