@@ -808,6 +808,8 @@ function write(result) {
     touched.push(file);
   }
   for (const [file, ch] of result.changes.files) if (ch.schemas) retype(file, ch.schemas);
+  // A re-export kept at plan time for an importer whose read then moved to contracts serves no one.
+  for (const [file, ch] of result.changes.files) if (ch.exports.size) pruneReExports(file, ch.exports, (name) => importersOf(file, name));
   for (const file of touched) if (!file.startsWith(CONTRACTS)) pruneSchemas(file);
   // A schema a moved caller imported from another file of its app may now have no importer: that file is pruned too.
   const sources = new Set();
@@ -1001,7 +1003,7 @@ export function pruneSchemas(file) {
 }
 
 /** Each name a file imports from a file of its own app (`./x`, `@/x`), with that file. */
-function importedFrom(file) {
+export function importedFrom(file) {
   forget(file);
   const p = load(file);
   const app = file.match(/^(.*\/apps\/[^/]+)\//)?.[1];
@@ -1011,9 +1013,41 @@ function importedFrom(file) {
     const spec = stmt.source.value;
     const src =
       spec.startsWith('@/') && app ? resolveRelative(join(app, 'src', 'x.ts'), `./${spec.slice(2)}`) : resolveRelative(file, spec);
-    for (const sp of stmt.specifiers ?? []) out.set(sp.local.name, src);
+    for (const sp of stmt.specifiers ?? []) {
+      out.set(sp.local.name, src);
+      // `import * as s`: each member read (`s.disputeSchema`) is an import of its own, so a schema whose last reader moved is seen.
+      if (sp.type === 'ImportNamespaceSpecifier')
+        walk(p.program, (n) => {
+          if (n.type === 'MemberExpression' && !n.computed && n.object.type === 'Identifier' && n.object.name === sp.local.name)
+            out.set(`${sp.local.name}.${n.property.name}`, src);
+        });
+    }
   }
   return out;
+}
+
+/**
+ * Drops from a file's `export { ... }` each of `names` (as written: `x` or `type x`) that `importers(name)` says no
+ * other file imports any more; the statement goes when it keeps none.
+ */
+export function pruneReExports(file, names, importers) {
+  forget(file);
+  const p = load(file);
+  const bare = new Set([...names].map((n) => n.replace(/^type /, '')));
+  const edits = [];
+  for (const stmt of p.program.body) {
+    if (stmt.type !== 'ExportNamedDeclaration' || stmt.declaration || stmt.source) continue;
+    const keep = stmt.specifiers.filter((sp) => !bare.has(sp.local.name) || importers(sp.exported.name ?? sp.exported.value).length > 0);
+    if (keep.length === stmt.specifiers.length) continue;
+    edits.push(
+      keep.length === 0
+        ? { start: statementStart(p, stmt), end: statementEnd(p, stmt), text: '' }
+        : { start: stmt.start, end: stmt.end, text: `export { ${keep.map((sp) => text(p, sp)).join(', ')} };` },
+    );
+  }
+  if (!edits.length) return;
+  writeFileSync(file, applyEdits(p.src, edits));
+  forget(file);
 }
 
 /** Removes named import specifiers a file no longer reads (only those: a side-effect import stays). */
