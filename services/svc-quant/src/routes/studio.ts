@@ -1,5 +1,5 @@
 import { QUANT_SIGNAL_RULES_SANDBOX, QUANT_VERSION_NOT_FOUND, QuantError } from '../errors.js';
-import { STUDIO_LIST_LIMIT_CAP, assertStudioListLimit } from '../studio/list-limit.js';
+import { assertStudioListLimit } from '../studio/list-limit.js';
 import { buildSavedStrategy } from '../studio/save.js';
 import { compileSignalRules } from '../studio/modules.js';
 import { draftOf } from '../studio/repository.js';
@@ -32,13 +32,13 @@ import {
   toTrpc,
   strategyDetail,
   sandboxBody,
-  strategyMetadata,
   accountField,
   writeKeyField,
   clientIdField,
   missingStrategy,
   type QuantCore,
 } from './core.js';
+import { QUANT_STUDIO_OPERATOR_LIST } from '@intafaced/contracts/quant-studio-records';
 
 export function studioRoutes(core: QuantCore) {
   const { strategies, runs, approvals, approvedVersionsOf, runLimitsFor, runDeps, releaseNoteOf, replayOf, accountOf, refuseWhileLocked } =
@@ -355,17 +355,9 @@ export function studioRoutes(core: QuantCore) {
      * Every account's metadata. Admin scope required. No source and no blocks.
      * A body accountId is ignored — this is not a way to read one user's source.
      */
-    operatorList: publicJurisdictionProcedure('quant', 'fiat')
-      .input(
-        z
-          .object({
-            limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional(),
-            ...accountField,
-          })
-          .optional(),
-      )
-      .output(z.object({ strategies: z.array(strategyMetadata), quarantineCount: z.number().int().nonnegative() }))
-      .query(async ({ input, ctx }) => {
+    operatorList: mountRecord(
+      QUANT_STUDIO_OPERATOR_LIST,
+      async ({ input, ctx }) => {
         try {
           requireStudioOperator(ctx);
           const limit = assertStudioListLimit(input?.limit);
@@ -377,6 +369,8 @@ export function studioRoutes(core: QuantCore) {
         } catch (err) {
           toTrpc(err);
         }
-      }),
+      },
+      quantRefusal,
+    ),
   });
 }
