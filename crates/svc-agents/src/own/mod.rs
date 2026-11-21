@@ -6,6 +6,10 @@
 //! - [`gates`]: consent, the owner's baseline and the person's standing rules.
 //! - [`store`]: the person's own agents (`own_agents`).
 //! - [`assistant`]: drafting with the assistant.
+//! - [`publishing`]: publishing to surfaces, the publication and deleting a draft.
+//! - [`evals`]: the test set and its evaluations.
+//! - [`test_runs`]: dry runs, test engine runs, tool tests and their approvals; [`guards`]: their content, output and
+//!   memory guards.
 //! - [`slice`]: the calls.
 //!
 //! A refusal of the slice is an [`OwnRefusal`]: the router's `guard` answers it with its code as the message and the
@@ -13,9 +17,13 @@
 
 pub mod assistant;
 pub mod catalog;
+pub mod evals;
 pub mod gates;
+pub mod guards;
+pub mod publishing;
 pub mod slice;
 pub mod store;
+pub mod test_runs;
 
 use service_kit::trpc::TrpcError;
 
