@@ -15,6 +15,8 @@ export const personCopy = areaCopy({
     'Create an API key': 'Create an API key',
     'Keys for your own programs to read and trade': 'Keys for your own programs to read and trade',
     'Staff access': 'Staff access',
+    'Trading permissions': 'Trading permissions',
+    'The builder fee you let us charge on each venue, and its revoke': 'The builder fee you let us charge on each venue, and its revoke',
     'Who on our staff looked at or acted on your trading account, and when':
       'Who on our staff looked at or acted on your trading account, and when',
     'A new key with only the permissions it needs': 'A new key with only the permissions it needs',
@@ -169,6 +171,13 @@ export const personRooms = areaRooms('person', personCopy, [
     description: 'One key: its end date, idle expiry and IP policy',
     area: 'person',
     hidden: true,
+    screen: 'account',
+  },
+  {
+    path: '/uc/trading-permissions',
+    title: 'Trading permissions',
+    description: 'The builder fee you let us charge on each venue, and its revoke',
+    area: 'person',
     screen: 'account',
   },
   { path: '/verification', title: 'Verification', description: 'Verification status and documents', area: 'person', screen: 'account' },
