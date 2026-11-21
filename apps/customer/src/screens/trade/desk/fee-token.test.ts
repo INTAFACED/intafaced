@@ -53,10 +53,6 @@ describe('the reads', () => {
         calls.push(path);
         return answers[path];
       },
-      query: async (module: string, procedure: string) => {
-        calls.push(`${module}.${procedure}`);
-        return answers[`${module}.${procedure}`];
-      },
       call: async (record: { module: string; path: string }) => {
         calls.push(`${record.module}.${record.path}`);
         return answers[`${record.module}.${record.path}`];

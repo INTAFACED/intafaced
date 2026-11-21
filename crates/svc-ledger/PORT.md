@@ -25,6 +25,12 @@ The `freeze` slice is ported. It added:
 - `src/door/freeze.rs`: `GET` and `POST /operator/freeze`, `POST /operator/unfreeze` and `GET /operator/integrity/clock`. `freezeSchema` is recorded as zod runs it: its trim, then its pipe (`service_kit::schema` runs pipes).
 - `tests/freeze_pg.rs`: the freeze cases of `service.freeze.test.ts`, the clock-skew Postgres case and the freeze doors of `operator-http.test.ts`, on a real Postgres.
 
+The `history` slice is ported. It added:
+
+- `src/history.rs`: `history` (one account's entries in `[from, to)`, refused past 10,000 rather than answered short), `historyPage` (keyset pages newest first on the entry id, the cursor `base64url("v2.<id>")`, and each line's allow-listed rail and product, the owner's own order, its fill fee and its withdrawal id) and `holdingsHistory` (the owner's holdings and what crossed its edge since `from`, per asset, reason and bucket, in one repeatable-read snapshot). Moments cross as milliseconds, the database's microseconds cut as `new Date` cuts them.
+- `src/door/history.rs`: the three doors. `history` refuses `after` and `cursor` before its schema would strip them; `holdingsHistory` refuses a start ahead of the clock or off its bucket. Their inputs are recorded in `schemas.json` (the recorder now records `literal` and `default` parts).
+- `tests/history_pg.rs`: `history-postgres.test.ts`, `history-page-postgres.test.ts`, `history-page-order-id-postgres.test.ts`, `holdings-history-postgres.test.ts` and `holdings-history-door.test.ts`, case for case, on a real Postgres. Each books the same recipes the TypeScript test posts, recorded in `tests/fixtures/history-book.golden.json`.
+
 The `ops-reads` slice is ported. It added:
 
 - `src/ops_reads.rs`: svc-ops' five reads. `feeRevenue` sums earned, returned and collected per venue and asset over a half-open window, and refuses an empty or inverted one with `ledger.fee_revenue_window_invalid`. `ownFunds` reads our house and module accounts and our own-funds places in one statement, then checks every row again with the custody split, so a customer's row is a 500, never counted as ours. `restoreWatermark` reads the chain tip, live or as of `{ asOf }` (`ledger.skew_bound_unset` with no bound, `ledger.restore_asof_unanswerable` before the cut-off is past it). `reconciliationEvaluations` reads settled runs after a microsecond cursor. `transactionsExist` answers ids only.

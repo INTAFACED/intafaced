@@ -16,7 +16,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSyn
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { MAX_DIFF_BYTES, MAX_PARTS, readOwnerRecord, summarizeGenerated, writeReviewInputs } from '../ci/ci-review.mjs';
+import { gitBlobs, MAX_DIFF_BYTES, MAX_PARTS, readOwnerRecord, summarizeGenerated, writeReviewInputs } from '../ci/ci-review.mjs';
 import { gitSource, MAX_PROMPT_BYTES, parseStepWords, readWordsApi } from '../ci/test-judge.mjs';
 
 /** What the CI review's reviewer is told about its tools (ci-review.yml): it reads the default branch, here through git. */
@@ -30,8 +30,9 @@ export async function writeLocal(dir, { top, base, head, loadWords, graph = base
   const src = gitSource(top, graph);
   const { diff } = await src.diff(base, head);
   if (!diff.trim()) throw new Error(`no diff between ${base.slice(0, 9)} and ${head.slice(0, 9)}: nothing to review`);
+  const summary = summarizeGenerated(diff, { readBlob: gitBlobs(top) });
   const said = await writeReviewInputs(dir, {
-    diff: summarizeGenerated(diff),
+    diff: summary,
     base,
     head,
     pr,
@@ -42,7 +43,7 @@ export async function writeLocal(dir, { top, base, head, loadWords, graph = base
     loadOwner,
   });
   writeFileSync(join(dir, 'reads.txt'), localReads(graph));
-  return { said, bytes: Buffer.byteLength(summarizeGenerated(diff)) };
+  return { said, bytes: Buffer.byteLength(summary) };
 }
 
 /** Step words from a project-state clone's `ref` through git (no checkout, no network), as readWordsApi gives them. */

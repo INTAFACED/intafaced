@@ -100,13 +100,125 @@
     {
       "t": "object",
       "shape": [
-        ["reason", 32],
-        ["confirmOperatorId", 35],
-        ["approvalId", 38],
-        ["operationId", 39]
+        ["account", 32],
+        ["from", 39],
+        ["to", 40]
       ]
     },
-    { "t": "pipe", "in": 33, "out": 34 },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 33],
+        ["ownerId", 34],
+        ["assetId", 35],
+        ["kind", 36],
+        ["purpose", 37]
+      ],
+      "checks": [{ "k": "super", "id": "owner_id_space" }]
+    },
+    { "t": "enum", "values": ["user", "subaccount", "module", "house", "treasury"] },
+    { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 16 }
+      ]
+    },
+    { "t": "enum", "values": ["available", "hold", "escrow", "stake", "collateral"] },
+    { "t": "optional", "in": 38 },
+    { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 33],
+        ["ownerId", 34],
+        ["assetId", 42],
+        ["kind", 36],
+        ["purpose", 37],
+        ["limit", 44],
+        ["cursor", 46]
+      ],
+      "catchall": "strict",
+      "checks": [{ "k": "super", "id": "owner_id_space" }]
+    },
+    { "t": "optional", "in": 43 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 16 }
+      ]
+    },
+    { "t": "default", "in": 45, "value": 50 },
+    { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 200, "incl": true }] },
+    { "t": "optional", "in": 47 },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 256 }
+      ]
+    },
+    {
+      "t": "object",
+      "shape": [
+        ["ownerType", 49],
+        ["ownerId", 50],
+        ["from", 51],
+        ["bucketSeconds", 52]
+      ],
+      "catchall": "strict"
+    },
+    { "t": "enum", "values": ["user", "subaccount"] },
+    {
+      "t": "string",
+      "checks": [
+        { "k": "min_length", "n": 1 },
+        { "k": "max_length", "n": 128 }
+      ]
+    },
+    {
+      "t": "string",
+      "checks": [
+        {
+          "k": "format",
+          "format": "datetime",
+          "src": "/^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$/"
+        }
+      ]
+    },
+    { "t": "literal", "values": [60, 300, 3600, 14400, 86400] },
+    {
+      "t": "object",
+      "shape": [
+        ["reason", 54],
+        ["confirmOperatorId", 57],
+        ["approvalId", 60],
+        ["operationId", 61]
+      ]
+    },
+    { "t": "pipe", "in": 55, "out": 56 },
     { "t": "string", "checks": [{ "k": "trim" }] },
     {
       "t": "string",
@@ -115,8 +227,8 @@
         { "k": "max_length", "n": 500 }
       ]
     },
-    { "t": "optional", "in": 36 },
-    { "t": "nullable", "in": 37 },
+    { "t": "optional", "in": 58 },
+    { "t": "nullable", "in": 59 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     {
       "t": "string",
@@ -135,13 +247,13 @@
     {
       "t": "object",
       "shape": [
-        ["confirmOperatorId", 41],
-        ["approvalId", 44],
-        ["operationId", 45]
+        ["confirmOperatorId", 63],
+        ["approvalId", 66],
+        ["operationId", 67]
       ]
     },
-    { "t": "optional", "in": 42 },
-    { "t": "nullable", "in": 43 },
+    { "t": "optional", "in": 64 },
+    { "t": "nullable", "in": 65 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     {
       "t": "string",
@@ -160,13 +272,13 @@
     {
       "t": "object",
       "shape": [
-        ["confirmOperatorId", 47],
-        ["approvalId", 50],
-        ["operationId", 51]
+        ["confirmOperatorId", 69],
+        ["approvalId", 72],
+        ["operationId", 73]
       ]
     },
-    { "t": "optional", "in": 48 },
-    { "t": "nullable", "in": 49 },
+    { "t": "optional", "in": 70 },
+    { "t": "nullable", "in": 71 },
     { "t": "string", "checks": [{ "k": "max_length", "n": 128 }] },
     {
       "t": "string",
@@ -182,29 +294,29 @@
         { "k": "max_length", "n": 128 }
       ]
     },
-    { "t": "object", "shape": [["txId", 53]], "catchall": "strict" },
+    { "t": "object", "shape": [["txId", 75]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
         { "k": "format", "format": "guid", "src": "/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/" }
       ]
     },
-    { "t": "object", "shape": [["businessKey", 55]], "catchall": "strict" },
+    { "t": "object", "shape": [["businessKey", 77]], "catchall": "strict" },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 512 }] },
     {
       "t": "object",
       "shape": [
-        ["assetId", 57],
-        ["from", 59],
-        ["to", 61],
-        ["before", 63]
+        ["assetId", 79],
+        ["from", 81],
+        ["to", 83],
+        ["before", 85]
       ],
       "catchall": "strict",
       "checks": [{ "k": "refine", "id": "from_before_to", "path": ["to"], "msg": "from must be before to" }]
     },
-    { "t": "optional", "in": 58 },
+    { "t": "optional", "in": 80 },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "min_length", "n": 1 }, { "k": "max_length", "n": 32 }] },
-    { "t": "optional", "in": 60 },
+    { "t": "optional", "in": 82 },
     {
       "t": "string",
       "checks": [
@@ -215,7 +327,7 @@
         }
       ]
     },
-    { "t": "optional", "in": 62 },
+    { "t": "optional", "in": 84 },
     {
       "t": "string",
       "checks": [
@@ -226,7 +338,7 @@
         }
       ]
     },
-    { "t": "optional", "in": 64 },
+    { "t": "optional", "in": 86 },
     {
       "t": "string",
       "checks": [
@@ -237,13 +349,13 @@
     {
       "t": "object",
       "shape": [
-        ["prefix", 66],
-        ["after", 67]
+        ["prefix", 88],
+        ["after", 89]
       ],
       "catchall": "strict"
     },
     { "t": "string", "checks": [{ "k": "trim" }, { "k": "regex", "src": "/^(user|subaccount|module|house|treasury):(.{1,128})$/" }] },
-    { "t": "optional", "in": 68 },
+    { "t": "optional", "in": 90 },
     {
       "t": "string",
       "checks": [
@@ -255,7 +367,7 @@
       ]
     },
     { "t": "object", "shape": [], "catchall": "strict" },
-    { "t": "object", "shape": [["accountId", 71]], "catchall": "strict" },
+    { "t": "object", "shape": [["accountId", 93]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
@@ -269,8 +381,8 @@
     {
       "t": "object",
       "shape": [
-        ["from", 73],
-        ["to", 74]
+        ["from", 95],
+        ["to", 96]
       ]
     },
     {
@@ -293,10 +405,10 @@
         }
       ]
     },
-    { "t": "object", "shape": [["txIds", 76]], "catchall": "strict" },
+    { "t": "object", "shape": [["txIds", 98]], "catchall": "strict" },
     {
       "t": "array",
-      "el": 77,
+      "el": 99,
       "checks": [
         { "k": "min_length", "n": 1 },
         { "k": "max_length", "n": 20 }
@@ -311,17 +423,17 @@
     {
       "t": "object",
       "shape": [
-        ["after", 79],
-        ["limit", 83]
+        ["after", 101],
+        ["limit", 105]
       ],
       "catchall": "strict"
     },
-    { "t": "nullable", "in": 80 },
+    { "t": "nullable", "in": 102 },
     {
       "t": "object",
       "shape": [
-        ["finishedAt", 81],
-        ["id", 82]
+        ["finishedAt", 103],
+        ["id", 104]
       ],
       "catchall": "strict"
     },
@@ -346,7 +458,7 @@
       ]
     },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 1, "incl": true }, { "k": "lt", "v": 500, "incl": true }] },
-    { "t": "object", "shape": [["asOf", 85]], "catchall": "strict" },
+    { "t": "object", "shape": [["asOf", 107]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
@@ -360,22 +472,22 @@
     {
       "t": "object",
       "shape": [
-        ["id", 87],
-        ["controlId", 88],
-        ["status", 89],
-        ["compared", 90],
-        ["phase", 91],
-        ["errorCode", 97],
-        ["asOf", 101],
-        ["readAt", 102],
-        ["margin", 103],
-        ["sources", 107],
-        ["outsideSide", 115],
-        ["periodStart", 116],
-        ["periodEnd", 117],
-        ["accounts", 118],
-        ["assets", 120],
-        ["reconcilingItems", 136]
+        ["id", 109],
+        ["controlId", 110],
+        ["status", 111],
+        ["compared", 112],
+        ["phase", 113],
+        ["errorCode", 119],
+        ["asOf", 123],
+        ["readAt", 124],
+        ["margin", 125],
+        ["sources", 129],
+        ["outsideSide", 137],
+        ["periodStart", 138],
+        ["periodEnd", 139],
+        ["accounts", 140],
+        ["assets", 142],
+        ["reconcilingItems", 158]
       ],
       "catchall": "strict"
     },
@@ -401,25 +513,25 @@
     },
     { "t": "enum", "values": ["started", "PASS", "FAIL", "ERROR", "UNSET", "NOTHING_TO_COMPARE"] },
     { "t": "number", "checks": [{ "k": "int" }, { "k": "gt", "v": 0, "incl": true }] },
-    { "t": "union", "options": [92, 94] },
-    { "t": "object", "shape": [["status", 93]], "catchall": "strict" },
+    { "t": "union", "options": [114, 116] },
+    { "t": "object", "shape": [["status", 115]], "catchall": "strict" },
     { "t": "literal", "values": ["unset"] },
     {
       "t": "object",
       "shape": [
-        ["status", 95],
-        ["value", 96]
+        ["status", 117],
+        ["value", 118]
       ],
       "catchall": "strict"
     },
     { "t": "literal", "values": ["set"] },
     { "t": "string", "checks": [{ "k": "min_length", "n": 1 }] },
-    { "t": "union", "options": [92, 98] },
+    { "t": "union", "options": [114, 120] },
     {
       "t": "object",
       "shape": [
-        ["status", 99],
-        ["value", 100]
+        ["status", 121],
+        ["value", 122]
       ],
       "catchall": "strict"
     },
@@ -445,12 +557,12 @@
         }
       ]
     },
-    { "t": "union", "options": [92, 104] },
+    { "t": "union", "options": [114, 126] },
     {
       "t": "object",
       "shape": [
-        ["status", 105],
-        ["value", 106]
+        ["status", 127],
+        ["value", 128]
       ],
       "catchall": "strict"
     },
@@ -459,13 +571,13 @@
     {
       "t": "object",
       "shape": [
-        ["ledger", 108],
-        ["outside", 110],
-        ["parity", 110]
+        ["ledger", 130],
+        ["outside", 132],
+        ["parity", 132]
       ],
       "catchall": "strict"
     },
-    { "t": "object", "shape": [["asOf", 109]], "catchall": "strict" },
+    { "t": "object", "shape": [["asOf", 131]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
@@ -476,8 +588,8 @@
         }
       ]
     },
-    { "t": "union", "options": [111, 113] },
-    { "t": "object", "shape": [["asOf", 112]], "catchall": "strict" },
+    { "t": "union", "options": [133, 135] },
+    { "t": "object", "shape": [["asOf", 134]], "catchall": "strict" },
     {
       "t": "string",
       "checks": [
@@ -488,7 +600,7 @@
         }
       ]
     },
-    { "t": "object", "shape": [["asOf", 114]], "catchall": "strict" },
+    { "t": "object", "shape": [["asOf", 136]], "catchall": "strict" },
     { "t": "literal", "values": ["unset"] },
     { "t": "enum", "values": ["unset", "snapshot", "unavailable", "not_applicable"] },
     {
@@ -511,7 +623,7 @@
         }
       ]
     },
-    { "t": "array", "el": 119 },
+    { "t": "array", "el": 141 },
     {
       "t": "string",
       "checks": [
@@ -522,45 +634,45 @@
         }
       ]
     },
-    { "t": "array", "el": 121 },
+    { "t": "array", "el": 143 },
     {
       "t": "object",
       "shape": [
-        ["assetId", 122],
-        ["observed", 123],
-        ["expected", 126],
-        ["difference", 128],
-        ["tolerance", 130],
-        ["reconcilingItems", 132],
-        ["residual", 133],
-        ["missing", 134]
+        ["assetId", 144],
+        ["observed", 145],
+        ["expected", 148],
+        ["difference", 150],
+        ["tolerance", 152],
+        ["reconcilingItems", 154],
+        ["residual", 155],
+        ["missing", 156]
       ],
       "catchall": "strict"
     },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^[A-Za-z0-9]{2,16}$/" }] },
-    { "t": "union", "options": [124, 125] },
+    { "t": "union", "options": [146, 147] },
     { "t": "string", "checks": [{ "k": "regex", "src": "/^-?(0|[1-9]\\d*)(\\.\\d{1,18})?$/" }] },
     { "t": "literal", "values": ["unset"] },
-    { "t": "union", "options": [124, 127] },
+    { "t": "union", "options": [146, 149] },
     { "t": "literal", "values": ["unset"] },
-    { "t": "union", "options": [124, 129] },
+    { "t": "union", "options": [146, 151] },
     { "t": "literal", "values": ["unset"] },
-    { "t": "union", "options": [106, 131] },
+    { "t": "union", "options": [128, 153] },
     { "t": "literal", "values": ["unset"] },
-    { "t": "optional", "in": 124 },
-    { "t": "optional", "in": 124 },
-    { "t": "optional", "in": 135 },
+    { "t": "optional", "in": 146 },
+    { "t": "optional", "in": 146 },
+    { "t": "optional", "in": 157 },
     { "t": "enum", "values": ["ledger", "outside"] },
-    { "t": "optional", "in": 137 },
-    { "t": "array", "el": 138, "checks": [{ "k": "max_length", "n": 2000 }] },
+    { "t": "optional", "in": 159 },
+    { "t": "array", "el": 160, "checks": [{ "k": "max_length", "n": 2000 }] },
     {
       "t": "object",
       "shape": [
-        ["source", 139],
-        ["id", 140],
-        ["kind", 141],
-        ["assetId", 122],
-        ["amount", 124]
+        ["source", 161],
+        ["id", 162],
+        ["kind", 163],
+        ["assetId", 144],
+        ["amount", 146]
       ],
       "catchall": "strict"
     },
@@ -576,39 +688,39 @@
     {
       "t": "object",
       "shape": [
-        ["evaluations", 143],
-        ["next", 151]
+        ["evaluations", 165],
+        ["next", 173]
       ],
       "catchall": "strict"
     },
-    { "t": "array", "el": 144 },
+    { "t": "array", "el": 166 },
     {
       "t": "object",
       "shape": [
-        ["run", 145],
-        ["finishedAt", 146],
-        ["severity", 147]
+        ["run", 167],
+        ["finishedAt", 168],
+        ["severity", 169]
       ],
       "catchall": "strict"
     },
     {
       "t": "object",
       "shape": [
-        ["id", 87],
-        ["controlId", 88],
-        ["status", 89],
-        ["compared", 90],
-        ["phase", 91],
-        ["errorCode", 97],
-        ["asOf", 101],
-        ["readAt", 102],
-        ["margin", 103],
-        ["sources", 107],
-        ["outsideSide", 115],
-        ["periodStart", 116],
-        ["periodEnd", 117],
-        ["assets", 120],
-        ["reconcilingItems", 136]
+        ["id", 109],
+        ["controlId", 110],
+        ["status", 111],
+        ["compared", 112],
+        ["phase", 113],
+        ["errorCode", 119],
+        ["asOf", 123],
+        ["readAt", 124],
+        ["margin", 125],
+        ["sources", 129],
+        ["outsideSide", 137],
+        ["periodStart", 138],
+        ["periodEnd", 139],
+        ["assets", 142],
+        ["reconcilingItems", 158]
       ],
       "catchall": "strict"
     },
@@ -622,18 +734,18 @@
         }
       ]
     },
-    { "t": "union", "options": [92, 148] },
+    { "t": "union", "options": [114, 170] },
     {
       "t": "object",
       "shape": [
-        ["status", 149],
-        ["value", 150]
+        ["status", 171],
+        ["value", 172]
       ],
       "catchall": "strict"
     },
     { "t": "literal", "values": ["set"] },
     { "t": "enum", "values": ["info", "warning", "critical"] },
-    { "t": "nullable", "in": 80 }
+    { "t": "nullable", "in": 102 }
   ],
   "inputs": {
     "post": 0,
@@ -642,20 +754,23 @@
     "txByKey": 24,
     "txById": 26,
     "portfolio": 28,
-    "freeze": 31,
-    "unfreeze": 40,
-    "reconcile": 46,
-    "txGet": 52,
-    "trace": 54,
-    "txList": 56,
-    "accountSearch": 65,
-    "stats": 69,
-    "metadataRead": 70,
-    "feeRevenue": 72,
-    "transactionsExist": 75,
-    "reconciliationEvaluations": 78,
-    "restoreWatermark": 84,
-    "controlRun": 86,
-    "evaluationFeed": 142
+    "history": 31,
+    "historyPage": 41,
+    "holdingsHistory": 48,
+    "freeze": 53,
+    "unfreeze": 62,
+    "reconcile": 68,
+    "txGet": 74,
+    "trace": 76,
+    "txList": 78,
+    "accountSearch": 87,
+    "stats": 91,
+    "metadataRead": 92,
+    "feeRevenue": 94,
+    "transactionsExist": 97,
+    "reconciliationEvaluations": 100,
+    "restoreWatermark": 106,
+    "controlRun": 108,
+    "evaluationFeed": 164
   }
 }

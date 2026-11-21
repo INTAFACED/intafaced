@@ -116,6 +116,41 @@ describe('mountRecords: a router made from records', () => {
     expect(notes).toEqual(['kept']);
   });
 
+  it('mounts an `anyScope` record behind the first of its scopes the caller holds', async () => {
+    const SHARED_READ = defineProcedure({
+      ...base,
+      name: 'example.shared',
+      kind: 'query',
+      path: 'shared',
+      access: { caller: 'anyScope', scopes: ['tax:read', 'admin:read'] },
+      refusals: refuse(),
+      input: NO_INPUT,
+      output: z.object({ ok: z.literal(true) }),
+      samples: [{ verdict: 'accept' }],
+    });
+    const shared = () => mountRecords([SHARED_READ] as const, { 'example.shared': () => ({ ok: true as const }) }, exampleRefusal);
+    await expect(
+      shared()
+        .createCaller(await caller(null))
+        .shared(),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(
+      shared()
+        .createCaller(await caller(['quant:read']))
+        .shared(),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(
+      await shared()
+        .createCaller(await caller(['tax:read']))
+        .shared(),
+    ).toEqual({ ok: true });
+    expect(
+      await shared()
+        .createCaller(await caller(['admin:read']))
+        .shared(),
+    ).toEqual({ ok: true });
+  });
+
   it("sends a listed refusal in the service's wire form", async () => {
     const writer = exampleRouter().createCaller(await caller(['tax:read', 'tax:write']));
     await expect(writer.note.set({ note: '' })).rejects.toMatchObject({
