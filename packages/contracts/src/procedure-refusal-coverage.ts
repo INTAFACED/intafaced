@@ -32,7 +32,7 @@ export function refusalCoverage(records: readonly ProcedureRecord[], ceilingFile
           readFileSync(join(seenDir, file), 'utf8')
             .split('\n')
             .filter(Boolean)
-            .map((line) => line.replace('\t', ' ')),
+            .map((line) => line.split('\t').slice(0, 2).join(' ')),
         ),
       );
       rmSync(seenDir, { recursive: true, force: true });
