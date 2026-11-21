@@ -64,7 +64,7 @@ test('by handle: look up, review, send, receipt, and the layout of the screen (1
   expect(Math.round((await box(page.getByTestId('if-pay'))).width)).toBe(1224);
   expect(Math.round((await box(page.getByTestId('pay-card'))).width)).toBe(520);
   await expect(page.getByTestId('pay-hero').locator('h1')).toHaveText('Pay');
-  await expect(page.getByTestId('pay-hero').locator('p')).toHaveText('Send money to anyone on INTAFACED. It arrives instantly.');
+  await expect(page.getByTestId('pay-hero').locator('p')).toHaveText('Send money to anyone on INTAFACED. It arrives in seconds.');
   expect(
     await page
       .getByTestId('pay-hero')

@@ -4,7 +4,7 @@ import { defineCopy } from '../../shared/i18n';
 const messages = {
   // Page
   Pay: 'Pay',
-  'Pay tagline': 'Send money to anyone on INTAFACED. It arrives instantly.',
+  'Pay tagline': 'Send money to anyone on INTAFACED. It arrives in seconds.',
   'Send or receive': 'Send or receive',
   Send: 'Send',
   Receive: 'Receive',
