@@ -150,6 +150,7 @@ import {
 } from '@intafaced/contracts/quant-wire';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { z } from 'zod';
+import { strategyMetadata } from '@intafaced/contracts/quant-call-schemas';
 
 export { simulatedStamp, environmentInput, decimal, runOutput, strategyDetail, accountField, writeKeyField, clientIdField };
 
@@ -393,18 +394,6 @@ export interface QuantRouterDeps extends SandboxDeps {
     readonly now?: () => number;
   };
 }
-
-export const strategyMetadata = z.object({
-  id: z.string(),
-  accountId: z.string().guid().nullable(),
-  name: z.string(),
-  language: z.literal('javascript'),
-  environment: z.enum(['paper', 'backtest', 'shadow']),
-  kind: z.enum(['paper', 'simulated']),
-  claimLabel: z.enum(['Paper — not live performance', 'Historical simulation — not a forecast', 'Shadow — not live performance']),
-  live: z.literal(false),
-  simulated: z.literal(true),
-});
 
 /** A stored alert as the screen reads it. */
 export function alertView(row: StoredAlert) {
@@ -899,3 +888,4 @@ export function createQuantCore(deps: QuantRouterDeps) {
 }
 
 export type QuantCore = ReturnType<typeof createQuantCore>;
+export { strategyMetadata };

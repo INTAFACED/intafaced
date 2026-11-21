@@ -1,6 +1,175 @@
 {
   "$comment": "Written by `procedures:write`; held by its drift test. Do not edit by hand.",
   "procedures": {
+    "quant.alert.create": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "alert.create",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "template": {
+            "type": "string",
+            "maxLength": 560
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId", "strategyVersion", "template", "ordinal"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "alertId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "event": {
+            "type": "string",
+            "const": "fill"
+          },
+          "template": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": ["alertId", "strategyId", "strategyVersion", "event", "template", "createdAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "USDC",
+            "strategyVersion": 1,
+            "template": "USDC",
+            "ordinal": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.alert.list": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "alert.list",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategyId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        },
+        "required": ["strategyId"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "alerts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "alertId": {
+                  "type": "string"
+                },
+                "strategyId": {
+                  "type": "string"
+                },
+                "strategyVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "event": {
+                  "type": "string",
+                  "const": "fill"
+                },
+                "template": {
+                  "type": "string"
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["alertId", "strategyId", "strategyVersion", "event", "template", "createdAt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["alerts"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "strategyId": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "quant.approval.decide": {
       "service": "svc-quant",
       "module": "quant",
@@ -4432,6 +4601,234 @@
         }
       ]
     },
+    "quant.health": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "health",
+      "access": {
+        "caller": "public"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          },
+          "service": {
+            "type": "string",
+            "const": "svc-quant"
+          }
+        },
+        "required": ["ok", "service"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "quant.lake.catalogue": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "lake.catalogue",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["tick", "book", "fill"]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "captureSeconds": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "retentionDays": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "keptFrom": {
+            "type": "string"
+          },
+          "asOf": {
+            "type": "string"
+          },
+          "symbols": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "symbol": {
+                  "type": "string"
+                },
+                "capturing": {
+                  "type": "boolean"
+                },
+                "datasets": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": ["tick", "book", "fill"]
+                      },
+                      "rows": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "first": {
+                        "type": ["string", "null"]
+                      },
+                      "last": {
+                        "type": ["string", "null"]
+                      },
+                      "coverage": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "from": {
+                              "type": "string"
+                            },
+                            "to": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["from", "to"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "gaps": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "from": {
+                              "type": "string"
+                            },
+                            "to": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["from", "to"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "latest": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "observedAt": {
+                              "type": "string"
+                            },
+                            "payload": {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string"
+                              },
+                              "additionalProperties": {
+                                "$ref": "#/$defs/__schema0"
+                              }
+                            }
+                          },
+                          "required": ["observedAt", "payload"],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": ["kind", "rows", "first", "last", "coverage", "gaps", "latest"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["symbol", "capturing", "datasets"],
+              "additionalProperties": false
+            }
+          },
+          "source": {
+            "type": "string",
+            "const": "INTAFACED exchange public market data"
+          }
+        },
+        "required": ["captureSeconds", "retentionDays", "keptFrom", "asOf", "symbols", "source"],
+        "additionalProperties": false,
+        "$defs": {
+          "__schema0": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              },
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/__schema0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "quant.library.browse": {
       "service": "svc-quant",
       "module": "quant",
@@ -6825,6 +7222,120 @@
         }
       ]
     },
+    "quant.limits.get": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "limits.get",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": ["string", "null"]
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["assigned", "default"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sandbox": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "limit": {
+                  "type": "string",
+                  "enum": ["wall_clock_ms", "memory_bytes", "output_bytes"]
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{1,18}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["limit", "value"],
+              "additionalProperties": false
+            }
+          },
+          "ceilings": {
+            "type": "object",
+            "properties": {
+              "maxOps": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d{1,18}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "maxSource": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^\\d{1,18}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": ["maxOps", "maxSource"],
+            "additionalProperties": false
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["profile", "source", "sandbox", "ceilings", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
     "quant.live.check": {
       "service": "svc-quant",
       "module": "quant",
@@ -7223,6 +7734,1935 @@
             "strategyId": "s-1",
             "channels": ["a", "b", "c", "d", "e", "f", "g", "h", "i"]
           }
+        }
+      ]
+    },
+    "quant.ops.library.dispute.open": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "ops.library.dispute.open",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "ticketRef": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["listingId", "reason", "ticketRef", "seq"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "licence": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "listedAt": {
+            "type": "string"
+          },
+          "facts": {
+            "type": "object",
+            "properties": {
+              "runId": {
+                "type": "string"
+              },
+              "checklistVersion": {
+                "type": "string"
+              },
+              "stale": {
+                "type": "boolean"
+              }
+            },
+            "required": ["runId", "checklistVersion", "stale"],
+            "additionalProperties": false
+          },
+          "state": {
+            "type": "string",
+            "enum": ["listed", "hidden", "removed"]
+          },
+          "audit": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seq": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["hide", "unhide", "remove"]
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": ["seq", "action", "actor", "reason", "at"],
+              "additionalProperties": false
+            }
+          },
+          "disputes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "disputeId": {
+                  "type": "string"
+                },
+                "listingId": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "ticketRef": {
+                  "type": "string"
+                },
+                "openedAt": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["open", "resolved"]
+                },
+                "resolution": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "actor": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["actor", "reason", "at"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["disputeId", "listingId", "openedBy", "reason", "ticketRef", "openedAt", "state", "resolution"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "listingId",
+          "title",
+          "description",
+          "tags",
+          "visibility",
+          "licence",
+          "ownerId",
+          "strategyId",
+          "strategyVersion",
+          "listedAt",
+          "facts",
+          "state",
+          "audit",
+          "disputes"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "listingId": "USDC",
+            "reason": "USDC",
+            "ticketRef": "USDC",
+            "seq": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.ops.library.dispute.resolve": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "ops.library.dispute.resolve",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "disputeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": ["disputeId", "reason"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "licence": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "listedAt": {
+            "type": "string"
+          },
+          "facts": {
+            "type": "object",
+            "properties": {
+              "runId": {
+                "type": "string"
+              },
+              "checklistVersion": {
+                "type": "string"
+              },
+              "stale": {
+                "type": "boolean"
+              }
+            },
+            "required": ["runId", "checklistVersion", "stale"],
+            "additionalProperties": false
+          },
+          "state": {
+            "type": "string",
+            "enum": ["listed", "hidden", "removed"]
+          },
+          "audit": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seq": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["hide", "unhide", "remove"]
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": ["seq", "action", "actor", "reason", "at"],
+              "additionalProperties": false
+            }
+          },
+          "disputes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "disputeId": {
+                  "type": "string"
+                },
+                "listingId": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "ticketRef": {
+                  "type": "string"
+                },
+                "openedAt": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["open", "resolved"]
+                },
+                "resolution": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "actor": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["actor", "reason", "at"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["disputeId", "listingId", "openedBy", "reason", "ticketRef", "openedAt", "state", "resolution"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "listingId",
+          "title",
+          "description",
+          "tags",
+          "visibility",
+          "licence",
+          "ownerId",
+          "strategyId",
+          "strategyVersion",
+          "listedAt",
+          "facts",
+          "state",
+          "audit",
+          "disputes"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "disputeId": "USDC",
+            "reason": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.ops.library.hide": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "ops.library.hide",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["listingId", "reason", "seq"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "licence": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "listedAt": {
+            "type": "string"
+          },
+          "facts": {
+            "type": "object",
+            "properties": {
+              "runId": {
+                "type": "string"
+              },
+              "checklistVersion": {
+                "type": "string"
+              },
+              "stale": {
+                "type": "boolean"
+              }
+            },
+            "required": ["runId", "checklistVersion", "stale"],
+            "additionalProperties": false
+          },
+          "state": {
+            "type": "string",
+            "enum": ["listed", "hidden", "removed"]
+          },
+          "audit": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seq": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["hide", "unhide", "remove"]
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": ["seq", "action", "actor", "reason", "at"],
+              "additionalProperties": false
+            }
+          },
+          "disputes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "disputeId": {
+                  "type": "string"
+                },
+                "listingId": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "ticketRef": {
+                  "type": "string"
+                },
+                "openedAt": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["open", "resolved"]
+                },
+                "resolution": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "actor": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["actor", "reason", "at"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["disputeId", "listingId", "openedBy", "reason", "ticketRef", "openedAt", "state", "resolution"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "listingId",
+          "title",
+          "description",
+          "tags",
+          "visibility",
+          "licence",
+          "ownerId",
+          "strategyId",
+          "strategyVersion",
+          "listedAt",
+          "facts",
+          "state",
+          "audit",
+          "disputes"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "listingId": "USDC",
+            "reason": "USDC",
+            "seq": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.ops.library.queue": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.library.queue",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "pageSize": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "listingId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+                  }
+                },
+                "visibility": {
+                  "type": "string",
+                  "enum": ["open", "protected", "invite"]
+                },
+                "licence": {
+                  "type": "string"
+                },
+                "ownerId": {
+                  "type": "string"
+                },
+                "strategyId": {
+                  "type": "string"
+                },
+                "strategyVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "listedAt": {
+                  "type": "string"
+                },
+                "facts": {
+                  "type": "object",
+                  "properties": {
+                    "runId": {
+                      "type": "string"
+                    },
+                    "checklistVersion": {
+                      "type": "string"
+                    },
+                    "stale": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["runId", "checklistVersion", "stale"],
+                  "additionalProperties": false
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["listed", "hidden", "removed"]
+                },
+                "audit": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "seq": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "action": {
+                        "type": "string",
+                        "enum": ["hide", "unhide", "remove"]
+                      },
+                      "actor": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "at": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["seq", "action", "actor", "reason", "at"],
+                    "additionalProperties": false
+                  }
+                },
+                "disputes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "disputeId": {
+                        "type": "string"
+                      },
+                      "listingId": {
+                        "type": "string"
+                      },
+                      "openedBy": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "ticketRef": {
+                        "type": "string"
+                      },
+                      "openedAt": {
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": ["open", "resolved"]
+                      },
+                      "resolution": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "actor": {
+                                "type": "string"
+                              },
+                              "reason": {
+                                "type": "string"
+                              },
+                              "at": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["actor", "reason", "at"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["disputeId", "listingId", "openedBy", "reason", "ticketRef", "openedAt", "state", "resolution"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "listingId",
+                "title",
+                "description",
+                "tags",
+                "visibility",
+                "licence",
+                "ownerId",
+                "strategyId",
+                "strategyVersion",
+                "listedAt",
+                "facts",
+                "state",
+                "audit",
+                "disputes"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["pageSize", "entries", "nextCursor"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.ops.library.remove": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "ops.library.remove",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["listingId", "reason", "seq"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "licence": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "listedAt": {
+            "type": "string"
+          },
+          "facts": {
+            "type": "object",
+            "properties": {
+              "runId": {
+                "type": "string"
+              },
+              "checklistVersion": {
+                "type": "string"
+              },
+              "stale": {
+                "type": "boolean"
+              }
+            },
+            "required": ["runId", "checklistVersion", "stale"],
+            "additionalProperties": false
+          },
+          "state": {
+            "type": "string",
+            "enum": ["listed", "hidden", "removed"]
+          },
+          "audit": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seq": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["hide", "unhide", "remove"]
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": ["seq", "action", "actor", "reason", "at"],
+              "additionalProperties": false
+            }
+          },
+          "disputes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "disputeId": {
+                  "type": "string"
+                },
+                "listingId": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "ticketRef": {
+                  "type": "string"
+                },
+                "openedAt": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["open", "resolved"]
+                },
+                "resolution": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "actor": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["actor", "reason", "at"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["disputeId", "listingId", "openedBy", "reason", "ticketRef", "openedAt", "state", "resolution"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "listingId",
+          "title",
+          "description",
+          "tags",
+          "visibility",
+          "licence",
+          "ownerId",
+          "strategyId",
+          "strategyVersion",
+          "listedAt",
+          "facts",
+          "state",
+          "audit",
+          "disputes"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "listingId": "USDC",
+            "reason": "USDC",
+            "seq": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.ops.library.unhide": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "ops.library.unhide",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "seq": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["listingId", "reason", "seq"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "listingId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["trend", "mean-reversion", "momentum", "breakout", "swing", "scalping"]
+            }
+          },
+          "visibility": {
+            "type": "string",
+            "enum": ["open", "protected", "invite"]
+          },
+          "licence": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "strategyId": {
+            "type": "string"
+          },
+          "strategyVersion": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "listedAt": {
+            "type": "string"
+          },
+          "facts": {
+            "type": "object",
+            "properties": {
+              "runId": {
+                "type": "string"
+              },
+              "checklistVersion": {
+                "type": "string"
+              },
+              "stale": {
+                "type": "boolean"
+              }
+            },
+            "required": ["runId", "checklistVersion", "stale"],
+            "additionalProperties": false
+          },
+          "state": {
+            "type": "string",
+            "enum": ["listed", "hidden", "removed"]
+          },
+          "audit": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seq": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "action": {
+                  "type": "string",
+                  "enum": ["hide", "unhide", "remove"]
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": ["seq", "action", "actor", "reason", "at"],
+              "additionalProperties": false
+            }
+          },
+          "disputes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "disputeId": {
+                  "type": "string"
+                },
+                "listingId": {
+                  "type": "string"
+                },
+                "openedBy": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "ticketRef": {
+                  "type": "string"
+                },
+                "openedAt": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["open", "resolved"]
+                },
+                "resolution": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "actor": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["actor", "reason", "at"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["disputeId", "listingId", "openedBy", "reason", "ticketRef", "openedAt", "state", "resolution"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "listingId",
+          "title",
+          "description",
+          "tags",
+          "visibility",
+          "licence",
+          "ownerId",
+          "strategyId",
+          "strategyVersion",
+          "listedAt",
+          "facts",
+          "state",
+          "audit",
+          "disputes"
+        ],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "listingId": "USDC",
+            "reason": "USDC",
+            "seq": 0
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.ops.lifecycle.audit": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.lifecycle.audit",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": null,
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "accountId": {
+                  "type": "string"
+                },
+                "strategyId": {
+                  "type": "string"
+                },
+                "strategyVersion": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "actor": {
+                  "type": "string"
+                },
+                "decision": {
+                  "type": "object",
+                  "properties": {
+                    "decision": {
+                      "type": "string",
+                      "enum": ["approved", "rejected"]
+                    },
+                    "at": {
+                      "type": "string"
+                    },
+                    "runIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "criteria": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "enum": ["paperMinutes", "maxDrawdownPercent"]
+                          },
+                          "value": {
+                            "type": ["string", "null"]
+                          }
+                        },
+                        "required": ["name", "value"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["decision", "at", "runIds", "criteria"],
+                  "additionalProperties": false
+                },
+                "stage": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "type": "string",
+                          "enum": [
+                            "draft",
+                            "backtested",
+                            "validated",
+                            "paper",
+                            "candidate",
+                            "live",
+                            "paused",
+                            "stopped",
+                            "killed",
+                            "retired"
+                          ]
+                        },
+                        "to": {
+                          "type": "string",
+                          "enum": [
+                            "draft",
+                            "backtested",
+                            "validated",
+                            "paper",
+                            "candidate",
+                            "live",
+                            "paused",
+                            "stopped",
+                            "killed",
+                            "retired"
+                          ]
+                        },
+                        "at": {
+                          "type": "string"
+                        },
+                        "runIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": ["from", "to", "at", "runIds"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["key", "accountId", "strategyId", "strategyVersion", "actor", "decision", "stage"],
+              "additionalProperties": false
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["rows", "total", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept"
+        }
+      ]
+    },
+    "quant.ops.quota.assign": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "ops.quota.assign",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          },
+          "profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["accountId", "profile", "reason", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "assignedAt": {
+            "type": "string"
+          }
+        },
+        "required": ["accountId", "profile", "assignedAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "accountId": "11111111-1111-4111-8111-111111111111",
+            "profile": "USDC",
+            "reason": "USDC",
+            "idempotencyKey": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.ops.quota.profile": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "ops.quota.profile",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:read",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": ["profile"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string"
+          },
+          "limits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "resource": {
+                  "type": "string",
+                  "enum": [
+                    "strategies",
+                    "versions",
+                    "concurrent_runs",
+                    "paper_runs",
+                    "runs",
+                    "log_lines",
+                    "storage",
+                    "collaborators",
+                    "notifications"
+                  ]
+                },
+                "limit": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{1,18}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "setAt": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["resource", "limit", "setAt"],
+              "additionalProperties": false
+            }
+          },
+          "sandbox": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "limit": {
+                  "type": "string",
+                  "enum": ["wall_clock_ms", "memory_bytes", "output_bytes"]
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{1,18}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "setAt": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["limit", "value", "setAt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["profile", "limits", "sandbox"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "profile": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.ops.quota.sandbox": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "ops.quota.sandbox",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "limit": {
+            "type": "string",
+            "enum": ["wall_clock_ms", "memory_bytes", "output_bytes"]
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 18
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["profile", "limit", "value", "reason", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "string",
+            "enum": ["wall_clock_ms", "memory_bytes", "output_bytes"]
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{1,18}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "setAt": {
+            "type": "string"
+          }
+        },
+        "required": ["profile", "limit", "value", "setAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "profile": "USDC",
+            "limit": "wall_clock_ms",
+            "value": "USDC",
+            "reason": "USDC",
+            "idempotencyKey": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.ops.quota.set": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "ops.quota.set",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "resource": {
+            "type": "string",
+            "enum": [
+              "strategies",
+              "versions",
+              "concurrent_runs",
+              "paper_runs",
+              "runs",
+              "log_lines",
+              "storage",
+              "collaborators",
+              "notifications"
+            ]
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 18
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["profile", "resource", "limit", "reason", "idempotencyKey"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string",
+            "enum": [
+              "strategies",
+              "versions",
+              "concurrent_runs",
+              "paper_runs",
+              "runs",
+              "log_lines",
+              "storage",
+              "collaborators",
+              "notifications"
+            ]
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{1,18}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "setAt": {
+            "type": "string"
+          }
+        },
+        "required": ["profile", "resource", "limit", "setAt"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "profile": "USDC",
+            "resource": "strategies",
+            "limit": "USDC",
+            "reason": "USDC",
+            "idempotencyKey": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.ops.sandbox.corpus": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "ops.sandbox.corpus",
+      "access": {
+        "caller": "scope",
+        "scope": "admin:write",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": ["profile"]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string"
+          },
+          "cases": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "attack": {
+                  "type": "string"
+                },
+                "language": {
+                  "type": "string",
+                  "enum": ["javascript", "typescript", "python"]
+                },
+                "code": {
+                  "type": ["string", "null"]
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": ["id", "attack", "language", "code", "message"],
+              "additionalProperties": false
+            }
+          },
+          "control": {
+            "type": "object",
+            "properties": {
+              "ok": {
+                "type": "boolean"
+              },
+              "code": {
+                "type": ["string", "null"]
+              },
+              "logs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["ok", "code", "logs"],
+            "additionalProperties": false
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["profile", "cases", "control", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "profile": "USDC"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -8290,6 +10730,235 @@
         {
           "verdict": "refuse",
           "input": {}
+        }
+      ]
+    },
+    "quant.preview.act": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "mutation",
+      "path": "preview.act",
+      "access": {
+        "caller": "signedIn"
+      },
+      "refusals": {},
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "room": {
+                "type": "string",
+                "const": "editor"
+              },
+              "action": {
+                "type": "string",
+                "enum": ["compile", "debug", "step", "profile"]
+              }
+            },
+            "required": ["room", "action"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "room": {
+                "type": "string",
+                "const": "tester"
+              },
+              "action": {
+                "type": "string",
+                "enum": ["start"]
+              }
+            },
+            "required": ["room", "action"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "room": {
+                "type": "string",
+                "const": "optimise"
+              },
+              "action": {
+                "type": "string",
+                "enum": ["start", "stop", "resume", "export"]
+              }
+            },
+            "required": ["room", "action"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "not": {}
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {
+            "room": "editor",
+            "action": "compile"
+          }
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.quickStart": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "quickStart",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategy": {
+            "type": "boolean"
+          },
+          "backtest": {
+            "type": "boolean"
+          },
+          "paperRun": {
+            "type": "boolean"
+          }
+        },
+        "required": ["strategy", "backtest", "paperRun"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
+        }
+      ]
+    },
+    "quant.quota.get": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "quota.get",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": ["string", "null"]
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["assigned", "default"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "resource": {
+                  "type": "string",
+                  "enum": [
+                    "strategies",
+                    "versions",
+                    "concurrent_runs",
+                    "paper_runs",
+                    "runs",
+                    "log_lines",
+                    "storage",
+                    "collaborators",
+                    "notifications"
+                  ]
+                },
+                "used": {
+                  "type": "string",
+                  "pattern": "^\\d{1,18}$"
+                },
+                "limit": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{1,18}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": ["resource", "used", "limit"],
+              "additionalProperties": false
+            }
+          },
+          "asOf": {
+            "type": "string"
+          }
+        },
+        "required": ["profile", "source", "resources", "asOf"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -12030,6 +14699,111 @@
           "input": {
             "limit": 0
           }
+        }
+      ]
+    },
+    "quant.studio.operatorList": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "studio.operatorList",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "strategies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "accountId": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "language": {
+                  "type": "string",
+                  "const": "javascript"
+                },
+                "environment": {
+                  "type": "string",
+                  "enum": ["paper", "backtest", "shadow"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["paper", "simulated"]
+                },
+                "claimLabel": {
+                  "type": "string",
+                  "enum": ["Paper — not live performance", "Historical simulation — not a forecast", "Shadow — not live performance"]
+                },
+                "live": {
+                  "type": "boolean",
+                  "const": false
+                },
+                "simulated": {
+                  "type": "boolean",
+                  "const": true
+                }
+              },
+              "required": ["id", "accountId", "name", "language", "environment", "kind", "claimLabel", "live", "simulated"],
+              "additionalProperties": false
+            }
+          },
+          "quarantineCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["strategies", "quarantineCount"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     },
@@ -16480,6 +19254,143 @@
             "limit": 20,
             "cursor": "Not An Id"
           }
+        }
+      ]
+    },
+    "quant.tier.list": {
+      "service": "svc-quant",
+      "module": "quant",
+      "transport": "trpc",
+      "kind": "query",
+      "path": "tier.list",
+      "access": {
+        "caller": "jurisdiction",
+        "module": "quant",
+        "plane": "fiat"
+      },
+      "refusals": {},
+      "inputOptional": true,
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+          }
+        }
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "profile": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": ["assigned", "default"]
+                  }
+                },
+                "required": ["profile", "source"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tiers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "profile": {
+                  "type": "string"
+                },
+                "dataFreshnessSeconds": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{1,18}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "priorityClass": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^\\d{1,18}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "limits": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "resource": {
+                        "type": "string",
+                        "enum": [
+                          "strategies",
+                          "versions",
+                          "concurrent_runs",
+                          "paper_runs",
+                          "runs",
+                          "log_lines",
+                          "storage",
+                          "collaborators",
+                          "notifications"
+                        ]
+                      },
+                      "limit": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^\\d{1,18}$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": ["resource", "limit"],
+                    "additionalProperties": false
+                  }
+                },
+                "setAt": {
+                  "type": "string"
+                }
+              },
+              "required": ["profile", "dataFreshnessSeconds", "priorityClass", "limits", "setAt"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["current", "tiers"],
+        "additionalProperties": false
+      },
+      "samples": [
+        {
+          "verdict": "accept",
+          "input": {}
+        },
+        {
+          "verdict": "refuse",
+          "input": 42
         }
       ]
     }
