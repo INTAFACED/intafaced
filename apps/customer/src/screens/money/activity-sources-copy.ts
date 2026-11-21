@@ -45,6 +45,8 @@ export const sourcesCopy = defineCopy('money.activity-sources', {
   'Part fee': 'Fee',
   'Part rebate': 'Rebate',
   'Part held': 'Held for the order',
+  'Part paid from hold': 'Paid from the hold',
+  'Part sold from hold': 'Sold from the hold',
   'Part released': 'Released when the order was cancelled',
   'Still held': 'The venue still holds {amount} {asset} for the rest of this order.',
   'Source reference': 'Reference',

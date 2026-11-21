@@ -516,12 +516,14 @@ test(`${J} #4 opens an entry on the launch model: both legs of a venue fill, and
   const [base, quote] = before.order.symbol.split('-');
   /** What one leg of the group shows: the venue's figure, signed, with its asset. */
   const signed = (up, value, asset) => `${up ? '+' : '−'}${shown(value)} ${asset}`;
-  /** The fills' coin and fees as the venue records them, then what it held for the whole order (its limit × amount). */
+  /** Both legs of each fill and its fee as the venue records them, then what it held for the whole order (limit × amount). */
   const expected = (record) => [
     ...record.fills.flatMap((f) => {
       const fee = units(f.venueFee) + units(f.builderFee);
+      const paid = decimal((units(f.price) * units(f.amount) + SCALE - 1n) / SCALE);
       return [
         ['received', f.fillId, signed(true, f.amount, base)],
+        ['paid', f.fillId, signed(false, paid, quote)],
         ...(fee === 0n ? [] : [[fee < 0n ? 'rebate' : 'fee', f.fillId, signed(fee < 0n, decimal(fee < 0n ? -fee : fee), f.feeAsset)]]),
       ];
     }),
@@ -556,8 +558,8 @@ test(`${J} #4 opens an entry on the launch model: both legs of a venue fill, and
         (el.querySelector('[data-direction]')?.textContent ?? '').trim(),
       ]),
     );
-  // While the order rests: the coin each fill brought, any fee, and the quote the venue holds for the whole order (the
-  // fills are paid from it, so no payment is listed twice), with what it still holds for the rest named as the venue says.
+  // While the order rests: both legs of each fill (the coin it brought and the quote it paid, from the hold), any fee, and
+  // the quote the venue holds for the whole order, with what it still holds for the rest named as the venue says.
   await expect.poll(shownParts, { timeout: 30_000 }).toEqual(expected(before));
   await expect(group.locator('[data-label="still-held"]')).toHaveText(
     `The venue still holds ${shown(before.order.locked)} ${before.order.lockedAsset} for the rest of this order.`,
@@ -573,6 +575,7 @@ test(`${J} #4 opens an entry on the launch model: both legs of a venue fill, and
   await expect.poll(shownParts, { timeout: 30_000 }).toEqual([...expected(after), ['released', buyOrder, signed(true, released, quote)]]);
   await expect(group.locator('[data-label="still-held"]')).toHaveCount(0);
   await expect(parts.filter({ hasText: 'Held for the order' })).toHaveCount(1);
+  await expect(parts.filter({ hasText: 'Paid from the hold' })).toHaveCount(after.fills.length);
   await expect(parts.filter({ hasText: 'Released when the order was cancelled' })).toHaveCount(1);
 
   // From a purchase, a link to the coin bought.

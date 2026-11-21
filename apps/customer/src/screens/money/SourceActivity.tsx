@@ -461,7 +461,8 @@ function LineRow({
   );
 }
 
-function partWord(part: FillPartKind, t: T): string {
+function partWord(part: FillPartKind, fromHold: boolean, t: T): string {
+  if (fromHold) return part === 'paid' ? t('Part paid from hold') : t('Part sold from hold');
   switch (part) {
     case 'received':
       return t('Part received');
@@ -531,8 +532,13 @@ function FillParts({ id, line, group, t, hidden }: { id: string; line: SourceLin
             </thead>
             <tbody>
               {parts.map((part, index) => (
-                <tr key={`${part.part}:${part.fill ?? 'order'}:${index}`} data-testid="money-act__part" data-part={part.part}>
-                  <td>{partWord(part.part, t)}</td>
+                <tr
+                  key={`${part.part}:${part.fill ?? 'order'}:${index}`}
+                  data-testid="money-act__part"
+                  data-part={part.part}
+                  data-from-hold={part.fromHold ? 'yes' : undefined}
+                >
+                  <td>{partWord(part.part, part.fromHold, t)}</td>
                   <td>
                     <code className="money-code">{part.fill ?? order ?? ''}</code>
                   </td>

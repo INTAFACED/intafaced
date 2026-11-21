@@ -319,6 +319,8 @@ export interface FillPart {
   amount: string;
   /** The venue's fill reference of a fill's leg; null on the order's hold and release. */
   fill: string | null;
+  /** A fill's leg in the held asset of an order the venue kept on its book: spent from that hold, not on top of it. */
+  fromHold: boolean;
 }
 
 /** An order the venue kept on its book: it held funds for it until it filled or was cancelled. */
@@ -329,9 +331,9 @@ const CANCELLED = new Set(['canceled', 'cancelled']);
  * The parts of one venue order, as one group (J-portfolio-03 #4 on the launch model): each of its fills' legs and fees,
  * and, for an order the venue kept on its book, what it held for the order and what it released when the order was
  * cancelled, every figure from the venue's own fill and order records. A buy holds its quote at the limit price for the
- * whole amount and a sell its base, as the venue locks them; the fills spend that hold, so a rested order's leg in the
- * held asset is the hold and its release, never counted twice as a payment too. An order the venue never kept (filled at
- * once, or not read) lists its fills' two legs. `fills` are the order's own venue trade lines.
+ * whole amount and a sell its base, as the venue locks them; the fills spend that hold, so a rested order's fill leg in
+ * the held asset is marked as spent from it. An order the venue never kept (filled at once, or not read) lists its fills'
+ * two legs alone. `fills` are the order's own venue trade lines.
  */
 export function fillParts(fills: readonly SourceLine[], order: VenueOrderRead | null): FillPart[] {
   const rested = order !== null && RESTED.has(order.status);
@@ -339,26 +341,50 @@ export function fillParts(fills: readonly SourceLine[], order: VenueOrderRead | 
   for (const line of fills) {
     if (line.detail?.kind !== 'trade') continue;
     const buy = line.detail.side === 'buy';
-    const base: FillPart = { part: buy ? 'received' : 'sold', up: buy, asset: line.asset, amount: line.amount, fill: line.ref };
-    const quote: FillPart = {
-      part: buy ? 'paid' : 'got',
-      up: !buy,
-      asset: line.detail.quote.asset,
-      amount: line.detail.quote.amount,
-      fill: line.ref,
-    };
-    // A rested order's leg in the held asset (a buy's quote, a sell's base) is spent from the hold listed below.
-    if (!rested) out.push(base, quote);
-    else out.push(buy ? base : quote);
+    // Both legs of every fill. On a rested order the leg in the held asset (a buy's quote, a sell's base) is spent from the
+    // hold listed below, and says so.
+    out.push(
+      { part: buy ? 'received' : 'sold', up: buy, asset: line.asset, amount: line.amount, fill: line.ref, fromHold: rested && !buy },
+      {
+        part: buy ? 'paid' : 'got',
+        up: !buy,
+        asset: line.detail.quote.asset,
+        amount: line.detail.quote.amount,
+        fill: line.ref,
+        fromHold: rested && buy,
+      },
+    );
     const fee = line.detail.fee;
-    if (fee) out.push({ part: fee.rebate ? 'rebate' : 'fee', up: fee.rebate, asset: fee.asset, amount: fee.amount, fill: line.ref });
+    if (fee)
+      out.push({
+        part: fee.rebate ? 'rebate' : 'fee',
+        up: fee.rebate,
+        asset: fee.asset,
+        amount: fee.amount,
+        fill: line.ref,
+        fromHold: false,
+      });
   }
   if (rested && order) {
     const buy = order.side === 'buy';
     const asset = order.lockedAsset || (fills[0]?.detail?.kind === 'trade' ? (buy ? fills[0].detail.quote.asset : fills[0].asset) : '');
-    out.push({ part: 'held', up: false, asset, amount: buy ? product(order.price, order.amount) : order.amount, fill: null });
+    out.push({
+      part: 'held',
+      up: false,
+      asset,
+      amount: buy ? product(order.price, order.amount) : order.amount,
+      fill: null,
+      fromHold: false,
+    });
     if (CANCELLED.has(order.status) && parseAmount(order.remaining) > 0n)
-      out.push({ part: 'released', up: true, asset, amount: buy ? product(order.price, order.remaining) : order.remaining, fill: null });
+      out.push({
+        part: 'released',
+        up: true,
+        asset,
+        amount: buy ? product(order.price, order.remaining) : order.remaining,
+        fill: null,
+        fromHold: false,
+      });
   }
   return out;
 }

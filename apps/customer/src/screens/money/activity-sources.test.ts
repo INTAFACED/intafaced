@@ -291,7 +291,7 @@ describe('fillParts', () => {
     ...patch,
   });
   const parts = (lines: SourceLine[], o: VenueOrderRead | null) =>
-    fillParts(lines, o).map((p) => [p.part, p.up, p.amount, p.asset, p.fill]);
+    fillParts(lines, o).map((p) => [p.part, p.up, p.amount, p.asset, p.fill, ...(p.fromHold ? ['from hold'] : [])]);
 
   it('an order the venue never kept lists each fill’s two legs and its fee', () => {
     const lines = venueLines([fill('f1', 'buy', '0.001', '0.03')], [], 'TEST venue');
@@ -307,10 +307,11 @@ describe('fillParts', () => {
     ]);
   });
 
-  it('a resting buy: its fills’ coin, and the quote held for the whole order, no payment counted twice', () => {
+  it('a resting buy: both legs of its fill, the payment marked as spent from the quote held for the whole order', () => {
     const lines = venueLines([fill('f1', 'buy', '0.001')], [], 'TEST venue');
     expect(parts(lines, order({}))).toEqual([
       ['received', true, '0.001', 'BTC', 'f1'],
+      ['paid', false, '60', 'USDC', 'f1', 'from hold'],
       ['held', false, '120', 'USDC', null],
     ]);
   });
@@ -319,14 +320,16 @@ describe('fillParts', () => {
     const lines = venueLines([fill('f1', 'buy', '0.001')], [], 'TEST venue');
     expect(parts(lines, order({ status: 'canceled', locked: '0' }))).toEqual([
       ['received', true, '0.001', 'BTC', 'f1'],
+      ['paid', false, '60', 'USDC', 'f1', 'from hold'],
       ['held', false, '120', 'USDC', null],
       ['released', true, '60', 'USDC', null],
     ]);
   });
 
-  it('a cancelled sell holds its base: the quote it got, the base held and the base released', () => {
+  it('a cancelled sell holds its base: the base sold from the hold, the quote it got, the base held and released', () => {
     const lines = venueLines([fill('f1', 'sell', '0.001')], [], 'TEST venue');
     expect(parts(lines, order({ side: 'sell', status: 'canceled', locked: '0', lockedAsset: 'BTC' }))).toEqual([
+      ['sold', false, '0.001', 'BTC', 'f1', 'from hold'],
       ['got', true, '60', 'USDC', 'f1'],
       ['held', false, '0.002', 'BTC', null],
       ['released', true, '0.001', 'BTC', null],
