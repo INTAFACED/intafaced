@@ -205,7 +205,10 @@ test('the tooling tests that read every journey file carry the marker, and each 
 // promise of later ("not collected yet"), which CI's Doctrine gates job refused as garden/no-promise-copy 0 -> 2 after the
 // push. Main's real rules, plugin and gate script, with this checkout's oxlint; only the copy file is planted.
 const RATCHET = Object.fromEntries(
-  execFileSync('git', ['ls-files', '--', '.oxlintrc.json', 'tooling/lint', 'tooling/ci/lint-ratchet.mjs'], { cwd: ROOT, encoding: 'utf8' })
+  execFileSync('git', ['ls-files', '--', '.oxlintrc.json', 'tooling/lint', 'tooling/ci/lint-ratchet.mjs', 'tooling/ci/exact-revert.mjs'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+  })
     .split('\n')
     .filter(Boolean)
     .map((f) => [f, readFileSync(join(ROOT, f), 'utf8')]),

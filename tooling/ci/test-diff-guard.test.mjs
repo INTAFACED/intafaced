@@ -6,7 +6,6 @@ import test from 'node:test';
 import {
   DECLARED,
   assertionDeltas,
-  autoRevert,
   declaredRooms,
   earlierFailures,
   failedInLog,
@@ -15,6 +14,7 @@ import {
   judgeBaselines,
   sourceFor,
 } from './test-diff-guard.mjs';
+import { autoRevert } from './exact-revert.mjs';
 
 const eq = (got, want, m) => {
   if (got !== want) throw new Error(`${m}: got ${got}, want ${want}`);
