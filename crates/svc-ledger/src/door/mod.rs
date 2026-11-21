@@ -10,11 +10,12 @@
 //!    reaches the ledger (`schemas.json`).
 //!
 //! Past those the call is its slice's: [`Outcome::Owed`] names which, until the slice is ported. Ported so far:
-//! `/health` and `/ready` (the `store` slice, `crate::status`) and the freeze doors (the `freeze` slice,
-//! `freeze.rs`).
+//! `/health` and `/ready` (the `store` slice, `crate::status`), the freeze doors (the `freeze` slice, `freeze.rs`) and
+//! the history doors (the `history` slice, `history.rs`).
 
 mod callers;
 mod freeze;
+mod history;
 
 pub use callers::DOOR_CALLERS;
 
@@ -232,12 +233,17 @@ pub const ROUTES: [Route; 44] = [
     ),
     s2s("txByKey", "/trpc/txByKey", Input::Body("txByKey"), Balances),
     s2s("txById", "/trpc/txById", Input::Body("txById"), Balances),
-    s2s("history", "/trpc/history", Input::None, History),
-    s2s("historyPage", "/trpc/historyPage", Input::None, History),
+    s2s("history", "/trpc/history", Input::Body("history"), History),
+    s2s(
+        "historyPage",
+        "/trpc/historyPage",
+        Input::Body("historyPage"),
+        History,
+    ),
     s2s(
         "holdingsHistory",
         "/trpc/holdingsHistory",
-        Input::None,
+        Input::Body("holdingsHistory"),
         History,
     ),
     s2s("assetsList", "/trpc/assetsList", Input::None, Assets),
@@ -697,12 +703,23 @@ impl LedgerDoor {
         let Input::Body(name) = route.input else {
             return Outcome::Owed(route.slice);
         };
+        // `refuseHistoryCursor`: on the raw body, before the schema would strip the field.
+        if door == "history"
+            && let Body::Parsed(Json::Object(fields)) = body
+            && let Some(f) =
+                crate::history::page_socket_field(fields.iter().map(|(k, _)| k.as_str()))
+        {
+            return answer(errors::http_error(&crate::history::page_socket(f).into()));
+        }
         let value = match body {
             Body::Absent => Value::Undefined,
             Body::Parsed(j) => Value::from_json(j),
         };
         match parse(name, value) {
-            Ok(Parsed::Ok(_)) => Outcome::Owed(route.slice),
+            Ok(Parsed::Ok(input)) => match route.slice {
+                Slice::History => Outcome::Answer(self.history_door(door, &input)),
+                slice => Outcome::Owed(slice),
+            },
             Ok(Parsed::Issues(issues)) => {
                 answer(errors::http_error(&Failure::Zod(schema::message(&issues))))
             }
