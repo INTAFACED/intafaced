@@ -1091,7 +1091,10 @@ dependencies = [
 name = "svc-agents"
 version = "0.0.0"
 dependencies = [
+ "postgres",
  "service-kit",
+ "signal-hook",
+ "tiny_http",
  "url",
 ]
 

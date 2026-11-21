@@ -1,0 +1,228 @@
+//! The svc-agents process: `svc-agents` serves; `svc-agents migrate [--down]` applies (or reverses) the agents schema's
+//! migrations.
+//!
+//! Serving starts as `services/svc-agents/src/index.ts` does, as far as the ported slices reach: the pool, the schema
+//! check, the bus, the boot upsert of the agents' guardrails, the door, then the port, then the timers. The TypeScript
+//! service stays the one that runs until the switch; until each slice is ported its calls answer "not ported" (500),
+//! `/ready` answers 503 until the gateway is, and a timer whose work is not ported does not run.
+
+use std::collections::BTreeMap;
+use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
+
+use service_kit::edge::{EdgeKey, MIN_SECRET_LENGTH};
+use service_kit::http::{Fetch, UreqFetch};
+use service_kit::json::Json;
+use service_kit::nats::{JetStream, stream_config};
+use service_kit::s2s::{parse_keyring, s2s_from_env, system_seconds};
+use service_kit::s2s_verify::ServiceVerifier;
+use service_kit::server::{self, App};
+use service_kit::telemetry::{Logger, Telemetry};
+
+use svc_agents::boot;
+use svc_agents::db::{self, Store};
+use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
+use svc_agents::env::{self, AgentsEnv, DEFAULT_PORT};
+use svc_agents::migrate;
+use svc_agents::timers::{self, Timer};
+
+fn process_env() -> BTreeMap<String, String> {
+    std::env::vars_os()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+        .collect()
+}
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let out = if args.first().map(String::as_str) == Some("migrate") {
+        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| migrate::DEFAULT_URL.to_owned());
+        migrate::run(
+            &url,
+            args.iter().any(|a| a == "--down"),
+            &mut std::io::stdout(),
+        )
+    } else {
+        run()
+    };
+    match out {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// One timer's work, handed in by the slice that ports it.
+type Job<'a> = Box<dyn Fn() -> Result<(), String> + Sync + 'a>;
+
+/// The work each timer runs. Each comes with its slice (`timers::timers` names it); until then the timer does not run,
+/// as it would not in a process without that work.
+fn jobs<'a>(_door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job<'a>)> {
+    Vec::new()
+}
+
+/// `createEdgeContext`'s service checks: the shared secret when it is long enough, and the keys when S2S is on.
+fn service_auth(env: &AgentsEnv) -> Result<ServiceAuth, String> {
+    let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    let keyring = env.str("S2S_KEYRING");
+    let s2s = s2s_from_env(
+        &str_of("S2S_AUTH_MODE"),
+        keyring,
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keys = match (s2s.mode, keyring) {
+        (Some(mode), Some(ring)) => Some((
+            ServiceVerifier::new("svc-agents", &parse_keyring(ring)?, system_seconds)?,
+            mode,
+        )),
+        _ => None,
+    };
+    let secret = str_of("INTERNAL_SERVICE_SECRET");
+    Ok(ServiceAuth {
+        secret: (secret.chars().count() >= MIN_SECRET_LENGTH).then_some(secret),
+        keys,
+    })
+}
+
+/// The door, built once from the environment, with the store.
+fn door(env: &AgentsEnv, store: Store) -> Result<AgentsDoor, String> {
+    let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    let door = AgentsDoor::new(DoorConfig {
+        edge_secret: str_of("EDGE_PRINCIPAL_SECRET"),
+        services: service_auth(env)?,
+        env: env.raw.clone(),
+        now: system_now,
+        store,
+    })?;
+    Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
+        None => door,
+        Some(key) => door.with_edge_key(EdgeKey::from_env(
+            &str_of("SERVICE_NAME"),
+            key,
+            env.int("EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS"),
+            env.int("EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS"),
+        )?),
+    })
+}
+
+fn run() -> Result<(), String> {
+    let env = env::load(&process_env()).map_err(|e| e.message)?;
+    let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    let log = Logger::stdout(&str_of("LOG_LEVEL"));
+    let fetch: Arc<dyn Fetch> = Arc::new(UreqFetch::new());
+    let telemetry = Telemetry::start(
+        env.flag("OTEL_ENABLED").unwrap_or(false),
+        &str_of("SERVICE_NAME"),
+        &str_of("OTEL_EXPORTER_OTLP_ENDPOINT"),
+        &str_of("APP_ENV"),
+        fetch,
+        log.clone(),
+    );
+    let out = serve(&env, &log, &telemetry);
+    telemetry.shutdown();
+    out
+}
+
+fn serve(env: &AgentsEnv, log: &Logger, telemetry: &Telemetry) -> Result<(), String> {
+    let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
+    let pool_max = usize::try_from(env.int("DATABASE_POOL_MAX").unwrap_or(1)).unwrap_or(1);
+    let store = db::open(
+        &str_of("DATABASE_URL"),
+        &str_of("SERVICE_NAME"),
+        pool_max,
+        env.flag("DATABASE_SSL").unwrap_or(false),
+    )?;
+    boot::check_schema(&store)?;
+    // `JetStreamEventBus.connect({ ..., ownedStreams: ['agents'] })`: a bus that cannot be reached stops the start.
+    let bus = JetStream::connect(
+        &str_of("NATS_URL"),
+        &str_of("SERVICE_NAME"),
+        Duration::from_secs(5),
+    )
+    .and_then(|js| {
+        js.ensure_stream(&stream_config("agents", &str_of("NATS_STREAM_PREFIX")))
+            .map(|()| js)
+    })
+    .map_err(|e| e.0)?;
+    // Before the listener opens: `openSession` binds from `agent_definitions`, so a process with no rows 404s every run.
+    let boot_agents = boot::boot_agents()?;
+    let registered = boot::register_agents(&store, &boot_agents).map_err(|e| e.to_string())?;
+    let door = door(env, store)?;
+
+    let app = App {
+        wire: door,
+        service_name: str_of("SERVICE_NAME"),
+        ready_body: String::new(),
+    };
+    let port_number = env.int("HTTP_PORT").unwrap_or(DEFAULT_PORT);
+    let port = u16::try_from(port_number)
+        .map_err(|_| format!("options.port should be >= 0 and < 65536. Received {port_number}."))?;
+    let server =
+        tiny_http::Server::http((str_of("HTTP_HOST").as_str(), port)).map_err(|e| e.to_string())?;
+    log.info(
+        vec![
+            ("port", Json::int(i64::from(port))),
+            ("provider", Json::str(str_of("AGENTS_PROVIDER"))),
+            (
+                "metering",
+                Json::Bool(env.flag("AGENTS_METERING_ENABLED").unwrap_or(false)),
+            ),
+            (
+                "productAgents",
+                Json::Array(registered.into_iter().map(Json::String).collect()),
+            ),
+        ],
+        "svc-agents ready",
+    );
+
+    let stop = Arc::new(AtomicBool::new(false));
+    for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
+        signal_hook::flag::register(signal, stop.clone()).map_err(|e| e.to_string())?;
+    }
+    let table = timers::timers(env);
+    let jobs = jobs(&app.wire, env);
+    for t in table.iter().filter(|t| t.every.is_some()) {
+        if !jobs.iter().any(|(name, _)| *name == t.name) {
+            log.warn(
+                vec![
+                    ("timer", Json::str(t.name)),
+                    ("slice", Json::str(t.slice.name())),
+                ],
+                "svc-agents timer not started: its slice is not ported",
+            );
+        }
+    }
+    std::thread::scope(|scope| {
+        for (name, job) in &jobs {
+            let Some(Timer {
+                every: Some(period),
+                at_boot,
+                ..
+            }) = table.iter().find(|t| t.name == *name).cloned()
+            else {
+                continue;
+            };
+            let stop = &stop;
+            scope.spawn(move || {
+                timers::every(period, at_boot, stop, job.as_ref(), &|e| {
+                    log.warn(
+                        vec![("timer", Json::str(*name)), ("err", Json::str(e))],
+                        "svc-agents timer run failed; the next tick retries",
+                    );
+                });
+            });
+        }
+        server::serve(&server, &app, log, telemetry, &stop);
+    });
+    // Draining, not dropping: in-flight requests and timer runs finish before the bus and the pool close.
+    drop(server);
+    bus.close();
+    app.wire.end();
+    log.info(Vec::new(), "svc-agents stopped");
+    Ok(())
+}
