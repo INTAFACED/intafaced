@@ -653,6 +653,11 @@ fn answers_a_retried_set_with_its_first_change_and_refuses_a_set_from_a_revision
     )
     .unwrap_err();
     assert_eq!(stale.code.as_deref(), Some(ACCOUNT_METADATA_STALE));
+    // The same words from another person are not a retry: it was someone else who wrote first.
+    let other =
+        desk::set_account_metadata(&store, OPERATOR, set_input(&account, "desk.retry", "v", 0))
+            .unwrap_err();
+    assert_eq!(other.code.as_deref(), Some(ACCOUNT_METADATA_STALE));
     let n: i64 = db
         .client()
         .query_one(
