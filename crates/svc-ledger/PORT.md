@@ -32,6 +32,12 @@ The `assets` slice is ported. It added:
 - The kit's identity client sends a consume's replay key (`requestId`), which the asset edit sends and the freeze doors do not.
 - `tests/assets_pg.rs`: `supported-assets.pg.test.ts` case for case, and the doors of `asset-registry-doors.test.ts`, on a real Postgres.
 
+The `history` slice is ported. It added:
+
+- `src/history.rs`: `history` (one account's entries in `[from, to)`, refused past 10,000 rather than answered short), `historyPage` (keyset pages newest first on the entry id, the cursor `base64url("v2.<id>")`, and each line's allow-listed rail and product, the owner's own order, its fill fee and its withdrawal id) and `holdingsHistory` (the owner's holdings and what crossed its edge since `from`, per asset, reason and bucket, in one repeatable-read snapshot). Moments cross as milliseconds, the database's microseconds cut as `new Date` cuts them.
+- `src/door/history.rs`: the three doors. `history` refuses `after` and `cursor` before its schema would strip them; `holdingsHistory` refuses a start ahead of the clock or off its bucket. Their inputs are recorded in `schemas.json` (the recorder now records `literal` and `default` parts).
+- `tests/history_pg.rs`: `history-postgres.test.ts`, `history-page-postgres.test.ts`, `history-page-order-id-postgres.test.ts`, `holdings-history-postgres.test.ts` and `holdings-history-door.test.ts`, case for case, on a real Postgres. Each books the same recipes the TypeScript test posts, recorded in `tests/fixtures/history-book.golden.json`.
+
 Left to later slices:
 
 - The recovery has one relay. `posting` adds the `ledgerTxPosted` one; until then a committed post's intent waits unsent.
