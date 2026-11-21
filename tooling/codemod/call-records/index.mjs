@@ -846,11 +846,19 @@ function write(result) {
 function importersOf(file, name) {
   const stem = basename(file).replace(/\.tsx?$/, '');
   try {
-    return execFileSync('git', ['grep', '-l', '-w', name, '--', 'apps', 'packages', 'services'], { cwd: REPO, encoding: 'utf8' })
+    // Only code files are read (a README that names it is no importer), and a failure is thrown, never read as "no
+    // importer": a swallowed parse error once deleted schemas still read.
+    return execFileSync('git', ['grep', '-l', '-w', name, '--', 'apps', 'packages', 'services'], {
+      cwd: REPO,
+      encoding: 'utf8',
+      maxBuffer: 256 * 1024 * 1024,
+    })
       .split('\n')
-      .filter((f) => f && join(REPO, f) !== file && importsFile(join(REPO, f), file, stem, name));
-  } catch {
-    return [];
+      .filter((f) => /\.(c|m)?[jt]sx?$/.test(f) && !f.endsWith('.d.ts') && join(REPO, f) !== file && importsFile(join(REPO, f), file, stem, name));
+  } catch (e) {
+    // git grep exits 1 when nothing matches: that alone is "no importer".
+    if (e.status === 1 && !e.stdout) return [];
+    throw e;
   }
 }
 
