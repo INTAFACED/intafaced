@@ -310,9 +310,12 @@ test(`${J} #5 points the customer to the catalogue and the support route: contac
     const subject = page.getByLabel('Subject', { exact: true });
     await expect(subject).toHaveValue(/^API problem: request id/);
     await subject.fill(`API problem: request id ${w.calls.outside.requestId}`);
+    // The field's label also carries its live character count, so it is matched from its start.
     await page
-      .getByLabel('What happened', { exact: true })
+      .getByRole('textbox', { name: /^What happened/ })
       .fill(`TEST ${J} ${RUN}: my key is refused. Request id ${w.calls.outside.requestId}.`);
+    // The form shows the request back before it is sent.
+    await page.getByRole('button', { name: 'Review request', exact: true }).click();
     await page.getByRole('button', { name: 'Send request', exact: true }).click();
     // Sent: the request's own page, carrying the request id the customer gave.
     await expect(page).toHaveURL(/\/support\/tickets\/[0-9a-f-]+$/, { timeout: 30_000 });
