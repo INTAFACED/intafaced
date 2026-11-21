@@ -1,5 +1,12 @@
 import { keyRateLimitSchema } from '@intafaced/contracts/api-rate-limits';
-import { payeeCardSchema } from '@intafaced/contracts/identity-handles';
+import {
+  IDENTITY_ME,
+  IDENTITY_USERS_PAYEE_CARD,
+  IDENTITY_USERS_RESOLVE_HANDLE,
+  IDENTITY_USERS_SEARCH_PAYEES,
+} from '@intafaced/contracts/identity-handles';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal, signedInUser } from './record-refusal.js';
 import { SecurityLockError } from './auth/security-lock.js';
 import { SignInChallengeError, type SignInAdmission, type SignInChallengeService } from './auth/signin-challenge.js';
 import { createKycLevelsRouter } from './kyc/levels-router.js';
@@ -1340,13 +1347,16 @@ export function createIdentityRouter(
      * The caller's own handle (Receive screen, account menu). Self-only: the
      * user id comes from the session, there is no input.
      */
-    me: protectedProcedure
-      .output(z.object({ userId: z.string().guid(), handle: z.string(), emailVerified: z.boolean() }))
-      .query(async ({ ctx }) => {
-        const view = await auth.selfView(ctx.principal.userId);
+    me: mountRecord(
+      IDENTITY_ME,
+      async ({ ctx }) => {
+        const userId = signedInUser(ctx);
+        const view = await auth.selfView(userId);
         if (view === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
-        return { userId: ctx.principal.userId, handle: view.handle, emailVerified: view.emailVerified };
-      }),
+        return { userId, handle: view.handle, emailVerified: view.emailVerified };
+      },
+      codedRefusal,
+    ),
 
     /**
      * The caller's TEST staff role on a local or test stack (`IDENTITY_STAFF_TEST_ROSTER`), for the console's admission.
@@ -1384,15 +1394,9 @@ export function createIdentityRouter(
        * key may not probe the handle space. The token must carry `identity:read`,
        * so a narrow token (svc-ws mints a `trade:read`-only one on recovery) cannot.
        */
-      resolveHandle: scopedProcedure('identity:read')
-        .input(z.object({ handle: z.string().max(64) }))
-        .output(
-          z.discriminatedUnion('found', [
-            z.object({ found: z.literal(false) }),
-            z.object({ found: z.literal(true), userId: z.string().guid(), handle: z.string(), self: z.boolean() }),
-          ]),
-        )
-        .query(async ({ ctx, input }) => {
+      resolveHandle: mountRecord(
+        IDENTITY_USERS_RESOLVE_HANDLE,
+        async ({ ctx, input }) => {
           if (ctx.principal.kid) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Handle lookup needs a signed-in session' });
           }
@@ -1411,7 +1415,9 @@ export function createIdentityRouter(
           // Discoverability off (PP-send-request-03): the same miss as an unknown handle for everyone but the owner.
           if (!hit.discoverable && !self) return { found: false as const };
           return { found: true as const, userId: hit.userId, handle: hit.handle, self };
-        }),
+        },
+        codedRefusal,
+      ),
 
       /**
        * The payee card for an account a handle lookup or a pay code has already named (J-pay-01 #2): the name the person
@@ -1419,10 +1425,9 @@ export function createIdentityRouter(
        * those answers carry, so it is no way to find anyone. A frozen, closed or unknown account, and one that turned
        * "find me by my handle" off (to anyone but its owner), answer `{ found: false }`. Sessions with `identity:read` only.
        */
-      payeeCard: scopedProcedure('identity:read')
-        .input(z.object({ userId: z.string().guid() }))
-        .output(payeeCardSchema)
-        .query(async ({ ctx, input }) => {
+      payeeCard: mountRecord(
+        IDENTITY_USERS_PAYEE_CARD,
+        async ({ ctx, input }) => {
           if (ctx.principal.kid) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee card needs a signed-in session' });
           }
@@ -1430,30 +1435,18 @@ export function createIdentityRouter(
           if (!card) return { found: false as const };
           if (!card.discoverable && input.userId !== ctx.principal.userId) return { found: false as const };
           return { found: true as const, name: card.name, memberSince: card.memberSince };
-        }),
+        },
+        codedRefusal,
+      ),
 
       /**
        * Find a person by exact email or exact phone. Same budget and the same
        * miss as `resolveHandle`, and the same `identity:read` gate. A hit requires that person's consent flag.
        * The email and the phone are never in the answer.
        */
-      searchPayees: scopedProcedure('identity:read')
-        .input(
-          z
-            .object({
-              email: z.string().max(320).optional(),
-              phone: z.string().max(32).optional(),
-            })
-            .strict()
-            .refine((value) => (value.email !== undefined) !== (value.phone !== undefined), 'Send an email or a phone, not both'),
-        )
-        .output(
-          z.discriminatedUnion('found', [
-            z.object({ found: z.literal(false) }),
-            z.object({ found: z.literal(true), userId: z.string().guid(), handle: z.string(), self: z.boolean() }),
-          ]),
-        )
-        .query(async ({ ctx, input }) => {
+      searchPayees: mountRecord(
+        IDENTITY_USERS_SEARCH_PAYEES,
+        async ({ ctx, input }) => {
           if (ctx.principal.kid) {
             throw new TRPCError({ code: 'FORBIDDEN', message: 'Payee search needs a signed-in session' });
           }
@@ -1469,7 +1462,9 @@ export function createIdentityRouter(
           const hit = await auth.searchPayee(email !== undefined ? { email } : { phone: phone as string });
           if (!hit) return { found: false as const };
           return { found: true as const, userId: hit.userId, handle: hit.handle, self: hit.userId === ctx.principal.userId };
-        }),
+        },
+        codedRefusal,
+      ),
 
       /**
        * Opt in to being found by email or phone, and store the phone people
