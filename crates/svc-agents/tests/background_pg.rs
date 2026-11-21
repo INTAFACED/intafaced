@@ -334,6 +334,7 @@ impl World {
             runtime: rt,
             background: settings,
             advisors: svc_agents::advisors::Advisors::unwired(),
+            team: svc_agents::team::Team::unwired(),
         })
         .unwrap()
     }
