@@ -365,6 +365,7 @@ impl World {
             ready: ReadyInput::unwired(),
             metering: self.metering(enabled),
             runtime: rt,
+            background: svc_agents::background::Settings::default(),
         })
         .unwrap()
     }

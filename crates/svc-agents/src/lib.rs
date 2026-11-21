@@ -9,6 +9,7 @@
 //! and `timers` (what `index.ts` runs on a period); the binary (`main.rs`) puts them together.
 
 pub mod audit;
+pub mod background;
 pub mod boot;
 pub mod db;
 pub mod door;
@@ -20,4 +21,5 @@ pub mod metering;
 pub mod migrate;
 pub mod refines;
 pub mod runtime;
+pub mod self_freeze;
 pub mod timers;
