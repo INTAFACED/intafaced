@@ -6,8 +6,11 @@
 //! slice; `PORT.md` lists the slices and what each ports.
 //!
 //! The `journal` slice adds the engine journal (`journal`): records, how they are written and read back, the file's one
-//! writer, named gaps, and replay's rules over the books. Nothing here holds a book, and nothing is served from it yet:
-//! the `book` and `serve` slices add them and the binary.
+//! writer, named gaps, and replay's rules over the books.
+//!
+//! The `book` slice adds the order book (`book`), the engine over it (`engine`: the journal before every move, the
+//! order events, the cold start, reconcile), and the doors that reach it (`door::book`). The `serve` slice adds the
+//! binary that serves them.
 
 pub mod book;
 pub mod door;
