@@ -9,12 +9,16 @@ import {
   type ExecuteFn,
   type ExecuteReply,
   type FounderCallContext,
+  founderRecordRead,
 } from '@/lib/desk';
 import { treasuryTransport } from '@/lib/ledger';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import { MARKET_OPS_TAKEDOWN_LISTING, MARKET_VET } from '@intafaced/contracts/market-procedures';
 import { normaliseCostAmount } from '@/lib/venue-economics';
 import { isRecord } from '@intafaced/contracts/guards';
+import { ACADEMY_ADMIN_GRANT_CERT_EXCEPTION } from '@intafaced/contracts/academy-admin-records';
+import { ACADEMY_APPOINT_AMBASSADOR } from '@intafaced/contracts/academy-appoint-ambassador-procedures';
+import { ACADEMY_DECIDE_RESIDENCY } from '@intafaced/contracts/academy-decide-residency-procedures';
 
 /**
  * Run an approved Market or Academy request against the owning service, as the signed-in founder.
@@ -242,25 +246,16 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       return { ok: true, detail: `svc-academy answered and its returned ambassador record is ${a.status}.` };
     }
     if (request.kind === 'academy.ambassador.appoint') {
-      const result = await founderCall(
-        ctx,
-        'academy',
-        'appointAmbassador',
-        'POST',
-        { userId: request.userId, ...ids },
-        readAmbassadorAnswer,
-      );
+      const result = await founderRecordRead(ctx, ACADEMY_APPOINT_AMBASSADOR, { userId: request.userId, ...ids }, readAmbassadorAnswer);
       if (result.kind !== 'ok') return failureRefusal('svc-academy', 'academy', result);
       const a = result.data;
       if (a.userId !== request.userId || a.status !== 'active') return WRONG_STATE;
       return { ok: true, detail: `svc-academy answered and its returned ambassador record is ${a.status}.` };
     }
     if (request.kind === 'academy.residency.decide') {
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'academy',
-        'decideResidency',
-        'POST',
+        ACADEMY_DECIDE_RESIDENCY,
         { id: request.id, decision: request.decision, ...ids },
         readResidencyAnswer,
       );
@@ -284,11 +279,9 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       return { ok: true, detail: `svc-academy answered: certificate ${a.publicId} is revoked, recorded ${a.revokedAt} ("${a.reason}").` };
     }
     if (request.kind === 'academy.cert.exception') {
-      const result = await founderCall(
+      const result = await founderRecordRead(
         ctx,
-        'academy',
-        'admin.grantCertException',
-        'POST',
+        ACADEMY_ADMIN_GRANT_CERT_EXCEPTION,
         { userId: request.userId, certId: request.certId, reason: request.reason, ...ids },
         readCertExceptionAnswer,
       );

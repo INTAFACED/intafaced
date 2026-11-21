@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import {
@@ -8,7 +7,9 @@ import {
   type AcademyCertProgress,
 } from '@intafaced/contracts/academy-learner-procedures';
 import { useApi, useSession } from '../session';
-import { buildTracking, certGrant, completionPage, type CompletionRow, type Tracking, type LessonSummary } from './academy-lms';
+import { buildTracking, type CompletionRow, type Tracking, type LessonSummary } from './academy-lms';
+import { ACADEMY_MY_COMPLETIONS } from '@intafaced/contracts/academy-my-completions-procedures';
+import { ACADEMY_MY_CERTS } from '@intafaced/contracts/academy-my-certs-procedures';
 
 /** The service caps a page at 200 and a completion is one per curriculum lesson, so more than a few pages is not a real answer. */
 const COMPLETION_PAGE = 200;
@@ -18,9 +19,13 @@ export async function readCompletions(api: ApiClient, signal?: AbortSignal): Pro
   const rows: CompletionRow[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < COMPLETION_MAX_PAGES; page++) {
-    const result = await api.query('academy', 'myCompletions', { limit: COMPLETION_PAGE, ...(cursor ? { cursor } : {}) }, completionPage, {
-      signal,
-    });
+    const result = await api.call(
+      ACADEMY_MY_COMPLETIONS,
+      { limit: COMPLETION_PAGE, ...(cursor ? { cursor } : {}) },
+      {
+        signal,
+      },
+    );
     if (!result.ok) return result;
     rows.push(...result.data.items);
     if (!result.data.nextCursor) return { ok: true, data: rows };
@@ -54,7 +59,7 @@ export function useAcademyTracking() {
           return authoredRefusal('invalid_response', { key: 'loadFailed' });
         progress.push(row.data);
       }
-      const grants = await api.query('academy', 'myCerts', { limit: 200 }, z.array(certGrant), { signal });
+      const grants = await api.call(ACADEMY_MY_CERTS, { limit: 200 }, { signal });
       if (!grants.ok) return grants;
       if (grants.data.some((grant) => grant.userId !== userId)) return authoredRefusal('invalid_response', { key: 'loadFailed' });
       const completions = await readCompletions(api, signal);
