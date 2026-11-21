@@ -20,6 +20,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use service_kit::edge;
 use service_kit::json::{self, Json};
@@ -27,6 +28,10 @@ use service_kit::server::Request;
 use service_kit::time::Instant;
 use svc_agents::db::Store;
 use svc_agents::door::{self, AgentsDoor, DoorConfig, Kind, Pre, ServiceAuth, Slice};
+use svc_agents::gateway::Gateway;
+use svc_agents::gateway::desk::GatewaySlice;
+use svc_agents::gateway::readiness::ReadyInput;
+use svc_agents::gateway::routing::RoutingTable;
 
 const SECRET: &str = "an-agents-wire-replay-edge-secret-long-enough";
 const USER: &str = "11111111-1111-4111-8111-111111111111";
@@ -94,6 +99,20 @@ fn serve() -> AgentsDoor {
         env,
         now,
         store: Store::Down("svc-agents: the replay has no database".to_owned()),
+        // The replay's gateway: an empty routing table and no provider registered.
+        gateway: GatewaySlice {
+            gateway: Arc::new(Gateway::new(Vec::new(), RoutingTable::default())),
+            fee_asset_id: "fixture-asset".to_owned(),
+            metering_enabled: None,
+            window_minutes: 15,
+        },
+        ready: ReadyInput {
+            provider_mode: "mock".to_owned(),
+            metering_enabled: false,
+            product_agents_registered: 0,
+            fleet: Json::Null,
+            live_planes: Json::Null,
+        },
     })
     .unwrap()
 }

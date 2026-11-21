@@ -15,137 +15,22 @@
 
 use std::collections::BTreeMap;
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-use postgres::{Client, NoTls};
+use std::sync::Arc;
 
 use service_kit::json::{self, Json};
 use service_kit::server::App;
 use svc_agents::boot::{self, SCHEMA_MISSING};
-use svc_agents::db::{self, Store};
+use svc_agents::db;
 use svc_agents::door::{AgentsDoor, DoorConfig, ServiceAuth, system_now};
+use svc_agents::gateway::Gateway;
+use svc_agents::gateway::desk::GatewaySlice;
+use svc_agents::gateway::providers::{MockOptions, MockProvider, Provider};
+use svc_agents::gateway::readiness::ReadyInput;
+use svc_agents::gateway::routing;
 use svc_agents::migrate::MIGRATIONS;
 
-fn admin_url() -> Option<String> {
-    let pick = |k: &str| {
-        std::env::var(k)
-            .ok()
-            .map(|v| v.trim().to_owned())
-            .filter(|v| !v.is_empty())
-    };
-    let url = pick("TEST_DATABASE_URL_AGENTS").or_else(|| pick("TEST_DATABASE_URL"));
-    let required = std::env::var("REQUIRE_POSTGRES").is_ok_and(|v| v == "1");
-    assert!(
-        url.is_some() || !required,
-        "TEST_DATABASE_URL_AGENTS or TEST_DATABASE_URL is required"
-    );
-    url
-}
-
-fn assert_test_database(c: &mut Client) {
-    let name: String = c
-        .query_one("SELECT current_database()", &[])
-        .unwrap()
-        .get(0);
-    assert!(
-        name.ends_with("_test"),
-        "refusing: {name} is not a test database (its name must end in _test)"
-    );
-}
-
-struct TestDb {
-    url: String,
-    admin: String,
-    name: String,
-}
-
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-impl TestDb {
-    fn new() -> Option<TestDb> {
-        let admin = admin_url()?;
-        let mut a = Client::connect(&admin, NoTls).expect("the admin database answers");
-        assert_test_database(&mut a);
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.subsec_nanos());
-        let name = format!(
-            "itf_run_agents_{}_{}_{nanos:x}_test",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::SeqCst)
-        );
-        a.batch_execute(&format!("CREATE DATABASE \"{name}\""))
-            .unwrap();
-        let mut parsed = url::Url::parse(&admin).unwrap();
-        parsed.set_path(&format!("/{name}"));
-        let db = TestDb {
-            admin,
-            name,
-            url: parsed.to_string(),
-        };
-        let mut c = db.client();
-        assert_test_database(&mut c);
-        // The database bootstrap's part (tooling/infra/postgres-init): the extensions and the schema.
-        c.batch_execute(
-            "CREATE EXTENSION IF NOT EXISTS \"pgcrypto\"; CREATE EXTENSION IF NOT EXISTS \"citext\"; CREATE SCHEMA IF NOT EXISTS \"agents\"",
-        )
-        .unwrap();
-        Some(db)
-    }
-
-    fn client(&self) -> Client {
-        Client::connect(&self.url, NoTls).unwrap()
-    }
-
-    /// `svc-agents migrate [--down]`, the binary itself: its exit code and what it printed.
-    fn binary(&self, down: bool) -> (i32, String) {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_svc-agents"));
-        cmd.arg("migrate").env("DATABASE_URL", &self.url);
-        if down {
-            cmd.arg("--down");
-        }
-        let out = cmd.output().unwrap();
-        (
-            out.status.code().unwrap_or(-1),
-            format!(
-                "{}{}",
-                String::from_utf8_lossy(&out.stdout),
-                String::from_utf8_lossy(&out.stderr)
-            ),
-        )
-    }
-
-    fn migrated(&self) {
-        let (code, out) = self.binary(false);
-        assert_eq!(code, 0, "{out}");
-    }
-
-    fn count(&self, sql: &str) -> i64 {
-        self.client().query_one(sql, &[]).unwrap().get(0)
-    }
-
-    fn regclass(&self, name: &str) -> Option<String> {
-        self.client()
-            .query_one("SELECT to_regclass($1)::text", &[&name])
-            .unwrap()
-            .get(0)
-    }
-
-    fn store(&self) -> Store {
-        db::open(&self.url, "svc-agents", 2, false).unwrap()
-    }
-}
-
-impl Drop for TestDb {
-    fn drop(&mut self) {
-        if let Ok(mut a) = Client::connect(&self.admin, NoTls) {
-            let _ = a.batch_execute(&format!(
-                "DROP DATABASE IF EXISTS \"{}\" WITH (FORCE)",
-                self.name
-            ));
-        }
-    }
-}
+mod support;
+use support::TestDb;
 
 /// Every table `PORT.md` names, slice by slice.
 const TABLES: &[&str] = &[
@@ -408,7 +293,7 @@ fn every_pooled_connection_reads_the_agents_schema_first_under_the_services_name
     assert_eq!(table.as_deref(), Some("agent_definitions"));
 
     // The transaction helper commits on success and rolls back on failure.
-    db::transaction(pool, postgres::IsolationLevel::ReadCommitted, |tx| {
+    db::transaction::<_, db::StoreError>(pool, postgres::IsolationLevel::ReadCommitted, |tx| {
         tx.execute(
             "INSERT INTO agent_definitions (agent_id, guardrail) VALUES ('committed', '{\"limits\":{},\"tools\":[]}')",
             &[],
@@ -416,14 +301,18 @@ fn every_pooled_connection_reads_the_agents_schema_first_under_the_services_name
         Ok(())
     })
     .unwrap();
-    let refused = db::transaction(pool, postgres::IsolationLevel::ReadCommitted, |tx| {
-        tx.execute(
+    let refused: Result<(), db::StoreError> = db::transaction(
+        pool,
+        postgres::IsolationLevel::ReadCommitted,
+        |tx| {
+            tx.execute(
             "INSERT INTO agent_definitions (agent_id, guardrail) VALUES ('rolled-back', '{\"limits\":{},\"tools\":[]}')",
             &[],
         )?;
-        tx.execute("SELECT 1/0", &[])?;
-        Ok(())
-    });
+            tx.execute("SELECT 1/0", &[])?;
+            Ok(())
+        },
+    );
     assert_eq!(refused.unwrap_err().code.as_deref(), Some("22012"));
     assert_eq!(
         db.count("SELECT count(*) FROM agents.agent_definitions WHERE agent_id IN ('committed', 'rolled-back')"),
@@ -433,15 +322,38 @@ fn every_pooled_connection_reads_the_agents_schema_first_under_the_services_name
 }
 
 #[test]
-fn health_answers_as_index_ts_and_ready_says_the_gateway_is_not_ported() {
+fn health_answers_as_index_ts_and_ready_reports_the_gateway() {
     let Some(db) = TestDb::new() else { return };
     db.migrated();
+    let mock: Arc<dyn Provider> = Arc::new(MockProvider::new(
+        MockOptions {
+            id: Some("primary".to_owned()),
+            ..MockOptions::default()
+        },
+        system_now,
+    ));
     let door = AgentsDoor::new(DoorConfig {
         edge_secret: "placeholder-agents-store-edge-secret-0000".to_owned(),
         services: ServiceAuth::unwired(),
         env: BTreeMap::new(),
         now: system_now,
         store: db.store(),
+        gateway: GatewaySlice {
+            gateway: Arc::new(Gateway::new(
+                vec![mock],
+                routing::unpriced(&routing::default_table()),
+            )),
+            fee_asset_id: "USDC".to_owned(),
+            metering_enabled: Some(true),
+            window_minutes: 15,
+        },
+        ready: ReadyInput {
+            provider_mode: "mock".to_owned(),
+            metering_enabled: true,
+            product_agents_registered: 5,
+            fleet: Json::Null,
+            live_planes: Json::Null,
+        },
     })
     .unwrap();
     let app = App {
@@ -455,10 +367,12 @@ fn health_answers_as_index_ts_and_ready_says_the_gateway_is_not_ported() {
         (200, r#"{"ok":true,"service":"svc-agents"}"#)
     );
     let ready = app.route("GET", "/ready", &[], "", "req-2");
-    assert_eq!(ready.status, 503);
+    assert_eq!(ready.status, 200);
+    let body = json::parse(&ready.body).unwrap();
+    assert_eq!(body.get("ready"), Some(&Json::Bool(true)));
     assert_eq!(
-        ready.body,
-        r#"{"ready":false,"residual":"svc-agents in Rust: the gateway slice is not ported"}"#
+        body.get("usefulPath").and_then(|u| u.get("task")),
+        Some(&Json::str("navigator.plan"))
     );
     assert!(boot::check_schema(app.wire.store()).is_ok());
     app.wire.end();

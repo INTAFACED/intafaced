@@ -11,7 +11,9 @@ workspace = true
 
 [dependencies]
 service-kit = { path = "../service-kit" }
+getrandom = "0.3"
 postgres = "0.19"
+sha2 = "0.10"
 signal-hook = "0.3"
 tiny_http = "0.12"
 url = "2"

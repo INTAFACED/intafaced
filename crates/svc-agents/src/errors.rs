@@ -39,6 +39,20 @@ impl AgentError {
         })
     }
 
+    /// An `AgentError` the code itself names, with a code `errors.ts` declares (each caller's test holds that its codes
+    /// are in `CODES`).
+    pub fn declared(
+        code: &'static str,
+        user_key: impl Into<String>,
+        message: impl Into<String>,
+    ) -> AgentError {
+        AgentError {
+            code,
+            user_key: user_key.into(),
+            message: message.into(),
+        }
+    }
+
     /// The tRPC code `toTRPCError` gives the code.
     pub fn trpc_code(&self) -> &'static str {
         match self.code {

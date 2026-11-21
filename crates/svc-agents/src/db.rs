@@ -127,20 +127,58 @@ pub fn open(
 }
 
 /// One transaction at `isolation`: committed when `f` succeeds, rolled back when it fails.
-pub fn transaction<T>(
+pub fn transaction<T, E: From<StoreError>>(
     pool: &Pool,
     isolation: IsolationLevel,
-    f: impl FnOnce(&mut Transaction<'_>) -> Result<T, StoreError>,
-) -> Result<T, StoreError> {
-    let mut conn = pool.get()?;
-    let client: &mut Client = conn.client()?;
+    f: impl FnOnce(&mut Transaction<'_>) -> Result<T, E>,
+) -> Result<T, E> {
+    let mut conn = pool.get().map_err(StoreError::from)?;
+    let client: &mut Client = conn.client().map_err(StoreError::from)?;
     let mut tx = client
         .build_transaction()
         .isolation_level(isolation)
-        .start()?;
+        .start()
+        .map_err(StoreError::from)?;
     let out = f(&mut tx)?;
-    tx.commit()?;
+    tx.commit().map_err(StoreError::from)?;
     Ok(out)
+}
+
+/// A failure that may carry the server's SQLSTATE.
+pub trait Sqlstate {
+    fn sqlstate(&self) -> Option<&str>;
+}
+
+impl Sqlstate for StoreError {
+    fn sqlstate(&self) -> Option<&str> {
+        self.code.as_deref()
+    }
+}
+
+/// `transaction(sql, fn, { isolation })` from `@intafaced/db`: one transaction at `isolation`, run again (up to five
+/// attempts, full-jitter backoff) when it fails with a serialization failure (40001) or a deadlock (40P01); any other
+/// failure stands.
+pub fn transaction_retrying<T, E: From<StoreError> + Sqlstate>(
+    pool: &Pool,
+    isolation: IsolationLevel,
+    mut f: impl FnMut(&mut Transaction<'_>) -> Result<T, E>,
+) -> Result<T, E> {
+    const MAX_ATTEMPTS: u32 = 5;
+    let mut attempt = 1;
+    loop {
+        match transaction(pool, isolation, &mut f) {
+            Err(e) if matches!(e.sqlstate(), Some("40001" | "40P01")) && attempt < MAX_ATTEMPTS => {
+                // `Math.random() * 2 ** attempt * 5` milliseconds.
+                let ceiling = (1u64 << attempt) * 5;
+                let mut b = [0u8; 8];
+                let jitter =
+                    getrandom::fill(&mut b).map_or(0, |()| u64::from_le_bytes(b) % ceiling);
+                std::thread::sleep(std::time::Duration::from_millis(jitter));
+                attempt += 1;
+            }
+            out => return out,
+        }
+    }
 }
 
 /// One statement or query outside a transaction.
