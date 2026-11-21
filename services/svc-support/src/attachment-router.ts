@@ -1,3 +1,6 @@
+import { SUPPORT_ATTACHMENT_LIMITS } from '@intafaced/contracts/support-customer-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { supportRefusal } from './record-refusal.js';
 import { TRPCError } from '@trpc/server';
 import {
   scopedProcedure,
@@ -21,9 +24,7 @@ export function attachmentProcedures(
   support: Pick<SupportService, 'listStaff' | 'attachmentLimits' | 'attachmentStatus'>,
 ) {
   return {
-    attachmentLimits: scopedProcedure('support:read')
-      .output(supportAttachmentLimitsSchema)
-      .query(() => support.attachmentLimits()),
+    attachmentLimits: mountRecord(SUPPORT_ATTACHMENT_LIMITS, () => support.attachmentLimits(), supportRefusal),
 
     attachmentStatus: scopedProcedure('support:ops')
       .output(supportAttachmentStatusSchema)

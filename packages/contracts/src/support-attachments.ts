@@ -54,23 +54,20 @@ export function supportAttachmentTypeProblem(value: string): string | null {
   return MEDIA_TYPE.test(value) ? null : 'not_a_media_type';
 }
 
-const mediaType = z.string().refine((value) => supportAttachmentTypeProblem(value) === null, {
-  message: 'support.attachment_settings_invalid',
-});
+/** One media type, as `supportAttachmentTypeProblem` reads it: the same pattern, so the export carries it. */
+const mediaType = z.string().regex(MEDIA_TYPE, { message: 'support.attachment_settings_invalid' });
 
 const positiveInt = z.number().int().min(1).max(INT_MAX);
 
-const typeList = z
-  .array(mediaType)
-  .min(1)
-  .max(SUPPORT_ATTACHMENT_TYPES_MAX)
-  .refine((list) => new Set(list).size === list.length, { message: 'support.attachment_settings_invalid' });
+const typeListShape = z.array(mediaType).min(1).max(SUPPORT_ATTACHMENT_TYPES_MAX);
+/** Each type once. A reply's list is checked for this by its record's `accept` (`supportAttachmentTypesUnique`). */
+const typeList = typeListShape.refine((list) => new Set(list).size === list.length, { message: 'support.attachment_settings_invalid' });
 
 /** What a signed-in customer or an operator may read. A blank limit is `null`; `revision` is 0 until the owner sets one. */
 export const supportAttachmentLimitsSchema = z
   .object({
     maxBytes: positiveInt.nullable(),
-    allowedTypes: typeList.nullable(),
+    allowedTypes: typeListShape.nullable(),
     maxCount: positiveInt.nullable(),
     /** The first piece an attach is missing, in the order it needs them, or `null` when every piece is set. */
     missing: z.enum(SUPPORT_ATTACHMENT_KEYS).nullable(),
@@ -79,6 +76,12 @@ export const supportAttachmentLimitsSchema = z
   })
   .strict();
 export type SupportAttachmentLimits = z.infer<typeof supportAttachmentLimitsSchema>;
+
+/** No media type is listed twice in a reply's limits. */
+export const supportAttachmentTypesUnique = (reply: unknown): boolean => {
+  const types = supportAttachmentLimitsSchema.safeParse(reply).data?.allowedTypes;
+  return types !== undefined && (types === null || new Set(types).size === types.length);
+};
 
 /**
  * Set one or more limits. A field left out is unchanged; `null` clears it. `expectedRevision` is the revision the
