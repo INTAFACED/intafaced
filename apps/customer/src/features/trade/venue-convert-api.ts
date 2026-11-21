@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import {
+  venueConvertAcceptSchema,
   venueConversionSchema,
   venueConvertHistorySchema,
   venueConvertPairsSchema,
@@ -18,6 +19,7 @@ export type ConvertPairs = z.infer<typeof venueConvertPairsSchema>;
 export type ConvertPair = ConvertPairs['pairs'][number];
 export type ConvertQuote = z.infer<typeof venueConvertQuoteSchema>;
 export type Conversion = z.infer<typeof venueConversionSchema>;
+export type CashOffer = ConvertPairs['cash'][number];
 
 export function venueConvertApi(api: ApiClient) {
   const post = <T>(path: string, schema: z.ZodType<T>, body: unknown) =>
@@ -31,7 +33,7 @@ export function venueConvertApi(api: ApiClient) {
       }),
     quote: (body: { owner: string; from: string; to: string; amount: string; quoteKey: string }) =>
       post('/quote', venueConvertQuoteSchema, body),
-    accept: (body: { owner: string; quoteId: string }) => post('/accept', preparedAnswerSchema, body),
+    accept: (body: { owner: string; quoteId: string }) => post('/accept', venueConvertAcceptSchema, body),
     limit: (body: { owner: string; from: string; to: string; amount: string; price: string; limitKey: string }) =>
       post('/limit', preparedAnswerSchema, body),
     submit: (actionKey: string, signature: KeptSignature) => post('/submit', submitAnswerSchema, { actionKey, signature }),

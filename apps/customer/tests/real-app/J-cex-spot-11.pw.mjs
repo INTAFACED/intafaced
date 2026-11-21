@@ -20,8 +20,11 @@ import {
   venueAccount,
   venueForThisFile,
   venueInfo,
+  venueBalance,
   venueRecord,
 } from './venue.mjs';
+import { setPartner } from './partner.mjs';
+import { STACK_PORTS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-cex-spot-11, in the running app (docs/roadmap/journeys.json): I convert one coin to another in one tap and see it in
 // my history. One test per step, titled "J-cex-spot-11 #<n>", run in order on one TEST account. #9 (very large amounts
@@ -40,6 +43,8 @@ const J = 'J-cex-spot-11';
 const ROOM = '/trade/convert';
 const MAKER = 'js11-maker';
 const TAKER = 'js11-taker';
+/** The TEST partner bank's own book on svc-bank, read on loopback (svc-bank `partner/test-partner-record.ts`). */
+const PARTNER_RECORD = `http://127.0.0.1:${STACK_PORTS.bank}/test-partner`;
 const run = journeyState(`${J}-venue-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
@@ -675,41 +680,118 @@ test(`${J} #10 opens Recent conversions: the conversion with paid and received a
   }
 });
 
-test(`${J} #11 converts a cash currency through a crypto leg: the screen says it is not offered, since no partner offers the cash leg`, async ({
+test(`${J} #11 converts a cash currency through a crypto leg: two linked legs shown as one record where the partner offers it; otherwise the screen says it is not offered`, async ({
   page,
   stepPicture,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const s = state();
-  const wallet = await openRoom(page, s);
-  const sent = convertCalls(page);
-  await page.goto(`${ROOM}?from=EUR&to=${s.marketA.base}`);
-  const refused = page.getByTestId('cvt-route-refused');
-  await expect(refused).toHaveAttribute('data-code', 'trade.convert_cash_not_offered');
-  await expect(refused).toContainText('Cash through a coin isn’t offered here');
-  await expect(refused).toContainText(
-    `EUR to ${s.marketA.base} needs a cash leg from a partner as two linked steps, and no partner offers one here.`,
-  );
-  await expect(card(page).getByRole('button', { name: 'Get a price', exact: true })).toBeDisabled();
-  await stepPicture();
+  const A = s.marketA;
   const session = await api(s.account);
-  // The step's condition: no partner offers a cash leg on this stack, so no cash currency is convertible here at all,
-  // and the screen's answer is the step's "otherwise". Both ways round are refused by that name, and nothing is priced.
-  const pairs = (await session.get('/api/v1/venue/convert/pairs')).body;
-  for (const cash of ['EUR', 'USD', 'GBP']) expect(pairs.assets).not.toContain(cash);
-  for (const [from, to] of [
-    ['EUR', s.marketA.base],
-    [s.marketA.base, 'EUR'],
-  ]) {
-    const route = await session.get(`/api/v1/venue/convert/route?from=${from}&to=${to}`);
-    expect(route.status, JSON.stringify(route.body).slice(0, 300)).toBe(422);
-    expect(JSON.stringify(route.body)).toContain('trade.convert_cash_not_offered');
+  // Where the partner offers it: the TEST partner bank holds this person's cash (custody off: partner-held) and is funded
+  // with TEST EUR, and the stack's TEST partner gives a TEST rate of 1.08 USDC a euro (tooling bank.mjs).
+  await setPartner(s.account, { custody: 'off', notOffered: [] });
+  try {
+    const funded = await session.post('/api/bank/trpc/testPartner.fund', { fundId: `js11-eur-${fresh()}`, assetId: 'EUR', amount: '50' });
+    expect(funded.status, JSON.stringify(funded.body).slice(0, 300)).toBe(200);
+    const eurBefore = toUnits((await venueBalance(session.userId, 'EUR', PARTNER_RECORD)).total);
+    const usdcBefore = await balanceOf(s.owner, 'USDC');
+    const pairs = (await session.get('/api/v1/venue/convert/pairs')).body;
+    expect(pairs.cash, JSON.stringify(pairs).slice(0, 400)).toEqual([
+      expect.objectContaining({ asset: 'EUR', via: 'USDC', rate: '1.08', test: true }),
+    ]);
+
+    const wallet = await openRoom(page, s, `${ROOM}?from=EUR&to=${A.base}`);
+    const sent = convertCalls(page);
+    const linked = card(page).getByTestId('cvt-linked');
+    await expect(linked).toHaveAttribute('data-cash', 'EUR');
+    await expect(linked).toHaveAttribute('data-via', 'USDC');
+    await expect(linked).toContainText('Two linked steps, one conversion');
+    await expect(card(page).getByTestId('cvt-available')).toContainText('in your bank account');
+    const q = await getPrice(page, '20');
+    expect(q).toMatchObject({ from: 'EUR', to: A.base, side: 'buy', spend: '20', cashLeg: { cash: 'EUR', coin: 'USDC', rate: '1.08' } });
+    expect(sameDecimal(q.cashLeg.coinSpend, '21.6')).toBe(true);
+    // The venue order never spends more coin than the partner's leg pays in.
+    expect(toUnits(q.maxCost)).toBeLessThanOrEqual(toUnits('21.6'));
+    const quoted = card(page).getByTestId('cvt-quote');
+    await expect(line(quoted, 'cash-leg')).toContainText('20 EUR for 21.6 USDC');
+    await expect(line(quoted, 'coin-leg')).toContainText(`21.6 USDC for ${A.base}`);
+    // A price moves nothing: the partner holds all the cash still.
+    expect(toUnits((await venueBalance(session.userId, 'EUR', PARTNER_RECORD)).total)).toBe(eurBefore);
+
+    await card(page).getByRole('button', { name: 'Review', exact: true }).click();
+    await review(page).getByRole('button', { name: 'Convert now', exact: true }).dblclick();
+    await continueInWallet(page);
+    const receipt = card(page).getByTestId('cvt-receipt');
+    await expect(receipt).toHaveAttribute('data-state', 'filled', { timeout: 30_000 });
+    const cloid = await receipt.getAttribute('data-client-id');
+    const legs = receipt.getByTestId('cvt-receipt-legs');
+    await expect(legs.locator('[data-leg="cash"]')).toHaveAttribute('data-state', 'delivered');
+    await expect(legs.locator('[data-leg="venue"]')).toHaveAttribute('data-state', 'filled');
+    await expect(line(receipt, 'paid')).toContainText('EUR');
+
+    // One record in Recent conversions, holding both legs.
+    const key = `convert:${s.owner}:${q.quoteId}`;
+    const row = page.getByTestId('cvt-recent-row').and(page.locator(`[data-key="${key}"]`));
+    await expect(row).toHaveCount(1, { timeout: 30_000 });
+    await expect(row.getByTestId('cvt-recent-legs').locator('li')).toHaveCount(2);
+    await expect(row.locator('[data-cell="paid"]')).toContainText('20 EUR');
+    await expect(row.locator('[data-cell="received"]')).toContainText(A.base);
+    await stepPicture();
+
+    // The records behind the screen. One signed venue order, one accept, one partner leg under one key.
+    expect(signatures(wallet)).toBe(1);
+    expect(sent.filter((p) => p === 'convert/accept')).toHaveLength(1);
+    const history = (await session.get(`/api/v1/venue/convert/history?owner=${s.owner}`)).body;
+    const mine = history.conversions.filter((c) => c.quoteId === q.quoteId);
+    expect(mine, JSON.stringify(history).slice(0, 600)).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ from: 'EUR', to: A.base, paid: { asset: 'EUR' }, legs: { cash: { cash: 'EUR', coin: 'USDC' } } });
+    const cashKey = `convert-cash:${s.owner}:${q.quoteId}`;
+    expect(mine[0].legs.cash.legKey).toBe(cashKey);
+    // The partner's own book: one move of 20 EUR out of the person's main balance under the leg's key.
+    const moves = (await venueRecord(session.userId, '/moves', {}, PARTNER_RECORD, null)).value.filter((m) => m.key === cashKey);
+    expect(moves, JSON.stringify(moves).slice(0, 400)).toHaveLength(1);
+    expect(moves[0]).toMatchObject({ from: { owner: session.userId, assetId: 'EUR', spaceId: null } });
+    expect(sameDecimal(moves[0].amount, '20')).toBe(true);
+    expect(toUnits((await venueBalance(session.userId, 'EUR', PARTNER_RECORD)).total)).toBe(eurBefore - toUnits('20'));
+    // The venue's own record: one filled order under the client id; the coin the partner paid in, less what it spent.
+    const placed = await orders(s.owner, cloid);
+    expect(placed).toHaveLength(1);
+    expect(placed[0]).toMatchObject({ symbol: A.symbol, side: 'buy', status: 'filled' });
+    const got = fromFills(await fillsOf(s.owner, cloid), 'buy', A.base, 'USDC');
+    expect(sameDecimal(mine[0].legs.venue.paid.amount, got.paid)).toBe(true);
+    const usdcAfter = await balanceOf(s.owner, 'USDC');
+    expect(toUnits(usdcAfter.total) - toUnits(usdcBefore.total)).toBe(toUnits('21.6') - toUnits(got.paid));
+    // Money: the ledger posts nothing for either leg.
+    expect(await session.balances()).toEqual(s.ledgerStart);
+    run.write({ accepted: [...s.accepted, { quoteId: q.quoteId, cloid, step: 11 }] });
+
+    // Otherwise: the partner does not offer the cash leg for this person, so the screen says it is not offered and
+    // nothing is priced, sent or signed, either way round.
+    await setPartner(s.account, { notOffered: ['cash_leg'] });
+    const off = (await session.get('/api/v1/venue/convert/pairs')).body;
+    expect(off.cash).toEqual([]);
+    expect(off.cashReason).toMatch(/switched cash through a coin off/);
+    const quiet = convertCalls(page);
+    const signedBefore = signatures(wallet);
+    await page.goto(`${ROOM}?from=EUR&to=${A.base}`);
+    const refused = page.getByTestId('cvt-route-refused');
+    await expect(refused).toHaveAttribute('data-code', 'trade.convert_cash_not_offered');
+    await expect(refused).toContainText('Cash through a coin isn’t offered here');
+    await expect(card(page).getByRole('button', { name: 'Get a price', exact: true })).toBeDisabled();
+    for (const [from, to] of [
+      ['EUR', A.base],
+      [A.base, 'EUR'],
+    ]) {
+      const route = await session.get(`/api/v1/venue/convert/route?from=${from}&to=${to}`);
+      expect(route.status, JSON.stringify(route.body).slice(0, 300)).toBe(422);
+      expect(JSON.stringify(route.body)).toContain('trade.convert_cash_not_offered');
+    }
+    expect(quiet).toEqual([]);
+    expect(signatures(wallet)).toBe(signedBefore);
+  } finally {
+    await setPartner(s.account, { custody: 'on', notOffered: [] });
   }
-  // Nothing was made of it: no conversion, linked or single, joins EUR in the person's history.
-  const history = (await session.get(`/api/v1/venue/convert/history?owner=${s.owner}`)).body;
-  expect(history.conversions.filter((c) => c.from === 'EUR' || c.to === 'EUR')).toEqual([]);
-  expect(sent, 'nothing priced or sent').toEqual([]);
-  expect(signatures(wallet)).toBe(0);
 });
 
 /** A developer with a key, their own TEST wallet and TEST funds on their venue account, made once for #12 and #13. */
