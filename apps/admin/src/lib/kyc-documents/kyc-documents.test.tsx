@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
@@ -40,6 +38,8 @@ afterEach(() => vi.unstubAllGlobals());
 describe('the open-document request', () => {
   const request = { kind: 'identity.kyc_document.open' as const, documentId: DOC };
 
+  // identity consumes the approval only when its own hash of { documentId } under kyc.doc.get equals this one; the real
+  // consume is run end to end by journey J-ops-console-02 #5 (the viewer opens only after a second founder approves).
   it('is bound to the document exactly as identity consumes it', () => {
     expect(payloadHashFor(request)).toBe(identityActionPayloadHash('kyc.doc.get', { documentId: DOC }));
     expect(proposeInputFor(request)).toMatchObject({
@@ -48,8 +48,6 @@ describe('the open-document request', () => {
       targetId: 'kyc.doc.get',
       expectedVersion: '1',
     });
-    const router = readFileSync(fileURLToPath(new URL('../../../../../services/svc-identity/src/router.ts', import.meta.url)), 'utf8');
-    expect(router).toContain("consumePrivileged(reader, input, 'kyc.doc.get', { documentId: input.documentId })");
     expect(confirmPhrase(request)).toBe('OPEN DOCUMENT 3c1d2e3f');
   });
 
