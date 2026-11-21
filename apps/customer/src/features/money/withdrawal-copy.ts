@@ -178,7 +178,7 @@ const en = {
   qTotal: 'Leaves your balance',
   qExpires: 'Quote valid until {time}',
   qExpired: 'This quote has expired. Get the fee again.',
-  qOnTop: 'PLANTED FAULT: the fee line is wrong.',
+  qOnTop: 'The fee is added to the amount.',
   qDeducted: 'The fee is taken from the amount.',
   qPolicyUnset: 'No fee rule is set for withdrawals, so no fee can be quoted and nothing can be sent.',
   qFeeUnset: 'No fee is set for this network, so nothing can be sent on it.',

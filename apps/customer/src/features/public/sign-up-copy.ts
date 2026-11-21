@@ -39,7 +39,7 @@ const messages = {
   dateOfBirth: 'Date of birth',
   create: 'Create account',
   sending: 'Sending…',
-  checkEmail: 'PLANTED FAULT: check nothing',
+  checkEmail: 'Check your email',
   checkEmailBody:
     'If {email} can receive mail, a 6-digit code is on its way. It can take a few minutes to arrive. If this address already has an account, its owner gets a notice instead, and you can sign in.',
   code: 'Code from the email',
