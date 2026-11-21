@@ -6,7 +6,8 @@ import { ControlDesk, type ControlAction } from '@/components/control-desk';
 import { explainRefusal } from '@/lib/refusal-copy';
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import { shortId } from '@/lib/desk/desk-model';
-import { METADATA_KEY, METADATA_VALUE_MAX, revisionOf, type AccountMetadata, type MetadataChange } from '@/lib/ledger/account-metadata';
+import { METADATA_VALUE_MAX, revisionOf, type AccountMetadata, type MetadataChange } from '@/lib/ledger/account-metadata';
+import { METADATA_KEY } from '@/lib/approval-fields';
 
 type View =
   | { readonly kind: 'reading' }

@@ -15,7 +15,7 @@ import { TOKEN_BURNED_SUPPLY, TOKEN_LIST_PROPOSALS } from '@intafaced/contracts/
 import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
 
 /** A read whose call has a record: its module and path are the record's, never typed again here. */
-const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
+export const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
 
 /**
  * What each module desk reads, and what it admits it cannot read.
@@ -365,7 +365,7 @@ const bankSections: readonly DeskSection[] = [
       {
         id: 'bank.card-pay-from-breaks',
         title: 'Pay-from breaks',
-        note: 'Each pay-from payment whose figures the card partner does not report as this app recorded them: not reported (the partner has no record of the hold) or different. A break is named here once, never folded into a total.',
+        note: 'Each pay-from payment whose figures the card partner does not report as this app recorded them: not reported (the partner has no record of the hold), unreadable (the partner’s read failed, so nothing is known of it) or different. A break is named here once, never folded into a total.',
         module: 'bank',
         plainName: 'card pay-from breaks',
         procedure: 'ops.cardPayFromReconciliation',
@@ -376,7 +376,11 @@ const bankSections: readonly DeskSection[] = [
           text('authorizationRef', 'Payment'),
           text('assetId', 'Asset'),
           text('reason', 'Break', {
-            words: { not_reported: 'not reported by the partner', differs: 'the partner reports it differently' },
+            words: {
+              not_reported: 'not reported by the partner',
+              unreadable: 'the partner could not be read',
+              differs: 'the partner reports it differently',
+            },
           }),
           amount('app.spend', 'Spend (app)'),
           amount('app.open', 'Open hold (app)'),

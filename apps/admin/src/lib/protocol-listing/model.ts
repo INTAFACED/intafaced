@@ -1,4 +1,4 @@
-import type { DeskRequest } from '@/lib/desk/approval-packet';
+import type { DeskRequest } from '@/lib/desk';
 
 /** Pure parts of the listing form, so each rule is a test. The service still decides; this only keeps an unusable request off the wire. */
 

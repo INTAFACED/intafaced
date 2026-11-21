@@ -1,6 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { useApi, useSession } from '../features/session/session';
-import { z } from 'zod';
 import { CoinIcon } from '@intafaced/ui';
 import { fmtPrice, useMarkets, useTickers, type Loadable, type MarketRow, type TickerRow } from '../data';
 import { assetName, homeCopy } from '../screens/home/copy';
@@ -12,6 +11,7 @@ import { ShellIcon } from './icons';
 import { shellCopy } from './shell-copy';
 import { usePreferences } from '../shared/preferences';
 import { isUsdQuote, listings } from '../screens/home/select';
+import { NOTIFY_NAV_METRICS_SEARCH_MISS } from '@intafaced/contracts/notify-nav-metrics-procedures';
 
 type Group = 'Payments' | 'Coins' | 'Markets' | 'Pages' | 'Help';
 interface Row {
@@ -308,7 +308,7 @@ function SearchPanel({
   function countMiss() {
     if (counted.current === missKey) return;
     counted.current = missKey;
-    void api.mutate('notify', 'navMetrics.searchMiss', { kind: 'search_miss' }, z.unknown(), { bearer: '' }).catch(() => undefined);
+    void api.call(NOTIFY_NAV_METRICS_SEARCH_MISS, { kind: 'search_miss' }, { bearer: '' }).catch(() => undefined);
   }
   useEffect(() => {
     if (!missed) return;

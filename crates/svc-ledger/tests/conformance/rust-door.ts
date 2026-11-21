@@ -101,7 +101,8 @@ async function serve(url: string, { keyed = false, detect = false }: Serving) {
       SERVICE_NAME: 'svc-ledger',
       HTTP_HOST: '127.0.0.1',
       HTTP_PORT: String(port),
-      LEDGER_CUSTODY_LAYER: 'on',
+      // On unless the run's project says otherwise (`post-recipe-pg` runs its test's custody-off door).
+      LEDGER_CUSTODY_LAYER: process.env.RUST_BOOK_CUSTODY_LAYER ?? 'on',
       LEDGER_IDEMPOTENCY_CONFLICT_MODE: detect ? 'detect' : 'refuse',
       RECONCILE_CRON_MINUTES: '5',
       // Its log is read below: the ready line, and the detect door's mismatch reports.
