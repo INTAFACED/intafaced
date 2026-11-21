@@ -10,20 +10,32 @@
 //! - [`evals`]: the test set and its evaluations.
 //! - [`test_runs`]: dry runs, test engine runs, tool tests and their approvals; [`guards`]: their content, output and
 //!   memory guards.
+//! - [`reviewer`]: the automatic reviewer and its stored decisions.
+//! - [`approvals`]: the calls a rule held for the person.
+//! - [`notices`]: the owner told of each held call, and the unpublished sweep.
+//! - [`desk`]: the support desk the tools reach, and the help search.
+//! - [`self_freeze`]: the owner's own freeze and account, read before an agent acts.
+//! - [`tool_try`]: one tool call, and the run of an approved one.
 //! - [`slice`]: the calls.
 //!
 //! A refusal of the slice is an [`OwnRefusal`]: the router's `guard` answers it with its code as the message and the
 //! cause, `NOT_FOUND` for `agents.own.not_found` and `BAD_REQUEST` otherwise, unless the call maps it itself.
 
+pub mod approvals;
 pub mod assistant;
 pub mod catalog;
+pub mod desk;
 pub mod evals;
 pub mod gates;
 pub mod guards;
+pub mod notices;
 pub mod publishing;
+pub mod reviewer;
+pub mod self_freeze;
 pub mod slice;
 pub mod store;
 pub mod test_runs;
+pub mod tool_try;
 
 use service_kit::trpc::TrpcError;
 
@@ -139,6 +151,15 @@ pub struct Own {
     pub assistant_model: Option<String>,
     /// `parsePolicyBaseline(AGENTS_POLICY_BASELINE)`: a blank class refuses its calls and any rule that loosens.
     pub baseline: gates::PolicyBaseline,
+    /// `AGENTS_REVIEWER_MODEL`: blank sends every held call to the person (`owner.decision`).
+    pub reviewer_model: Option<String>,
+    /// `AGENTS_APPROVAL_TTL_SECONDS`: blank refuses holding any call `agents.approval.ttl_unset`.
+    pub approval_ttl_seconds: Option<i64>,
+    /// svc-support's desk (`SUPPORT_URL`), also the owner's account read: absent, no door is wired and every account
+    /// reads unread.
+    pub support_desk: Option<Box<dyn desk::SupportDesk>>,
+    /// Identity's read of the owner's own freeze (`IDENTITY_URL`): absent refuses every agent action as unread.
+    pub self_freeze: Option<Box<dyn self_freeze::SelfFreezeRead>>,
 }
 
 impl Own {
@@ -148,6 +169,10 @@ impl Own {
             templates: catalog::template_ids(),
             assistant_model: None,
             baseline: gates::PolicyBaseline::default(),
+            reviewer_model: None,
+            approval_ttl_seconds: None,
+            support_desk: None,
+            self_freeze: None,
         }
     }
 }

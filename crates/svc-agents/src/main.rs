@@ -43,7 +43,9 @@ use svc_agents::metering::ports::{
 use svc_agents::migrate;
 use svc_agents::own::Own;
 use svc_agents::own::catalog::parse_own_templates;
+use svc_agents::own::desk::{SupportDesk, SupportDeskHttp};
 use svc_agents::own::gates::parse_policy_baseline;
+use svc_agents::own::self_freeze::{IdentitySelfFreeze, SelfFreezeRead};
 use svc_agents::runtime::Runtime;
 use svc_agents::runtime::eligibility::parse_tier_laws;
 use svc_agents::runtime::funds::{BalancesHttp, PersonFunds};
@@ -82,15 +84,21 @@ type Job<'a> = Box<dyn Fn() -> Result<(), String> + Sync + 'a>;
 /// The work each timer runs. Each comes with its slice (`timers::timers` names it); until then the timer does not run,
 /// as it would not in a process without that work.
 fn jobs<'a>(door: &'a AgentsDoor, _env: &'a AgentsEnv) -> Vec<(&'static str, Job<'a>)> {
-    vec![(
-        "route table sync",
-        Box::new(move || {
-            door.gateway()
-                .refresh(door.store())
-                .map(|_| ())
-                .map_err(|e| e.to_string())
-        }),
-    )]
+    vec![
+        (
+            "route table sync",
+            Box::new(move || {
+                door.gateway()
+                    .refresh(door.store())
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            }),
+        ),
+        (
+            "unpublished sweep",
+            Box::new(move || svc_agents::own::notices::sweep_unpublished(door)),
+        ),
+    ]
 }
 
 /// A record value of the environment (`AGENTS_UPSTREAM_HEADERS`, `AGENTS_UPSTREAM_MODELS`), in its order.
@@ -357,15 +365,61 @@ fn advisors(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Advisors, String>
     Ok(a)
 }
 
-/// The own agents' templates and owner values, as `index.ts` hands them to `createAgentsRouter`.
-fn own(env: &AgentsEnv) -> Result<Own, String> {
+/// The own agents' templates and owner values, as `index.ts` hands them to `createAgentsRouter`: the support desk
+/// when `SUPPORT_URL` is set (its account read through `IDENTITY_URL`), and identity's freeze read when
+/// `IDENTITY_URL` is set; each absent refuses as `index.ts` leaves it unwired.
+fn own(env: &AgentsEnv, fetch: &Arc<dyn Fetch>) -> Result<Own, String> {
+    let s2s = s2s_from_env(
+        env.str("S2S_AUTH_MODE").unwrap_or("off"),
+        env.str("S2S_KEYRING"),
+        env.str("S2S_SIGNING_KID"),
+        env.str("S2S_SIGNING_KEY"),
+        "svc-agents",
+    )?;
+    let keyed = match (s2s.signer, s2s.mode) {
+        (Some(signer), Some(mode)) => Some((signer, mode)),
+        _ => None,
+    };
+    let secret = env
+        .str("INTERNAL_SERVICE_SECRET")
+        .unwrap_or_default()
+        .to_owned();
+    let signer = |audience: &str| CallSigner::new("svc-agents", audience, &secret, keyed.clone());
+    let identity = env.str("IDENTITY_URL").filter(|u| !u.is_empty());
+    let support_desk: Option<Box<dyn SupportDesk>> = env
+        .str("SUPPORT_URL")
+        .filter(|u| !u.is_empty())
+        .map(|url| -> Box<dyn SupportDesk> {
+            Box::new(SupportDeskHttp {
+                support_url: url.to_owned(),
+                identity_url: identity.map(str::to_owned),
+                identity_signer: signer("svc-identity"),
+                fetch: fetch.clone(),
+            })
+        });
+    let self_freeze: Option<Box<dyn SelfFreezeRead>> =
+        identity.map(|url| -> Box<dyn SelfFreezeRead> {
+            Box::new(IdentitySelfFreeze {
+                base_url: url.to_owned(),
+                signer: signer("svc-identity"),
+                fetch: fetch.clone(),
+            })
+        });
     Ok(Own {
         templates: parse_own_templates(env.str("AGENTS_OWN_TEMPLATES"))?,
         assistant_model: env.str("AGENTS_OWN_ASSISTANT_MODEL").map(str::to_owned),
         baseline: parse_policy_baseline(env.str("AGENTS_POLICY_BASELINE"))?,
+        reviewer_model: env.str("AGENTS_REVIEWER_MODEL").map(str::to_owned),
+        approval_ttl_seconds: env.int("AGENTS_APPROVAL_TTL_SECONDS"),
+        support_desk,
+        self_freeze,
     })
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the door is built once from each part the binary made, in index.ts's order"
+)]
 fn door(
     env: &AgentsEnv,
     store: Store,
@@ -374,6 +428,7 @@ fn door(
     ready: ReadyInput,
     runtime: Runtime,
     advisors: Advisors,
+    fetch: &Arc<dyn Fetch>,
 ) -> Result<AgentsDoor, String> {
     let str_of = |k: &str| env.str(k).unwrap_or_default().to_owned();
     let door = AgentsDoor::new(DoorConfig {
@@ -387,7 +442,7 @@ fn door(
         ready,
         runtime,
         advisors,
-        own: own(env)?,
+        own: own(env, fetch)?,
     })?;
     Ok(match env.str("EDGE_PRINCIPAL_PUBLIC_KEY") {
         None => door,
@@ -464,7 +519,9 @@ fn serve(
     let metering = metering(env, bus.clone(), &fetch)?;
     let runtime = runtime(env, &fetch)?;
     let advisors = advisors(env, &fetch)?;
-    let door = door(env, store, metering, gateway, ready, runtime, advisors)?;
+    let door = door(
+        env, store, metering, gateway, ready, runtime, advisors, &fetch,
+    )?;
 
     let app = App {
         wire: door,

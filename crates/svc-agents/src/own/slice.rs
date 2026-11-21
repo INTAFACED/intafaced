@@ -7,18 +7,19 @@ use service_kit::schema::Value;
 use service_kit::trpc::TrpcError;
 
 use super::assistant::{assistant_engine, draft_agent};
-use super::catalog::{DraftInput, OWN_TEMPLATES, own_tools};
+use super::catalog::{DraftInput, OWN_TEMPLATES, own_tool, own_tools};
 use super::guards::Payload;
+use super::tool_try::{Call, TryInput, args_of, tool_try};
 use super::{
     OWN_RUN_TASK, Own, OwnError, OwnRefusal, evals, gates, guard, no_mapping, own_session_agent_id,
-    pool_of, publishing, store, test_runs,
+    pool_of, publishing, reviewer, store, test_runs,
 };
 use crate::db::Store;
 use crate::door::{Ctx, Slice, not_ported};
 use crate::gateway::desk::GatewaySlice;
 use crate::gateway::routing::resolve_route;
 use crate::metering::Metering;
-use crate::runtime::Runtime;
+use crate::runtime::{Rt, Runtime};
 use service_kit::pg::Pool;
 
 fn text<'a>(v: &'a Value, key: &str) -> &'a str {
@@ -70,6 +71,11 @@ fn own_live_engine(ctx: &Ctx<'_>, d: &Deps<'_>) -> &'static str {
             .0
             .name()
     })
+}
+
+/// `reviewerEngine(tooling.reviewerModel)`.
+fn engine(d: &Deps<'_>) -> reviewer::Engine {
+    reviewer::reviewer_engine(d.own.reviewer_model.as_deref())
 }
 
 /// What the slice reads besides the call.
@@ -310,6 +316,75 @@ fn answer(ctx: &Ctx<'_>, d: &Deps<'_>) -> Result<Json, OwnError> {
             let pool = pool_of(d.store)?;
             let agent = store::get(pool, user, text(input, "id"))?;
             test_runs(d, pool).list(user, &agent.id, whole(input, "limit"))
+        }
+        "own.reviewer.get" => {
+            let pool = pool_of(d.store)?;
+            let agent = store::get(pool, user, text(input, "id"))?;
+            let (on, at) = reviewer::setting(pool, user, &agent.id)?;
+            Ok(reviewer::setting_json(on, engine(d), at))
+        }
+        "own.reviewer.set" => {
+            let pool = pool_of(d.store)?;
+            let agent = store::get(pool, user, text(input, "id"))?;
+            let on = matches!(input.get("on"), Value::Bool(true));
+            let (on, at) = reviewer::set(pool, user, &agent.id, on)?;
+            Ok(reviewer::setting_json(on, engine(d), Some(at)))
+        }
+        "own.review.list" => {
+            let pool = pool_of(d.store)?;
+            let agent = store::get(pool, user, text(input, "id"))?;
+            Ok(Json::Array(
+                reviewer::list(pool, user, &agent.id, whole(input, "limit"))?
+                    .iter()
+                    .map(reviewer::ReviewRow::to_json)
+                    .collect(),
+            ))
+        }
+        "own.review.check" => {
+            let pool = pool_of(d.store)?;
+            store::get(pool, user, text(input, "id"))?;
+            let tool = text(input, "tool");
+            if own_tool(tool).is_none() {
+                return Err(OwnRefusal::with(
+                    "agents.tool_not_declared",
+                    [("tool", tool.to_owned())],
+                )
+                .into());
+            }
+            let review = reviewer::review_call(engine(d), tool, &args_of(input.get("input")));
+            Ok(Json::obj([
+                ("tool", Json::str(tool)),
+                ("review", review.to_json()),
+                ("engine", engine(d).map_or(Json::Null, Json::str)),
+            ]))
+        }
+        "own.tool.try" => {
+            let pool = pool_of(d.store)?;
+            let Some(principal) = ctx.principal else {
+                return Err(OwnError::Thrown("no principal".to_owned()));
+            };
+            let call = Call {
+                x: Rt {
+                    rt: d.rt,
+                    pool,
+                    gateway: &d.gateway.gateway,
+                    m: d.m,
+                    now: ctx.now,
+                },
+                own: d.own,
+                principal,
+                forwarded: &ctx.forwarded,
+            };
+            tool_try(
+                &call,
+                &TryInput {
+                    id: text(input, "id"),
+                    session_id: text(input, "sessionId"),
+                    request_id: text(input, "requestId"),
+                    tool: text(input, "tool"),
+                    args: args_of(input.get("input")),
+                },
+            )
         }
         _ => Err(OwnError::Trpc(not_ported(Slice::OwnBuilder))),
     }

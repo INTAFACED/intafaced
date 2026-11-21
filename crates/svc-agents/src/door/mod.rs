@@ -196,6 +196,9 @@ pub struct Ctx<'a> {
     pub service: Option<&'a str>,
     pub region: &'a str,
     pub now: Instant,
+    /// `forwardedPrincipalHeaders(ctx)`: the edge-signed principal, byte for byte, its signature and its region, for a
+    /// call made while acting for this person; empty without a verified principal.
+    pub forwarded: Vec<(String, String)>,
 }
 
 /// The answer of a call whose slice is not ported yet: the door's checks passed, and nothing past them is served.
@@ -365,6 +368,11 @@ impl AgentsDoor {
         &self.gateway
     }
 
+    /// The runtime every session, run and timer goes through.
+    pub fn runtime(&self) -> &Runtime {
+        &self.runtime
+    }
+
     /// The slices' answers: the door's own call, the ported slices, and "not ported" for the rest.
     fn handle_call(&self, ctx: &Ctx<'_>) -> Result<Option<Json>, TrpcError> {
         match ctx.call.slice {
@@ -495,14 +503,24 @@ impl AgentsDoor {
 
         let now = (self.now)();
         let region = trpc::header(req, "x-intafaced-region").unwrap_or_else(|| "XX".to_owned());
+        let raw_principal = trpc::header(req, "x-intafaced-principal");
+        let principal_signature = trpc::header(req, "x-intafaced-principal-sig");
         let principal = edge::verify_with(
-            trpc::header(req, "x-intafaced-principal").as_deref(),
-            trpc::header(req, "x-intafaced-principal-sig").as_deref(),
+            raw_principal.as_deref(),
+            principal_signature.as_deref(),
             &self.secret,
             self.edge_key.as_ref(),
             now,
             &region,
         );
+        let forwarded = match (&principal, raw_principal, principal_signature) {
+            (Some(_), Some(raw), Some(sig)) if !raw.is_empty() && !sig.is_empty() => vec![
+                ("x-intafaced-principal".to_owned(), raw),
+                ("x-intafaced-principal-sig".to_owned(), sig),
+                ("x-intafaced-region".to_owned(), region.clone()),
+            ],
+            _ => Vec::new(),
+        };
         let service = self.services.service(req, now.0.div_euclid(1000));
         self.admit(call, principal.as_ref(), service.as_deref(), &region)?;
 
@@ -556,6 +574,7 @@ impl AgentsDoor {
             service: service.as_deref(),
             region: &region,
             now,
+            forwarded,
         })
     }
 }
