@@ -1507,7 +1507,7 @@ test('a review-only call with images: input.jsonl carries prompt.txt whole, and 
   };
   const images = [{ path: 'apps/customer/look-baselines/home/phone.png', side: 'after', commit: HEAD, data: png('x').toString('base64') }];
   const { dir, said } = await inputs(images);
-  assert.match(said, /1 look-baseline image\(s\) attached$/);
+  assert.match(said, /1 image\(s\) attached$/);
   const prompt = fs.readFileSync(path.join(dir, 'prompt.txt'), 'utf8');
   assert.equal(prompt, buildPrompt({ brief: briefs.reviewBrief, diff: docs, pr: 7, head: HEAD }), 'prompt.txt as before');
   const content = JSON.parse(fs.readFileSync(path.join(dir, 'input.jsonl'), 'utf8')).message.content;

@@ -41,6 +41,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { autoRevertOf } from './exact-revert.mjs';
 
 // The rooms, and the new look's kit and templates. The kit's own components (packages/ui/src/lit/ outside templates/)
 // may hold structural pixel sizes (hairlines, icon boxes); colours and sides are judged there too.
@@ -297,11 +298,29 @@ function git(args) {
  * moved file is judged only on the lines the move changed.
  */
 function changed(base) {
+  return addedLines(git(['diff', '-M', '-U0', '--diff-filter=AMR', `${base}...HEAD`, '--', 'apps/customer', 'packages/ui/src/lit']));
+}
+
+/**
+ * main-bisect's proven revert of X (exact-revert.mjs autoRevertOf): the files it touches, judged on the lines that differ
+ * from X^, the code it restores, so a culprit that deleted code today's rules count can still be reverted
+ * (project-state#3635). Any other pull request: null.
+ */
+function restoredChanges(base) {
+  const restored = autoRevertOf(process.env, base, git);
+  if (!restored) return null;
+  console.log(
+    `look-drift: main-bisect's automatic revert of ${restored.slice(0, 10)}, judged against ${restored.slice(0, 10)}^, the code it restores`,
+  );
+  const paths = changed(base).map((f) => f.path);
+  return paths.length ? addedLines(git(['diff', '-M', '-U0', '--diff-filter=AMR', `${restored}^`, 'HEAD', '--', ...paths])) : [];
+}
+
+/** A `git diff -U0`'s files in scope with their added line numbers (null = a new file). */
+function addedLines(diff) {
   const out = [];
   let file = null;
-  for (const l of git(['diff', '-M', '-U0', '--diff-filter=AMR', `${base}...HEAD`, '--', 'apps/customer', 'packages/ui/src/lit']).split(
-    '\n',
-  )) {
+  for (const l of diff.split('\n')) {
     if (l.startsWith('diff --git ')) {
       file = { path: null, only: new Set() };
       out.push(file);
@@ -340,7 +359,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const findings = [];
   const allowed = [];
   const rooms = litRooms();
-  for (const { path, only } of changed(base)) {
+  for (const { path, only } of restoredChanges(base) ?? changed(base)) {
     const r = judgeFile(path, readFileSync(path, 'utf8'), only, rooms);
     findings.push(...r.findings);
     allowed.push(...r.allowed);

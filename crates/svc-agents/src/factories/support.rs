@@ -23,9 +23,9 @@ use service_kit::schema::{Outcome, Refiner, Schema, Value};
 
 use super::{Cx, is_refused, metered_run, strings, unmetered, with_field};
 use crate::runtime::RunError;
-use crate::runtime::act::{ActInput, act};
 use crate::runtime::eligibility::Law;
 use crate::runtime::guardrails::{Guardrail, is_live_write_tool, parse_guardrail};
+use crate::runtime::{ActInput, act};
 
 /// `SUPPORT_AGENT_ID`.
 pub const AGENT_ID: &str = "support";

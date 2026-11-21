@@ -73,7 +73,7 @@ export const academyCertRevocationSchema = z.object({
   approvedBy: z.string(),
   revokedBy: z.string(),
   reason: z.string(),
-  revokedAt: z.coerce.date(),
+  revokedAt: z.iso.datetime({ offset: true }),
 });
 export type AcademyCertRevocation = z.infer<typeof academyCertRevocationSchema>;
 
@@ -102,6 +102,6 @@ export const academyCertExceptionSchema = z.object({
   approvedBy: z.string(),
   grantedBy: z.string(),
   reason: z.string(),
-  grantedAt: z.coerce.date(),
+  grantedAt: z.iso.datetime({ offset: true }),
 });
 export type AcademyCertException = z.infer<typeof academyCertExceptionSchema>;

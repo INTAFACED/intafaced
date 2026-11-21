@@ -21,6 +21,7 @@ pub mod factories;
 pub mod gateway;
 pub mod metering;
 pub mod migrate;
+pub mod navigator;
 pub mod refines;
 pub mod runtime;
 pub mod self_freeze;

@@ -410,6 +410,13 @@ impl AgentsDoor {
                 &self.runtime,
                 &self.factories,
             ),
+            Slice::Navigator => crate::navigator::slice::handle(
+                ctx,
+                &self.store,
+                &self.gateway,
+                &self.metering,
+                &self.runtime,
+            ),
             Slice::Background => crate::background::slice::handle(
                 ctx,
                 &self.store,

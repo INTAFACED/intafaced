@@ -21,8 +21,8 @@ use service_kit::trpc::TrpcError;
 use super::js::is_fresh;
 use super::{Cx, is_refused, metered_run, strings, unmetered};
 use crate::runtime::RunError;
-use crate::runtime::act::{ActInput, act};
 use crate::runtime::guardrails::{Guardrail, parse_guardrail};
+use crate::runtime::{ActInput, act};
 
 /// \`MERCHANT_AGENT_ID\`.
 pub const AGENT_ID: &str = "merchant";

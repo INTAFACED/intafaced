@@ -13,9 +13,9 @@ use service_kit::time::Instant;
 use super::js::{is_fresh, locale_compare, to_fixed};
 use super::{Cx, is_refused, json_num, json_str, metered_run, strings, unmetered};
 use crate::runtime::RunError;
-use crate::runtime::act::{ActInput, act};
 use crate::runtime::eligibility::Law;
 use crate::runtime::guardrails::{Guardrail, is_live_write_tool, parse_guardrail};
+use crate::runtime::{ActInput, act};
 
 /// \`SCANNER_SIGNAL_INPUTS_LAW_RESIDUAL\`.
 pub const RESIDUAL: &str = "D26-P0-11 scanner signal inputs law is owner-only — refuse-closed (never invent rankings / market alpha)";

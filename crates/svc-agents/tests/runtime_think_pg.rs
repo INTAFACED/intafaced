@@ -6,8 +6,8 @@
 //! log, ported case for case onto \`svc_agents::runtime\` (each test names its source): per-task routing, the guardrail
 //! and spend-hold cases, the action log, provider failure and the events. The provider is the crate's deterministic
 //! mock (wrapped where the TypeScript wraps the gateway), the ledger a double-entry fake that books each recipe once per
-//! key as \`MemoryLedger\` does, and the bus an in-memory list. The cases that run a tool (\`runtime.act\`) run it through
-//! \`svc_agents::runtime::act\`.
+//! key as \`MemoryLedger\` does, and the bus an in-memory list. The cases that run a tool (\`runtime.act\`) are
+//! \`tests/runtime_act_pg.rs\`'s.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -44,7 +44,6 @@ use svc_agents::metering::meter;
 use svc_agents::metering::ports::{Bus, Ledger, LedgerError, Recipe};
 use svc_agents::metering::settle;
 use svc_agents::metering::spend::{self, SetInput};
-use svc_agents::runtime::act::{ActInput, ActResult, act};
 use svc_agents::runtime::guardrails::{Refusal, parse_guardrail, serialise_guardrail};
 use svc_agents::runtime::holds::{self, ReserveInput};
 use svc_agents::runtime::{
@@ -704,35 +703,6 @@ fn agent_code(r: Result<ThinkResult, RunError>) -> &'static str {
     }
 }
 
-/// \`runtime.act\` whose tool answers \`result\`.
-fn act_returning(
-    w: &World,
-    session: &str,
-    tool: &str,
-    approved: Option<bool>,
-    key: Option<&str>,
-    result: Json,
-) -> Result<ActResult, RunError> {
-    act(
-        &w.x(),
-        &ActInput {
-            session_id: session,
-            tool,
-            approved,
-            idempotency_key: key,
-        },
-        || Ok(result),
-    )
-}
-
-/// The guardrail's code of a refused \`act\`.
-fn refused_code(r: Result<ActResult, RunError>) -> String {
-    match r {
-        Err(RunError::Refused { refusal, .. }) => refusal.code,
-        other => panic!("expected a refusal, got {other:?}"),
-    }
-}
-
 fn kind_status(a: &Action) -> String {
     format!("{}:{}", a.kind, a.status)
 }
@@ -1283,26 +1253,25 @@ fn reconcile_spend_holds_releases_an_old_hold_only_when_an_age_is_set() {
 }
 
 /// runtime.test.ts, "guardrails": "binds the guardrail at session open — widening it later does not reach a running
-/// session".
+/// session". The TypeScript observes the binding through \`act\` (a tool slice's); here it is read from the sessions
+/// themselves: the running one keeps version 1 without the new tool, a new one binds version 2 with it.
 #[test]
 fn binds_the_guardrail_at_session_open_widening_it_later_does_not_reach_a_running_session() {
     let w = world_or_skip!();
     let session = w.open();
     w.register(&guardrail("probe", 2, None, CLOSE_TOOL));
-    assert_eq!(
-        refused_code(act_returning(
-            &w,
-            &session.id,
-            "trade.close",
-            None,
-            None,
-            s("closed")
-        )),
-        "agents.tool_not_declared"
+    let running = runtime::session(w.pool(), &session.id).unwrap().unwrap();
+    assert_eq!(running.guardrail_version, 1);
+    assert!(
+        !running
+            .guardrail
+            .tools
+            .iter()
+            .any(|t| t.name == "trade.close")
     );
     let next = w.open();
     assert_eq!(next.guardrail_version, 2);
-    act_returning(&w, &next.id, "trade.close", None, None, s("closed")).unwrap();
+    assert!(next.guardrail.tools.iter().any(|t| t.name == "trade.close"));
 }
 
 /// runtime.test.ts, "guardrails": "operator kill (enabled=false) survives boot re-register of the guardrail".
@@ -1343,14 +1312,16 @@ fn refuses_everything_on_a_closed_session() {
 
 // ── agent_actions — the Agentic Law (§8.2) ──────────────────────────────────
 
-/// runtime.test.ts, "agent_actions": "records every action, including the ones that were refused".
+/// runtime.test.ts, "agent_actions": "records every action, including the ones that were refused". The TypeScript's
+/// executed and refused rows are tool calls made with \`act\` (a tool slice's); here the same two outcomes are made by
+/// this slice's own call, a completion executed and one the guardrail refused.
 #[test]
 fn records_every_action_including_the_ones_that_were_refused() {
     let w = world_or_skip!();
     let session = w.open();
     think(&w.x(), &session.id, "r-a", "plan").unwrap();
-    act_returning(&w, &session.id, "trade.quote", None, None, s("ok")).unwrap();
-    let _ = act_returning(&w, &session.id, "bank.withdraw", None, None, s("ok"));
+    think(&w.x(), &session.id, "r-q", "quick").unwrap();
+    let _ = think(&w.x(), &session.id, "r-vec", "vectors").unwrap_err();
     runtime::close_session(&w.x(), &session.id).unwrap();
     let log = w.log(&session.id);
     assert_eq!(
@@ -1358,8 +1329,8 @@ fn records_every_action_including_the_ones_that_were_refused() {
         [
             "session_open:executed",
             "completion:executed",
-            "tool_call:executed",
-            "tool_call:refused",
+            "completion:executed",
+            "completion:refused",
             "session_close:executed",
         ]
     );
@@ -1626,22 +1597,22 @@ fn recovers_without_leaving_a_partial_charge_behind() {
 
 // ── events (§10) ────────────────────────────────────────────────────────────
 
-/// runtime.test.ts, "events (§10)": "publishes a completed action, a rejected action, and a settled window".
+/// runtime.test.ts, "events (§10)": "publishes a completed action, a rejected action, and a settled window". The
+/// rejected action is a completion the guardrail refused rather than the TypeScript's \`act\` on an undeclared tool, so
+/// its payload names the refused task where the TypeScript's names the tool.
 #[test]
 fn publishes_a_completed_action_a_rejected_action_and_a_settled_window() {
     let w = world_or_skip!();
     let session = w.open();
     let call = think(&w.x(), &session.id, "r-a", "plan").unwrap();
-    let _ = act_returning(&w, &session.id, "bank.withdraw", None, None, s("ok"));
+    let refused = refusal(think(&w.x(), &session.id, "r-vec", "vectors"));
     let window = call.window_id.clone().unwrap();
     settle::settle_window(&w.m, w.pool(), &session.id, &window, system_now()).unwrap();
     assert!(!w.bus.emitted(ACTION_COMPLETED).is_empty());
     let rejected = &w.bus.emitted(ACTION_REJECTED)[0];
-    assert_eq!(
-        rejected.get("refusalCode"),
-        Some(&s("agents.tool_not_declared"))
-    );
-    assert_eq!(rejected.get("tool"), Some(&s("bank.withdraw")));
+    assert_eq!(rejected.get("refusalCode"), Some(&s(&refused.code)));
+    assert_eq!(rejected.get("task"), Some(&s("vectors")));
+    assert_eq!(rejected.get("tool"), Some(&Json::Null));
     let settled = &w.bus.emitted(settle::USAGE_SETTLED)[0];
     assert_eq!(settled.get("assetId"), Some(&s(FEE)));
     assert_eq!(settled.get("windowId"), Some(&s(&window)));
@@ -1659,397 +1630,4 @@ fn carries_no_prompt_no_answer_and_no_vendor_model_id_on_the_wire() {
     // The routing task travels; the model does not.
     assert!(serialised.contains("plan"));
     assert!(!serialised.contains("reasoning-lg"));
-}
-
-// ── act: a guarded tool call ────────────────────────────────────────────────
-
-/// runtime.test.ts, "guardrails": "never reaches a tool that is not in the declared toolset".
-#[test]
-fn never_reaches_a_tool_that_is_not_in_the_declared_toolset() {
-    let w = world_or_skip!();
-    let session = w.open();
-    let mut ran = false;
-    let r = act(
-        &w.x(),
-        &ActInput {
-            session_id: &session.id,
-            tool: "bank.withdraw",
-            ..ActInput::default()
-        },
-        || {
-            ran = true;
-            Ok(s("moved the money"))
-        },
-    );
-    assert_eq!(refused_code(r), "agents.tool_not_declared");
-    assert!(!ran, "the tool did not run");
-    let refusal = w.last(&session.id);
-    assert_eq!(kind_status(&refusal), "tool_call:refused");
-    assert_eq!(refusal.tool.as_deref(), Some("bank.withdraw"));
-    assert_eq!(
-        refusal.refusal_code.as_deref(),
-        Some("agents.tool_not_declared")
-    );
-    assert_eq!(refusal.user_message_key, "agents.refused.tool_not_declared");
-    assert_eq!(
-        refusal.user_message_params,
-        Json::obj([("tool", s("bank.withdraw"))])
-    );
-}
-
-/// runtime.test.ts, "guardrails": "runs a declared tool and logs it".
-#[test]
-fn runs_a_declared_tool_and_logs_it() {
-    let w = world_or_skip!();
-    let session = w.open();
-    let price = Json::obj([("price", s("42"))]);
-    let r = act_returning(&w, &session.id, "trade.quote", None, None, price.clone()).unwrap();
-    assert_eq!(r.result, price);
-    assert!(!r.replayed);
-    assert_eq!(kind_status(&r.action), "tool_call:executed");
-    assert_eq!(r.action.tool.as_deref(), Some("trade.quote"));
-    // The row keeps the digest of the answer, never the answer.
-    assert_eq!(
-        r.action.output_digest.as_deref(),
-        Some(svc_agents::gateway::digest_of_text("{\"price\":\"42\"}").as_str())
-    );
-}
-
-/// runtime.test.ts, "guardrails": "holds a tool that needs approval, then runs it once the user confirms".
-#[test]
-fn holds_a_tool_that_needs_approval_then_runs_it_once_the_user_confirms() {
-    let w = world_or_skip!();
-    let session = w.open();
-    assert_eq!(
-        refused_code(act_returning(
-            &w,
-            &session.id,
-            "trade.order",
-            None,
-            None,
-            s("placed")
-        )),
-        "agents.approval_required"
-    );
-    let approved = act_returning(
-        &w,
-        &session.id,
-        "trade.order",
-        Some(true),
-        Some("place-1"),
-        s("placed"),
-    )
-    .unwrap();
-    assert_eq!(approved.result, s("placed"));
-    // A conversational repeat with the same intent key does not place again.
-    let mut second = 0;
-    let replay = act(
-        &w.x(),
-        &ActInput {
-            session_id: &session.id,
-            tool: "trade.order",
-            approved: Some(true),
-            idempotency_key: Some("place-1"),
-        },
-        || {
-            second += 1;
-            Ok(s("placed again"))
-        },
-    )
-    .unwrap();
-    assert!(replay.replayed);
-    assert_eq!(replay.result, s("placed"));
-    assert_eq!(second, 0);
-    // A new intent still meets the per-session budget of one.
-    assert_eq!(
-        refused_code(act_returning(
-            &w,
-            &session.id,
-            "trade.order",
-            Some(true),
-            Some("place-2"),
-            s("placed again")
-        )),
-        "agents.tool_call_limit"
-    );
-}
-
-/// runtime.test.ts, "guardrails": "overlapping places with the same key execute once, and a later retry returns that
-/// result".
-#[test]
-fn overlapping_places_with_the_same_key_execute_once_and_a_later_retry_returns_that_result() {
-    let w = world_or_skip!();
-    let session = w.open();
-    let entered = std::sync::atomic::AtomicUsize::new(0);
-    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
-    let (hold_tx, hold_rx) = std::sync::mpsc::channel::<()>();
-    let hold_rx = Mutex::new(hold_rx);
-    let input = ActInput {
-        session_id: &session.id,
-        tool: "trade.order",
-        approved: Some(true),
-        idempotency_key: Some("overlap-place"),
-    };
-    let winner = std::thread::scope(|scope| {
-        let first = scope.spawn(|| {
-            act(&w.x(), &input, || {
-                entered.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                ready_tx.send(()).unwrap();
-                hold_rx.lock().unwrap().recv_timeout(GATE_WAIT).unwrap();
-                Ok(s("first-place"))
-            })
-        });
-        ready_rx.recv_timeout(GATE_WAIT).unwrap();
-        let second = act(&w.x(), &input, || {
-            entered.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(s("second-place"))
-        });
-        assert_eq!(refused_code(second), "agents.place_key_conflict");
-        assert_eq!(entered.load(std::sync::atomic::Ordering::SeqCst), 1);
-        hold_tx.send(()).unwrap();
-        first.join().unwrap().unwrap()
-    });
-    assert_eq!(winner.result, s("first-place"));
-    assert!(!winner.replayed);
-    let mut third = 0;
-    let replay = act(&w.x(), &input, || {
-        third += 1;
-        Ok(s("placed again"))
-    })
-    .unwrap();
-    assert!(replay.replayed);
-    assert_eq!(replay.result, s("first-place"));
-    assert_eq!(third, 0);
-    assert_eq!(entered.load(std::sync::atomic::Ordering::SeqCst), 1);
-}
-
-/// runtime.test.ts, "guardrails": "a different place tool reusing the key is refused by the guardrail and does not
-/// receive the first result".
-#[test]
-fn a_different_place_tool_reusing_the_key_is_refused_and_does_not_receive_the_first_result() {
-    let w = world_or_skip!();
-    let session = w.open();
-    act_returning(
-        &w,
-        &session.id,
-        "trade.order",
-        Some(true),
-        Some("shared-key"),
-        s("order-result"),
-    )
-    .unwrap();
-    let mut ran = false;
-    let r = act(
-        &w.x(),
-        &ActInput {
-            session_id: &session.id,
-            tool: "trade.place",
-            approved: Some(true),
-            idempotency_key: Some("shared-key"),
-        },
-        || {
-            ran = true;
-            Ok(s("place-result"))
-        },
-    );
-    assert_eq!(refused_code(r), "agents.tool_not_declared");
-    assert!(!ran);
-}
-
-/// runtime.test.ts, "guardrails": "a different place tool the guardrail would allow still does not place".
-#[test]
-fn a_different_place_tool_the_guardrail_would_allow_still_does_not_place() {
-    let w = world_or_skip!();
-    w.register(
-        &json::parse(
-            r#"{"agentId":"both-place","version":1,"capacityMode":"confirm_each",
-                "tools":[{"name":"trade.order","module":"trade","mode":"write","maxCallsPerSession":1,"requiresApproval":true},
-                         {"name":"trade.place","module":"trade","mode":"write","maxCallsPerSession":1,"requiresApproval":true}],
-                "limits":{"maxActionsPerSession":20,"maxOutputTokensPerCall":256,"maxSpendPerSession":null,
-                          "allowedModules":["trade"],"allowedTasks":["plan","quick","orphan"]}}"#,
-        )
-        .unwrap(),
-    );
-    let session = w.open_as(USER_A, "both-place");
-    act_returning(
-        &w,
-        &session.id,
-        "trade.order",
-        Some(true),
-        Some("shared-key"),
-        s("order-result"),
-    )
-    .unwrap();
-    assert_eq!(
-        refused_code(act_returning(
-            &w,
-            &session.id,
-            "trade.place",
-            None,
-            Some("shared-key"),
-            s("place-result")
-        )),
-        "agents.approval_required"
-    );
-    let mut ran = false;
-    let r = act(
-        &w.x(),
-        &ActInput {
-            session_id: &session.id,
-            tool: "trade.place",
-            approved: Some(true),
-            idempotency_key: Some("shared-key"),
-        },
-        || {
-            ran = true;
-            Ok(s("place-result"))
-        },
-    );
-    assert_eq!(refused_code(r), "agents.place_key_conflict");
-    assert!(!ran);
-}
-
-/// runtime.test.ts, "guardrails": "a failed place releases the key so one later retry can place".
-#[test]
-fn a_failed_place_releases_the_key_so_one_later_retry_can_place() {
-    let w = world_or_skip!();
-    let session = w.open();
-    let input = ActInput {
-        session_id: &session.id,
-        tool: "trade.order",
-        approved: Some(true),
-        idempotency_key: Some("retry-place"),
-    };
-    let mut calls = 0;
-    let failed = act(&w.x(), &input, || {
-        calls += 1;
-        Err(RunError::Other("venue rejected".to_owned()))
-    });
-    assert_eq!(
-        failed.unwrap_err(),
-        RunError::Other("venue rejected".to_owned())
-    );
-    let placed = act(&w.x(), &input, || {
-        calls += 1;
-        Ok(s("placed-after-failure"))
-    })
-    .unwrap();
-    assert_eq!(placed.result, s("placed-after-failure"));
-    assert!(!placed.replayed);
-    assert_eq!(calls, 2);
-    let mut again = 0;
-    let replay = act(&w.x(), &input, || {
-        again += 1;
-        Ok(s("placed twice"))
-    })
-    .unwrap();
-    assert!(replay.replayed);
-    assert_eq!(replay.result, s("placed-after-failure"));
-    assert_eq!(again, 0);
-}
-
-/// A guardrail as \\`{ ...PROBE, ...over }\\`: the probe's fields with some replaced.
-fn probe_with(
-    agent_id: &str,
-    capacity_mode: Option<&str>,
-    extra_tool: &str,
-    modules: &str,
-) -> Json {
-    let mode = capacity_mode.map_or(String::new(), |m| format!(r#""capacityMode":"{m}","#));
-    json::parse(&format!(
-        r#"{{"agentId":"{agent_id}","version":1,{mode}
-            "tools":[{{"name":"trade.quote","module":"trade","mode":"read"}},
-                     {{"name":"trade.order","module":"trade","mode":"write","maxCallsPerSession":1,"requiresApproval":true}}{extra_tool}],
-            "limits":{{"maxActionsPerSession":20,"maxOutputTokensPerCall":256,"maxSpendPerSession":null,
-                       "allowedModules":{modules},"allowedTasks":["plan","quick","orphan"]}}}}"#
-    ))
-    .unwrap()
-}
-
-fn never_runs(w: &World, session: &str, tool: &str, key: Option<&str>) -> String {
-    let mut ran = false;
-    let r = act(
-        &w.x(),
-        &ActInput {
-            session_id: session,
-            tool,
-            approved: Some(true),
-            idempotency_key: key,
-        },
-        || {
-            ran = true;
-            Ok(s("placed"))
-        },
-    );
-    assert!(!ran, "{tool} ran");
-    refused_code(r)
-}
-
-/// runtime.test.ts, "guardrails": "research-only never reaches place even when the tool is granted and approved".
-#[test]
-fn research_only_never_reaches_place_even_when_the_tool_is_granted_and_approved() {
-    let w = world_or_skip!();
-    w.register(&probe_with(
-        "research",
-        Some("research_only"),
-        "",
-        r#"["trade"]"#,
-    ));
-    let session = w.open_as(USER_A, "research");
-    assert_eq!(
-        never_runs(&w, &session.id, "trade.order", Some("chat-repeat")),
-        "agents.mode_forbids_write"
-    );
-}
-
-/// runtime.test.ts, "guardrails": "unknown capacity mode refuses live writes rather than defaulting to live".
-#[test]
-fn unknown_capacity_mode_refuses_live_writes_rather_than_defaulting_to_live() {
-    let w = world_or_skip!();
-    w.register(&probe_with("no-mode", None, "", r#"["trade"]"#));
-    let session = w.open_as(USER_A, "no-mode");
-    assert_eq!(
-        never_runs(&w, &session.id, "trade.order", Some("k")),
-        "agents.mode_unknown"
-    );
-}
-
-/// runtime.test.ts, "guardrails": "refuses bank.withdraw without a separate withdraw scope, even when granted".
-#[test]
-fn refuses_bank_withdraw_without_a_separate_withdraw_scope_even_when_granted() {
-    let w = world_or_skip!();
-    w.register(&probe_with(
-        "cashier",
-        Some("confirm_each"),
-        r#",{"name":"bank.withdraw","module":"bank","mode":"write","requiresApproval":true}"#,
-        r#"["trade","bank"]"#,
-    ));
-    let session = w.open_as(USER_A, "cashier");
-    assert_eq!(
-        never_runs(&w, &session.id, "bank.withdraw", None),
-        "agents.withdraw_scope_required"
-    );
-}
-
-/// runtime.test.ts, "guardrails": "logs a tool that threw as failed, not as refused".
-#[test]
-fn logs_a_tool_that_threw_as_failed_not_as_refused() {
-    let w = world_or_skip!();
-    let session = w.open();
-    let r = act(
-        &w.x(),
-        &ActInput {
-            session_id: &session.id,
-            tool: "trade.quote",
-            ..ActInput::default()
-        },
-        || Err(RunError::Other("venue unreachable".to_owned())),
-    );
-    assert_eq!(
-        r.unwrap_err(),
-        RunError::Other("venue unreachable".to_owned())
-    );
-    let last = w.last(&session.id);
-    assert_eq!(kind_status(&last), "tool_call:failed");
-    assert_eq!(last.refusal_code, None);
 }
