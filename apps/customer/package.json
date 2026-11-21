@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 3200",
-    "build": "tsc --noEmit && vite build",
+    "build": "node ../../tooling/scripts/tsc.mjs --noEmit && vite build",
     "typecheck": "node ../../tooling/scripts/tsc.mjs --noEmit",
     "test": "vitest run && vitest run --config vitest.render.config.ts",
     "test:deployment": "node --test deployment/host-dispatch.node-test.mjs deployment/validate-env.node-test.mjs deployment/security-headers.node-test.mjs",

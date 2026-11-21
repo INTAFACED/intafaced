@@ -30,6 +30,7 @@ export function reasonOf(why) {
     [/clashes with another/, 'helper name clash (a rerun places it)'],
     [/is not a declaration in/, 'helper the closure cannot follow'],
     [/scopedProcedure with a scope or options/, 'scopedProcedure scope or options a record cannot copy'],
+    [/guard \S+ kept by hand/, 'guard kept by hand (named, with its reason)'],
     [/guard .*chained/, 'guard chained with .use()'],
     [/guard /, 'guard a record cannot name'],
     [/no \.output\(\)/, 'no answer schema in the router'],
@@ -104,7 +105,7 @@ function deep(rows) {
   const typeErrors = {};
   for (const app of readdirSync(join(REPO, 'apps'))) {
     if (!existsSync(join(REPO, 'apps', app, 'tsconfig.json'))) continue;
-    const r = spawnSync('npx', ['tsc', '--noEmit', '-p', '.'], {
+    const r = spawnSync('node', [join(REPO, 'tooling', 'scripts', 'tsc.mjs'), '--noEmit', '-p', '.'], {
       cwd: join(REPO, 'apps', app),
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,

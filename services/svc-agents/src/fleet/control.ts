@@ -579,10 +579,7 @@ function sqlOf(sql: Sql | undefined): Sql {
 export function fleetRouter(sql: Sql | undefined, settings: FleetSettings) {
   // A signed-in operator's own session: never a service forwarding a principal, an API key or a sub-account.
   const operator = (scope: 'admin:read' | 'admin:write') =>
-    scopedProcedure(scope, { module: 'agents', person: true }).use(({ ctx, next }) => {
-      if (ctx.principal.kid || ctx.principal.sub_account) throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.fleet_person_only' });
-      return next();
-    });
+    scopedProcedure(scope, { module: 'agents', person: true, ownSession: 'agents.fleet_person_only' });
   const store = () => new FleetStore(sqlOf(sql));
 
   return router({

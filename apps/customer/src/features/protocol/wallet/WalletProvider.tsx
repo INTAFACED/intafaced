@@ -10,6 +10,7 @@ import {
   refuseReason,
   discoverWallets,
   firstAddress,
+  isRejection,
   parseChainId,
   runSignRequest,
   SIGN_TIMEOUT_MS,
@@ -51,13 +52,15 @@ function browserStore(): Storage | undefined {
 
 /** The node reads a room may make through the wallet. Nothing here can sign or send. */
 /** Read-only node calls. `eth_getBlockByNumber`, `eth_getBalance` and `eth_call` at one block let Assets read a wallet as of one block. */
-export type ReadMethod = 'eth_getTransactionReceipt' | 'eth_blockNumber' | 'eth_getBlockByNumber' | 'eth_getBalance' | 'eth_call';
+export type ReadMethod =
+  'eth_getTransactionReceipt' | 'eth_blockNumber' | 'eth_getBlockByNumber' | 'eth_getBalance' | 'eth_call' | 'eth_getTransactionCount';
 const READ_METHODS: ReadonlySet<string> = new Set<ReadMethod>([
   'eth_getTransactionReceipt',
   'eth_blockNumber',
   'eth_getBlockByNumber',
   'eth_getBalance',
   'eth_call',
+  'eth_getTransactionCount',
 ]);
 type TransactionRequest = Extract<SignRequest, { kind: 'transaction' }>;
 /**
@@ -79,6 +82,11 @@ export interface Sequence {
   steps: SequenceStep[];
   /** Facts the person checks before every step, such as each token's contract address. */
   facts?: Array<{ label: string; value: string }>;
+  /**
+   * The network the steps are sent on, when it is not the room's own: a bridge's mint on its destination chain. The
+   * wallet is asked to switch there after the person continues, and back to the room's network once the steps end.
+   */
+  chainId?: number;
 }
 export type SequenceResult =
   | { status: 'sent'; hashes: string[]; signatures?: string[] }
@@ -502,72 +510,91 @@ export function WalletProvider({
         return Promise.resolve({ status: 'failed', step: 0, sent: [], message: t('signWrongNetwork') });
       const wallet = connected;
       const account = address;
+      const target = next.chainId ?? configured;
       return new Promise<SequenceResult>((resolve) => {
         setSequence({
           sequence: next,
           account,
-          chainId: chainId ?? configured,
+          chainId: next.chainId ?? chainId ?? configured,
           resolve,
           run: async () => {
-            const sent: string[] = [];
-            const signatures: string[] = [];
-            for (const [index, step] of next.steps.entries()) {
-              if ('sign' in step) {
-                const signed = await runSignRequest(
-                  wallet.provider,
-                  account,
-                  { kind: 'typedData', typedData: step.sign },
-                  SIGN_TIMEOUT_MS,
-                  configured,
-                );
-                if (signed.status === 'rejected') return { status: 'rejected', sent };
-                if (signed.status !== 'signed')
-                  return {
-                    status: 'failed',
-                    step: index,
-                    sent,
-                    message: signed.status === 'failed' ? signed.message : t('signNotConnected'),
-                  };
-                signatures.push(signed.signature);
-                continue;
-              }
-              let request: TransactionRequest;
-              if ('prepare' in step) {
-                const built = await step.prepare([...signatures]);
-                if (!built.ok) return { status: 'failed', step: index, sent, message: built.message };
-                const refused = refuseReason(built.request);
-                if (refused) return { status: 'failed', step: index, sent, message: `${refused} Nothing was signed or sent.` };
-                request = built.request;
-              } else request = step.request;
-              const result = await runSignRequest(wallet.provider, account, request, SIGN_TIMEOUT_MS, configured);
-              if (result.status === 'rejected') return { status: 'rejected', sent };
-              if (result.status !== 'sent')
-                return {
-                  status: 'failed',
-                  step: index,
-                  sent,
-                  message: result.status === 'failed' ? result.message : t('signNotConnected'),
-                };
-              sent.push(result.hash);
-              if (index === next.steps.length - 1) break;
-              const provider = wallet.provider;
-              const mined = await waitMined(
-                (hash) => provider.request({ method: 'eth_getTransactionReceipt', params: [hash] }),
-                result.hash,
-                STEP_MINED_TIMEOUT_MS,
-              );
-              if (mined.status !== 'success')
-                return {
-                  status: 'failed',
-                  step: index,
-                  sent,
-                  reverted: mined.status === 'reverted',
-                  message: t(mined.status === 'reverted' ? 'seqReverted' : 'seqNotMined'),
-                };
+            if (target === configured) return runSteps();
+            try {
+              await wallet.provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHexChainId(target) }] });
+            } catch (error) {
+              if (isRejection(error)) return { status: 'rejected', sent: [] };
+              return { status: 'failed', step: 0, sent: [], message: t('switchFailed') };
             }
-            return { status: 'sent', hashes: sent, signatures };
+            try {
+              return await runSteps();
+            } finally {
+              // Back to the room's own network, whatever the steps did; the room reads the wallet's chain again.
+              await wallet.provider
+                .request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHexChainId(configured) }] })
+                .catch(() => undefined);
+              setChainId(parseChainId(await wallet.provider.request({ method: 'eth_chainId' }).catch(() => null)));
+            }
           },
         });
+        const runSteps = async (): Promise<SequenceResult> => {
+          const sent: string[] = [];
+          const signatures: string[] = [];
+          for (const [index, step] of next.steps.entries()) {
+            if ('sign' in step) {
+              const signed = await runSignRequest(
+                wallet.provider,
+                account,
+                { kind: 'typedData', typedData: step.sign },
+                SIGN_TIMEOUT_MS,
+                target,
+              );
+              if (signed.status === 'rejected') return { status: 'rejected', sent };
+              if (signed.status !== 'signed')
+                return {
+                  status: 'failed',
+                  step: index,
+                  sent,
+                  message: signed.status === 'failed' ? signed.message : t('signNotConnected'),
+                };
+              signatures.push(signed.signature);
+              continue;
+            }
+            let request: TransactionRequest;
+            if ('prepare' in step) {
+              const built = await step.prepare([...signatures]);
+              if (!built.ok) return { status: 'failed', step: index, sent, message: built.message };
+              const refused = refuseReason(built.request);
+              if (refused) return { status: 'failed', step: index, sent, message: `${refused} Nothing was signed or sent.` };
+              request = built.request;
+            } else request = step.request;
+            const result = await runSignRequest(wallet.provider, account, request, SIGN_TIMEOUT_MS, target);
+            if (result.status === 'rejected') return { status: 'rejected', sent };
+            if (result.status !== 'sent')
+              return {
+                status: 'failed',
+                step: index,
+                sent,
+                message: result.status === 'failed' ? result.message : t('signNotConnected'),
+              };
+            sent.push(result.hash);
+            if (index === next.steps.length - 1) break;
+            const provider = wallet.provider;
+            const mined = await waitMined(
+              (hash) => provider.request({ method: 'eth_getTransactionReceipt', params: [hash] }),
+              result.hash,
+              STEP_MINED_TIMEOUT_MS,
+            );
+            if (mined.status !== 'success')
+              return {
+                status: 'failed',
+                step: index,
+                sent,
+                reverted: mined.status === 'reverted',
+                message: t(mined.status === 'reverted' ? 'seqReverted' : 'seqNotMined'),
+              };
+          }
+          return { status: 'sent', hashes: sent, signatures };
+        };
       });
     },
     [connected, address, chainId, configured, t],

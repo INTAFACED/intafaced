@@ -1,14 +1,11 @@
 import { useState, type FormEvent } from 'react';
-import {
-  checkOfficialChannel,
-  officialChannelsAnswerSchema,
-  type OfficialChannelList,
-} from '@intafaced/contracts/support-official-channels';
+import { checkOfficialChannel, type OfficialChannelList } from '@intafaced/contracts/support-official-channels';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import { useSession } from '../session';
 import { defineCopy } from '../../shared/i18n';
 import './help.css';
+import { SUPPORT_OFFICIAL_CHANNELS } from '@intafaced/contracts/support-official-channels-procedures';
 
 const copy = defineCopy('public.official-channels', {
   title: 'Official channels',
@@ -49,10 +46,7 @@ const GUIDES = [
 export function OfficialChannels() {
   const { t, languageFor } = copy.useCopy();
   const { api } = useSession();
-  const { resource, reload } = useResource(
-    (signal) => api.query('support', 'officialChannels', undefined, officialChannelsAnswerSchema, { signal }),
-    'official-channels',
-  );
+  const { resource, reload } = useResource((signal) => api.call(SUPPORT_OFFICIAL_CHANNELS, undefined, { signal }), 'official-channels');
   const list = resource.status === 'ready' && resource.data.published ? resource.data : null;
   return (
     <div data-testid="official-channels" className="help stack" lang={languageFor('title')}>

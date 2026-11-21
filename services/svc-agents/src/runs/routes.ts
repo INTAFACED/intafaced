@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { formatAmount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
-import { actionOutput, toActionOutput, type AgentsRouterDeps, type ExecuteProcedure } from '../router.js';
+import { actionOutput, toActionOutput, type AgentsRouterDeps } from '../router.js';
+import { executeProcedure } from '../procedures.js';
 import { RUN_STATES, RunTransitionError } from './machine.js';
 import { runRecorded } from './record.js';
 import { createRunStore, type StoredRun } from './store.js';
@@ -12,8 +13,6 @@ import { buildProvenance, prepareResearch } from '../research/provenance.js';
 /** The run routes' builders, handed in by the agents router so the procedures here match the rest of it. */
 export interface RunRouteKit {
   readonly guard: <T>(fn: () => Promise<T>) => Promise<T>;
-  /** `agents:execute`, the person's own session only (owner decision 2026-10-29). */
-  readonly executeProcedure: ExecuteProcedure;
   /** The session if it is the caller's; the same not-found for someone else's. */
   readonly ownedSession: (sessionId: string, userId: string) => Promise<{ id: string; agentId: string; status: 'open' | 'closed' }>;
 }
@@ -83,7 +82,7 @@ async function typed<T>(fn: () => Promise<T>): Promise<T> {
  */
 export function runRoutes(deps: AgentsRouterDeps, kit: RunRouteKit) {
   const { runtime, feeAssetId, sql } = deps;
-  const { guard, executeProcedure, ownedSession } = kit;
+  const { guard, ownedSession } = kit;
   const store = () => {
     if (deps.runStore) return deps.runStore;
     if (!sql) throw new Error('agents sql is unset');
