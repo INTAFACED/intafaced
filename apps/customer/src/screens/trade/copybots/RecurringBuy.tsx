@@ -697,7 +697,7 @@ function RecurringShare({ ruleId }: { ruleId: string }) {
             <DialogTitle>{t('Share your result')}</DialogTitle>
             <DialogDescription>{t('Copy these words to share them. Nothing is sent from here.')}</DialogDescription>
           </DialogHeader>
-          <pre className="cb-note-body" data-testid="recurring-share-text">
+          <pre className="cb-note-body cb-share-text" data-testid="recurring-share-text">
             {text}
           </pre>
           <Button variant="secondary" onClick={() => void navigator.clipboard?.writeText(text).catch(() => undefined)}>
