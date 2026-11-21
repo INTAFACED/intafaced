@@ -1070,6 +1070,44 @@ describe('svc-p2p mount — merchant API access', () => {
     }
   });
 
+  it('refuses a key without approved standing on every offer door, before the door reads or moves anything', async () => {
+    const keyCtx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read', 'p2p:write'] }));
+    const caller = createP2pRouter(stubP2p(), stubInstruments(), undefined, {}, merchantStub('applied') as never).createCaller(keyCtx);
+    const offerId = '33333333-3333-4333-8333-333333333333';
+    const linkId = '66666666-6666-4666-8666-666666666666';
+    const post = {
+      side: 'sell',
+      asset: 'USDC',
+      fiatCurrency: 'EUR',
+      priceType: 'fixed',
+      price: '1',
+      minAmount: '10',
+      maxAmount: '100',
+    } as const;
+    const doors: Array<[string, () => Promise<unknown>]> = [
+      ['create', () => caller.offers.create({ ...post, methods: ['sepa'], offerId })],
+      ['sellBalance', () => caller.offers.sellBalance({ asset: 'USDC' })],
+      ['list', () => caller.offers.list({ limit: 50 })],
+      ['page', () => caller.offers.page({ limit: 20 })],
+      ['get', () => caller.offers.get({ offerId })],
+      ['mine', () => caller.offers.mine({ status: 'active', limit: 20 })],
+      ['editQuota', () => caller.offers.editQuota()],
+      ['relist', () => caller.offers.relist({ offerId })],
+      ['bulk', () => caller.offers.bulk({ action: 'pause', offerIds: [offerId], idempotencyKey: 'bulk:pause:1' })],
+      ['setVisibility', () => caller.offers.setVisibility({ offerId, visibility: 'private' })],
+      ['shareLinks.create', () => caller.offers.shareLinks.create({ linkId, offerId })],
+      ['shareLinks.list', () => caller.offers.shareLinks.list({ offerId })],
+      ['shareLinks.revoke', () => caller.offers.shareLinks.revoke({ linkId })],
+      ['close', () => caller.offers.close({ offerId })],
+      ['pause', () => caller.offers.pause({ offerId })],
+      ['resume', () => caller.offers.resume({ offerId })],
+      ['update', () => caller.offers.update({ offerId, idempotencyKey: 'edit:offer:1', price: '1.01' })],
+    ];
+    for (const [name, call] of doors) {
+      await expect(call(), name).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringMatching(/approved merchant/i) });
+    }
+  });
+
   it('reports API eligibility from the same current standing that enforces it', async () => {
     const keyCtx = signed(principal({ kid: 'merchant-key-1', scopes: ['p2p:read'] }));
     const sessionCtx = signed(principal({ scopes: ['p2p:read'] }));

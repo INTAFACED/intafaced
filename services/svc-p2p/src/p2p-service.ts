@@ -1,3 +1,4 @@
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { MISMATCH_CLASSIFICATIONS, MISMATCH_KINDS, ORDER_TABS, REMARK_MAX } from '@intafaced/contracts/p2p-procedures';
 import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
@@ -954,7 +955,7 @@ export interface OfferRecord {
   maxAmt: Amount;
   totalAmt: Amount;
   remainingAmt: Amount;
-  methods: unknown[];
+  methods: JsonValue[];
   terms: string;
   /** Maker verification tier at create. Null when it was never stored. */
   makerTier: string | null;
