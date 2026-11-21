@@ -4,6 +4,7 @@ import { AuthError } from '@intafaced/auth';
 import { InsufficientFundsError } from '@intafaced/ledger-client';
 import type { TradeService } from '../spot/trade-service.js';
 import { TradeError } from '../spot/types.js';
+import { algoListAnswer, rfqBoardAnswer } from './answers.js';
 import { deskTrpcError } from './errors.js';
 
 async function asTrpc<T>(fn: () => Promise<T>): Promise<T> {
@@ -46,6 +47,7 @@ export function algoDeskProcedures(trade: TradeService) {
           cursor: z.string().optional(),
         }),
       )
+      .output(algoListAnswer)
       .query(({ ctx, input }) => asTrpc(() => trade.algoList(ctx.principal, input))),
 
     reports: scopedProcedure('trade:read')
@@ -126,6 +128,7 @@ export function rfqHistoryProcedures(trade: TradeService) {
           limit: z.number().int().optional(),
         }),
       )
+      .output(rfqBoardAnswer)
       .query(({ ctx, input }) => asTrpc(() => trade.rfqBoard(ctx.principal, input))),
   };
 }

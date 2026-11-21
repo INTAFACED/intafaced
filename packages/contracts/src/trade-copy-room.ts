@@ -1,12 +1,12 @@
 /**
- * The Copy and Bots rooms' replies (svc-trade `copy.*`, `algo.*`, `bots.grid.*`, `signals.webhooks.*`; svc-market
- * `signals.*`; svc-quant `studio.list`), as the customer app reads them. Only fields the screen shows are kept, and no
+ * The Copy and Bots rooms' replies (svc-trade `copy.*`, `algo.*`, `bots.grid.*`, `signals.webhooks.*`; svc-quant
+ * `studio.list`), as the customer app reads them. Only fields the screen shows are kept, and no
  * service sentence is ever kept (`residual` and `statusLine` are deliberately left out). Browser-safe: zod only.
  */
 import { z } from 'zod';
 import { assetIdSchema } from './asset-id.js';
 import { signedAmountSchema, unsignedAmountSchema } from './wire-amount.js';
-import { venueGridSchema } from './trade-grid-procedures.js';
+import { gridExitsSchema, venueGridSchema } from './trade-grid-procedures.js';
 
 export const copyDeskSchema = z.object({
   feeSharePublished: z.boolean(),
@@ -34,52 +34,6 @@ export const signalWebhookSchema = z.object({
   state: z.enum(['active', 'paused', 'ended']),
   createdAt: z.string(),
   token: z.string().nullable().optional(),
-});
-
-/** A published signal (svc-market `signals.*`, J-copy-bots-otc-22): free or a monthly fee, never a profit share. */
-export const providerSignalSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string(),
-  assetId: assetIdSchema,
-  recommendedAmount: unsignedAmountSchema.nullable(),
-  feeModel: z.enum(['free', 'monthly']),
-  price: unsignedAmountSchema.nullable(),
-  periodSeconds: z.number().int().nullable(),
-  /** A monthly fee signal's Market listing, where a buyer pays one period. Null on a free signal. */
-  listingId: z.string().nullable(),
-  state: z.enum(['pending', 'published', 'archived']),
-  createdAt: z.string(),
-  archivedAt: z.string().nullable(),
-});
-
-/** The provider's one vetting against the platform's criteria, and what it saw. */
-export const signalVettingSchema = z.object({
-  minTier: z.string(),
-  minFills: z.number().int(),
-  tierSeen: z.string(),
-  fillsSeen: z.number().int(),
-  firstFillAt: z.string().nullable(),
-  passedAt: z.string(),
-});
-
-export const signalCriteriaSchema = z.object({ set: z.boolean(), minTier: z.string().nullable(), minFills: z.number().int().nullable() });
-export const signalPublishSchema = z.object({ signal: providerSignalSchema, vetting: signalVettingSchema, replayed: z.boolean() });
-export const mySignalsSchema = z.object({ signals: z.array(providerSignalSchema), vetting: signalVettingSchema.nullable() });
-export const signalEarningsSchema = z.object({
-  from: z.string(),
-  to: z.string(),
-  settlement: z.literal('at_sale'),
-  assets: z.array(
-    z.object({
-      assetId: assetIdSchema,
-      gross: unsignedAmountSchema,
-      commission: unsignedAmountSchema,
-      net: unsignedAmountSchema,
-      sales: z.number().int(),
-    }),
-  ),
-  profitShare: z.null(),
 });
 
 /** The scopes the platform has paused now (svc-trade `copy.platformPauses`, CB-ops-03). */
@@ -242,6 +196,8 @@ export const gridBotSchema = z.object({
       pairProfit: signedAmountSchema.nullable(),
     }),
   ),
+  /** The grid's price and RSI exits (CB-bots-03): only a grid on our own book has them. */
+  exits: gridExitsSchema.optional(),
   gridProfit: signedAmountSchema,
   closedPairs: z.number(),
   withdrawableProfit: unsignedAmountSchema,
@@ -332,6 +288,11 @@ export const leadEarningsSchema = z.object({
       appliedShareBps: z.number().int(),
       amount: unsignedAmountSchema,
       at: z.string(),
+      /** The venue's own id for the fill our fee was earned on (a copy on the venue); null on the TEST book. */
+      venueFillId: z.string().nullable(),
+      /** The ledger key the share is recorded under, owed by INTAFACED to the lead. */
+      ledgerKey: z.string(),
+      owedBy: z.literal('intafaced'),
     }),
   ),
 });
@@ -420,3 +381,24 @@ export const venueFollowCheckSchemaOf = <F extends z.ZodTypeAny>(follow: F) =>
     z.object({ followId: z.string(), follow }),
     z.object({ followId: z.string(), follow: z.null(), quoteAsset: z.string(), maxAggregateExposure: unsignedAmountSchema }),
   ]);
+
+/** `copy.myLeadApplication` (null: none yet) and `copy.applyToLead`: the person's own application to lead (J-copy-bots-otc-04). */
+export const leadApplicationSchema = z.object({
+  applicationId: z.string(),
+  state: z.enum(['submitted', 'under_review', 'approved', 'disapproved']),
+  displayName: z.string(),
+  submittedAt: z.string(),
+  reason: z.string().nullable(),
+  reapplyAfter: z.string().nullable().default(null),
+});
+
+const leadDecimal = z.string().regex(/^\d+(\.\d+)?$/);
+/** `copy.leadEligibility`: what applying to lead is measured by (J-copy-bots-otc-04 #1). */
+export const leadEligibilitySchema = z.object({
+  following: z.object({ leaderRef: z.string().nullable(), displayName: z.string() }).nullable(),
+  threshold: leadDecimal.nullable(),
+  venue: z.discriminatedUnion('state', [
+    z.object({ state: z.enum(['off', 'none', 'unreadable']) }),
+    z.object({ state: z.literal('read'), owner: z.string(), test: z.boolean(), usdc: leadDecimal, asOf: z.string() }),
+  ]),
+});

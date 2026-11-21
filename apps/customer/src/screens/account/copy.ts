@@ -6,6 +6,7 @@ const messages = {
   'Settings sections': 'Settings sections',
   Account: 'Account',
   Security: 'Security',
+  'Trading permissions': 'Trading permissions',
   Verification: 'Verification',
   Display: 'Display',
   'Account ID': 'Account ID',

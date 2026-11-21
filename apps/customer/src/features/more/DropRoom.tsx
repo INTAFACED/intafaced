@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { z } from 'zod';
 import { dropClaimResultSchema, dropRoomSchema, type DropView, type TgeNetwork, type TgeView } from '@intafaced/contracts/campaigns-drops';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';

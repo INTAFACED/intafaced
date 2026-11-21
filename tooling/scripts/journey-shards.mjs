@@ -80,18 +80,24 @@ export const JOBS_PAGE = 100;
 const JOURNEY_LIMIT_MINUTES = Number(process.env.JOURNEY_GLOBAL_TIMEOUT_MS || 3_600_000) / 60_000;
 // The planner warns when a shard's journeys come within this of the limit; a capped plan must stay clear of it.
 const LIMIT_MARGIN_MINUTES = 20;
-// A targeted run (a pull request's touched journeys, or a manual run's files) takes at most this many shards
-// (project-state research/fable-blueprint-2026-11-10 file 10, item 6: "the run is capped at 10 shards"). Each shard
-// costs a runner and about 8 minutes of setup, and runners are what main's verdict and every other pull request wait
-// on. The cap only packs the same files into fewer shards; it never drops one. It gives way, and the shards stay
-// as many as the target asks, whenever the capped plan's longest shard would come within LIMIT_MARGIN_MINUTES of the
-// limit (targetedShards), so a cap never costs a journey its report.
+// A run by hand of named journey files (`--only` without `--pull`) takes at most this many shards
+// (project-state research/fable-blueprint-2026-11-10 file 10, item 6: "the run is capped at 10 shards"). The cap only
+// packs the same files into fewer shards; it never drops one. It gives way, and the shards stay as many as the target
+// asks, whenever the capped plan's longest shard would come within LIMIT_MARGIN_MINUTES of the limit (targetedShards),
+// so a cap never costs a journey its report. A pull request's run is not capped by it (PR_MAX_SHARDS says why).
 export const TARGETED_MAX_SHARDS = 10;
-// A pull request's run (`--pull`) never takes more than this many shards, whatever it holds, and is never the full
+// A pull request's run (`--pull`) takes as many shards as its target asks, never more than this, and is never the full
 // suite: a pick too big for it runs journey-touch.mjs's bounded set instead (pullPick, PR_MAX_FILES), and main's full run
-// after the merge judges the rest. Where TARGETED_MAX_SHARDS gives way, a pull request's run stops here. (Failure it
-// prevents: in the 48 hours to 20 Nov 2026, 174 of 233 merged pull requests ran the full suite, 51 to 90 shards each.)
-export const PR_MAX_SHARDS = 12;
+// after the merge judges the rest. (Failure it prevents: in the 48 hours to 20 Nov 2026, 174 of 233 merged pull
+// requests ran the full suite, 51 to 90 shards each.) 30 holds PR_MAX_FILES's 100 files, about 240 to 270 minutes, at
+// the 10-minute target. Raised from 12 on 20 Nov 2026, and the pull request's run freed from TARGETED_MAX_SHARDS
+// (project-state#3035): #9170's bounded set of 65 files, about 194 minutes, packed into 10 shards of about 19 minutes
+// planned and 20 to 25 run (run 44668020108), and the pull request took 41 minutes from push to merge; replaying that
+// run's own times, 20 shards end with its longest file, J-campaigns-18 at 14.7 minutes, about 9 minutes sooner. What
+// the cap saved is gone: a shard's setup took 2.2 minutes there, not 8 (the stack is seeded once in the build job,
+// #9151), and from 03:20 to 06:00 UTC that day 526 shard jobs waited 2 seconds at the median for a runner (8 at most),
+// at most 137 running at once.
+export const PR_MAX_SHARDS = 30;
 // A step is a `test(` call at the start of a line, the way journey files declare one. A step a loop declares counts
 // once until a run has timed its file; from then on the report's count wins.
 const STEP = /^\s*test\(/gm;
@@ -323,8 +329,8 @@ export function shardCount(totalMs, targetMs, min = MIN_SHARDS, max = MAX_SHARDS
 }
 
 /**
- * How many shards a targeted run takes: as many as the target asks (from one, never more than its files), capped at
- * TARGETED_MAX_SHARDS, unless the capped plan's longest shard (planShards) would need more than `limitMs` of journeys;
+ * How many shards a targeted run takes: as many as the target asks (from one, never more than its files). A pull
+ * request's run (`pull`) stops at PR_MAX_SHARDS. A run by hand is capped at TARGETED_MAX_SHARDS, unless the capped plan's longest shard (planShards) would need more than `limitMs` of journeys;
  * then it is planned as a full run is (fullPlan), so it ends no later than the full suite would and its journeys meet
  * main's neighbours. Fails open: a count is never lowered past what keeps every shard clear of the limit. Pure, for the
  * tests. (Failure it prevents: 18 Nov 2026, #8836's run 44250481099: the touched-journeys map narrowed four svc-bank
@@ -341,11 +347,11 @@ export function targetedShards(
 ) {
   const totalMs = files.reduce((a, f) => a + (durations.get(f) ?? 0), 0);
   const uncapped = Math.min(files.length, shardCount(totalMs, targetMs, 1));
+  // A pull request's run stops at its own cap (PR_MAX_SHARDS), never planned as a full run.
+  if (pull) return Math.min(uncapped, PR_MAX_SHARDS);
   if (uncapped <= TARGETED_MAX_SHARDS) return uncapped;
   const capped = planShards(files, durations, TARGETED_MAX_SHARDS);
   if (Math.max(...capped.map((bin) => bin.ms)) <= limitMs) return TARGETED_MAX_SHARDS;
-  // A pull request's run stops at its own cap (PR_MAX_SHARDS), never planned as a full run.
-  if (pull) return Math.min(files.length, PR_MAX_SHARDS);
   const full = fullPlan();
   return Math.min(files.length, shardCount(totalMs, full.target, MIN_SHARDS, full.max));
 }
@@ -448,8 +454,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   );
   const totalMs = [...durations.values()].reduce((a, b) => a + b, 0);
   // Never more shards than files: a shard must have a file to run.
-  // A targeted run takes as few stacks as its files need (from one), not the full suite's floor, and at most
-  // TARGETED_MAX_SHARDS while every shard stays clear of the limit (targetedShards).
+  // A targeted run takes as few stacks as its files need (from one), not the full suite's floor: a pull request's at
+  // most PR_MAX_SHARDS, a run by hand's at most TARGETED_MAX_SHARDS while every shard stays clear of the limit
+  // (targetedShards).
   const { target, max } = only === null ? fullPlan() : { target: shardTarget(durations), max: pull ? PR_MAX_SHARDS : MAX_SHARDS };
   const shards =
     asked !== 'auto'
@@ -473,7 +480,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exit(1);
   }
   console.error(
-    `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each${only === null ? ` (a full run, on main or off it: at most ${MAX_SHARDS})` : ''}${only !== null ? ` (a targeted run: at most ${TARGETED_MAX_SHARDS} while each shard stays clear of the limit, else planned as a full run)` : ''}`,
+    `journey-shards: ${files.length} files, about ${Math.round(totalMs / 60_000)} min in all, ${shards} shards aimed at about ${Math.round(target / 60_000)} min each${only === null ? ` (a full run, on main or off it: at most ${MAX_SHARDS})` : ''}${only !== null && pull ? ` (a pull request's run: as many as the target asks, at most ${PR_MAX_SHARDS})` : ''}${only !== null && !pull ? ` (a targeted run: at most ${TARGETED_MAX_SHARDS} while each shard stays clear of the limit, else planned as a full run)` : ''}`,
   );
   plan.forEach((bin, i) =>
     console.error(`shard ${i + 1}: ${bin.files.length} files, about ${Math.round(bin.ms / 60_000)} min by the last runs`),

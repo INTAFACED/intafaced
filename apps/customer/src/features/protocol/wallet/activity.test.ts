@@ -11,6 +11,7 @@ const row = (n: number, over: Partial<Parameters<typeof isSpam>[0]> = {}) => ({
   chainId: 84532,
   hash: hash(n),
   blockHeight: n,
+  blockHash: hash(n + 1000),
   index: 0,
   timestamp: 1_000 + n,
   from: ME,

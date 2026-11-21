@@ -1,8 +1,14 @@
-import { quantPaperListSchema, quantPaperRunSchema } from '@intafaced/contracts/quant-algo';
 import { ApprovalPanel } from './ApprovalPanel';
-import { quantSharedListSchema, quantSharedOpenSchema, type QuantSharedOpen } from '@intafaced/contracts/quant-team';
+import { type QuantSharedOpen } from '@intafaced/contracts/quant-team';
+import {
+  QUANT_TEAM_OPEN,
+  QUANT_TEAM_ORDER,
+  QUANT_TEAM_PAPER_RUNS,
+  QUANT_TEAM_SAVE,
+  QUANT_TEAM_SHARED,
+  QUANT_TEAM_STOP,
+} from '@intafaced/contracts/quant-team-procedures';
 import { useState } from 'react';
-import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Failure, Field, Panel } from '../../shared/ui';
@@ -21,7 +27,7 @@ const utcText = (iso: string) => iso.slice(0, 19).replace('T', ' ');
 export function SharedRoom({ paper }: { paper: boolean }) {
   const api = useApi();
   const { t } = teamCopy.useCopy();
-  const list = useResource((signal) => api.query('quant', 'team.shared', {}, quantSharedListSchema, { signal }), 'quant-shared');
+  const list = useResource((signal) => api.call(QUANT_TEAM_SHARED, {}, { signal }), 'quant-shared');
   return (
     <>
       <QuantRooms active="strategies" paper={paper} />
@@ -68,10 +74,7 @@ export function SharedStrategy({ strategyId, paper }: { strategyId: string; pape
   const api = useApi();
   const { t } = teamCopy.useCopy();
   const [revision, setRevision] = useState(0);
-  const opened = useResource(
-    (signal) => api.query('quant', 'team.open', { strategyId }, quantSharedOpenSchema, { signal }),
-    `quant-shared:${strategyId}:${revision}`,
-  );
+  const opened = useResource((signal) => api.call(QUANT_TEAM_OPEN, { strategyId }, { signal }), `quant-shared:${strategyId}:${revision}`);
   const reload = () => setRevision((n) => n + 1);
   const kept = useLastReady(opened.resource);
   return (
@@ -130,12 +133,12 @@ function SharedSave({ data, onSaved }: { data: QuantSharedOpen; onSaved: () => v
     setDone(null);
     setRefused(null);
     setFailure(null);
-    const res = await api.mutate(
-      'quant',
-      'team.save',
-      { strategyId: data.strategyId, baseVersion: data.version, name, ...(note.trim() ? { releaseNote: note } : {}) },
-      quantSharedOpenSchema,
-    );
+    const res = await api.call(QUANT_TEAM_SAVE, {
+      strategyId: data.strategyId,
+      baseVersion: data.version,
+      name,
+      ...(note.trim() ? { releaseNote: note } : {}),
+    });
     setBusy(false);
     if (res.ok) {
       setDone(t('saved', { version: res.data.version }));
@@ -184,7 +187,7 @@ function OwnerRuns({ strategyId }: { strategyId: string }) {
   const { t } = teamCopy.useCopy();
   const [revision, setRevision] = useState(0);
   const runs = useResource(
-    (signal) => api.query('quant', 'team.paperRuns', { strategyId }, quantPaperListSchema, { signal }),
+    (signal) => api.call(QUANT_TEAM_PAPER_RUNS, { strategyId }, { signal }),
     `quant-shared-runs:${strategyId}:${revision}`,
   );
   const [note, setNote] = useState<string | null>(null);
@@ -194,7 +197,7 @@ function OwnerRuns({ strategyId }: { strategyId: string }) {
     setNote(null);
     setRefused(null);
     setFailure(null);
-    const res = await api.mutate('quant', 'team.stop', { strategyId, runId }, quantPaperRunSchema);
+    const res = await api.call(QUANT_TEAM_STOP, { strategyId, runId });
     if (res.ok) {
       setNote(t('stoppedNote'));
       setRevision((n) => n + 1);
@@ -270,7 +273,7 @@ function SharedManualOrder({ strategyId, runIds }: { strategyId: string; runIds:
     setBusy(true);
     setRefused(null);
     setFailure(null);
-    const res = await api.mutate('quant', 'team.order', { strategyId, runId: chosen, side, size: size.trim() }, z.never());
+    const res = await api.call(QUANT_TEAM_ORDER, { strategyId, runId: chosen, side, size: size.trim() });
     setBusy(false);
     if (res.ok) return;
     const code = refusalCode(res);

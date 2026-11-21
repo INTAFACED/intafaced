@@ -1,0 +1,20 @@
+[package]
+name = "svc-agents"
+version = "0.0.0"
+description = "svc-agents: the agent fleet runtime and model gateway. The Rust port: its door, environment, refusals and store."
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+service-kit = { path = "../service-kit" }
+getrandom = "0.3"
+sha2 = "0.10"
+postgres = "0.19"
+signal-hook = "0.3"
+# Vendored with the pool fix of #9432 (crates/vendor/tiny_http/VENDORED.md).
+tiny_http = { path = "../vendor/tiny_http" }
+url = "2"

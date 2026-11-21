@@ -6,7 +6,7 @@ import { EDGE, fromUnits, journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { ledgerUntouched, ledgerView, signedOnVenue, venueAt, venueNow, walletOwner } from './venue-door.mjs';
-import { openVenueDesk, venueForThisFile } from './venue.mjs';
+import { openVenueDesk, venueForThisFile, venueRecord } from './venue.mjs';
 
 // J-derivatives-08, "I see the funding rate and what I paid or received", on the person's own venue account (the launch
 // money model: the venue charges or pays funding, the app shows each payment as the venue reports it, our ledger holds
@@ -32,11 +32,12 @@ venueForThisFile(test);
 // ── the TEST venue, read and changed directly ──
 
 const accountOf = (venue, owner) => ({ venueId: venue.id, owner, subAccount: null });
-const record = async (venue, owner, path, extra = {}) => (await venueAt(path, { account: accountOf(venue, owner), ...extra })).value;
-const positionOn = async (venue, owner) => (await record(venue, owner, '/positions')).find((p) => p.symbol === SYMBOL);
+/** The TEST venue's own record for `owner`, read straight from the venue by the fixture (venue.mjs), never through our door. */
+const record = async (owner, path, extra = {}) => (await venueRecord(owner, path, extra)).value;
+const positionOn = async (owner) => (await record(owner, '/positions')).find((p) => p.symbol === SYMBOL);
 const marketOn = async () => (await venueAt('/markets', {})).value.find((m) => m.symbol === SYMBOL);
 /** The venue's own funding payments on the person's account since the journey's start, oldest first. */
-const paymentsOn = async (venue, s) => record(venue, s.owner, '/funding-payments', { since: s.since });
+const paymentsOn = async (s) => record(s.owner, '/funding-payments', { since: s.since });
 /** The TEST venue's mark and index back where the journey found them, its funding and index published. */
 async function marketAtStart() {
   await venueAt('/test/funding-published', { symbol: SYMBOL, published: true });
@@ -98,7 +99,7 @@ async function startsLine(browser) {
       clientOrderKey: `order:jd8:${tag}:open`,
       builderFee: null,
     });
-    const p = await positionOn(venue, owner);
+    const p = await positionOn(owner);
     expect(p).toMatchObject({ side: 'long', marginMode: 'isolated', size: SIZE });
     run.reset({
       account,
@@ -161,8 +162,7 @@ test(`${J} #2 the venue publishes no rate for the period: "not published by this
 }) => {
   test.setTimeout(300_000);
   const s = state();
-  const venue = await venueNow();
-  const margin = (await positionOn(venue, s.owner)).margin;
+  const margin = (await positionOn(s.owner)).margin;
   await venueAt('/test/funding-published', { symbol: SYMBOL, published: false });
   try {
     expect((await marketOn()).funding).toEqual({ known: false });
@@ -175,8 +175,8 @@ test(`${J} #2 the venue publishes no rate for the period: "not published by this
     // The venue closes the period with no rate: it books nothing, and the page shows nothing paid or charged.
     const closed = await venueAt('/test/settle-funding', { symbol: SYMBOL });
     expect(closed).toMatchObject({ rate: null, payments: 0 });
-    expect(await paymentsOn(venue, s)).toEqual([]);
-    expect((await positionOn(venue, s.owner)).margin).toBe(margin);
+    expect(await paymentsOn(s)).toEqual([]);
+    expect((await positionOn(s.owner)).margin).toBe(margin);
     await expect(tab.getByTestId('venue-funding-none')).toHaveText('No funding has been paid or charged on your positions.', {
       timeout: 20_000,
     });
@@ -193,18 +193,17 @@ test(`${J} #3 a period closes: one payment per position in the payments list, as
 }) => {
   test.setTimeout(300_000);
   const s = state();
-  const venue = await venueNow();
   const tab = await fundingTab(page, s);
-  const before = await positionOn(venue, s.owner);
+  const before = await positionOn(s.owner);
   const closed = await venueAt('/test/settle-funding', { symbol: SYMBOL });
   expect(closed.rate).not.toBeNull();
-  const payments = await paymentsOn(venue, s);
+  const payments = await paymentsOn(s);
   // One payment on the person's one position, for the period the venue closed.
   expect(payments).toHaveLength(1);
   const [p] = payments;
   expect(p).toMatchObject({ symbol: SYMBOL, side: 'long', size: SIZE, rate: closed.rate, asset: 'USDC', periodAt: closed.periodAt });
   // The venue booked it on the position's margin.
-  expect((await positionOn(venue, s.owner)).margin).toBe(fromUnits(toUnits(before.margin) + toUnits(p.amount)));
+  expect((await positionOn(s.owner)).margin).toBe(fromUnits(toUnits(before.margin) + toUnits(p.amount)));
 
   const rows = tab.locator('tr[data-payment]');
   await expect(rows).toHaveCount(1, { timeout: 20_000 });
@@ -228,7 +227,6 @@ test(`${J} #4 checks the legs: what the venue charged or paid on each position, 
 }) => {
   test.setTimeout(300_000);
   const s = state();
-  const venue = await venueNow();
   // TEST: the index moves above the mark, so the venue's premium, and its rate, turn negative.
   await venueAt('/test/set-index', { symbol: SYMBOL, price: '100.5' });
   try {
@@ -240,7 +238,7 @@ test(`${J} #4 checks the legs: what the venue charged or paid on each position, 
     await expect(line(tab, 'index')).toHaveText('100.5');
     const closed = await venueAt('/test/settle-funding', { symbol: SYMBOL });
     expect(closed.rate).toBe(m.funding.value.rate);
-    const payments = await paymentsOn(venue, s);
+    const payments = await paymentsOn(s);
     expect(payments).toHaveLength(2);
     const flipped = payments.find((x) => x.periodAt === closed.periodAt);
     // The long received it this time: the venue's own amount, positive.
@@ -270,7 +268,7 @@ test(`${J} #5 opens the funding statement: venue funding by position and period,
   const s = state();
   const venue = await venueNow();
   const tab = await fundingTab(page, s);
-  const payments = await paymentsOn(venue, s);
+  const payments = await paymentsOn(s);
   expect(payments).toHaveLength(2);
   const statement = tab.getByTestId('venue-funding-statement');
   await expect(statement).toBeVisible({ timeout: 20_000 });
@@ -287,7 +285,7 @@ test(`${J} #5 opens the funding statement: venue funding by position and period,
   const total = sum(payments.map((x) => x.amount));
   await expect(statement.locator(`tr[data-position-total="${position}"] [data-cell="amount"]`)).toHaveText(`${total} USDC`);
   await expect(statement.getByTestId('venue-funding-total')).toHaveAttribute('data-value', total);
-  const margin = (await positionOn(venue, s.owner)).margin;
+  const margin = (await positionOn(s.owner)).margin;
   expect(fromUnits(toUnits(margin) - toUnits(s.marginAtStart))).toBe(total);
   // The ledger holds none of it.
   await ledgerUntouched(s);

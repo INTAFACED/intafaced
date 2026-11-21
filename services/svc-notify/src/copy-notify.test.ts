@@ -116,4 +116,36 @@ describe('copy notices (J-copy-bots-otc-03 #6)', () => {
     expect((await inbox()).map((n) => n.bodyKey)).toEqual(['notify.trade.copy_stopped.body.lead_stopped']);
     expect(await inboxOf(LEADER)).toEqual([]);
   });
+  it('a skip or stop notice goes out of app like any order notice, so a confirmed address gets its email', async () => {
+    const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });
+    const sent: Array<{ kind: string; outOfApp: boolean | undefined }> = [];
+    const create = notify.create.bind(notify);
+    notify.create = async (input) => {
+      sent.push({ kind: input.kind, outOfApp: input.outOfApp });
+      return create(input);
+    };
+    const bus = new MemoryEventBus('svc-trade');
+    await subscribeNotificationEvents(bus, notify);
+    await bus.publish('copySkipped', {
+      followId: FOLLOW,
+      followerId: FOLLOWER,
+      leaderId: LEADER,
+      leaderFillId: FILL,
+      reason: 'risk_control',
+      skippedAt: '2026-10-30T08:00:00.000Z',
+    });
+    await bus.publish('copyStopped', {
+      followId: FOLLOW,
+      followerId: FOLLOWER,
+      leaderId: LEADER,
+      reason: 'follower',
+      closeOnly: true,
+      stoppedAt: '2026-10-30T08:00:00.000Z',
+    });
+    // Not inbox-only: create's default (outOfApp true) lets the dispatcher try email.
+    expect(sent).toEqual([
+      { kind: 'trade.copy.skipped', outOfApp: undefined },
+      { kind: 'trade.copy.stopped', outOfApp: undefined },
+    ]);
+  });
 });

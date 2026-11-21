@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { sessionRunSchema, sessionRunStopSchema, type SessionRun } from '@intafaced/contracts/agents-runs';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { ServiceOffNotice } from '../../shared/service-off';
 import { displayAmount } from '../../shared/money';
 import { Button, DataTable, Panel } from '../../shared/ui';

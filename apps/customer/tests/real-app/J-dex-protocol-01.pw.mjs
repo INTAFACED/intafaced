@@ -1,6 +1,6 @@
 // World: gates, restart
 import { test, expect } from './journey.mjs';
-import { restartWith as stackRestartWith, restartWithSetting as stackRestartWithSetting, tool } from './stack.mjs';
+import { restartService, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 
 // J-dex-protocol-01, in the running app (docs/roadmap/journeys.json): open the Web3 side, read the honest labels and
@@ -33,16 +33,14 @@ test.afterAll(() => {
 
 // A stack start refuses while the TEST chain's gate is shut, so each restart here opens it for the restart alone and shuts
 // it again before the step reads anything: svc-protocol still sees no node.
-function withGateOpenForRestart(restart) {
+async function restartWithGateOpen(service, settings) {
   tool('local-test-chain.mjs', 'gate', 'open');
   try {
-    restart();
+    await restartService(service, settings);
   } finally {
     tool('local-test-chain.mjs', 'gate', 'closed');
   }
 }
-const restartWith = (...args) => withGateOpenForRestart(() => stackRestartWith(...args));
-const restartWithSetting = (...args) => withGateOpenForRestart(() => stackRestartWithSetting(...args));
 
 const networkChip = (page) => page.locator('[data-chip="network"]');
 const walletChip = (page) => page.locator('[data-chip="wallet"]');
@@ -186,11 +184,11 @@ const ROUTER = { address: '0x8d28045bbe8a1aed986751257c5711524a7ec73f', version:
 
 /** Runs `body` while svc-protocol serves the TEST published network registry, then puts the owner's registry back. */
 async function withPublishedNetworks(body) {
-  restartWithSetting('protocol', 'LOCAL_STACK_PROTOCOL_NETWORKS', 'published');
+  await restartWithGateOpen('protocol', { LOCAL_STACK_PROTOCOL_NETWORKS: 'published' });
   try {
     await body();
   } finally {
-    restartWithSetting('protocol', 'LOCAL_STACK_PROTOCOL_NETWORKS', null);
+    await restartWithGateOpen('protocol', { LOCAL_STACK_PROTOCOL_NETWORKS: null });
   }
 }
 
@@ -308,8 +306,8 @@ test(`${J} #8 from a blocked region every Protocol read refuses with the notice 
   test.setTimeout(480_000);
   // The blocked-region run: a visitor from the TEST region AA, which svc-protocol does not serve.
   const regionPage = await page.context().newPage();
-  restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', false);
-  restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', false);
+  await restartWithGateOpen('protocol', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
+  await restartWithGateOpen('edge', { LOCAL_STACK_TEST_REGION_SERVED: 'off' });
   try {
     const blocked = await installTestWallet(regionPage, { chainId: 84532, tokens: [TEST_TOKEN] });
     await regionPage.goto('/wallet');
@@ -342,8 +340,8 @@ test(`${J} #8 from a blocked region every Protocol read refuses with the notice 
     expect(blocked.requests).toHaveLength(0);
   } finally {
     await regionPage.close();
-    restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', true);
-    restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+    await restartWithGateOpen('edge', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
+    await restartWithGateOpen('protocol', { LOCAL_STACK_TEST_REGION_SERVED: undefined });
   }
 
   // The allowed-region run.
@@ -378,7 +376,7 @@ test(`${J} #8 from a blocked region every Protocol read refuses with the notice 
   await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Cancel', exact: true }).click();
 
   // A new version asks again: the stack serves TEST-2, and the same wallet's next signing action needs it accepted first.
-  restartWithSetting('protocol', 'LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION', 'TEST-2');
+  await restartWithGateOpen('protocol', { LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION: 'TEST-2' });
   try {
     expect(await representationStatus(page, wallet.address)).toMatchObject({ version: 'TEST-2', accepted: false });
     await form.getByRole('button', { name: 'Review and sign', exact: true }).click();
@@ -393,7 +391,7 @@ test(`${J} #8 from a blocked region every Protocol read refuses with the notice 
     expect(again).toMatchObject({ version: 'TEST-2', accepted: true });
     expect(Date.parse(again.acceptedAt)).toBeGreaterThan(Date.parse(status.acceptedAt));
   } finally {
-    restartWithSetting('protocol', 'LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION', null);
+    await restartWithGateOpen('protocol', { LOCAL_STACK_PROTOCOL_REPRESENTATION_VERSION: null });
   }
 });
 

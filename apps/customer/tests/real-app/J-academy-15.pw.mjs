@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { existsSync, readFileSync } from 'node:fs';
-import { api, journeyState, restartWith, stackFile, statusMail } from './stack.mjs';
+import { api, journeyState, restartService, stackFile, statusMail } from './stack.mjs';
 import { signUp } from './desk.mjs';
 
 // J-academy-15 "Enrol people in bulk, run cohorts, and send a course email", in the founder console (docs/roadmap/journeys.json).
@@ -150,7 +150,7 @@ test(`${J} #1 uploads 30 addresses to bulk enrol: each is enrolled or listed wit
   expect(inboxes()).toEqual(mailBefore);
 
   // With the owner's row limit blank, an upload is refused with its code and changes nothing.
-  restartWith('academy', 'LOCAL_STACK_ACADEMY_BULK_ENROL_ROWS', false);
+  await restartService('academy', { LOCAL_STACK_ACADEMY_BULK_ENROL_ROWS: 'off' });
   try {
     await page.reload();
     await bulk.getByLabel('Course', { exact: true }).selectOption(COURSE);
@@ -162,7 +162,7 @@ test(`${J} #1 uploads 30 addresses to bulk enrol: each is enrolled or listed wit
     await expect(refused).toContainText('Bulk upload limit not set');
     await expect(bulk.getByTestId('bulk-result')).toHaveCount(0);
   } finally {
-    restartWith('academy', 'LOCAL_STACK_ACADEMY_BULK_ENROL_ROWS', true);
+    await restartService('academy', { LOCAL_STACK_ACADEMY_BULK_ENROL_ROWS: undefined });
   }
 });
 
@@ -289,7 +289,7 @@ test(`${J} #6 sends a bulk email to participants: a history row refused for the 
 
   // With the owner's inactivity period blank, a send is refused with its code and nothing is written.
   const before = (await staff('query', 'admin.bulkEmails', { path: COURSE })).length;
-  restartWith('academy', 'LOCAL_STACK_ACADEMY_INACTIVE_DAYS', false);
+  await restartService('academy', { LOCAL_STACK_ACADEMY_INACTIVE_DAYS: 'off' });
   try {
     await page.reload();
     await send(`${subject} (blank period)`);
@@ -297,7 +297,7 @@ test(`${J} #6 sends a bulk email to participants: a history row refused for the 
     await expect(refused).toHaveAttribute('data-code', 'academy.inactivity_period_unset', { timeout: 60_000 });
     await expect(refused).toContainText('Inactivity period not set');
   } finally {
-    restartWith('academy', 'LOCAL_STACK_ACADEMY_INACTIVE_DAYS', true);
+    await restartService('academy', { LOCAL_STACK_ACADEMY_INACTIVE_DAYS: undefined });
   }
   expect(await staff('query', 'admin.bulkEmails', { path: COURSE })).toHaveLength(before);
 });

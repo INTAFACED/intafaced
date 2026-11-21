@@ -22,33 +22,8 @@ export const notificationSchema = z.object({
   createdAt: date,
 });
 
-export const notifyListSchema = z.object({ items: z.array(notificationSchema).max(100), nextCursor: z.string().guid().nullable() });
-
-export const notifyCountSchema = z.object({ count: z.number().int().nonnegative() });
-export const notifyMarkedSchema = z.object({ marked: z.number().int().nonnegative() });
-
 export const notifyOutOfAppSchema = z.enum(['email', 'push', 'sms']);
-export const notifyChannelsSchema = z.array(
-  z.object({ channel: z.enum(['inapp', 'email', 'push', 'sms']), configured: z.boolean(), available: z.boolean() }).passthrough(),
-);
 export const notifyPrefsSchema = z.array(z.object({ channel: notifyOutOfAppSchema, muted: z.boolean() })).max(3);
-export const notifyTargetsSchema = z
-  .array(z.object({ channel: notifyOutOfAppSchema, address: z.string(), verifiedAt: z.string().nullable() }).passthrough())
-  .max(3);
-
-export const registerResultSchema = z
-  .object({
-    status: z.enum(['sent', 'refused', 'failed']),
-    channel: notifyOutOfAppSchema,
-    code: z.string().min(1).nullable(),
-    expiresAt: z.string(),
-  })
-  .refine((row) => (row.status === 'refused' ? row.code !== null : row.code === null), 'Invalid registration outcome');
-export const verifyResultSchema = z
-  .object({ verified: z.boolean(), code: z.string().min(1).nullable() })
-  .refine((row) => !row.verified || row.code === null, 'Invalid verification outcome');
-export const notifyRemovedSchema = z.object({ removed: z.boolean() });
-
 export const notifyDeliverySchema = z.object({
   channel: z.enum(['inapp', 'email', 'push', 'sms']),
   status: z.enum(['pending', 'accepted', 'refused', 'failed', 'abandoned']),
@@ -57,11 +32,6 @@ export const notifyDeliverySchema = z.object({
   acceptedAt: z.string().nullable(),
   refusalCode: z.string().nullable(),
 });
-
-export const notifyPushKeySchema = z.union([
-  z.object({ publicKey: z.string().regex(/^[A-Za-z0-9_-]{16,256}$/), unsetCode: z.null() }),
-  z.object({ publicKey: z.null(), unsetCode: z.literal('notify.push_key_unset') }),
-]);
 
 export const CATEGORY_IDS = ['security', 'orders', 'price_alerts', 'promotions', 'news', 'status'] as const;
 export const CATEGORY_CHANNELS = ['in_app', 'email', 'push', 'sms'] as const;
@@ -140,6 +110,29 @@ export const updateAlertReplySchema = z.object({ alert: priceAlertSchema });
 export const setAlertActiveReplySchema = z.object({ changed: z.boolean(), alert: priceAlertSchema });
 /** `notify.deleteAlert`'s answer. `deleted: false` means it was already gone. */
 export const deleteAlertReplySchema = z.object({ deleted: z.boolean() });
+/** `notify.evaluateAlert`'s answer: the watch (null when not found or not active), whether it holds, fires or is refused by name, and whether any watch can fire. */
+export const evaluateAlertReplySchema = z.object({
+  alert: priceAlertSchema.nullable(),
+  evaluation: alertEvaluationSchema,
+  outcome: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('hold'), markPrice: z.string().min(1) }),
+    z.object({ kind: z.literal('fire'), markPrice: z.string().min(1) }),
+    z.object({
+      kind: z.literal('refuse'),
+      code: z.enum([
+        'alert.price_unavailable',
+        'alert.not_active',
+        'alert.invalid_price',
+        'alert.portfolio_view_unpublished',
+        'alert.kind_unpublished',
+        'alerts.whale_mark_dark',
+        'channel.not_configured',
+        'channel.disabled',
+      ]),
+      detail: z.string(),
+    }),
+  ]),
+});
 
 export const WEBHOOK_CAUSES = [
   'ok',

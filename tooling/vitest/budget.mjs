@@ -1,4 +1,5 @@
-// The one time budget every package's vitest run gets: 30 s a test, 30 s a hook.
+// The one budget every package's vitest run gets: 30 s a test, 30 s a hook, and on a shared machine at most
+// INTAFACED_LOCAL_JOBS workers (tooling/scripts/local-jobs.mjs; unset, vitest's own default).
 //
 // vitest's defaults (5 s a test, 10 s a hook) are shorter than a schema reset or a seed on a loaded CI runner. Each
 // package used to copy its own budget into its own config, and the ones that never did went red for it: svc-pay's
@@ -9,4 +10,6 @@
 //
 // Every vitest config spreads it (`test: { ...TEST_BUDGET, ... }`); tooling/vitest/budget.test.mjs fails a package whose
 // tests run on vitest without it. A package that needs longer says so after the spread, as tooling/pay-sim does.
-export const TEST_BUDGET = Object.freeze({ testTimeout: 30_000, hookTimeout: 30_000 });
+import { localWorkers } from '../scripts/local-jobs.mjs';
+
+export const TEST_BUDGET = Object.freeze({ testTimeout: 30_000, hookTimeout: 30_000, ...localWorkers() });

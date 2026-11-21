@@ -4,9 +4,15 @@ import { moreCopy } from './copy';
 import { doorLabel, roomTitle } from '../../app/navigation';
 import { usePreferences } from '../../shared/preferences';
 import { allServices, sectionId, visibleSections, web3TileBlockers, type ServiceGroupId } from './tiles';
+import { useRoomStates, type RoomState } from './room-state';
 
 /** More (UI-SPEC 5.11): the pages that don't have a tab of their own, as tiles. Only a hidden route is left out. */
 export default function MoreScreen(_props: ScreenProps) {
+  return <MoreHub states={useRoomStates()} />;
+}
+
+/** The hub itself, given each More room tile's state (`useRoomStates`). */
+export function MoreHub({ states }: { states: Record<string, RoomState> }) {
   const { t } = moreCopy.useCopy();
   const { language } = usePreferences();
   const groupLabel = (id: ServiceGroupId) => (id === 'Account' || id === 'Web3' || id === 'Information' ? t(id) : doorLabel(id, language));
@@ -40,6 +46,7 @@ export default function MoreScreen(_props: ScreenProps) {
                           })
                         : line && t(line)}
                     </span>
+                    {states[id] && <RoomStateLine state={states[id]} />}
                   </span>
                 </a>
               </li>
@@ -72,5 +79,19 @@ export default function MoreScreen(_props: ScreenProps) {
         </div>
       </section>
     </div>
+  );
+}
+
+/** A More room tile's state: live for an open room, or parked with what it waits on (J-more-catalogue-01 #1). */
+function RoomStateLine({ state }: { state: RoomState }) {
+  const { t } = moreCopy.useCopy();
+  return state.kind === 'live' ? (
+    <span data-testid="more-tile__state" className="more-tile__state" data-state={state.state}>
+      {t(`Room ${state.state}`)}
+    </span>
+  ) : (
+    <span data-testid="more-tile__state" className="more-tile__state" data-state="parked" data-blocker={state.blocker}>
+      {t(`Room parked ${state.blocker}`)}
+    </span>
   );
 }

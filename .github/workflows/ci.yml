@@ -87,6 +87,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      # Main as it is now (project-state#3035): main fetched afresh and the pull request's head merged onto it again, in
+      # the shape of GitHub's merge commit (main the first parent, the head the second, so the steps below that read
+      # HEAD^1 as the base still see only the pull request's own change, and origin/main is that main). So this job runs
+      # the gate list and the gates main holds when it starts, and a gate-list change on main after CI began is answered
+      # by re-running this job alone, not by merging main, pushing and running everything again (the merge seal reads
+      # this step by its name: ci-jobs-seal.mjs FRESH_MAIN_STEP; on 20 Nov 2026 #9170, #9171 and #9176 took 41 to 97
+      # minutes from their first push that way). Before any of the pull request's code runs. A conflict stops it here.
+      - name: Judge on main as it is now
+        if: github.event_name == 'pull_request'
+        run: |
+          head=$(git rev-parse --verify HEAD^2)
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          git checkout --quiet --detach refs/remotes/origin/main
+          if ! git -c user.name=ci -c user.email=ci@invalid merge --quiet --no-ff --no-edit "$head"; then
+            echo "::error title=Doctrine gates::$head no longer merges with main: merge origin/main and push"
+            exit 1
+          fi
+          echo "judging $head merged onto main $(git rev-parse HEAD^1)"
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -277,6 +295,7 @@ jobs:
       full: ${{ steps.cls.outputs.full }}
       affected: ${{ steps.cls.outputs.affected }}
       rust: ${{ steps.cls.outputs.rust }}
+      look: ${{ steps.cls.outputs.look }}
       shards: ${{ steps.cls.outputs.shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -316,7 +335,7 @@ jobs:
     if: needs.changes.outputs.rust == 'true'
     needs: [changes]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15 # healthy run: 1-2 min while the workspace holds one empty crate
+    timeout-minutes: 20 # healthy run: 6-9 min (rust:check took 5-8 min on main and PRs, 2026-11-20/21; the planted faults then under 1 min)
     # svc-tax's Postgres stores and its `migrate` command are tested against a real database, each test in a throwaway
     # `*_test` database it makes from this one (crates/svc-tax/tests/stores_pg.rs). REQUIRE_POSTGRES makes a missing URL a
     # failure, never a skip.
@@ -344,15 +363,30 @@ jobs:
           node-version-file: .node-version
       - name: Install the pinned toolchain
         run: rustup toolchain install && rustc --version && cargo clippy --version
+      # The service database is thrown away with the job, so it skips crash durability (fsync, synchronous_commit,
+      # full_page_writes), which no test exercises: a test can't crash the server. Each database test makes and migrates
+      # its own database, and those writes waited on the disk: locally svc-ledger's freeze_pg took 61s with it, 2.6s without.
+      - name: Test Postgres skips crash durability
+        run: |
+          psql "$TEST_DATABASE_URL" -qc 'ALTER SYSTEM SET fsync = off' -c 'ALTER SYSTEM SET synchronous_commit = off' \
+            -c 'ALTER SYSTEM SET full_page_writes = off' -tAc 'SELECT pg_reload_conf()'
+          for _ in 1 2 3 4 5; do
+            got=$(psql "$TEST_DATABASE_URL" -tAc "SELECT string_agg(name || '=' || setting, ' ' ORDER BY name) FROM pg_settings WHERE name IN ('fsync', 'synchronous_commit', 'full_page_writes')")
+            [ "$got" = 'fsync=off full_page_writes=off synchronous_commit=off' ] && { echo "$got"; exit 0; }
+            sleep 1
+          done
+          echo "::error::Postgres settings did not change: $got"; exit 1
       - name: rust:check
         run: pnpm rust:check
       # Every run also proves the check can fail: rust:check must fail, for the planted reason, on a clippy warning
-      # (warnings are errors) and on a failing test, each planted in an untracked test file and removed after.
+      # (warnings are errors) and on a failing test, each planted in an untracked test file and removed after. The
+      # failing-test run appends a name filter (pnpm passes it to the script's last command, `cargo test --workspace`),
+      # so it runs only the planted test, not the whole Postgres suite the step above just passed (5-6 min each time).
       - name: rust:check fails on a planted clippy warning and on a planted failing test
         run: |
           plant() {
             printf '%s\n' "$2" > crates/svc-tax/tests/planted.rs
-            if pnpm -s rust:check > "$RUNNER_TEMP/planted-$1.log" 2>&1; then
+            if pnpm -s rust:check ${4:+"$4"} > "$RUNNER_TEMP/planted-$1.log" 2>&1; then
               cat "$RUNNER_TEMP/planted-$1.log"; echo "::error::rust:check passed a planted $1"; exit 1
             fi
             if ! grep -q "$3" "$RUNNER_TEMP/planted-$1.log"; then
@@ -361,8 +395,25 @@ jobs:
             echo "rust:check failed the planted $1, as it must: $(grep -m1 "$3" "$RUNNER_TEMP/planted-$1.log")"
           }
           plant 'clippy warning' $'#[test]\nfn planted_warning() {\n    let v = vec![1];\n    assert_eq!(v.len(), 1);\n}' 'clippy::useless-vec. implied by .-D warnings'
-          plant 'failing test' $'#[test]\nfn planted_failure() {\n    assert_eq!(svc_tax::SERVICE, "planted");\n}' 'test planted_failure ... FAILED'
+          plant 'failing test' $'#[test]\nfn planted_failure() {\n    assert_eq!(svc_tax::SERVICE, "planted");\n}' 'test planted_failure ... FAILED' planted_failure
           rm crates/svc-tax/tests/planted.rs
+      # The Rust ledger's posting tables and door callers are recorded from packages/ledger-client/src/gate (who may post
+      # what, which recipe has which legs, who may call each door). A gate change whose recorded tables were not rewritten
+      # fails here, and the check is shown to fail on a planted grant before it is trusted.
+      - name: The ledger's recorded gate tables match packages/ledger-client
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter "@intafaced/ledger-client^..." build
+          TZ=UTC node --import tsx crates/svc-ledger/scripts/record-posting.mjs --check
+          gate=packages/ledger-client/src/gate/caller-allowlist.ts
+          sed -i "s#^  'svc-academy': {#  'svc-academy': {\n    deposit: g('ledger', 'planted'),#" "$gate"
+          if TZ=UTC node --import tsx crates/svc-ledger/scripts/record-posting.mjs --check > "$RUNNER_TEMP/planted-gate.log" 2>&1; then
+            cat "$RUNNER_TEMP/planted-gate.log"; echo "::error::record-posting --check passed a planted grant"; exit 1
+          fi
+          grep -q 'stale: crates/svc-ledger/src/posting/recorded.rs' "$RUNNER_TEMP/planted-gate.log" \
+            || { cat "$RUNNER_TEMP/planted-gate.log"; echo "::error::record-posting --check failed the planted grant, but not for it"; exit 1; }
+          git checkout -- "$gate"
+          echo "record-posting --check failed the planted grant, as it must"
 
   build:
     name: Typecheck & build
@@ -659,6 +710,17 @@ jobs:
         if: always()
         run: node tooling/ci/infra-verdict.mjs
 
+  # The look gate on the rooms a pull request changes (#9325; look-pr.yml): before and after pictures for the CI review,
+  # and red when the head adds a finding on a new-look page. Only when the change draws a Customer room or the kit
+  # (ci-affected.mjs reachesLook); the seal needs it green then.
+  look:
+    name: Look
+    needs: [changes]
+    if: needs.changes.outputs.look == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/look-pr.yml
+
   merge-seal:
     # `CI jobs` on a pull request: there the seal is merge-seal.yml's alone, which waits for its inputs with no check on
     # the head, so a job of this name here would pass the required check in its place (journey-seal.mjs CI_JOBS_NAME,
@@ -673,7 +735,7 @@ jobs:
       actions: read # the CI review's runs and their jobs on the head (ci-review.yml); no comment or status is read
       pull-requests: read # the changed files, to tell whether this change needs the independent review or a full journeys run
       issues: read # the journeys verdict a shared-setup change needs reads the regression issues the baseline names
-    needs: [changes, gates, format, build, test-full, rust]
+    needs: [changes, gates, format, build, test-full, rust, look]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Require needed jobs
@@ -682,12 +744,14 @@ jobs:
           FULL: ${{ needs.changes.outputs.full }}
           AFFECTED: ${{ needs.changes.outputs.affected }}
           RUST: ${{ needs.changes.outputs.rust }}
+          LOOK: ${{ needs.changes.outputs.look }}
           CHANGES: ${{ needs.changes.result }}
           GATES: ${{ needs.gates.result }}
           FORMAT: ${{ needs.format.result }}
           BUILD: ${{ needs.build.result }}
           T_FULL: ${{ needs.test-full.result }}
           RUST_RESULT: ${{ needs.rust.result }}
+          LOOK_RESULT: ${{ needs.look.result }}
         run: node tooling/ci/ci-affected.mjs --seal
       # The default branch's copy of the seal's scripts, which decide the two steps below whatever the pull request changes.
       - name: The default branch's seal scripts
@@ -705,8 +769,9 @@ jobs:
       # A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP in journey-seal.mjs), whatever its
       # title, also needs the newest finished full journeys run on its exact head clean by the journeys verdict, judged with
       # the default branch's baseline (the pilot lead's rule of 7 Nov 2026, moved from a message into CI).
-      # A pull request that changes a journey test (apps/customer/tests/real-app/J-*.pw.mjs) names, for each changed file,
-      # a step it holds, in the title or on a Left-or-replaced line; otherwise it fails and prints them (#1249 seal gap).
+      # A pull request that changes a journey test (apps/customer/tests/real-app/J-*.pw.mjs) is judged, for each changed
+      # file none of whose steps the title names or a Left-or-replaced line leaves, on every step it holds (#1249 seal gap;
+      # owner decision 2026-11-21: derived, not a body line).
       # On a pull request this step and the CI review below are merge-seal.yml's alone (the default branch's copy, on
       # every pull request into main), so this job's verdict there is CI's own jobs and the switch, which change only when
       # CI runs again: a finished journeys run, an edit or a review never re-runs this job, and so never starts a new CI
@@ -776,7 +841,7 @@ jobs:
   # (INTAFACED/project-state#1574). Fails closed: if it fails, the seal waits, and a missing seal blocks the merge.
   seal-start:
     name: Start the seal
-    needs: [changes, gates, format, build, test-full, rust, merge-seal]
+    needs: [changes, gates, format, build, test-full, rust, look, merge-seal]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-24.04
     timeout-minutes: 6 # healthy run: seconds; waiting out a seal that is already running takes up to 4 minutes

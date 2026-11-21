@@ -1,6 +1,6 @@
 // World: book, gates, restart, stack
 import { test, expect } from './journey.mjs';
-import { ADMIN, founderSignIn } from './admin.mjs';
+import { ADMIN } from './admin.mjs';
 import { awayBid, fundedTrader, signIn } from './desk.mjs';
 import { deskData, deskPeople, ensureDeskGroup } from './help-centre.mjs';
 import { ownOrderFills, placeOwnOrder } from './own-book.mjs';
@@ -202,12 +202,13 @@ async function ownBook() {
 const venueRead = (page) => page.locator('[data-venue-order-read]');
 
 test(`${J} #1 opens a customer's routed order from the support desk: the venue order, fills and reject reason, read from the venue by the customer's address`, async ({
-  page,
+  founders,
+  stepPicture,
 }) => {
   const { ticketId, routed, customerId, owner, venueSince } = run.read();
   const truth = await venueTruth(owner, routed, venueSince);
   expect(truth.fills.length).toBeGreaterThan(0);
-  await founderSignIn(page, 'b');
+  const { page } = await founders.console('b');
   await page.goto(`${ADMIN}/support/${ticketId}`);
   const workspace = page.getByRole('region', { name: 'Ticket', exact: true });
   await workspace.getByRole('link', { name: `Open order ${routed}`, exact: true }).click();
@@ -227,12 +228,17 @@ test(`${J} #1 opens a customer's routed order from the support desk: the venue o
   for (const fill of truth.fills) await expect(shown.and(page.locator(`[data-fill-id="${fill.fillId}"]`))).toHaveCount(1);
   await expect(read.getByTestId('venue-read-reject')).toHaveText('None recorded');
   await expect(page.locator('[data-not-connected]')).toHaveCount(0);
+  await stepPicture(page);
 });
 
-test(`${J} #2 reads the same order as the customer sees it: the customer's view and the venue read agree`, async ({ page, browser }) => {
+test(`${J} #2 reads the same order as the customer sees it: the customer's view and the venue read agree`, async ({
+  founders,
+  browser,
+  stepPicture,
+}) => {
   const { routed, customer, customerId, walletKey, owner, venueSince } = run.read();
   const truth = await venueTruth(owner, routed, venueSince);
-  await founderSignIn(page, 'b');
+  const { page } = await founders.console('b');
   await page.goto(`${ADMIN}/trade-ops/orders/${routed}?account=${customerId}`);
   const read = venueRead(page);
   await expect(read).toHaveAttribute('data-order-id', routed);
@@ -254,9 +260,13 @@ test(`${J} #2 reads the same order as the customer sees it: the customer's view 
   await expect(mine.getByTestId('venue-order-facts')).toContainText(fromUnits(toUnits(operatorFilled)).replace(/\.?0+$/, ''));
   expect(toUnits(operatorFilled)).toBe(toUnits(truth.order.filled));
   await context.close();
+  await stepPicture(page);
 });
 
-test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts; a second run releases none`, async ({ page }) => {
+test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts; a second run releases none`, async ({
+  founders,
+  stepPicture,
+}) => {
   test.setTimeout(300_000);
   const { customer, orphan, live, placedAt } = await ownBook();
   // A sweep looks only at orders unchanged for the owner's age floor (the stack's TEST value is 15 s,
@@ -271,7 +281,7 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
   expect((await customerOrder(customer, orphan)).status).toBe('open');
   const usedBefore = await usdtUsed(customer);
   const totalBefore = await usdtTotal(customer);
-  await founderSignIn(page, 'b');
+  const { page } = await founders.console('b');
   await page.goto(`${ADMIN}/trade-ops/orders`);
   const sweep = page.getByRole('region', { name: 'Reconcile sweep', exact: true });
 
@@ -318,17 +328,18 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
   await expect(second).toContainText('0 holds released');
   expect(usedBefore - (await usdtUsed(customer))).toBe(hold);
   expect((await customerOrder(customer, live)).status).toBe('open');
+  await stepPicture(page);
 });
 
 test(`${J} #4 proposes a trade bust: a second operator approves; the typed blocker trade_bust_recipe_missing, not the outside-service notice`, async ({
-  page,
-  browser,
+  founders,
+  stepPicture,
 }) => {
   const { customer, reported } = await ownBook();
   const fillsBefore = await ownOrderFills(customer, reported);
   const usdtBefore = await usdtTotal(customer);
   const btcBefore = await btcTotal(customer);
-  await founderSignIn(page, 'b');
+  const { page } = await founders.console('b');
   await page.goto(`${ADMIN}/trade-ops/orders/${reported}`);
   const bust = page.getByRole('region', { name: 'Trade bust', exact: true });
   await bust.getByLabel('Reason (kept in the audit)', { exact: true }).fill(`TEST ${J} customer reported a wrong fill`);
@@ -340,10 +351,8 @@ test(`${J} #4 proposes a trade bust: a second operator approves; the typed block
   expect(approvalId).toMatch(/^[0-9a-f-]{36}$/);
   await expect(proposal).toContainText('Waiting for a second operator');
 
-  // Founder A, the finance operator, approves exactly that request.
-  const context = await browser.newContext();
-  const a = await context.newPage();
-  await founderSignIn(a, 'a');
+  // Founder A, the finance operator, approves exactly that request, in a console session of their own.
+  const { page: a } = await founders.console('a');
   await a.goto(`${ADMIN}/trade-ops/approvals`);
   // The pending list loads after the page and lands above the form, moving "Approve request": act once it is in, or a
   // press before it lands and a release after miss the button.
@@ -355,7 +364,6 @@ test(`${J} #4 proposes a trade bust: a second operator approves; the typed block
   await expect(approveDialog).toBeVisible();
   await approveDialog.getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(approveDialog.locator('[data-outcome=ok]')).toBeVisible();
-  await context.close();
 
   // Approved, the bust is carried out by the service, which refuses it with its own typed blocker today.
   await bust.getByRole('button', { name: 'Carry out the approved bust', exact: true }).click();
@@ -367,14 +375,16 @@ test(`${J} #4 proposes a trade bust: a second operator approves; the typed block
   expect((await ownOrderFills(customer, reported)).map((f) => f.id)).toEqual(fillsBefore.map((f) => f.id));
   expect(await usdtTotal(customer)).toBe(usdtBefore);
   expect(await btcTotal(customer)).toBe(btcBefore);
+  await stepPicture(page);
 });
 
 test(`${J} #5 reads the audit of the lookup: one row with the agent, the customer and the time, which the customer sees in their own access list`, async ({
-  page,
+  founders,
   browser,
+  stepPicture,
 }) => {
   const { customerId, routed, customer } = run.read();
-  const agent = await founderSignIn(page, 'b');
+  const { page, founder: agent } = await founders.console('b');
   // The audit is read once, after the lookup: each read signs founder a in with a fresh TOTP step, and a founder has at
   // most two steps per 30 s window. Every row on this order before `at` came from an earlier lookup (steps 1 and 2, or
   // an earlier attempt of this test), so the rows from `at` on are this lookup's.
@@ -411,4 +421,5 @@ test(`${J} #5 reads the audit of the lookup: one row with the agent, the custome
   await expect(mine.getByTestId('staff-access-operator')).toHaveText(agent.userId);
   await expect(mine.locator('time')).toHaveAttribute('datetime', row.occurredAt);
   await context.close();
+  await stepPicture(page);
 });

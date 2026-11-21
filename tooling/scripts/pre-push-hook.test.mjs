@@ -4,7 +4,8 @@
 // that changes a journey file runs the marked tooling tests that read journey files, and a red one refuses it. The lint
 // ratchet (tooling/ci/lint-ratchet.mjs, a Doctrine gate) runs on the pushed files and refuses a rise; CI's other Doctrine gates
 // (gates.mjs --before-push) run too, and a red one refuses the push, as does a red typecheck of the packages it reaches.
-// Without the install either refuses, naming the command.
+// Without the install either refuses, naming the command. Every check runs on every push and every refusal is named in
+// that one run, with the list at the end; a direct push to main is refused before any check runs.
 // Each case is a throwaway repo holding the real .githooks/pre-push, pushing to a local bare remote.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -93,12 +94,13 @@ test('formatting is not checked here: a prettier that would refuse is never run'
   }
 });
 
-test('a direct push to main is still refused', () => {
-  const p = plant({ prettier: 'exit 0' });
+test('a direct push to main is still refused, before any check runs', () => {
+  const p = plant({ prettier: 'exit 0', base: { ...scan(false), ...gatesStep(1) }, change: JOURNEY });
   try {
     const r = p.push('main');
     assert.notEqual(r.code, 0, r.out);
     assert.match(r.out, /Direct push to main refused/);
+    assert.doesNotMatch(r.out, /journey scan ran|gates step/);
   } finally {
     p.done();
   }
@@ -410,6 +412,96 @@ test('a red typecheck refuses the push with its compiler line; a green one lets 
     const d = spawnSync('git', ['push', 'origin', ':refs/heads/feat'], { cwd: p.work, encoding: 'utf8', env: BUILDER });
     assert.equal(d.status, 0, `${d.stdout}${d.stderr}`);
     assert.doesNotMatch(`${d.stdout}${d.stderr}`, /typecheck step/);
+  } finally {
+    p.done();
+  }
+});
+
+// One run names every refusal. fix/ps-3343-curriculum's head 09d41f0f86 (19 Nov) was refused for unicorn/no-thenable by the
+// lint ratchet; its second push, for the secret scan; its third, for the CI review's size count: three pushes for three
+// refusals the first run could have named. Replayed: the real lint ratchet on a real rise, and the Doctrine gates and the
+// size count planted with the messages that head got; the one push names all three and lists them at the end.
+test('every check runs and every refusal is named in one run, listed at the end (fix/ps-3343-curriculum 09d41f0f86, replayed)', () => {
+  const file = 'crates/svc-academy/scripts/record-curriculum.mjs';
+  const p = plant({
+    prettier: 'exit 0',
+    oxlint: true,
+    base: {
+      ...RATCHET,
+      [file]: 'export const n = 1;\n',
+      'tooling/ci/gates.mjs':
+        "console.log('gates step:', process.argv.slice(2).join(' '));\nconsole.error('✖ SECRET SCAN FAILED — 1 credential-shaped literal(s) in tracked files');\nprocess.exit(1);\n",
+      ...sizeStep(1),
+    },
+    change: { [file]: 'export const n = 1;\nexport const reply = { then: () => n };\n' },
+  });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /unicorn\/no-thenable rose from 0 to 1 in the touched files/);
+    assert.match(r.out, /SECRET SCAN FAILED — 1 credential-shaped literal/);
+    assert.match(r.out, /size step: --size --head [0-9a-f]{40} --branch feat/);
+    assert.match(
+      r.out,
+      /push refused by 3 check\(s\), each named above, all from this one run:\n {6}- lint-ratchet\n {6}- Doctrine gates\n {6}- CI review size \(feat\)\n/,
+    );
+  } finally {
+    p.done();
+  }
+});
+
+test('a missing install refuses the checks it stops and still runs the rest', () => {
+  const p = plant({ base: { ...gatesStep(0), ...typecheckStep(1) } });
+  try {
+    const r = p.push();
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /the Doctrine gates need this worktree's install — push refused/);
+    assert.doesNotMatch(r.out, /gates step/);
+    assert.match(r.out, /error TS2322/);
+    assert.match(r.out, /push refused by 2 check\(s\)[^\n]*\n {6}- Doctrine gates \(no install\)\n {6}- typecheck\n/);
+  } finally {
+    p.done();
+  }
+});
+
+// rust:check on a shared machine (project-state#3420): INTAFACED_LOCAL_JOBS becomes cargo's build jobs and test threads,
+// a planted failing Rust test still refuses the push, and a bad value refuses it naming the setting. `cargo` and `pnpm`
+// are planted first on PATH; the planted pnpm prints what cargo would be given and fails as a red test would.
+test('INTAFACED_LOCAL_JOBS bounds rust:check, which still refuses a failing Rust test', () => {
+  const p = plant({
+    base: {
+      'Cargo.toml': '[workspace]\n',
+      'tooling/ci/ci-affected.mjs': "if (process.argv.includes('--rust-files')) console.log('true');\n",
+    },
+  });
+  const bin = join(p.work, '..', 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'cargo'), '#!/bin/sh\nexit 0\n');
+  writeFileSync(
+    join(bin, 'pnpm'),
+    '#!/bin/sh\necho "rust:check jobs=${CARGO_BUILD_JOBS:-unset} threads=${RUST_TEST_THREADS:-unset}"\necho "test planted ... FAILED"\nexit 101\n',
+  );
+  chmodSync(join(bin, 'cargo'), 0o755);
+  chmodSync(join(bin, 'pnpm'), 0o755);
+  const { INTAFACED_LOCAL_JOBS: _a, CARGO_BUILD_JOBS: _b, RUST_TEST_THREADS: _c, ...env } = BUILDER;
+  const at = (extra) => p.push('feat', { ...env, ...extra, PATH: `${bin}:${process.env.PATH}` });
+  try {
+    const bounded = at({ INTAFACED_LOCAL_JOBS: '3' });
+    assert.equal(bounded.code, 1, bounded.out);
+    assert.match(bounded.out, /rust:check jobs=3 threads=3/);
+    assert.match(bounded.out, /test planted \.\.\. FAILED/);
+    assert.match(bounded.out, /rust:check failed — push refused/);
+    const own = at({ INTAFACED_LOCAL_JOBS: '3', CARGO_BUILD_JOBS: '5' });
+    assert.match(own.out, /rust:check jobs=5 threads=3/);
+    const unset = at({});
+    assert.equal(unset.code, 1, unset.out);
+    assert.match(unset.out, /rust:check jobs=unset threads=unset/);
+    for (const bad of ['0', 'two', '-1']) {
+      const r = at({ INTAFACED_LOCAL_JOBS: bad });
+      assert.equal(r.code, 1, r.out);
+      assert.match(r.out, /INTAFACED_LOCAL_JOBS must be a whole number of at least 1/);
+      assert.doesNotMatch(r.out, /rust:check jobs=/);
+    }
   } finally {
     p.done();
   }

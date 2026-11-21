@@ -38,6 +38,7 @@ import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
 import { testPartnerAccountDetails, testPartnerFor, type TestPartnerDoors } from './partner/test-partner.js';
+import { testCashLegFor } from './partner/cash-leg.js';
 import { firstAdministrator, registerAgentsUsagePayment, usagePaymentHeldBy } from './agents/usage-payment.js';
 import { taxEffectsFor } from './activity/tax-effects.js';
 import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
@@ -210,8 +211,17 @@ const cardIssuer = cardIssuerFor(
   cardSimPartnerFor(env.BANK_CARD_SIM_PARTNER_JSON, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
 );
 
+/** LOCAL TEST: the TEST partner's cash leg (J-cex-spot-11 #11): its TEST rates and its payout into the TEST venue, or none. */
+const testCashLeg = testCashLegFor({
+  rates: env.BANK_TEST_CASH_LEG_RATES,
+  venueUrl: env.BANK_TEST_CASH_LEG_VENUE_URL,
+  partner: testPartner,
+  env: { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
+});
+
 const bank = createBankServices(sql, ledger, history, {
   testPartner: wholeTestPartner,
+  testCashLeg,
   // J-bank-24 #5: a webhook endpoint on loopback, over http, only on an explicit dev or test stack (the URL guard's hatch).
   bankApi: { allowLocalHttp: isExplicitDevOrTest(env.APP_ENV) && process.env.NODE_ENV !== 'production' },
   taxEffects,
@@ -523,6 +533,7 @@ export const appRouter = createBankRouter(bank, {
   interestAccrualEnabled: env.INTEREST_ACCRUAL_ENABLED,
   loanAccrualEnabled: env.LOAN_ACCRUAL_ENABLED,
   loanRiskSweepEnabled: env.LOAN_RISK_SWEEP_ENABLED,
+  marginWarningLtvBps: env.BANK_MARGIN_WARNING_LTV_BPS,
   autoInvestEnabled: env.AUTO_INVEST_ENABLED,
   autoInvestConvertWired: usableTradeConvertUrl(env.TRADE_URL),
   approvals: approvalConsumer,

@@ -117,33 +117,29 @@ test(`${J} #2 a security change opens the step-up sheet; its approval is single 
   await signUpInBrowser(page, who);
   await addPasskey(page);
 
-  // Count the step-ups this page asks for and keep every rename it sends. While `holding`, a rename is held back
-  // before it reaches the service, so the approval it carries stays fresh and unspent.
+  // Count the step-ups this page asks for, and keep every rename it sends and the service's answer to it. Every rename
+  // below is the page's own request and reaches svc-identity; `tamper`, when set, changes one field of that request on
+  // the way, as someone holding a confirmation would, and the page shows what the service answered.
   const asked = { begin: 0, complete: 0 };
   const renames = [];
   page.on('request', (request) => {
     if (request.method() !== 'POST') return;
     if (/\/api\/identity\/trpc\/stepUp\.begin$/.test(request.url())) asked.begin += 1;
     if (/\/api\/identity\/trpc\/stepUp\.complete$/.test(request.url())) asked.complete += 1;
-    if (/\/api\/identity\/trpc\/renamePasskey$/.test(request.url())) renames.push(JSON.parse(request.postData() ?? '{}'));
   });
-  let holding = true;
-  const held = [];
+  let tamper = null;
   await page.route('**/api/identity/trpc/renamePasskey', async (route) => {
-    if (!holding) return route.continue();
     const request = route.request();
-    // The page's own headers (its bearer and content type); the context adds its cookies.
-    const all = await request.allHeaders();
-    const headers = Object.fromEntries(
-      ['authorization', 'content-type', 'origin'].filter((name) => all[name]).map((name) => [name, all[name]]),
-    );
-    held.push({ url: request.url(), headers, body: JSON.parse(request.postData() ?? '{}') });
-    await route.abort('connectionreset');
+    const minted = JSON.parse(request.postData() ?? '{}');
+    const sent = tamper ? { ...minted, ...tamper(minted) } : minted;
+    tamper = null;
+    const reply = await route.fetch({ postData: JSON.stringify(sent) });
+    renames.push({ minted, sent, status: reply.status(), text: await reply.text() });
+    await route.fulfill({ response: reply });
   });
-  const send = (url, body) => page.request.post(url, { headers: held[0].headers, data: JSON.stringify(body) });
-  const answer = async (res) => ({ status: res.status(), text: await res.text() });
   const names = page.getByTestId('security__passkey-names');
   const nameField = names.getByLabel(/Name \(1 to 64 characters\)/i);
+  const refused = names.getByTestId('failure');
   const renameTo = async (label) => {
     if (!(await nameField.isVisible())) await names.getByRole('button', { name: /^Rename passkey/ }).click();
     await nameField.fill(label);
@@ -151,60 +147,81 @@ test(`${J} #2 a security change opens the step-up sheet; its approval is single 
   };
 
   // Renaming is a security change: the page asks for a fresh factor first (the passkey answers), and only then sends.
+  // Bound to this action: the page's rename carries its fresh approval with another name, and the service refuses it.
+  tamper = () => ({ label: 'Not this name' });
   await renameTo('Work laptop');
-  await expect.poll(() => held.length, { timeout: 30_000 }).toBe(1);
+  await expect.poll(() => renames.length, { timeout: 30_000 }).toBe(1);
   expect(asked).toEqual({ begin: 1, complete: 1 });
-  const approval = held[0].body.stepUpApprovalId;
+  const approval = renames[0].minted.stepUpApprovalId;
   expect(typeof approval === 'string' && approval.length > 0, 'the rename carries the approval the step-up minted').toBe(true);
-  expect(held[0].body.label).toBe('Work laptop');
+  expect(renames[0].minted.label).toBe('Work laptop');
+  expect(renames[0].status, renames[0].text).toBe(412);
+  expect(renames[0].text).toContain('identity.step_up_target');
+  await expect(refused).toContainText('That confirmation does not match this change.');
+  await expect(names).not.toContainText('Not this name');
   expect(await pageKeeps(page), 'the approval is never stored in the page').not.toContain(approval);
 
-  // Bound to this action: the same unspent approval with another name, or for another change, is refused.
-  const otherName = await answer(await send(held[0].url, { ...held[0].body, label: 'Not this name' }));
-  expect(otherName.status, otherName.text).toBe(412);
-  expect(otherName.text).toContain('identity.step_up_target');
-  const otherAction = await answer(
-    await send(held[0].url.replace(/renamePasskey$/, 'setPasskeyPurposes'), {
-      credentialId: held[0].body.credentialId,
-      purposes: '',
-      clientRequestId: held[0].body.clientRequestId,
-      stepUpApprovalId: approval,
-    }),
-  );
-  expect(otherAction.status, otherAction.text).toBe(412);
-  expect(otherAction.text).toContain('identity.step_up_target');
-
-  // Single use: the change it was minted for runs once; sending the same approval again is refused as used.
-  const first = await answer(await send(held[0].url, held[0].body));
-  expect(first.status, first.text).toBe(200);
-  expect(first.text).toContain('Work laptop');
-  const again = await answer(await send(held[0].url, held[0].body));
-  expect(again.status, again.text).toBe(412);
-  expect(again.text).toContain('identity.step_up_used');
-
-  // A refresh carries nothing. The page is reloaded while it holds a second approval that was never spent: after the
-  // reload that approval is nowhere in the page, and the next change asks for a fresh factor and sends a new one.
-  await renameTo('Desk laptop');
-  await expect.poll(() => held.length, { timeout: 30_000 }).toBe(2);
+  // Bound to this one action: the page's next change is another one, keeping the passkey for security changes. It
+  // confirms afresh, and its own request, carrying the unspent rename approval in place of its new one, is refused.
+  const purposes = [];
+  await page.route('**/api/identity/trpc/setPasskeyPurposes', async (route) => {
+    const minted = JSON.parse(route.request().postData() ?? '{}');
+    const sent = { ...minted, stepUpApprovalId: approval };
+    const reply = await route.fetch({ postData: JSON.stringify(sent) });
+    purposes.push({ minted, sent, status: reply.status(), text: await reply.text() });
+    await route.fulfill({ response: reply });
+  });
+  await names.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await names.getByRole('button', { name: /^Choose what passkey/ }).click();
+  await names.getByLabel('Security changes', { exact: true }).check();
+  await names.getByRole('button', { name: 'Save with a passkey', exact: true }).click();
+  await expect.poll(() => purposes.length, { timeout: 30_000 }).toBe(1);
+  await page.unroute('**/api/identity/trpc/setPasskeyPurposes');
   expect(asked).toEqual({ begin: 2, complete: 2 });
-  const unspent = held[1].body.stepUpApprovalId;
+  expect(purposes[0].minted.stepUpApprovalId).not.toBe(approval);
+  expect(purposes[0].status, purposes[0].text).toBe(412);
+  expect(purposes[0].text).toContain('identity.step_up_target');
+  await expect(refused).toContainText('That confirmation does not match this change.');
+  await expect(names).toContainText('Kept for: nothing in particular');
+  await names.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  // Single use: the page's own rename with its own approval runs once and is saved.
+  await renameTo('Work laptop');
+  await expect.poll(() => renames.length, { timeout: 30_000 }).toBe(2);
+  expect(asked).toEqual({ begin: 3, complete: 3 });
+  const spent = renames[1].sent.stepUpApprovalId;
+  expect(renames[1].sent).toEqual(renames[1].minted);
+  expect(renames[1].status, renames[1].text).toBe(200);
+  await expect(names).toContainText('Name saved.');
+  await expect(names).toContainText('Work laptop');
+  // The page's next rename, carrying that spent approval in place of its fresh one, is refused as used; the name stays.
+  tamper = () => ({ stepUpApprovalId: spent, label: 'Work laptop' });
+  await renameTo('Spare laptop');
+  await expect.poll(() => renames.length, { timeout: 30_000 }).toBe(3);
+  expect(asked).toEqual({ begin: 4, complete: 4 });
+  expect(renames[2].status, renames[2].text).toBe(412);
+  expect(renames[2].text).toContain('identity.step_up_used');
+  await expect(refused).toContainText('That confirmation was already used.');
+  await expect(names).not.toContainText('Spare laptop');
+  const unspent = renames[2].minted.stepUpApprovalId;
   expect(unspent).toBeTruthy();
-  expect(unspent).not.toBe(approval);
-  holding = false;
+  expect([approval, spent]).not.toContain(unspent);
+
+  // A refresh carries nothing. The page is reloaded while a confirmed approval it minted was never spent: after the
+  // reload no approval is anywhere in the page, and the next change asks for a fresh factor and sends a new one.
   await page.reload();
   await expect(names).toContainText('Work laptop');
   const kept = await pageKeeps(page);
-  expect(kept).not.toContain(approval);
-  expect(kept).not.toContain(unspent);
-  const sentBefore = renames.length;
+  for (const id of [approval, spent, unspent]) expect(kept).not.toContain(id);
   await renameTo('Home laptop');
+  await expect.poll(() => renames.length, { timeout: 30_000 }).toBe(4);
+  expect(asked).toEqual({ begin: 5, complete: 5 });
+  expect(renames[3].sent).toEqual(renames[3].minted);
+  expect(renames[3].status, renames[3].text).toBe(200);
+  expect(renames[3].sent.label).toBe('Home laptop');
+  expect([approval, spent, unspent]).not.toContain(renames[3].sent.stepUpApprovalId);
   await expect(names).toContainText('Name saved.');
   await expect(names).toContainText('Home laptop');
-  expect(asked).toEqual({ begin: 3, complete: 3 });
-  const after = renames.slice(sentBefore);
-  expect(after).toHaveLength(1);
-  expect(after[0].label).toBe('Home laptop');
-  expect([approval, unspent]).not.toContain(after[0].stepUpApprovalId);
   await page.unroute('**/api/identity/trpc/renamePasskey');
 
   // The step-up sheet: adding a second passkey on this password sign-in is a security change, so the page opens

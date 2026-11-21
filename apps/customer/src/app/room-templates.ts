@@ -1,5 +1,5 @@
 /**
- * Which of the eight Lit glass templates (`@intafaced/ui/lit/templates`) each customer room is built from, and
+ * Which of the eight Volt kit templates (`@intafaced/ui/lit/templates`) each customer room is built from, and
  * whether it has moved onto it yet. Stage C of the redesign moves rooms one by one; done is every room migrated.
  * Seeded from the redesign's room inventory (26 Oct 2026) plus the routes it
  * missed. `room-templates.test.ts` keeps it in step with `rooms` in navigation.ts and the portal's PORTAL_ROOMS.
@@ -99,6 +99,12 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/bank/loans': { template: 'catalogue' },
   '/bank/loans/apply': { template: 'flow' },
   '/bank/loans/detail': { template: 'settings' },
+  '/bank/loans/overdraft': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
+  '/bank/loans/personal': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
+  '/bank/loans/schedule': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
+  '/bank/cards/credit-card': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
+  '/bank/cards/credit': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
+  '/bank/business/loan': { template: 'flow', migrated: { file: 'features/money/credit-previews/CreditPreviewRooms.tsx' } },
   '/bank/cards': { template: 'settings' },
   '/bank/cards/new': { template: 'flow' },
   '/bank/ramps': { template: 'settings' },
@@ -133,6 +139,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/trade/risk': { template: 'monitor' },
   '/trade/positions': { template: 'monitor' },
   '/trade/account': { template: 'monitor' },
+  '/trade/vaults': { template: 'monitor' },
   '/trade/orders': { template: 'record-list' },
   '/trade/orders/:id': { template: 'record-list' },
   '/trade/news': { template: 'reading' },
@@ -330,6 +337,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/uc/safe': { template: 'settings' },
   '/uc/safe/compromised': { template: 'settings' },
   '/uc/safe/staff-access': { template: 'settings' },
+  '/uc/trading-permissions': { template: 'settings' },
   '/uc/safe/api-keys': { template: 'settings' },
   '/uc/safe/api-keys/new': { template: 'flow' },
   '/uc/safe/api-keys/:keyId': { template: 'settings' },

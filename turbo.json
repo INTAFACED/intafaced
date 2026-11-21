@@ -1,7 +1,14 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "stream",
-  "globalDependencies": ["tsconfig.base.json", ".env", "tooling/ci/test-typecheck.mjs", "tooling/scripts/tsc.mjs"],
+  "globalDependencies": [
+    "tsconfig.base.json",
+    ".env",
+    "tooling/ci/test-typecheck.mjs",
+    "tooling/scripts/tsc.mjs",
+    "tooling/scripts/ensure-workspace-types.mjs"
+  ],
+  "globalPassThroughEnv": ["INTAFACED_LOCAL_JOBS"],
   "globalEnv": [
     "NODE_ENV",
     "APP_ENV",
@@ -33,6 +40,18 @@
       "dependsOn": [],
       "cache": false,
       "outputs": []
+    },
+    "@intafaced/admin#test": {
+      "dependsOn": ["^build", "@intafaced/exchange-contract#build", "@intafaced/ledger-client#build", "@intafaced/venue-contracts#build"],
+      "outputs": ["coverage/**"],
+      "cache": false,
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+    },
+    "@intafaced/customer#test": {
+      "dependsOn": ["^build", "@intafaced/db#build"],
+      "outputs": ["coverage/**"],
+      "cache": false,
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
     },
     "@intafaced/svc-matching#test": {
       "dependsOn": ["^build", "@intafaced/sbe-codec#build:jar"],
@@ -77,6 +96,24 @@
       "cache": false,
       "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
     },
+    "@intafaced/contracts#test": {
+      "dependsOn": ["^build", "build"],
+      "outputs": ["coverage/**"],
+      "cache": false,
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+    },
+    "@intafaced/exchange-contract#test": {
+      "dependsOn": ["^build", "build"],
+      "outputs": ["coverage/**"],
+      "cache": false,
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+    },
+    "@intafaced/telemetry#test": {
+      "dependsOn": ["^build", "build"],
+      "outputs": ["coverage/**"],
+      "cache": false,
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+    },
     "test:watch": {
       "cache": false,
       "persistent": true
@@ -100,24 +137,20 @@
       "outputs": [],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/academy-ambassadors-pay/**",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
         "$TURBO_ROOT$/packages/exchange-contract/**",
         "$TURBO_ROOT$/packages/greeks-adapter/**",
         "$TURBO_ROOT$/packages/ledger-client/**",
         "$TURBO_ROOT$/packages/market-data/**",
-        "$TURBO_ROOT$/packages/portfolio-view/**",
         "$TURBO_ROOT$/packages/quant-honesty/**",
         "$TURBO_ROOT$/packages/service-kit/**",
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-academy/**",
         "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
-        "$TURBO_ROOT$/services/svc-ledger/**",
         "$TURBO_ROOT$/services/svc-market/**",
         "$TURBO_ROOT$/services/svc-ops/**",
         "$TURBO_ROOT$/services/svc-pay/**",
@@ -133,30 +166,43 @@
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
       "inputs": [
         "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/academy-ambassadors-pay/**",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
         "$TURBO_ROOT$/packages/exchange-contract/**",
         "$TURBO_ROOT$/packages/greeks-adapter/**",
         "$TURBO_ROOT$/packages/ledger-client/**",
         "$TURBO_ROOT$/packages/market-data/**",
-        "$TURBO_ROOT$/packages/portfolio-view/**",
         "$TURBO_ROOT$/packages/quant-honesty/**",
         "$TURBO_ROOT$/packages/service-kit/**",
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-academy/**",
         "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
-        "$TURBO_ROOT$/services/svc-ledger/**",
         "$TURBO_ROOT$/services/svc-market/**",
         "$TURBO_ROOT$/services/svc-ops/**",
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-protocol/**",
         "$TURBO_ROOT$/services/svc-token/**",
         "$TURBO_ROOT$/services/svc-trade/**",
+        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
+        "!$TURBO_ROOT$/**/*.tsbuildinfo"
+      ]
+    },
+    "@intafaced/config#typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/auth/**",
+        "$TURBO_ROOT$/packages/connect-data-lake/**",
+        "$TURBO_ROOT$/packages/contracts/**",
+        "$TURBO_ROOT$/packages/i18n/**",
+        "$TURBO_ROOT$/packages/ledger-client/**",
+        "$TURBO_ROOT$/packages/quant-honesty/**",
+        "$TURBO_ROOT$/packages/telemetry/**",
+        "$TURBO_ROOT$/services/svc-edge/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -194,7 +240,13 @@
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "$TURBO_ROOT$/services/svc-ws/**",
+        "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
         "$TURBO_ROOT$/tooling/ci/look-gate/fixture-answer.*",
+        "$TURBO_ROOT$/tooling/ci/published-routes.*",
+        "$TURBO_ROOT$/tooling/lint/count-rule.*",
+        "$TURBO_ROOT$/tooling/scripts/local-jobs.*",
+        "$TURBO_ROOT$/tooling/trade/inside.*",
+        "$TURBO_ROOT$/tooling/trade/inside/**",
         "$TURBO_ROOT$/tooling/uiproof/playwright-browsers.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
@@ -223,7 +275,13 @@
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "$TURBO_ROOT$/services/svc-ws/**",
+        "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
         "$TURBO_ROOT$/tooling/ci/look-gate/fixture-answer.*",
+        "$TURBO_ROOT$/tooling/ci/published-routes.*",
+        "$TURBO_ROOT$/tooling/lint/count-rule.*",
+        "$TURBO_ROOT$/tooling/scripts/local-jobs.*",
+        "$TURBO_ROOT$/tooling/trade/inside.*",
+        "$TURBO_ROOT$/tooling/trade/inside/**",
         "$TURBO_ROOT$/tooling/uiproof/playwright-browsers.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
@@ -235,7 +293,6 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/admin/**",
-        "$TURBO_ROOT$/packages/academy-ambassadors-pay/**",
         "$TURBO_ROOT$/packages/auth/**",
         "$TURBO_ROOT$/packages/connect-data-lake/**",
         "$TURBO_ROOT$/packages/contracts/**",
@@ -244,7 +301,6 @@
         "$TURBO_ROOT$/packages/exchange-contract/**",
         "$TURBO_ROOT$/packages/ledger-client/**",
         "$TURBO_ROOT$/packages/market-data/**",
-        "$TURBO_ROOT$/packages/portfolio-view/**",
         "$TURBO_ROOT$/packages/quant-honesty/**",
         "$TURBO_ROOT$/packages/safe-regex/**",
         "$TURBO_ROOT$/packages/sbe-codec/**",
@@ -253,12 +309,10 @@
         "$TURBO_ROOT$/packages/ui/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
-        "$TURBO_ROOT$/services/svc-academy/**",
         "$TURBO_ROOT$/services/svc-bank/**",
         "$TURBO_ROOT$/services/svc-edge/**",
         "$TURBO_ROOT$/services/svc-identity/**",
         "$TURBO_ROOT$/services/svc-indexer/**",
-        "$TURBO_ROOT$/services/svc-ledger/**",
         "$TURBO_ROOT$/services/svc-market/**",
         "$TURBO_ROOT$/services/svc-matching/**",
         "$TURBO_ROOT$/services/svc-notify/**",
@@ -268,6 +322,10 @@
         "$TURBO_ROOT$/services/svc-support/**",
         "$TURBO_ROOT$/services/svc-token/**",
         "$TURBO_ROOT$/services/svc-ws/**",
+        "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
+        "$TURBO_ROOT$/tooling/lint/count-rule.*",
+        "$TURBO_ROOT$/tooling/trade/inside.*",
+        "$TURBO_ROOT$/tooling/trade/inside/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -284,14 +342,16 @@
         "$TURBO_ROOT$/packages/greeks-adapter/**",
         "$TURBO_ROOT$/packages/i18n/**",
         "$TURBO_ROOT$/packages/market-data/**",
-        "$TURBO_ROOT$/packages/portfolio-view/**",
         "$TURBO_ROOT$/packages/safe-regex/**",
         "$TURBO_ROOT$/packages/service-kit/**",
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-ledger/**",
+        "$TURBO_ROOT$/services/svc-bank/**",
+        "$TURBO_ROOT$/services/svc-campaigns/**",
+        "$TURBO_ROOT$/services/svc-market/**",
+        "$TURBO_ROOT$/services/svc-mining-pool/**",
         "$TURBO_ROOT$/services/svc-pay/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
@@ -312,22 +372,6 @@
         "$TURBO_ROOT$/packages/quant-honesty/**",
         "$TURBO_ROOT$/packages/telemetry/**",
         "$TURBO_ROOT$/services/svc-edge/**",
-        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
-        "!$TURBO_ROOT$/**/*.tsbuildinfo"
-      ]
-    },
-    "@intafaced/service-kit#typecheck": {
-      "dependsOn": ["^build"],
-      "outputs": [],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/academy-ambassadors-pay/**",
-        "$TURBO_ROOT$/packages/events/**",
-        "$TURBO_ROOT$/packages/i18n/**",
-        "$TURBO_ROOT$/packages/ledger-client/**",
-        "$TURBO_ROOT$/packages/safe-regex/**",
-        "$TURBO_ROOT$/packages/telemetry/**",
-        "$TURBO_ROOT$/services/svc-academy/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -369,13 +413,11 @@
         "$TURBO_ROOT$/packages/exchange-contract/**",
         "$TURBO_ROOT$/packages/greeks-adapter/**",
         "$TURBO_ROOT$/packages/market-data/**",
-        "$TURBO_ROOT$/packages/portfolio-view/**",
         "$TURBO_ROOT$/packages/quant-honesty/**",
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
         "$TURBO_ROOT$/packages/venue-sim/**",
         "$TURBO_ROOT$/services/svc-edge/**",
-        "$TURBO_ROOT$/services/svc-ledger/**",
         "$TURBO_ROOT$/services/svc-trade/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
@@ -407,67 +449,6 @@
         "$TURBO_ROOT$/packages/venue-adapter/**",
         "$TURBO_ROOT$/packages/venue-contracts/**",
         "$TURBO_ROOT$/services/svc-dex/**",
-        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
-        "!$TURBO_ROOT$/**/*.tsbuildinfo"
-      ]
-    },
-    "@intafaced/svc-ledger#typecheck": {
-      "dependsOn": ["^build"],
-      "outputs": [],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/academy-ambassadors-pay/**",
-        "$TURBO_ROOT$/packages/connect-data-lake/**",
-        "$TURBO_ROOT$/packages/exchange-contract/**",
-        "$TURBO_ROOT$/packages/greeks-adapter/**",
-        "$TURBO_ROOT$/packages/market-data/**",
-        "$TURBO_ROOT$/packages/service-kit/**",
-        "$TURBO_ROOT$/packages/venue-adapter/**",
-        "$TURBO_ROOT$/packages/venue-contracts/**",
-        "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-academy/**",
-        "$TURBO_ROOT$/services/svc-bank/**",
-        "$TURBO_ROOT$/services/svc-campaigns/**",
-        "$TURBO_ROOT$/services/svc-market/**",
-        "$TURBO_ROOT$/services/svc-mining-pool/**",
-        "$TURBO_ROOT$/services/svc-ops/**",
-        "$TURBO_ROOT$/services/svc-trade/**",
-        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
-        "!$TURBO_ROOT$/**/*.tsbuildinfo"
-      ]
-    },
-    "@intafaced/svc-ledger#build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/academy-ambassadors-pay/**",
-        "$TURBO_ROOT$/packages/connect-data-lake/**",
-        "$TURBO_ROOT$/packages/exchange-contract/**",
-        "$TURBO_ROOT$/packages/greeks-adapter/**",
-        "$TURBO_ROOT$/packages/market-data/**",
-        "$TURBO_ROOT$/packages/service-kit/**",
-        "$TURBO_ROOT$/packages/venue-adapter/**",
-        "$TURBO_ROOT$/packages/venue-contracts/**",
-        "$TURBO_ROOT$/packages/venue-sim/**",
-        "$TURBO_ROOT$/services/svc-academy/**",
-        "$TURBO_ROOT$/services/svc-bank/**",
-        "$TURBO_ROOT$/services/svc-campaigns/**",
-        "$TURBO_ROOT$/services/svc-market/**",
-        "$TURBO_ROOT$/services/svc-mining-pool/**",
-        "$TURBO_ROOT$/services/svc-ops/**",
-        "$TURBO_ROOT$/services/svc-trade/**",
-        "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
-        "!$TURBO_ROOT$/**/*.tsbuildinfo"
-      ]
-    },
-    "@intafaced/svc-matching#typecheck": {
-      "dependsOn": ["^build"],
-      "outputs": [],
-      "inputs": [
-        "$TURBO_DEFAULT$",
-        "$TURBO_ROOT$/packages/portfolio-view/**",
-        "$TURBO_ROOT$/services/svc-ledger/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]
@@ -526,9 +507,7 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/admin/**",
         "$TURBO_ROOT$/packages/i18n/**",
-        "$TURBO_ROOT$/packages/portfolio-view/**",
         "$TURBO_ROOT$/packages/ui/**",
-        "$TURBO_ROOT$/services/svc-ledger/**",
         "$TURBO_ROOT$/tooling/scripts/seed-futures-test-listing.*",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
@@ -551,7 +530,11 @@
         "$TURBO_ROOT$/packages/ledger-client/**",
         "$TURBO_ROOT$/packages/money-math/**",
         "$TURBO_ROOT$/packages/safe-regex/**",
+        "$TURBO_ROOT$/tooling/ci/lint-ratchet.*",
+        "$TURBO_ROOT$/tooling/lint/count-rule.*",
         "$TURBO_ROOT$/tooling/scripts/look-codemod.*",
+        "$TURBO_ROOT$/tooling/trade/inside.*",
+        "$TURBO_ROOT$/tooling/trade/inside/**",
         "!$TURBO_ROOT$/**/{node_modules,dist,.next,.turbo,coverage}/**",
         "!$TURBO_ROOT$/**/*.tsbuildinfo"
       ]

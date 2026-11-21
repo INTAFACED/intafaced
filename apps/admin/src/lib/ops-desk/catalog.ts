@@ -1,10 +1,29 @@
+import { ACADEMY_ADMIN_COURSES } from '@intafaced/contracts/academy-admin-procedures';
+import { ACADEMY_CERT_DEFINITIONS } from '@intafaced/contracts/academy-learner-procedures';
+import { DEX_HEALTH } from '@intafaced/contracts/dex-procedures';
+import {
+  MARKET_COMMERCE_PROGRAMME,
+  MARKET_LIST_APPLICATIONS,
+  MARKET_LISTINGS,
+  MARKET_OPS_SALES,
+} from '@intafaced/contracts/market-procedures';
+import { INDEXER_STATUS } from '@intafaced/contracts/indexer-procedures';
 import { MINING_OPS_SHARES, MINING_OPS_WINDOWS, MINING_OPS_WORKERS, MINING_TERMS } from '@intafaced/contracts/mining-procedures';
 import { P2P_FIAT_LIST, P2P_HEALTH } from '@intafaced/contracts/p2p-procedures';
 import { PROTOCOL_AUDIT_STATUS, PROTOCOL_CHAIN_STATUS, PROTOCOL_HEALTH } from '@intafaced/contracts/protocol-procedures';
+import { TOKEN_BURNED_SUPPLY, TOKEN_LIST_PROPOSALS } from '@intafaced/contracts/token-procedures';
 import type { Column, DeskPage, DeskReadRecord, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unavailable } from './types';
+import { ACADEMY_HEALTH } from '@intafaced/contracts/academy-health-procedures';
+import { ACADEMY_CURRICULUM_INVENTORY } from '@intafaced/contracts/academy-curriculum-inventory-procedures';
+import { ACADEMY_CURRICULUM_DEPTH } from '@intafaced/contracts/academy-curriculum-depth-procedures';
+import { ACADEMY_CURRICULUM_IMPORT_STATUS } from '@intafaced/contracts/academy-curriculum-import-status-procedures';
+import { ACADEMY_CERT_XP_PLANE } from '@intafaced/contracts/academy-cert-xp-plane-procedures';
+import { ACADEMY_PAPER_OPS_STATUS } from '@intafaced/contracts/academy-paper-ops-status-procedures';
+import { QUANT_HEALTH } from '@intafaced/contracts/quant-health-procedures';
+import { QUANT_STUDIO_OPERATOR_LIST } from '@intafaced/contracts/quant-studio-records';
 
 /** A read whose call has a record: its module and path are the record's, never typed again here. */
-const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
+export const readOf = (record: DeskReadRecord) => ({ recordName: record.name, module: record.module, procedure: record.path });
 
 /**
  * What each module desk reads, and what it admits it cannot read.
@@ -354,7 +373,7 @@ const bankSections: readonly DeskSection[] = [
       {
         id: 'bank.card-pay-from-breaks',
         title: 'Pay-from breaks',
-        note: 'Each pay-from payment whose figures the card partner does not report as this app recorded them: not reported (the partner has no record of the hold) or different. A break is named here once, never folded into a total.',
+        note: 'Each pay-from payment whose figures the card partner does not report as this app recorded them: not reported (the partner has no record of the hold), unreadable (the partner’s read failed, so nothing is known of it) or different. A break is named here once, never folded into a total.',
         module: 'bank',
         plainName: 'card pay-from breaks',
         procedure: 'ops.cardPayFromReconciliation',
@@ -365,7 +384,11 @@ const bankSections: readonly DeskSection[] = [
           text('authorizationRef', 'Payment'),
           text('assetId', 'Asset'),
           text('reason', 'Break', {
-            words: { not_reported: 'not reported by the partner', differs: 'the partner reports it differently' },
+            words: {
+              not_reported: 'not reported by the partner',
+              unreadable: 'the partner could not be read',
+              differs: 'the partner reports it differently',
+            },
           }),
           amount('app.spend', 'Spend (app)'),
           amount('app.open', 'Open hold (app)'),
@@ -451,6 +474,11 @@ const bankSections: readonly DeskSection[] = [
         href: '/bank-ops/cards',
         label: 'Card programme',
         why: 'The set-up checklist, configuration, authorisation rules, 3DS, cardholders, the decision log, reports, staff roles and bulk issue are on their own page.',
+      },
+      {
+        href: '/bank-ops/cards/fraud',
+        label: 'Card fraud risk (preview)',
+        why: 'A labelled preview over TEST rows: no fraud engine exists, so no authorisation is scored.',
       },
     ],
   },
@@ -1522,8 +1550,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.health',
         title: 'Service health',
         note: 'Whether svc-academy answers.',
-        module: 'academy',
-        procedure: 'health',
+        ...readOf(ACADEMY_HEALTH),
         shape: 'record',
         columns: [bool('ok', 'Answering'), text('service', 'Service')],
         emptyText: '',
@@ -1533,8 +1560,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.courses',
         title: 'Courses',
         note: 'Courses staff created on the course desk, counted by state. The four shipped courses (the curriculum paths) are counted under Curriculum inventory, not here.',
-        module: 'academy',
-        procedure: 'admin.courses',
+        ...readOf(ACADEMY_ADMIN_COURSES),
         input: { limit: 1 },
         shape: 'record',
         columns: [
@@ -1551,8 +1577,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.inventory',
         title: 'Curriculum inventory',
         note: 'Counts of the content the service ships, against the promise made on the product (the "title target").',
-        module: 'academy',
-        procedure: 'curriculumInventory',
+        ...readOf(ACADEMY_CURRICULUM_INVENTORY),
         shape: 'record',
         columns: [
           text('contentSource', 'Content source'),
@@ -1573,8 +1598,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.depth',
         title: 'Content depth',
         note: 'How many items are long enough to be worth reading. Thin items are named, not hidden.',
-        module: 'academy',
-        procedure: 'curriculumDepth',
+        ...readOf(ACADEMY_CURRICULUM_DEPTH),
         shape: 'record',
         columns: [
           int('total', 'Items'),
@@ -1593,8 +1617,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.import',
         title: 'Import status',
         note: 'Where the content import stands, and whether the substance bar is met.',
-        module: 'academy',
-        procedure: 'curriculumImportStatus',
+        ...readOf(ACADEMY_CURRICULUM_IMPORT_STATUS),
         shape: 'record',
         columns: [
           text('contentSource', 'Content source'),
@@ -1647,8 +1670,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.cert-defs',
         title: 'Certificate definitions',
         note: 'What each certificate requires. Definitions, not grants.',
-        module: 'academy',
-        procedure: 'certDefinitions',
+        ...readOf(ACADEMY_CERT_DEFINITIONS),
         shape: 'list',
         idKey: 'id',
         columns: [text('id', 'Certificate'), text('title', 'Title'), list('requiredItemSlugs', 'Required items', { detail: true })],
@@ -1659,8 +1681,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.cert-xp',
         title: 'XP on grant',
         note: 'Whether granting a certificate publishes XP to identity. "Off" is a deployment fact, not a ranking disagreement.',
-        module: 'academy',
-        procedure: 'certXpPlane',
+        ...readOf(ACADEMY_CERT_XP_PLANE),
         shape: 'record',
         columns: [bool('emitEnabled', 'XP publishing on'), text('publisherId', 'Publisher'), text('rankWriter', 'Rank written by')],
         emptyText: '',
@@ -1714,8 +1735,7 @@ const academySections: readonly DeskSection[] = [
         id: 'academy.paper',
         title: 'Paper trading',
         note: 'Practice trading is simulated and must never read as real money.',
-        module: 'academy',
-        procedure: 'paperOpsStatus',
+        ...readOf(ACADEMY_PAPER_OPS_STATUS),
         shape: 'record',
         columns: [
           bool('enabled', 'Enabled'),
@@ -1920,8 +1940,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'quant.health',
         title: 'Service health',
         note: 'Whether svc-quant answers. Nothing about runs.',
-        module: 'quant',
-        procedure: 'health',
+        ...readOf(QUANT_HEALTH),
         shape: 'record',
         columns: [bool('ok', 'Answering'), text('service', 'Service')],
         emptyText: '',
@@ -1931,9 +1950,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'quant.strategies',
         title: 'Saved strategies',
         note: 'Every saved strategy across accounts, newest as the service orders them: name and labels only. The code and blocks are never in this read. Everything here is paper or a historical simulation; the two flags below are pinned, so a strategy claiming to be live is refused as unreadable. The service also limits this read by jurisdiction, so a console with no country may be refused.',
-        module: 'quant',
         plainName: 'saved strategies',
-        procedure: 'studio.operatorList',
+        ...readOf(QUANT_STUDIO_OPERATOR_LIST),
         input: { limit: 50 },
         shape: 'list',
         rowsKey: 'strategies',
@@ -2091,8 +2109,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.applications',
         title: 'Vendor applications awaiting a decision',
         note: 'Applied and not yet decided, oldest first. Approve, reject or suspend each as a two-founder request.',
-        module: 'market',
-        procedure: 'listApplications',
+        ...readOf(MARKET_LIST_APPLICATIONS),
         input: { status: 'applied', limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2113,8 +2130,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.approved',
         title: 'Approved vendors',
         note: 'Vendors currently approved. Suspend one here if it must stop selling.',
-        module: 'market',
-        procedure: 'listApplications',
+        ...readOf(MARKET_LIST_APPLICATIONS),
         input: { status: 'approved', limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2135,8 +2151,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.suspended',
         title: 'Suspended vendors',
         note: 'Vendors taken out of the market. A suspended vendor can be approved again.',
-        module: 'market',
-        procedure: 'listApplications',
+        ...readOf(MARKET_LIST_APPLICATIONS),
         input: { status: 'suspended', limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2157,8 +2172,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.listings',
         title: 'Public listings',
         note: 'What a shopper can see today. svc-market refuses to publish a listing while the house commission is blank (see Commerce programme on this desk), so a blank rate also means an empty list.',
-        module: 'market',
-        procedure: 'listings',
+        ...readOf(MARKET_LISTINGS),
         input: { limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2184,9 +2198,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.sales',
         title: 'Sales by vendor, last 30 days',
         note: 'Settled volume, settled count and the house commission for each vendor and asset, for sales settled in the window. The commission is each purchase’s own rate at the time, so changing the rate later changes nothing here. Refused purchases are not in the volume. The 50 first rows; a full page is not a total.',
-        module: 'market',
+        ...readOf(MARKET_OPS_SALES),
         plainName: 'market sales',
-        procedure: 'ops.sales',
         input: { limit: 50 },
         windowDays: 30,
         shape: 'list',
@@ -2207,9 +2220,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.sales-counts',
         title: 'Purchases not settled, last 30 days',
         note: 'Purchases that were refused and purchases still pending in the same window, counted over the whole window and not just the page above.',
-        module: 'market',
+        ...readOf(MARKET_OPS_SALES),
         plainName: 'market purchase counts',
-        procedure: 'ops.sales',
         input: { limit: 50 },
         windowDays: 30,
         shape: 'record',
@@ -2221,8 +2233,7 @@ const moreSections: readonly DeskSection[] = [
         id: 'market.commerce',
         title: 'Commerce programme',
         note: 'The house commission. Blank means listings and purchases refuse.',
-        module: 'market',
-        procedure: 'commerceProgramme',
+        ...readOf(MARKET_COMMERCE_PROGRAMME),
         shape: 'record',
         columns: [bps('commissionBps', 'House commission', { nullable: true }), bool('commissionConfigured', 'Configured')],
         emptyText: '',
@@ -2250,9 +2261,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'token.proposals',
         title: 'Governance proposals',
         note: 'Proposals as svc-token lists them, with their window. The free-form proposal body and each proposal’s vote tally are separate reads (getProposal, one proposal at a time) that this desk does not make, so neither is shown.',
-        module: 'token',
         plainName: 'governance proposals',
-        procedure: 'listProposals',
+        ...readOf(TOKEN_LIST_PROPOSALS),
         input: { limit: 50 },
         shape: 'list',
         idKey: 'id',
@@ -2272,9 +2282,8 @@ const moreSections: readonly DeskSection[] = [
         id: 'token.burned',
         title: 'Burned supply',
         note: 'Tokens burned so far, as a decimal exactly as svc-token formats it. A burn total, not the circulating supply.',
-        module: 'token',
         plainName: 'burned supply',
-        procedure: 'burnedSupply',
+        ...readOf(TOKEN_BURNED_SUPPLY),
         shape: 'record',
         columns: [amount('burned', 'Burned')],
         emptyText: '',
@@ -2429,9 +2438,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.indexer',
         title: 'Indexer status',
         note: 'Live per request. A blank height means the indexer has none yet, not zero. "Blocks behind" is blank when the chain tip or the indexer cursor is unknown.',
-        module: 'indexer',
+        ...readOf(INDEXER_STATUS),
         plainName: 'indexer finality',
-        procedure: 'status',
         shape: 'record',
         columns: [
           int('chainId', 'Chain id'),
@@ -2467,9 +2475,8 @@ const protocolSections: readonly DeskSection[] = [
         id: 'protocol.dex',
         title: 'DEX health',
         note: 'Configuration facts from svc-dex. A venue that is not wired is not a venue that is down.',
-        module: 'dex',
+        ...readOf(DEX_HEALTH),
         plainName: 'DEX health',
-        procedure: 'health',
         shape: 'record',
         columns: [
           bool('ammVenueWired', 'AMM venue wired'),

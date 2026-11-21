@@ -3,6 +3,7 @@ import { accountStateSchema } from './identity.js';
 import { supportTicketCategorySchema } from './support-categories.js';
 import { supportCreateFormSchema } from './support-forms.js';
 import { SUPPORT_HEADERS_TOO_LONG, SUPPORT_MESSAGE_HEADERS_MAX } from './support-categories.js';
+import { jsonValueSchema } from './procedure-strict-schema.js';
 
 /**
  * Support desk contracts (ops.support Stage-1 ticket spine).
@@ -603,7 +604,7 @@ export const supportViewSchema = z
     name: z.string().min(1).max(80),
     ownerId: z.string().guid(),
     shared: z.boolean(),
-    filter: z.unknown(),
+    filter: jsonValueSchema,
     sort: supportViewSortSchema.nullable(),
     layout: z.string().min(1).max(40).nullable(),
     favourite: z.boolean(),
@@ -643,9 +644,9 @@ export const supportViewSaveInputSchema = z
     name: z.string().trim().min(1).max(80),
     expectedRevision: z.number().int().min(0),
     shared: z.boolean(),
-    filter: z.unknown(),
-    sort: z.unknown().nullable().optional(),
-    layout: z.unknown().nullable().optional(),
+    filter: jsonValueSchema,
+    sort: jsonValueSchema.nullable().optional(),
+    layout: jsonValueSchema.nullable().optional(),
     favourite: z.boolean().optional(),
     reason: z.string().trim().min(1).max(500),
   })

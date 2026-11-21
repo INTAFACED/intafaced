@@ -54,7 +54,7 @@ on:
   workflow_dispatch:
     inputs:
       journeys:
-        description: 'Journey files to run, separated by spaces or commas (e.g. J-wallet-05.pw.mjs). Ignored on main.'
+        description: 'Journey files to run, separated by spaces or commas (e.g. J-wallet-05.pw.mjs). Ignored on main. With the branch name, at most about 350 characters (GitHub starts no run whose concurrency group passes 400): split a longer list over several runs, as the seal prints them.'
         required: false
         default: ''
         type: string
@@ -108,6 +108,9 @@ on:
 # selection on the same branch is in another group and finishes. A `:` splits the branch from the selection, since a
 # git ref never holds one, so branch `x` with `J-a` and branch `x-J` with `a` never share a group. On 7 Nov at 11:01 UTC, 8 waiting branch runs were for
 # a head already superseded by a newer run on the same branch. tooling/ci/workflow-concurrency.test.mjs holds both rules.
+# GitHub starts no run whose group passes 400 characters (it ends "failure" with no jobs, as 63 files did on 20 Nov 2026,
+# run 44766798876), and an expression can neither measure nor hash the input, so the seal and journey-touch.mjs split a
+# long list into runs that each fit (journey-touch.mjs dispatchBatches, whose dispatchGroup the test holds to this one).
 concurrency:
   group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && format('real-app-journeys-runs-nothing-{0}', github.run_id) || (github.event_name == 'pull_request' && github.event.action == 'ready_for_review') && format('real-app-journeys-ready-{0}', github.run_id) || format('real-app-journeys-{0}:{1}', github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref, inputs.journeys) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -343,7 +346,7 @@ jobs:
           DISPATCH_FULL: ${{ github.event_name == 'workflow_dispatch' && env.JOURNEYS_TARGET == '' }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }} # a re-run the release let go doesn't wait for main again
-          TARGETED: ${{ steps.touch.outputs.target != '' }} # a targeted run (at most 10 shards) never waits for main
+          TARGETED: ${{ steps.touch.outputs.target != '' }} # a targeted run (at most 30 shards) never waits for main
         run: |
           script=.base/tooling/ci/main-first.mjs
           [ -f "$script" ] || script=tooling/ci/main-first.mjs
@@ -359,7 +362,8 @@ jobs:
       # minutes behind the shortest in run 338). A full run, on main or a pull request's, aims at 10 minutes of journeys
       # a shard, up to 90 shards, so a break is named as its shorter shard ends and a pull request's journey meets the
       # same neighbours as on main (MAX_SHARDS says why); a targeted run aims near the longest journey file's time
-      # less the spread of a shard's setup, 10 to 25 minutes, in at most 10 shards. The plan is checked to run every
+      # less the spread of a shard's setup, 10 to 25 minutes, in as many shards as that asks: a pull request's at most 30, a
+      # run by hand's at most 10 while each shard stays clear of the limit (journey-shards.mjs). The plan is checked to run every
       # journey file exactly once before it is used. If planning fails for any reason the run falls back to 8 shards and
       # Playwright's split, so a broken planner never stops a run; journeys past a shard's limit then count as not run and
       # the time-limit issue names the shards. A targeted run (JOURNEYS_TARGET) never falls back: a name that is not a
@@ -599,6 +603,8 @@ jobs:
       # 'true' when this job kept a seeded stack in the Actions cache (real-app-journeys-seed-<sha>), empty when it kept
       # none: each shard then seeds its own.
       seeded: ${{ steps.seed-save.outcome == 'success' && 'true' || '' }}
+      # The seeded stack snapshot this job kept for later runs (its full cache key), empty when it kept none.
+      snapshot: ${{ steps.snap-save.outcome == 'success' && steps.snap-key.outputs.save || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -623,6 +629,23 @@ jobs:
             ${{ runner.temp }}/stack-state/java-tools/jdk.tgz
             ${{ runner.temp }}/stack-state/java-tools/maven.tgz
           key: java-tools-${{ runner.os }}-${{ hashFiles('services/svc-fix/scripts/ensure-toolchain.mjs') }}
+      # The Rust services' release binaries and svc-fix's jar, kept between runs (project-state#3597): building them took
+      # 1m47s of this job on run 44913280955. `build` checks each against the hash of its own inputs kept beside it
+      # (stack-bin-inputs.sha256, stack-jar-inputs.sha256) and builds again any that does not match, so a copy from
+      # another commit is used only when it was built from the same source.
+      - name: The Rust and FIX builds' key
+        id: bins-key
+        run: |
+          id=$(git ls-files -s -- Cargo.lock Cargo.toml rust-toolchain.toml crates services/svc-fix/pom.xml services/svc-fix/PIN.quickfixj services/svc-fix/src/main | sha256sum | cut -c1-24)
+          { echo "key=stack-bins-$RUNNER_OS-$id"; echo "prefix=stack-bins-$RUNNER_OS-"; } >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            crates/*/dist
+            services/svc-fix/target/svc-fix-0.0.0.jar
+            services/svc-fix/target/stack-jar-inputs.sha256
+          key: ${{ steps.bins-key.outputs.key }}
+          restore-keys: ${{ steps.bins-key.outputs.prefix }}
       - name: Build what the stack starts
         run: LOCAL_STACK_STATE="$RUNNER_TEMP/stack-state" node tooling/scripts/local-test-stack.mjs build --no-admin
       # Everything the build wrote: git's ignored paths outside node_modules and turbo's cache (the dist folders), and the
@@ -662,22 +685,76 @@ jobs:
       # The copy holds the stack's TEST passwords and keys and the console's build keys, so it goes in the Actions cache,
       # which only this repository's workflows read, never in an artifact, which anyone can download here; the
       # `Drop the seeded stack` job deletes it when the shards are done. A run with fewer than 4 shards seeds in its
-      # shards, where seeding once would add to its time and save nothing.
+      # shards, where seeding once would add to its time and save nothing, unless it takes a snapshot (below), which
+      # costs no seeding at all.
       - name: Seed once for the shards?
         id: seed-want
         env:
           COUNT: ${{ needs.touch.outputs.count }}
         run: |
           if [ "${COUNT:-8}" -ge 4 ]; then echo "want=true" >> "$GITHUB_OUTPUT"; else echo "$COUNT shards: each seeds its own stack"; fi
+      # The seeded stack snapshot (project-state#3597): a run off main starts from a stack another run seeded, when
+      # nothing the seed is made from has changed (the key: tooling/scripts/local-test-snapshot.mjs, which names the
+      # inputs) and it was seeded under MAX_AGE_HOURS ago. Seeding was 6.5 of this job's 10.7 minutes on run
+      # 44913280955, and every shard waits for this job. Main's runs (push, schedule, by hand) never take one: they
+      # always seed afresh, on main's own service code, and keep what they seeded as the next snapshot. A run that seeds
+      # afresh off main keeps one too, in its own ref's cache scope, which only its own later runs read. Best effort: a
+      # miss, a stale copy or one that does not unpack seeds as before, and the snapshot taken goes to the shards the
+      # same way a fresh seed does (`Pack the seeded stack`), under this run's own key.
+      - name: The seeded stack snapshot's key
+        id: snap-key
+        continue-on-error: true
+        run: |
+          name="real-app-journeys-snapshot-$(node tooling/scripts/local-test-snapshot.mjs key)"
+          # The newest under the prefix is what a run finds (no entry ends in `none`); a run keeps its own under its id.
+          { echo "key=$name"; echo "find=$name-none"; echo "prefix=$name-"; echo "save=$name-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"; } >> "$GITHUB_OUTPUT"
+      - name: Find a seeded stack snapshot
+        id: snap-find
+        if: steps.snap-key.outcome == 'success' && github.ref != 'refs/heads/main'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/stack-snapshot
+          key: ${{ steps.snap-key.outputs.find }}
+          restore-keys: ${{ steps.snap-key.outputs.prefix }}
+      # Its data under this run's own build: the copy's state folder (database, NATS store, TEST chain, TEST secrets and
+      # founders) with this run's stamp and JDK archives laid over it, then the founder console built for this commit.
+      # Any failure puts this run's own build back, so `Seed the stack` below starts from it as before.
+      - name: Take the seeded stack snapshot
+        id: snap-take
+        if: steps.snap-find.outputs.cache-matched-key != ''
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          MATCHED: ${{ steps.snap-find.outputs.cache-matched-key }}
+        run: |
+          set -euo pipefail
+          snap="$RUNNER_TEMP/stack-snapshot" state="$RUNNER_TEMP/stack-state" next="$RUNNER_TEMP/stack-state-snapshot"
+          echo "snapshot $MATCHED"
+          node tooling/scripts/local-test-snapshot.mjs fresh "$snap/seeded-at"
+          rm -rf "$next" && mkdir -p "$next"
+          tar -C "$next" -xf "$snap/state.tar"
+          [ -d "$next/data/postgres" ]
+          tar -C "$state" --exclude=./cargo-target --exclude=./logs -cf - . | tar -C "$next" -xf -
+          mv "$state" "$RUNNER_TEMP/stack-state-built"
+          mv "$next" "$state"
+          chmod 700 "$state"
+          if ! LOCAL_STACK_STATE="$state" node tooling/scripts/local-test-stack.mjs build; then
+            rm -rf "$state" && mv "$RUNNER_TEMP/stack-state-built" "$state"
+            echo "::warning::the founder console did not build on the snapshot, so this run seeds its own stack"
+            exit 1
+          fi
+          rm -rf "$snap" "$RUNNER_TEMP/stack-state-built"
       - name: Get a nats-server binary
-        if: steps.seed-want.outputs.want == 'true'
+        if: steps.seed-want.outputs.want == 'true' && steps.snap-take.outcome != 'success'
         continue-on-error: true
         uses: ./.github/actions/nats-server
         with:
           path: ${{ runner.temp }}/nats-server
       # The same TEST chain launcher as the shards' (see there).
       - name: Get an anvil launcher
-        if: steps.seed-want.outputs.want == 'true'
+        if: steps.seed-want.outputs.want == 'true' && steps.snap-take.outcome != 'success'
         continue-on-error: true
         run: |
           docker pull ghcr.io/foundry-rs/foundry:v1.5.1
@@ -690,7 +767,7 @@ jobs:
       # history (`--markets journeys`), and the market maker stopped at the end, so the copy holds no resting order.
       - name: Seed the stack (TEST funds only)
         id: seed
-        if: steps.seed-want.outputs.want == 'true'
+        if: steps.seed-want.outputs.want == 'true' && steps.snap-take.outcome != 'success'
         continue-on-error: true
         timeout-minutes: 15
         env:
@@ -702,6 +779,8 @@ jobs:
             echo "::warning::no screening placeholder, so no seeded stack: each shard says why"
             exit 1
           fi
+          # Before the stack starts, so the snapshot's age (local-test-snapshot.mjs fresh) never reads younger than its data.
+          date -u +%Y-%m-%dT%H:%M:%SZ > "$RUNNER_TEMP/seeded-at"
           node tooling/scripts/local-test-stack.mjs start
           node tooling/scripts/local-test-stack.mjs restart matching
           node tooling/scripts/local-test-gates.mjs apply
@@ -721,17 +800,40 @@ jobs:
           node tooling/scripts/local-test-market.mjs stop || true
           node tooling/scripts/local-test-stack.mjs stop
       # The stopped stack's state folder (its database, NATS store, TEST secrets, founders and stamp) and the console's
-      # build. Not the logs, the process records (another runner's PIDs) or the JDK archives (the shards' own cache).
+      # build. Not the logs, the process records (another runner's PIDs), the JDK archives (the shards' own cache) or
+      # cargo's target folder (the Rust binaries the shards start travel in the build artifact, beside their crates).
+      # The snapshot for later runs is the same state folder less this run's build stamp: a later run lays its own over it.
       - name: Pack the seeded stack
         id: seed-pack
-        if: steps.seed.outcome == 'success'
+        if: steps.seed.outcome == 'success' || steps.snap-take.outcome == 'success'
         continue-on-error: true
         run: |
+          set -euo pipefail
           mkdir -p "$RUNNER_TEMP/stack-seed"
-          tar -C "$RUNNER_TEMP/stack-state" -cf "$RUNNER_TEMP/stack-seed/state.tar" \
-            --exclude=./logs --exclude=./tmp --exclude=./java-tools --exclude=./run/processes.json --exclude=./csp-violations.jsonl .
+          skip=(--exclude=./logs --exclude=./tmp --exclude=./java-tools --exclude=./cargo-target --exclude=./run/processes.json --exclude=./csp-violations.jsonl)
+          tar -C "$RUNNER_TEMP/stack-state" -cf "$RUNNER_TEMP/stack-seed/state.tar" "${skip[@]}" .
           tar -cf "$RUNNER_TEMP/stack-seed/admin.tar" --exclude=apps/admin/.next/cache apps/admin/.next
           du -sh "$RUNNER_TEMP/stack-seed"
+          if [ "$SEEDED" = success ] && [ -n "$SNAP_KEY" ]; then
+            mkdir -p "$RUNNER_TEMP/stack-snapshot"
+            tar -C "$RUNNER_TEMP/stack-state" -cf "$RUNNER_TEMP/stack-snapshot/state.tar" "${skip[@]}" --exclude=./build-stamp.json .
+            cp "$RUNNER_TEMP/seeded-at" "$RUNNER_TEMP/stack-snapshot/seeded-at"
+            echo "snapshot=true" >> "$GITHUB_OUTPUT"
+            du -sh "$RUNNER_TEMP/stack-snapshot"
+          fi
+        env:
+          SEEDED: ${{ steps.seed.outcome }}
+          SNAP_KEY: ${{ steps.snap-key.outputs.key }}
+      # Under this run's id, so a run again on the same commit never collides; `Drop the seeded stack` deletes the older
+      # snapshots of this run's ref once this one is kept.
+      - name: Keep the seeded stack snapshot for later runs
+        id: snap-save
+        if: steps.seed-pack.outputs.snapshot == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/stack-snapshot
+          key: ${{ steps.snap-key.outputs.save }}
       # Keyed on the run's commit, in the run's own ref's cache scope. A copy already there under the key (a run again
       # on the same commit before `Drop the seeded stack` ran) fails this step, and the shards seed their own.
       - name: Keep the seeded stack for the shards
@@ -1101,17 +1203,20 @@ jobs:
 
       # A journey that failed leaves the shard green (the run's verdict judges it), so the logs print then too: otherwise a
       # flaky step's service-side cause goes with the runner (#8044: svc-ledger did not answer, and nothing kept why).
+      # A step that failed and passed on its retry counts as `flaky`, not `unexpected`, so both print (#9235: two
+      # J-cex-spot-16 sign-ins waited over 5 s on identity, and no log was kept). 200 lines covered about a minute of
+      # identity, too little to reach a failure minutes before the shard ended (#8299), so each log keeps 2000.
       - name: Stack logs on failure
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
         run: |
-          if [ "$JOB_STATUS" = success ] && ! jq -e '(.stats.unexpected // 0) > 0' "$JOURNEY_REPORT" >/dev/null 2>&1; then
+          if [ "$JOB_STATUS" = success ] && ! jq -e '((.stats.unexpected // 0) + (.stats.flaky // 0)) > 0' "$JOURNEY_REPORT" >/dev/null 2>&1; then
             exit 0
           fi
           for f in "$LOCAL_STACK_STATE"/logs/*.log; do
             [ -f "$f" ] || continue
-            echo "::group::$f"; tail -200 "$f" || true; echo "::endgroup::"
+            echo "::group::$f"; tail -2000 "$f" || true; echo "::endgroup::"
           done
 
       - name: Stop the stack
@@ -1271,18 +1376,33 @@ jobs:
   drop:
     name: Drop the seeded stack
     needs: [build, journeys]
-    if: ${{ always() && needs.build.outputs.seeded == 'true' }}
+    if: ${{ always() && (needs.build.outputs.seeded == 'true' || needs.build.outputs.snapshot != '') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5 # healthy run: seconds
     permissions:
-      actions: write # delete this run's own cache entry
+      actions: write # delete this run's own cache entry, and its ref's older snapshots
     steps:
       - name: Delete the cache entry
+        if: needs.build.outputs.seeded == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           name="real-app-journeys-seed-$GITHUB_SHA"
           gh cache delete "$name" --repo "$GITHUB_REPOSITORY" || echo "::warning::could not delete cache $name; it expires on its own"
+      # One snapshot per ref (the Actions cache is capped at 10 GB, and every run that seeds keeps one): every older
+      # snapshot in this run's ref goes once this run kept its own. Another ref's are never touched.
+      - name: Delete this ref's older snapshots
+        if: needs.build.outputs.snapshot != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEPT: ${{ needs.build.outputs.snapshot }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/caches?ref=$GITHUB_REF&key=real-app-journeys-snapshot-&per_page=100" \
+            --jq '.actions_caches[] | "\(.id) \(.key)"' > "$RUNNER_TEMP/snapshots.txt" || { echo "::warning::could not list this ref's snapshots; they expire on their own"; exit 0; }
+          while read -r id key; do
+            [ "$key" = "$KEPT" ] && continue
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/caches/$id" >/dev/null && echo "deleted $key" || echo "::warning::could not delete $key; it expires on its own"
+          done < "$RUNNER_TEMP/snapshots.txt"
 
   # A journeys run on a branch ends here, dispatched or on a pull request in this repository (never main's or a schedule's).
   # It starts merge-seal.yml's seal, or re-runs its verdict, once every input on the head has finished: CI, the CI

@@ -77,7 +77,16 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
-import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
+import {
+  anvilBin,
+  chainRecordPath,
+  chainStatus,
+  CHAIN_PORTS,
+  GATE_URL,
+  installTestBridge,
+  runSeedScript,
+  TEST_CHAIN_ID,
+} from './local-test-chain.mjs';
 import {
   anotherCheckoutsStack,
   claimSlot,
@@ -444,7 +453,7 @@ const keyrings = new WeakMap();
  * The S2S env for one service. Unset or `off` adds nothing, so the shared secret stays the only form (the default, and
  * what the journeys run). `dual` gives every S2S service the same public keyring and its own signing key: each one
  * signs with its key and still accepts the shared secret, so svc-ledger binds callers by key and refuses a
- * shared-secret post of a key-only recipe (services/svc-ledger/CALLER-BINDING.md). `keypair` is refused: the local
+ * shared-secret post of a key-only recipe (crates/svc-ledger/CALLER-BINDING.md). `keypair` is refused: the local
  * fund and seed scripts sign with the shared secret.
  */
 export function s2sEnv(secrets, name, mode = process.env.LOCAL_STACK_S2S) {
@@ -743,7 +752,6 @@ function ensureNatsBinary() {
 const BACKEND_PKGS = [
   'svc-edge',
   'svc-identity',
-  'svc-ledger',
   'svc-bank',
   'svc-trade',
   'svc-pay',
@@ -752,7 +760,6 @@ const BACKEND_PKGS = [
   'svc-agents',
   'svc-p2p',
   'svc-notify',
-  'svc-academy',
   'svc-support',
   'svc-market',
   'svc-blueprint',
@@ -796,7 +803,7 @@ process.on('exit', () => {
   for (const child of livePnpm) child.kill('SIGTERM');
 });
 
-/** runPnpm without blocking, so several can run side by side. `cmd` runs another program the same way (svc-tax's binary). */
+/** runPnpm without blocking, so several can run side by side. `cmd` runs another program the same way (a Rust service's binary). */
 function runPnpmAsync(args, label, extraEnv = {}, cmd = 'pnpm') {
   const { fd, result: child, failed } = pnpmRun(spawn, args, label, extraEnv, cmd);
   livePnpm.add(child);
@@ -1153,16 +1160,34 @@ function javaBin() {
   return path.join(ensureToolchain(javaTools()).JAVA_HOME, 'bin', 'java');
 }
 
-// ── svc-tax (Rust) ──────────────────────────────────────────────────────────
+// ── Rust services (svc-tax, svc-academy, svc-ledger) ───────────────────────────────────
 
-const TAX_CRATE = path.join(REPO, 'crates', 'svc-tax');
-/** The release binary, copied beside the crate (dist/ is ignored by git, so the journeys' shared build carries it). */
-export const TAX_BIN = path.join(TAX_CRATE, 'dist', 'svc-tax');
-const TAX_BIN_INPUTS = path.join(TAX_CRATE, 'dist', 'stack-bin-inputs.sha256');
+/** The stack's Rust services: each `local-stack-services/<name>.mjs` that says `rust: true` runs `crates/svc-<name>`. */
+function rustServices() {
+  return serviceDefs(PLAN_SECRETS)
+    .filter((d) => d.rust)
+    .map((d) => d.name);
+}
+const rustCrate = (name, repo = REPO) => path.join(repo, 'crates', `svc-${name}`);
+/** A Rust service's release binary, copied beside its crate (dist/ is ignored by git, so the journeys' shared build carries it). */
+export const rustBin = (name) => path.join(rustCrate(name), 'dist', `svc-${name}`);
+const rustBinInputsFile = (name) => path.join(rustCrate(name), 'dist', 'stack-bin-inputs.sha256');
 
-/** A hash of everything the binary is built from: the workspace manifest, lockfile and toolchain, and the crate. */
-export function taxBinInputs(repo = REPO) {
-  const crate = path.join(repo, 'crates', 'svc-tax');
+/** The crates a crate's manifest names by path (`service-kit = { path = "../service-kit" }`), itself first, each once. */
+function crateAndPathDeps(dir, seen = new Set()) {
+  const resolved = path.resolve(dir);
+  if (seen.has(resolved) || !fs.existsSync(path.join(resolved, 'Cargo.toml'))) return [...seen];
+  seen.add(resolved);
+  const manifest = fs.readFileSync(path.join(resolved, 'Cargo.toml'), 'utf8');
+  for (const m of manifest.matchAll(/path\s*=\s*"([^"]+)"/g)) crateAndPathDeps(path.join(resolved, m[1]), seen);
+  return [...seen];
+}
+
+/**
+ * A hash of everything a Rust service's binary is built from: the workspace manifest, lockfile and toolchain, the crate,
+ * and each crate it names by path (every Rust service builds on `crates/service-kit`).
+ */
+export function rustBinInputs(name, repo = REPO) {
   const walk = (dir) =>
     fs.existsSync(dir)
       ? fs
@@ -1173,9 +1198,11 @@ export function taxBinInputs(repo = REPO) {
     path.join(repo, 'Cargo.toml'),
     path.join(repo, 'Cargo.lock'),
     path.join(repo, 'rust-toolchain.toml'),
-    path.join(crate, 'Cargo.toml'),
-    ...walk(path.join(crate, 'src')),
-    ...walk(path.join(crate, 'migrations')),
+    ...crateAndPathDeps(rustCrate(name, repo)).flatMap((crate) => [
+      path.join(crate, 'Cargo.toml'),
+      ...walk(path.join(crate, 'src')),
+      ...walk(path.join(crate, 'migrations')),
+    ]),
   ]
     .filter((f) => fs.existsSync(f))
     .sort();
@@ -1185,40 +1212,50 @@ export function taxBinInputs(repo = REPO) {
 }
 
 /** cargo from the caller's PATH (rustup's proxy, which installs the toolchain rust-toolchain.toml pins), else ~/.cargo/bin. */
-function cargoBin() {
+function cargoBin(names) {
   const found = spawnSync('sh', ['-c', 'command -v cargo'], { encoding: 'utf8' }).stdout.trim();
   if (found) return found;
   const own = path.join(os.homedir(), '.cargo', 'bin', 'cargo');
   if (fs.existsSync(own)) return own;
-  return fail('svc-tax is Rust and cargo is not installed: install rustup (https://rustup.rs), then start again');
+  return fail(
+    `${names.map((n) => `svc-${n}`).join(' and ')} ${names.length === 1 ? 'is' : 'are'} Rust and cargo is not installed: install rustup (https://rustup.rs), then start again`,
+  );
 }
 
-/** Builds svc-tax's release binary when its inputs changed since the last build, or on --rebuild. */
-function ensureTaxBinary(rebuild) {
-  const want = taxBinInputs();
-  const have = fs.existsSync(TAX_BIN_INPUTS) ? fs.readFileSync(TAX_BIN_INPUTS, 'utf8').trim() : '';
-  if (!rebuild && fs.existsSync(TAX_BIN) && have === want) return;
-  say('  build: svc-tax (Rust)…');
-  const cargo = cargoBin();
+/** Builds each Rust service's release binary whose inputs changed since its last build (all of them on --rebuild), in one cargo run. */
+function ensureRustBinaries(rebuild) {
+  const stale = rustServices()
+    .map((name) => ({ name, want: rustBinInputs(name) }))
+    .filter(({ name, want }) => {
+      const file = rustBinInputsFile(name);
+      const have = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : '';
+      return rebuild || !fs.existsSync(rustBin(name)) || have !== want;
+    });
+  if (stale.length === 0) return;
+  const names = stale.map((s) => s.name);
+  say(`  build: ${names.map((n) => `svc-${n}`).join(', ')} (Rust)…`);
+  const cargo = cargoBin(names);
   const target = path.join(STATE, 'cargo-target');
-  const logPath = path.join(P.logs, 'build-tax.log');
+  const logPath = path.join(P.logs, 'build-rust.log');
   const fd = fs.openSync(logPath, 'w', 0o600);
-  const r = spawnSync(cargo, ['build', '--release', '--locked', '-p', 'svc-tax'], {
+  const r = spawnSync(cargo, ['build', '--release', '--locked', ...names.flatMap((n) => ['-p', `svc-${n}`])], {
     cwd: REPO,
     // The caller's PATH as well: rustup's proxy finds its toolchains through it and through RUSTUP_HOME/CARGO_HOME.
     env: { ...baseEnv(), PATH: `${path.dirname(cargo)}:${process.env.PATH ?? ''}:${PNPM_PATH}`, CARGO_TARGET_DIR: target },
     stdio: ['ignore', fd, fd],
   });
   fs.closeSync(fd);
-  const built = path.join(target, 'release', 'svc-tax');
-  if (r.status !== 0 || !fs.existsSync(built)) {
-    const tail = fs.readFileSync(logPath, 'utf8').split('\n').slice(-25).join('\n');
-    fail(`svc-tax did not build (see ${logPath})\n${tail}`);
+  for (const { name, want } of stale) {
+    const built = path.join(target, 'release', `svc-${name}`);
+    if (r.status !== 0 || !fs.existsSync(built)) {
+      const tail = fs.readFileSync(logPath, 'utf8').split('\n').slice(-25).join('\n');
+      fail(`svc-${name} did not build (see ${logPath})\n${tail}`);
+    }
+    fs.mkdirSync(path.dirname(rustBin(name)), { recursive: true });
+    fs.copyFileSync(built, rustBin(name));
+    fs.chmodSync(rustBin(name), 0o755);
+    fs.writeFileSync(rustBinInputsFile(name), `${want}\n`);
   }
-  fs.mkdirSync(path.dirname(TAX_BIN), { recursive: true });
-  fs.copyFileSync(built, TAX_BIN);
-  fs.chmodSync(TAX_BIN, 0o755);
-  fs.writeFileSync(TAX_BIN_INPUTS, `${want}\n`);
 }
 
 /** `admin: false` leaves the founder console alone (the journeys' shared build, whose public artifact must not carry it). */
@@ -1226,7 +1263,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
   ensureFixJar(rebuild);
-  ensureTaxBinary(rebuild);
+  ensureRustBinaries(rebuild);
   const { head, edits, stamp, override, missing, backend } = buildPlan(rebuild, act);
   if (override) say(`  build: customer app is ${act.dir} (override); not building it`);
   if (backend === 'none') {
@@ -1298,9 +1335,10 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
 // one per core (they were 19 runs of about a second each, one after another).
 async function migrate(secrets, schemas = SCHEMAS) {
   await inPool(schemas, os.availableParallelism(), (s) =>
-    // svc-tax is a Rust binary that applies its own schema's migrations (`svc-tax migrate`); the rest are Node packages.
-    s === 'tax'
-      ? runPnpmAsync(['migrate'], `migrate-${s}`, { DATABASE_URL: dbUrl(`svc_${s}`, secrets) }, TAX_BIN)
+    // A Rust service (svc-tax, svc-academy, svc-ledger) is a binary that applies its own schema's migrations (`svc-<name> migrate`);
+    // the rest are Node packages.
+    rustServices().includes(serviceOfSchema(s))
+      ? runPnpmAsync(['migrate'], `migrate-${s}`, { DATABASE_URL: dbUrl(`svc_${s}`, secrets) }, rustBin(serviceOfSchema(s)))
       : runPnpmAsync(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
           DATABASE_URL: dbUrl(`svc_${s}`, secrets),
         }),
@@ -1422,7 +1460,7 @@ function commonEnv(secrets, name, port) {
     EDGE_PRINCIPAL_SECRET: secrets.edgePrincipal,
     INTERNAL_SERVICE_SECRET: secrets.internal,
     // S2S_AUTH_MODE stays unset here unless LOCAL_STACK_S2S=dual (s2sEnv): svc-ledger then accepts this shared
-    // secret and counts each post as unbound. See services/svc-ledger/CALLER-BINDING.md.
+    // secret and counts each post as unbound. See crates/svc-ledger/CALLER-BINDING.md.
     ...s2sEnv(secrets, name),
     INTERNAL_SERVICE_BODY_BIND: 'accept-both',
     JWT_ACCESS_SECRET: secrets.jwt,
@@ -1768,6 +1806,8 @@ async function startTestChain(secrets) {
     await sleep(500);
   }
   if ((await chainStatus()).gate !== 'open') fail('the TEST chain gate is closed; a journey left it shut (local-test-chain.mjs gate open)');
+  // The TEST bridge token on both TEST chains (D-bridge-chain-03): only its code, so it costs no block.
+  await installTestBridge().catch((err) => fail(`installing the TEST bridge failed: ${err.message}`));
   const seeded = runSeedScript(['seed', chainRecordPath(STATE)]);
   say(`  chain: ${seeded.output.split('\n').pop()}`);
   if (seeded.status !== 0) fail(`seeding the TEST chain failed:\n${seeded.output}`);
@@ -1876,12 +1916,16 @@ async function startNodeService(def) {
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
-  // A Java service (svc-fix) runs its shaded jar (ensureFixJar) on a Java runtime (javaBin); svc-tax runs its Rust binary
-  // (ensureTaxBinary); every other one is Node.
+  // A Java service (svc-fix) runs its shaded jar (ensureFixJar) on a Java runtime (javaBin); a Rust one (svc-tax,
+  // svc-academy, svc-ledger) runs its binary (ensureRustBinaries); every other one is Node.
   // A Node service records which of its own files ran, for the touched-journeys map (service-reach.mjs).
   const node = !def.java && !def.rust ? nodeServiceReach(codeReachDir(STATE), def.name, env) : null;
-  const argv = def.java ? [javaBin(), '-cp', FIX_JAR, def.java.main] : def.rust ? [TAX_BIN] : [process.execPath, ...node.flags, entry];
-  const cwd = def.rust ? TAX_CRATE : path.join(REPO, 'services', `svc-${def.name}`);
+  const argv = def.java
+    ? [javaBin(), '-cp', FIX_JAR, def.java.main]
+    : def.rust
+      ? [rustBin(def.name)]
+      : [process.execPath, ...node.flags, entry];
+  const cwd = def.rust ? rustCrate(def.name) : path.join(REPO, 'services', `svc-${def.name}`);
   const pid = startProc(def.name, argv, node ? node.env : env, cwd, { build });
   if (def.name === 'ops') {
     // Which founder pair svc-ops read at start, so a later start can tell when the pair changed.
@@ -2876,7 +2920,7 @@ function cmdPlan(flags) {
     port: Number(d.env().HTTP_PORT),
     url: `http://${HOST}:${d.env().HTTP_PORT}`,
     schema: SCHEMAS.find((s) => serviceOfSchema(s) === d.name) ?? null,
-    // A Java service is built as its jar (ensureFixJar), a Rust one as its binary (ensureTaxBinary), not as a Node package.
+    // A Java service is built as its jar (ensureFixJar), a Rust one as its binary (ensureRustBinaries), not as a Node package.
     java: Boolean(d.java),
     rust: Boolean(d.rust),
     running: ownedAlive(procs[d.name]),
@@ -4686,6 +4730,8 @@ async function runCli() {
       appEnv: process.env.APP_ENV,
       origins: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN],
       stateFile: path.join(STATE, 'test-wallet-provider.json'),
+      // The TEST chain, for the page's reads and the person's own signed transactions (J-wallet-24); down: none.
+      rpcUrl: `http://${HOST}:${CHAIN_PORTS.anvil}`,
     });
   else if (cmd === '__serve-test-venue')
     await serveTestVenue({

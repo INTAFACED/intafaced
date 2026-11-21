@@ -50,23 +50,31 @@ function tokenAnswers(chainId, owner, token) {
  * node for `chainId` (the stack's TEST chain): sends are signed and sent there, and unanswered reads go there, but only
  * while the wallet is on `chainId`; on any other network it answers as it does with no node.
  */
-export async function installTestWallet(page, { chainId, tokens = [], privateKey = generatePrivateKey(), rpcUrl = null }) {
+export async function installTestWallet(page, { chainId, tokens = [], privateKey = generatePrivateKey(), rpcUrl = null, nodes = {} }) {
+  // `nodes` connects the wallet to more networks, {chainId: rpcUrl}, the way a real wallet holds several (the stack's
+  // second TEST chain, where a bridge mints): on each it signs and sends, and passes unanswered reads to that node.
+  const urls = new Map(Object.entries(nodes).map(([id, url]) => [Number(id), url]));
+  if (rpcUrl) urls.set(chainId, rpcUrl);
   // The TEST wallet only ever talks to a chain on this machine: an rpcUrl anywhere else is refused, whoever handed it over.
-  if (rpcUrl && !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(rpcUrl).hostname))
-    throw new Error(`The TEST wallet only connects to a loopback chain, not ${rpcUrl}`);
+  for (const url of urls.values())
+    if (!['127.0.0.1', 'localhost', '[::1]'].includes(new URL(url).hostname))
+      throw new Error(`The TEST wallet only connects to a loopback chain, not ${url}`);
   const account = privateKeyToAccount(privateKey);
-  const node = rpcUrl
-    ? createWalletClient({
+  const clients = new Map(
+    [...urls].map(([id, url]) => [
+      id,
+      createWalletClient({
         account,
         chain: defineChain({
-          id: chainId,
+          id,
           name: 'LOCAL TEST chain',
           nativeCurrency: { name: 'TEST ETH', symbol: 'TESTETH', decimals: 18 },
-          rpcUrls: { default: { http: [rpcUrl] } },
+          rpcUrls: { default: { http: [url] } },
         }),
-        transport: http(rpcUrl),
-      })
-    : null;
+        transport: http(url),
+      }),
+    ]),
+  );
   const address = account.address.toLowerCase();
   const calls = Object.assign({}, ...tokens.map((token) => tokenAnswers(chainId, address, token)));
   const requests = [];
@@ -109,7 +117,8 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
     }
     const entry = { method, params };
     sends.push(entry);
-    if (!node || onChain !== chainId || method !== 'eth_sendTransaction') return { unanswered: true };
+    const node = clients.get(onChain);
+    if (!node || method !== 'eth_sendTransaction') return { unanswered: true };
     const tx = params[0];
     if (tx.from && tx.from.toLowerCase() !== address)
       return { error: { code: 4100, message: 'The TEST wallet does not hold that account.' } };
@@ -138,8 +147,9 @@ export async function installTestWallet(page, { chainId, tokens = [], privateKey
   });
   // Reads the wallet does not answer itself go to the node, while the wallet is on the node's chain.
   await page.exposeFunction('__testWalletRpc', async (onChain, method, params) => {
-    if (!rpcUrl || onChain !== chainId) return { unanswered: true };
-    const res = await fetch(rpcUrl, {
+    const url = urls.get(onChain);
+    if (!url) return { unanswered: true };
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: params ?? [] }),

@@ -23,6 +23,7 @@ use service_kit::edge;
 use service_kit::json::{self, Json};
 use service_kit::server::Request;
 use support::TestDb;
+use svc_academy::authoring::video::Gate;
 use svc_academy::curriculum::spine;
 use svc_academy::db::Store;
 use svc_academy::door::{AcademyDoor, DoorConfig, system_now};
@@ -108,8 +109,11 @@ fn setup() -> Option<T> {
 
 const OPTIONS: Options<'static> = Options {
     watch_threshold_seconds: None,
-    video_min_tier: "",
-    video_min_stake: "",
+    video_storage: None,
+    video_gate: &Gate {
+        min_tier: String::new(),
+        min_stake: String::new(),
+    },
     settle: &Settle::NONE,
 };
 

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { SubNav } from '@intafaced/ui';
 import { Tabs } from '../../shared/ui';
 import { SessionRetryPanel, SignInPanel } from '../../app/SignInPanel';
-import { useSession } from '../session/session';
+import { useSession } from '../session';
 import { launchCopy } from './launch-copy';
 import { launchDepthCopy } from './launch-depth-copy';
 import { LaunchCheck, LaunchJourney, LaunchParticipation } from './LaunchRooms';

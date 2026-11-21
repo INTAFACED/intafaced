@@ -2,7 +2,7 @@
   "name": "intafaced",
   "private": true,
   "version": "0.0.0",
-  "description": "INTAFACED Sovereign OS \u2014 monorepo root. Law: INTAFACED_DEFINITIVE_BUILD.md (private, INTAFACED/project-state product/)",
+  "description": "INTAFACED Sovereign OS — monorepo root. Law: INTAFACED_DEFINITIVE_BUILD.md (private, INTAFACED/project-state product/)",
   "packageManager": "pnpm@10.25.0",
   "engines": {
     "node": ">=20.0.0"
@@ -86,9 +86,12 @@
     "@playwright/test": "^1.65.0",
     "@types/node": "^22.20.5",
     "knip": "6.45.1",
+    "oxc-parser": "0.156.0",
     "oxlint": "1.93.0",
+    "postgres": "^3.4.5",
     "prettier": "^3.10.1",
     "rimraf": "^6.1.4",
+    "tsrs": "7.1.0-beta.tsrs4",
     "tsx": "^4.23.15",
     "turbo": "^2.11.11",
     "typescript": "^7.0.2",

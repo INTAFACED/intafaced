@@ -7,7 +7,7 @@ import {
   MINING_OVERVIEW,
   MINING_PROBE,
 } from '@intafaced/contracts/mining-procedures';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { stamp } from '../../screens/money/time';

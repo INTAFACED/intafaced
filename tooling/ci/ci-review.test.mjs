@@ -1569,10 +1569,11 @@ test('the Review step streams the call only when input.jsonl exists, and runs as
   assert.match(plain, /ask\(\) \{\n\s+schema="\$\(cat "\$1\/schema\.json"\)"\n/);
   assert.match(plain, /< "\$1\/prompt\.txt" > "\$1\/answer\.json" 2> "\$1\/answer\.json\.stderr"\n/);
   assert.match(plain, /wait "\$\{pids\[\$i\]\}" \|\| rc=\$\?\n\s+\[ "\$rc" = 0 \] && continue\n/);
-  // A failed part: the second key only for a key failure, once, and any other failure ends the step as one call did.
+  // A failed part: a spare key only for a key failure, each spare once, and any other failure ends the step as one call
+  // did (reviewer-error.test.mjs runs each case).
   assert.match(plain, /other_key "\$p\/answer\.json" "\$rc" \|\| failed "\$p\/answer\.json" "\$rc"\n/);
   assert.match(plain, /--key\)" = other \] \|\| failed "\$p\/answer\.json" "\$rc"\n/);
-  assert.match(plain, /ask "\$p" \|\| failed "\$p\/answer\.json" "\$\?"\n/);
+  assert.match(plain, /rc=0\n\s+ask "\$p" \|\| rc=\$\?\n\s+done\n/);
   // The same pinned model and effort either way.
   const pinned = (part) => /--model \S+ --effort \S+/.exec(part)?.[0];
   assert.ok(pinned(streamed) && pinned(streamed) === pinned(plain));

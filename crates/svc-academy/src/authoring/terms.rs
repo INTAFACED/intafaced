@@ -64,6 +64,37 @@ pub fn read<C: postgres::GenericClient>(c: &mut C, path: &str) -> Result<Terms, 
     .map_or_else(|| Ok(Terms::default()), |r| of(&r))
 }
 
+/// `CourseTermsStore.unlisted()`: the courses not published to the catalogue.
+pub fn unlisted<C: postgres::GenericClient>(c: &mut C) -> Result<Vec<String>, Refusal> {
+    sql::query(
+        c,
+        "SELECT path FROM academy.course_enrolment_terms WHERE visibility <> 'published'",
+        &[],
+    )?
+    .iter()
+    .map(|r| get(r, "path"))
+    .collect()
+}
+
+/// `courseClosedReason(terms, seatsTaken, now)`.
+pub fn closed_reason(t: &Terms, seats_taken: i64, now: i64) -> Option<&'static str> {
+    match t.visibility.as_str() {
+        "unpublished" => return Some("unpublished"),
+        "hidden" => return Some("hidden"),
+        _ => {}
+    }
+    if t.opens_at.is_some_and(|o| now < o) {
+        return Some("window_not_started");
+    }
+    if t.closes_at.is_some_and(|c| now >= c) {
+        return Some("window_ended");
+    }
+    if t.seat_cap.is_some_and(|cap| seats_taken >= cap) {
+        return Some("full");
+    }
+    None
+}
+
 /// What one write changes.
 #[derive(Default)]
 struct Change {

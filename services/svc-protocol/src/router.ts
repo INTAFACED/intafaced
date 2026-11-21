@@ -55,7 +55,9 @@ import { createPortfolioRouter } from './amm/portfolio-router.js';
 import { portfolioChain } from './amm/portfolio.js';
 import { contractChain, createContractSourceRouter, type ContractChain } from './contract-source/router.js';
 import { createBridgeRouter } from './bridge/router.js';
+import { bridgeProviderFromEnv } from './bridge/provider.js';
 import { bridgeRoutesLoader } from './bridge/routes.js';
+import type { BridgeTransferStore } from './bridge/transfers.js';
 import { createVenueFundsRouter } from './venue/router.js';
 import { createLendingRouter } from './lending/position.js';
 import { createWalletTxRouters } from './wallet-tx/router.js';
@@ -76,6 +78,7 @@ import {
   type ComplianceDeps,
 } from './address-risk/router.js';
 import type { AddressRiskStore } from './address-risk/risk.js';
+import { requireRoutable, TokenBlockedError } from './address-risk/trust-desk.js';
 import { listSessions } from './session/list.js';
 import { protocolHealthHonesty } from './health-honesty.js';
 import { mountProtocolRecord } from './record-mount.js';
@@ -118,8 +121,7 @@ import {
 } from './address-book/router.js';
 import { createVenueWalletRouter, unwiredVenueConnectionStore } from './venue-wallet/router.js';
 import type { VenueConnectionDeps } from './venue-wallet/connection.js';
-import { createEmbeddedWalletRouter, unwiredEmbeddedWalletStore } from './embedded-wallet/router.js';
-import type { EmbeddedWalletDeps } from './embedded-wallet/embedded.js';
+import { createEmbeddedWalletRouter, unwiredEmbeddedWalletStore, type EmbeddedWalletRouterDeps } from './embedded-wallet/router.js';
 import {
   issueChallenge,
   LISTING_CHALLENGE_TTL_UNSET,
@@ -190,6 +192,7 @@ function toTrpcError(err: unknown): TRPCError {
    * message discarded.
    */
   if (err instanceof TRPCError) return err;
+  if (err instanceof TokenBlockedError) return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
   if (err instanceof RepresentationRefusedError) {
     const code =
       err.code === REPRESENTATION_UNSET
@@ -305,6 +308,8 @@ export interface ProtocolRouterDeps {
   p2pEscrow?: () => { escrow: Address | null; mainnet: boolean };
   /** `PROTOCOL_VENUE_ADDRESS` (D-bridge-chain-04). Null, zero or absent: venue funds refuse `protocol.venue_unset`. */
   venue?: () => Address | null;
+  /** `protocol.bridge_transfers` (D-bridge-chain-03). Absent: every bridge transfer refuses `bridge.provider_unset`. */
+  bridgeTransfers?: BridgeTransferStore;
   /**
    * `PROTOCOL_LENDING_MARKET_ADDRESS` (D-portfolio-wallet-04). Null, zero or absent: a lending position refuses
    * `protocol.lending_market_unset`.
@@ -371,7 +376,7 @@ export interface ProtocolRouterDeps {
    * The embedded self-custody wallet (J-wallet-22): the owner's provider makes the person's wallet with their passkey.
    * Absent = not wired: the provider setting reads blank and creating refuses `wallet.embedded_provider_unset`.
    */
-  embeddedWallet?: EmbeddedWalletDeps;
+  embeddedWallet?: EmbeddedWalletRouterDeps;
 }
 
 /** An unwired label store answers nothing: every read and report fails as a server error rather than inventing a record. */
@@ -379,6 +384,7 @@ const unwiredAddressRiskStore: AddressRiskStore = {
   labels: () => Promise.reject(new Error('address risk store is not wired')),
   openReportCount: () => Promise.reject(new Error('address risk store is not wired')),
   insertReport: () => Promise.reject(new Error('address risk store is not wired')),
+  tokenStanding: () => Promise.reject(new Error('address risk store is not wired')),
 };
 
 const unwiredComplianceStore: ComplianceDeps['store'] = {
@@ -398,6 +404,9 @@ const unwiredTrustDeskStore: ComplianceDeps['trustDesk'] = {
   nameTags: notWired,
   requestNameTag: notWired,
   approveNameTag: notWired,
+  blocklist: notWired,
+  addToBlocklist: notWired,
+  blockedAmong: notWired,
 };
 
 /** Never reached with a setting: an unwired representation has none, so it refuses `compliance.representation_unset` first. */
@@ -418,6 +427,12 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const chainIdentity: ChainIdentityReader = deps.chainIdentity ?? chainIdentityReader(chain);
   const listingChain = (): OwnershipChain => (ownership ??= deps.listing?.chain ?? ownershipChain(chain, chainIdentity));
   const routeBalances = blockBalances(chain);
+  /**
+   * The blocklist gate (D-launch-listing-02): every route, path and swap call naming a blocked token refuses
+   * `protocol.token_blocked`. An unwired or unanswering store refuses too: nothing is routed unchecked.
+   */
+  const routable = (tokens: readonly string[]) =>
+    requireRoutable(deps.compliance?.trustDesk ?? unwiredTrustDeskStore, chain.config.chainId, tokens);
   let contracts: ContractChain | null = null;
   /** The fee relay's reads go to the same node as every other chain read. */
   const feeChain = (): FeeRelayChain => chain.client as unknown as FeeRelayChain;
@@ -812,7 +827,10 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     venueWallet: createVenueWalletRouter(venueWalletDeps),
     // ── Embedded self-custody wallet (J-wallet-22): src/embedded-wallet/router.ts ──
     embeddedWallet: createEmbeddedWalletRouter(
-      deps.embeddedWallet ?? { store: unwiredEmbeddedWalletStore, setting: () => ({ kind: 'unset' }) },
+      deps.embeddedWallet ?? {
+        store: unwiredEmbeddedWalletStore,
+        setting: () => ({ kind: 'unset' }),
+      },
     ),
 
     // ── Session keys list (D-portfolio-wallet-02): src/session/list.ts ──
@@ -873,7 +891,14 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     contract: createContractSourceRouter({ chain: () => (contracts ??= contractChain(chain)), toTrpcError }),
 
     /** The owner-published bridge route table (D-bridge-chain-03); blank refuses `bridge.routes_unset`. */
-    bridge: createBridgeRouter({ loadRoutes: bridgeRoutesLoader() }),
+    bridge: createBridgeRouter({
+      loadRoutes: bridgeRoutesLoader(),
+      provider: (() => {
+        const provider = bridgeProviderFromEnv();
+        return () => provider;
+      })(),
+      store: deps.bridgeTransfers,
+    }),
 
     tokens: createTokensRouter({
       chain: tokenLogsChain(
@@ -928,6 +953,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         setting: () => deps.swapV2?.() ?? null,
         permitLifetimeCapSeconds: () => deps.permitLifetimeCapSeconds?.() ?? null,
         slippageCeilingBps: () => requireSwapSlippageBps(deps.swapSlippageBps()),
+        routable,
         pairs: async () => {
           const factory = deps.ammFactoryAddress();
           if (isZeroAddress(factory))
@@ -1141,6 +1167,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         if (input.tokenIn.toLowerCase() === input.tokenOut.toLowerCase())
           throw new TRPCError({ code: 'BAD_REQUEST', message: 'protocol.route_same_token: pay and receive name the same token.' });
         try {
+          await routable([input.tokenIn, input.tokenOut]);
           return await routeOptions(routeBalances, await readPairs(factory), {
             tokenIn: toChecksum(input.tokenIn),
             tokenOut: toChecksum(input.tokenOut),
@@ -1207,6 +1234,8 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           const tokenIn = toChecksum(input.tokenIn);
           const amountIn = BigInt(input.amountIn);
           const minAmountOut = BigInt(input.minAmountOut);
+          const [token0, token1] = await Promise.all([chain.poolToken0(pool), chain.poolToken1(pool)]);
+          await routable([tokenIn, token0, token1]);
           const quoted = await freshPoolQuote(chain, pool, tokenIn, amountIn);
           assertMinAmountOut(minAmountOut, quoted.amountOut, slippageBps);
           const call = buildSwapExactIn(pool, tokenIn, amountIn, minAmountOut, toChecksum(input.to));

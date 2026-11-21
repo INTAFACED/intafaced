@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { useApi } from '../session/session';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, Failure, Panel } from '../../shared/ui';

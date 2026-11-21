@@ -1,3 +1,4 @@
+import { ACADEMY_AMBASSADOR_PAY_PLANE } from '@intafaced/contracts/academy-ambassador-pay-plane-procedures';
 /**
  * OPERATOR TOOLS ALREADY MOUNTED ON THE EDGE — inventory, not invention.
  *
@@ -76,6 +77,13 @@ export interface OperatorTool {
   readonly consequential: boolean;
   readonly fields: readonly ToolField[];
 }
+
+/** A tool's edge module, path and kind, from the call's record in @intafaced/contracts. */
+export const toolOf = <R extends { readonly module: EdgeModule; readonly path: string; readonly kind: ToolKind }>(record: R) => ({
+  edgeModule: record.module,
+  procedure: record.path,
+  kind: record.kind,
+});
 
 export const OPERATOR_TOOLS: readonly OperatorTool[] = [
   // ── Identity / compliance ─────────────────────────────────────────────────
@@ -524,9 +532,7 @@ export const OPERATOR_TOOLS: readonly OperatorTool[] = [
     group: 'academy',
     label: 'Ambassador pay plane status',
     summary: 'Always refuse-closed until owner schedule + ledger recipes. Read is honest dark.',
-    edgeModule: 'academy',
-    procedure: 'ambassadorPayPlane',
-    kind: 'query',
+    ...toolOf(ACADEMY_AMBASSADOR_PAY_PLANE),
     authority: 'module',
     scope: 'admin:read',
     consequential: false,

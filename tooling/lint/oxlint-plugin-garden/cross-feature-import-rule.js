@@ -9,10 +9,9 @@
 // or the admin app's `@/` alias, is followed to the folder or file it names. `import`, `export … from`, `import('…')` and
 // `typeof import('…')` count, type-only ones too; test files count like any other file. The entry is the feature's folder itself or its `index`
 // file; `<feature>/index` deeper down is inside.
-// The pattern is common (about 1,100 imports on main), so the rule fails only when a change adds one: judged by the lint
-// ratchet, the imports on main are each file's ceiling and a file a change adds starts at zero (tooling/ci/lint-ratchet.mjs,
-// tooling/lint/ratchet.json failInAddedFiles). `node tooling/lint/count-rule.mjs garden/no-cross-feature-import` prints how
-// many are left and where.
+// Main holds none (tooling/shape/feature-entry.mjs rewrote the last to their entries): judged by the lint ratchet, each
+// file's ceiling is main's zero and a file a change adds starts at zero (tooling/ci/lint-ratchet.mjs, tooling/lint/ratchet.json
+// failInAddedFiles). `node tooling/lint/count-rule.mjs garden/no-cross-feature-import` prints any there are and where.
 import { dirname, posix } from 'node:path';
 
 // The app's src folder, and inside it the roots whose child folders are features.

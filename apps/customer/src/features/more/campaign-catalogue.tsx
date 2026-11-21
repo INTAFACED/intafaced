@@ -3,15 +3,14 @@ import {
   CAMPAIGN_TYPES,
   CATALOGUE_CAMPAIGN_STATES,
   campaignCatalogueSchema,
-  campaignJoinResultSchema,
-  campaignReviewResultSchema,
   campaignViewSchema,
   myCampaignsSchema,
   type CampaignEligibility,
   type CampaignType,
   type CampaignView,
 } from '@intafaced/contracts/campaigns-catalogue';
-import { useApi } from '../session/session';
+import { CAMPAIGNS_PARTICIPATION_JOIN, CAMPAIGNS_PARTICIPATION_REQUEST_REVIEW } from '@intafaced/contracts/campaigns-procedures';
+import { useApi } from '../session';
 import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
@@ -257,13 +256,13 @@ function CampaignBody({
   const [busy, setBusy] = useState(false);
   const join = async () => {
     setBusy(true);
-    const result = await api.mutate('campaigns', 'participation.join', { campaignId: c.id }, campaignJoinResultSchema);
+    const result = await api.call(CAMPAIGNS_PARTICIPATION_JOIN, { campaignId: c.id });
     setBusy(false);
     settle(result.ok ? null : result);
   };
   const askReview = async () => {
     setBusy(true);
-    const result = await api.mutate('campaigns', 'participation.requestReview', { campaignId: c.id }, campaignReviewResultSchema);
+    const result = await api.call(CAMPAIGNS_PARTICIPATION_REQUEST_REVIEW, { campaignId: c.id });
     setBusy(false);
     settle(result.ok ? null : result);
   };

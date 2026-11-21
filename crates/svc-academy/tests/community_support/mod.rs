@@ -182,6 +182,16 @@ impl Bus for FakeBus {
 
 /// A door over `store`, with the owner settings given and the test process's switches.
 pub fn door(store: Store, settings: Json) -> AcademyDoor {
+    door_with(
+        store,
+        settings,
+        Ports::unwired(),
+        svc_academy::door::system_now,
+    )
+}
+
+/// The door over `store` with these ports and this clock: a run through several slices' real calls.
+pub fn door_with(store: Store, settings: Json, ports: Ports, now: fn() -> Instant) -> AcademyDoor {
     AcademyDoor::new(DoorConfig {
         edge_secret: SECRET.to_owned(),
         env: [
@@ -194,9 +204,9 @@ pub fn door(store: Store, settings: Json) -> AcademyDoor {
         .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
         .collect(),
         store,
-        ports: Ports::unwired(),
+        ports,
         settings: Settings(settings),
-        now: svc_academy::door::system_now,
+        now,
     })
     .unwrap()
 }
@@ -234,8 +244,12 @@ pub fn query(
     path: &str,
     input: Option<&Json>,
 ) -> (u16, Json) {
-    let headers = headers(user, scopes);
-    let url = match input {
+    query_from(door, user, scopes, path, input, "")
+}
+
+/// A tRPC query's address, its input URL-encoded as the client sends it.
+fn url_of(path: &str, input: Option<&Json>) -> String {
+    match input {
         None => format!("/trpc/{path}"),
         Some(i) => {
             let q: String = i
@@ -251,13 +265,44 @@ pub fn query(
                 .collect();
             format!("/trpc/{path}?input={q}")
         }
-    };
+    }
+}
+
+/// A visitor's query: no session, only the region header the edge adds.
+pub fn visitor(door: &AcademyDoor, path: &str, input: Option<&Json>) -> (u16, Json) {
+    let headers = [("x-intafaced-region".to_owned(), "DE".to_owned())];
+    let url = url_of(path, input);
     let res = door.handle(&Request {
         method: "GET",
         url: &url,
         headers: &headers,
         body: "",
     });
+    (res.status, json::parse(&res.body).unwrap())
+}
+
+/// A tRPC query from the TCP peer `peer` (blank when unknown).
+pub fn query_from(
+    door: &AcademyDoor,
+    user: &str,
+    scopes: &[&str],
+    path: &str,
+    input: Option<&Json>,
+    peer: &str,
+) -> (u16, Json) {
+    let headers = headers(user, scopes);
+    let url = url_of(path, input);
+    let req = Request {
+        method: "GET",
+        url: &url,
+        headers: &headers,
+        body: "",
+    };
+    let res = if peer.is_empty() {
+        door.handle(&req)
+    } else {
+        door.handle_from(&req, "req-from-peer", peer)
+    };
     (res.status, json::parse(&res.body).unwrap())
 }
 

@@ -1,43 +1,68 @@
 import 'server-only';
+import type { JsonValue } from '@intafaced/contracts/procedure-strict-schema';
 import { createHash } from 'node:crypto';
+import { supportTicketSchema } from '@intafaced/contracts';
 import {
-  supportAccountGroundingSchema,
-  supportChartsLookupSchema,
-  supportCaseFileSchema,
-  supportCommentSchema,
-  supportKbArticleSchema,
-  supportMacroAppliedSchema,
-  supportMacroListSchema,
-  supportSignatureSchema,
-  supportMergeResultSchema,
-  supportTicketEventSchema,
-  supportTicketLifecycleSchema,
-  supportTicketPropertiesSchema,
-  supportTicketPropertyChangeSchema,
-  supportTicketSchema,
-  supportViewCountsSchema,
-  supportViewListSchema,
-  supportViewSchema,
-} from '@intafaced/contracts';
-import { founderCall, parseWith, type FounderCallContext, type FounderCallResult, partFrom, type PartLabels } from '@/lib/desk';
+  SUPPORT_DESK_ACCOUNT_STATE,
+  SUPPORT_DESK_ASSIGN,
+  SUPPORT_DESK_AVAILABILITY_LOG,
+  SUPPORT_DESK_BULK_POLICY,
+  SUPPORT_DESK_BULK_UPDATE,
+  SUPPORT_DESK_CASE_FILE,
+  SUPPORT_DESK_CLAIM,
+  SUPPORT_DESK_CLAIM_NEXT,
+  SUPPORT_DESK_ESCALATE,
+  SUPPORT_DESK_GROUPS_ADD_MEMBER,
+  SUPPORT_DESK_GROUPS_LIST,
+  SUPPORT_DESK_GROUPS_LOG,
+  SUPPORT_DESK_GROUPS_REMOVE_MEMBER,
+  SUPPORT_DESK_GROUPS_SAVE,
+  SUPPORT_DESK_INTERNAL_NOTE,
+  SUPPORT_DESK_LIST_KB,
+  SUPPORT_DESK_MACRO_APPLY,
+  SUPPORT_DESK_MACROS,
+  SUPPORT_DESK_MERGE,
+  SUPPORT_DESK_PREVIEW_MERGE,
+  SUPPORT_DESK_PROPERTY_CHANGES,
+  SUPPORT_DESK_PUBLISH_KB,
+  SUPPORT_DESK_RATING,
+  SUPPORT_DESK_RATING_SUMMARY,
+  SUPPORT_DESK_ROUTING_OVERVIEW,
+  SUPPORT_DESK_ROUTING_SET_MODE,
+  SUPPORT_DESK_ROUTING_WAITING,
+  SUPPORT_DESK_SCOPE,
+  SUPPORT_DESK_SET_KB_AUDIENCE,
+  SUPPORT_DESK_SET_PROPERTIES,
+  SUPPORT_DESK_SET_STATUS,
+  SUPPORT_DESK_SIGNATURE,
+  SUPPORT_DESK_SIGNATURE_SET,
+  SUPPORT_DESK_STAFF_LIST,
+  SUPPORT_DESK_STAFF_POLICY,
+  SUPPORT_DESK_STAFF_SET_AVAILABILITY,
+  SUPPORT_DESK_STAFF_SET_ROUTING,
+  SUPPORT_DESK_TICKET_LIFECYCLE,
+  SUPPORT_DESK_TICKET_LINKS,
+  SUPPORT_DESK_TICKET_PROPERTIES,
+  SUPPORT_DESK_TICKET_ROUTING,
+  SUPPORT_DESK_TICKET_SET_SKILL,
+  SUPPORT_DESK_UNCLAIM,
+  SUPPORT_DESK_UNPUBLISH_KB,
+  SUPPORT_DESK_VIEWS_COUNTS,
+} from '@intafaced/contracts/support-desk-procedures';
+import { SUPPORT_COMMENT, SUPPORT_EVENTS, SUPPORT_GET, SUPPORT_LIST_COMMENTS } from '@intafaced/contracts/support-customer-procedures';
+import {
+  founderRecordCall,
+  type FounderCallContext,
+  type FounderCallResult,
+  partFrom,
+  type PartLabels,
+  founderRecordRead,
+} from '@/lib/desk';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
-import { DESK_COMMENTS_READ, QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
+import { DESK_COMMENTS_READ, QUEUE_PAGE, readQueueResult, type SupportActionRequest } from './model';
 import { EMPTY_QUERY, isQueryEmpty, type QueueQuery } from './queue-query';
-import { readBulkPolicy, readBulkResults } from './bulk';
-import { readMergePreview } from './merge';
-import { readRatingSummary } from './ratings';
-import { readDeskScope, readGroup, readGroups } from './groups';
-import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
-import {
-  readAvailabilityLog,
-  readGroupLog,
-  readRequiredSkillResult,
-  readRoutingOverview,
-  readRoutingWaiting,
-  readSetModeResult,
-  readStaffRouting,
-  readTicketRouting,
-} from './routing';
+import { readBulkResults } from './bulk';
+import { groupLogRows, requiredSkillResult, setModeResult } from './routing';
 import type {
   SupportKbView,
   SupportLifecycleView,
@@ -57,6 +82,10 @@ import type {
   SupportViewsView,
   TicketExtrasView,
 } from './types';
+import { SUPPORT_LIST_QUEUE } from '@intafaced/contracts/support-list-queue-procedures';
+import { SUPPORT_VIEWS_LIST } from '@intafaced/contracts/support-views-list-procedures';
+import { SUPPORT_TICKET_CHARTS_LOOKUP } from '@intafaced/contracts/support-ticket-charts-lookup-procedures';
+import { SUPPORT_VIEWS_SAVE } from '@intafaced/contracts/support-views-save-procedures';
 
 /**
  * svc-support's operator desk, read and used as the signed-in founder.
@@ -72,20 +101,14 @@ const LABELS: PartLabels = {
   forbiddenMessage: `${SUPPORT_OPS_FORBIDDEN}. ${SUPPORT_OPS_FORBIDDEN_BODY}`,
 };
 
-const arrayOf =
-  <T>(schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false } }) =>
-  (raw: unknown): T[] | null => {
-    if (!Array.isArray(raw)) return null;
-    const out: T[] = [];
-    for (const row of raw) {
-      const parsed = schema.safeParse(row);
-      if (!parsed.success) return null;
-      out.push(parsed.data);
-    }
-    return out;
-  };
-
 const readQueuePage = (raw: unknown) => readQueueResult(raw, QUEUE_PAGE);
+
+/** The desk's own reading of an answer its record already checked; null reads as unreadable, never as data. */
+function mapOk<T, U>(result: FounderCallResult<T>, read: (data: T) => U | null): FounderCallResult<U> {
+  if (result.kind !== 'ok') return result;
+  const data = read(result.data);
+  return data === null ? { kind: 'invalid', requestId: result.requestId } : { ...result, data };
+}
 
 /** svc-support names its refusal in the cause, or as the whole message. */
 const refusalCode = (r: { code: string | null; message: string }): string | null =>
@@ -102,14 +125,14 @@ export async function loadQueue(
 ): Promise<SupportQueueView> {
   const asOf = now.toISOString();
   let query = asked;
-  const plain = () => founderCall(ctx, 'support', 'listQueue', 'GET', { limit: QUEUE_PAGE }, readQueuePage);
+  const plain = () => founderRecordRead(ctx, SUPPORT_LIST_QUEUE, { limit: QUEUE_PAGE }, readQueuePage);
   if (isQueryEmpty(query)) return { asOf, queue: partFrom(await plain(), (d) => d, LABELS), query };
 
-  let filter: unknown = query.filter ?? undefined;
-  let sort: unknown = undefined;
+  let filter: JsonValue | undefined = query.filter ?? undefined;
+  let sort: JsonValue | undefined = undefined;
   let view: SupportQueueView['view'] = null;
   if (query.viewId) {
-    const views = await founderCall(ctx, 'support', 'viewsList', 'GET', {}, parseWith(supportViewListSchema));
+    const views = await founderRecordCall(ctx, SUPPORT_VIEWS_LIST, undefined);
     const found = views.kind === 'ok' ? (views.data.views.find((v) => v.id === query.viewId) ?? null) : null;
     if (!found) {
       const code = views.kind === 'ok' ? 'admin.support_view_not_found' : views.kind;
@@ -128,7 +151,7 @@ export async function loadQueue(
     ...(sort !== undefined ? { sort } : {}),
     ...(query.q ? { q: query.q } : {}),
   };
-  const result = await founderCall(ctx, 'support', 'listQueue', 'GET', input, readQueuePage);
+  const result = await founderRecordRead(ctx, SUPPORT_LIST_QUEUE, input, readQueuePage);
   if (result.kind === 'refused') {
     const code = refusalCode(result.refusal);
     // Named by what svc-support refused: only `support.filter_invalid` is about a typed filter's field.
@@ -147,8 +170,8 @@ export async function loadQueue(
 /** The saved views this founder may open, with one count each. Two reads, each its own part. */
 export async function loadViews(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportViewsView> {
   const [list, counts] = await Promise.all([
-    founderCall(ctx, 'support', 'viewsList', 'GET', {}, parseWith(supportViewListSchema)),
-    founderCall(ctx, 'support', 'viewsCounts', 'GET', {}, parseWith(supportViewCountsSchema)),
+    founderRecordCall(ctx, SUPPORT_VIEWS_LIST, undefined),
+    founderRecordCall(ctx, SUPPORT_DESK_VIEWS_COUNTS, undefined),
   ]);
   return {
     asOf: now.toISOString(),
@@ -160,10 +183,10 @@ export async function loadViews(ctx: FounderCallContext, now: Date = new Date())
 
 export async function loadTicket(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<SupportTicketView> {
   const [ticket, comments, events, propertyChanges] = await Promise.all([
-    founderCall(ctx, 'support', 'get', 'GET', { ticketId }, parseWith(supportTicketSchema)),
-    founderCall(ctx, 'support', 'listComments', 'GET', { ticketId, limit: DESK_COMMENTS_READ }, arrayOf(supportCommentSchema)),
-    founderCall(ctx, 'support', 'events', 'GET', { ticketId, limit: 100 }, arrayOf(supportTicketEventSchema)),
-    founderCall(ctx, 'support', 'propertyChanges', 'GET', { ticketId, limit: 100 }, arrayOf(supportTicketPropertyChangeSchema)),
+    founderRecordCall(ctx, SUPPORT_GET, { ticketId }),
+    founderRecordCall(ctx, SUPPORT_LIST_COMMENTS, { ticketId, limit: DESK_COMMENTS_READ }),
+    founderRecordCall(ctx, SUPPORT_EVENTS, { ticketId, limit: 100 }),
+    founderRecordCall(ctx, SUPPORT_DESK_PROPERTY_CHANGES, { ticketId, limit: 100 }),
   ]);
   const detail = partFrom(
     ticket,
@@ -182,7 +205,7 @@ export function claimTicket(
   ctx: FounderCallContext,
   ticketId: string,
 ): Promise<FounderCallResult<ReturnType<typeof supportTicketSchema.parse>>> {
-  return founderCall(ctx, 'support', 'claim', 'POST', { ticketId }, parseWith(supportTicketSchema));
+  return founderRecordCall(ctx, SUPPORT_DESK_CLAIM, { ticketId });
 }
 
 /**
@@ -191,17 +214,13 @@ export function claimTicket(
  */
 export async function loadTicketExtras(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<TicketExtrasView> {
   const [caseFile, rating] = await Promise.all([
-    founderCall(ctx, 'support', 'caseFile', 'GET', { ticketId }, (raw) => {
-      // founderCall reads a null parse as "unreadable", but null is the service's real answer for "never escalated". Box it.
-      const parsed = supportCaseFileSchema.nullable().safeParse(raw);
-      return parsed.success ? { value: parsed.data } : null;
-    }),
-    founderCall(ctx, 'support', 'ratingOps', 'GET', { ticketId }, (raw) => readRatingResult(raw)),
+    founderRecordCall(ctx, SUPPORT_DESK_CASE_FILE, { ticketId }),
+    founderRecordCall(ctx, SUPPORT_DESK_RATING, { ticketId }),
   ]);
   return {
     asOf: now.toISOString(),
-    caseFile: partFrom(caseFile, (c) => c.value, LABELS),
-    rating: partFrom(rating, (r) => r.value, LABELS),
+    caseFile: partFrom(caseFile, (c) => c, LABELS),
+    rating: partFrom(rating, (r) => r, LABELS),
   };
 }
 
@@ -211,21 +230,8 @@ export async function loadTicketProperties(
   ticketId: string,
   now: Date = new Date(),
 ): Promise<SupportPropertiesView> {
-  const result = await founderCall(ctx, 'support', 'ticketProperties', 'GET', { ticketId }, parseWith(supportTicketPropertiesSchema));
+  const result = await founderRecordCall(ctx, SUPPORT_DESK_TICKET_PROPERTIES, { ticketId });
   return { asOf: now.toISOString(), properties: partFrom(result, (p) => p, LABELS) };
-}
-
-/** The order ids among a request's links, or null for an answer that is not a list of links. */
-export function readLinkedOrders(raw: unknown): readonly string[] | null {
-  if (!Array.isArray(raw)) return null;
-  const orders: string[] = [];
-  for (const link of raw as unknown[]) {
-    if (typeof link !== 'object' || link === null) return null;
-    const { kind, recordId } = link as { kind?: unknown; recordId?: unknown };
-    if (typeof kind !== 'string' || typeof recordId !== 'string') return null;
-    if (kind === 'order') orders.push(recordId);
-  }
-  return orders;
 }
 
 /**
@@ -234,11 +240,16 @@ export function readLinkedOrders(raw: unknown): readonly string[] | null {
  * failure, shown as unread: never a guessed state.
  */
 export async function loadCustomerCard(ctx: FounderCallContext, ticketId: string, now: Date = new Date()): Promise<SupportCustomerView> {
-  const [account, orders] = await Promise.all([
-    founderCall(ctx, 'support', 'accountState', 'GET', { ticketId }, parseWith(supportAccountGroundingSchema)),
-    founderCall(ctx, 'support', 'ticketLinks', 'GET', { ticketId }, readLinkedOrders),
+  const [account, links] = await Promise.all([
+    founderRecordCall(ctx, SUPPORT_DESK_ACCOUNT_STATE, { ticketId }),
+    founderRecordCall(ctx, SUPPORT_DESK_TICKET_LINKS, { ticketId }),
   ]);
-  return { asOf: now.toISOString(), account: partFrom(account, (a) => a, LABELS), orders: partFrom(orders, (o) => o, LABELS) };
+  return {
+    asOf: now.toISOString(),
+    account: partFrom(account, (a) => a, LABELS),
+    // The order ids among the request's links.
+    orders: partFrom(links, (l) => l.filter((link) => link.kind === 'order').map((link) => link.recordId), LABELS),
+  };
 }
 
 /**
@@ -251,7 +262,7 @@ export async function loadChartsLookup(
   ticketId: string,
   now: Date = new Date(),
 ): Promise<SupportChartsLookupView> {
-  const result = await founderCall(ctx, 'support', 'ticketChartsLookup', 'GET', { ticketId }, parseWith(supportChartsLookupSchema));
+  const result = await founderRecordCall(ctx, SUPPORT_TICKET_CHARTS_LOOKUP, { ticketId });
   return {
     asOf: now.toISOString(),
     lookup: partFrom(result, (l) => l, {
@@ -270,7 +281,7 @@ export async function loadTicketLifecycle(
   ticketId: string,
   now: Date = new Date(),
 ): Promise<SupportLifecycleView> {
-  const result = await founderCall(ctx, 'support', 'ticketLifecycle', 'GET', { ticketId }, parseWith(supportTicketLifecycleSchema));
+  const result = await founderRecordCall(ctx, SUPPORT_DESK_TICKET_LIFECYCLE, { ticketId });
   return { asOf: now.toISOString(), lifecycle: partFrom(result, (l) => l, LABELS) };
 }
 
@@ -280,7 +291,7 @@ export async function loadRatingSummary(
   window: { readonly from: string; readonly to: string },
   now: Date = new Date(),
 ): Promise<SupportRatingSummaryView> {
-  const result = await founderCall(ctx, 'support', 'ratingSummary', 'GET', { from: window.from, to: window.to }, readRatingSummary);
+  const result = await founderRecordCall(ctx, SUPPORT_DESK_RATING_SUMMARY, { from: window.from, to: window.to });
   return { asOf: now.toISOString(), summary: partFrom(result, (r) => r, LABELS) };
 }
 
@@ -290,10 +301,10 @@ export async function loadRatingSummary(
  */
 export async function loadStaff(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportStaffView> {
   const [roster, policy, routing, log] = await Promise.all([
-    founderCall(ctx, 'support', 'staffList', 'GET', {}, readStaffRoster),
-    founderCall(ctx, 'support', 'staffAvailabilityPolicy', 'GET', {}, readStaffPolicy),
-    founderCall(ctx, 'support', 'routingOverview', 'GET', {}, readRoutingOverview),
-    founderCall(ctx, 'support', 'staffAvailabilityLog', 'GET', {}, readAvailabilityLog),
+    founderRecordCall(ctx, SUPPORT_DESK_STAFF_LIST, undefined),
+    founderRecordCall(ctx, SUPPORT_DESK_STAFF_POLICY, undefined),
+    founderRecordCall(ctx, SUPPORT_DESK_ROUTING_OVERVIEW, undefined),
+    founderRecordCall(ctx, SUPPORT_DESK_AVAILABILITY_LOG, {}),
   ]);
   return {
     asOf: now.toISOString(),
@@ -307,13 +318,13 @@ export async function loadStaff(ctx: FounderCallContext, now: Date = new Date())
 
 /** One group's log, oldest first. */
 export async function loadGroupLog(ctx: FounderCallContext, groupId: string, now: Date = new Date()): Promise<SupportGroupLogView> {
-  const result = await founderCall(ctx, 'support', 'groupsLog', 'GET', { groupId }, readGroupLog);
+  const result = await mapOk(await founderRecordCall(ctx, SUPPORT_DESK_GROUPS_LOG, { groupId }), groupLogRows);
   return { asOf: now.toISOString(), groupId, log: partFrom(result, (l) => l, LABELS) };
 }
 
 /** Requests in a routed group that no agent could take, as svc-support lists them for this person. */
 export async function loadRoutingWaiting(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportRoutingWaitingView> {
-  const result = await founderCall(ctx, 'support', 'routingWaiting', 'GET', {}, readRoutingWaiting);
+  const result = await founderRecordCall(ctx, SUPPORT_DESK_ROUTING_WAITING, undefined);
   return { asOf: now.toISOString(), waiting: partFrom(result, (w) => w, LABELS) };
 }
 
@@ -324,8 +335,8 @@ export async function loadTicketRouting(
   now: Date = new Date(),
 ): Promise<SupportTicketRoutingView> {
   const [routing, roster] = await Promise.all([
-    founderCall(ctx, 'support', 'ticketRouting', 'GET', { ticketId }, readTicketRouting),
-    founderCall(ctx, 'support', 'staffList', 'GET', {}, readStaffRoster),
+    founderRecordCall(ctx, SUPPORT_DESK_TICKET_ROUTING, { ticketId }),
+    founderRecordCall(ctx, SUPPORT_DESK_STAFF_LIST, undefined),
   ]);
   return {
     asOf: now.toISOString(),
@@ -338,8 +349,8 @@ export async function loadTicketRouting(
 /** The desk's macros and the signed-in agent's own signature (SP-desk-02). Two reads, each its own part. */
 export async function loadMacros(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportMacrosView> {
   const [macros, signature] = await Promise.all([
-    founderCall(ctx, 'support', 'macros', 'GET', {}, parseWith(supportMacroListSchema)),
-    founderCall(ctx, 'support', 'signature', 'GET', {}, parseWith(supportSignatureSchema)),
+    founderRecordCall(ctx, SUPPORT_DESK_MACROS, undefined),
+    founderRecordCall(ctx, SUPPORT_DESK_SIGNATURE, undefined),
   ]);
   return {
     asOf: now.toISOString(),
@@ -350,16 +361,16 @@ export async function loadMacros(ctx: FounderCallContext, now: Date = new Date()
 
 /** One macro filled from one request, for the agent's draft. svc-support writes nothing; the agent sends the reply. */
 export function applyMacro(ctx: FounderCallContext, ticketId: string, macroId: string) {
-  return founderCall(ctx, 'support', 'macroApply', 'GET', { ticketId, macroId }, parseWith(supportMacroAppliedSchema));
+  return founderRecordCall(ctx, SUPPORT_DESK_MACRO_APPLY, { ticketId, macroId });
 }
 
 /** Desk groups, this person's own scope, the roster and each group's routing. Four reads, each its own part. */
 export async function loadGroups(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportGroupsView> {
   const [groups, scope, roster, routing] = await Promise.all([
-    founderCall(ctx, 'support', 'groupsList', 'GET', {}, readGroups),
-    founderCall(ctx, 'support', 'deskScope', 'GET', {}, readDeskScope),
-    founderCall(ctx, 'support', 'staffList', 'GET', {}, readStaffRoster),
-    founderCall(ctx, 'support', 'routingOverview', 'GET', {}, readRoutingOverview),
+    founderRecordCall(ctx, SUPPORT_DESK_GROUPS_LIST, undefined),
+    founderRecordCall(ctx, SUPPORT_DESK_SCOPE, undefined),
+    founderRecordCall(ctx, SUPPORT_DESK_STAFF_LIST, undefined),
+    founderRecordCall(ctx, SUPPORT_DESK_ROUTING_OVERVIEW, undefined),
   ]);
   return {
     asOf: now.toISOString(),
@@ -373,19 +384,19 @@ export async function loadGroups(ctx: FounderCallContext, now: Date = new Date()
 
 /** Published help articles, with the revision a publish or unpublish must quote. svc-support lists no unpublished ones. */
 export async function loadKb(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportKbView> {
-  const result = await founderCall(ctx, 'support', 'listKb', 'GET', { limit: 100 }, arrayOf(supportKbArticleSchema));
+  const result = await founderRecordCall(ctx, SUPPORT_DESK_LIST_KB, { limit: 100 });
   return { asOf: now.toISOString(), articles: partFrom(result, (a) => a, LABELS) };
 }
 
 /** What a merge of one request into another would move, for the confirmation. Reads only; a refusal is returned as it is. */
 export async function previewMerge(ctx: FounderCallContext, sourceId: string, survivorId: string) {
-  return founderCall(ctx, 'support', 'previewMerge', 'GET', { sourceId, survivorId }, readMergePreview);
+  return founderRecordCall(ctx, SUPPORT_DESK_PREVIEW_MERGE, { sourceId, survivorId });
 }
 
 /** The owner's bulk batch size, or `cap: null` while it is not set. A failed read is the part's failure, never a number. */
 export async function loadBulkPolicy(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportBulkPolicyView> {
-  const result = await founderCall(ctx, 'support', 'bulkPolicy', 'GET', {}, readBulkPolicy);
-  return { asOf: now.toISOString(), policy: partFrom(result, (p) => p, LABELS) };
+  const result = await founderRecordCall(ctx, SUPPORT_DESK_BULK_POLICY, undefined);
+  return { asOf: now.toISOString(), policy: partFrom(result, (p) => ({ cap: p.cap }), LABELS) };
 }
 
 /**
@@ -413,237 +424,142 @@ export function noteKey(ticketId: string, agentId: string, expectedSequence: num
  * One desk write, as the signed-in founder. svc-support takes the operator id from the verified session, so a reply,
  * a status change or an escalation is recorded against the person at the keyboard.
  */
-export function runSupportAction(ctx: FounderCallContext, request: SupportActionRequest): Promise<FounderCallResult<unknown>> {
+export async function runSupportAction(ctx: FounderCallContext, request: SupportActionRequest): Promise<FounderCallResult<unknown>> {
   switch (request.action) {
     case 'reply':
-      return founderCall(
-        ctx,
-        'support',
-        'comment',
-        'POST',
-        {
-          ticketId: request.ticketId,
-          body: request.body,
-          ...(request.expectedSequence === undefined
-            ? {}
-            : {
-                expectedSequence: request.expectedSequence,
-                clientRequestId: replyKey(request.ticketId, ctx.session.userId, request.expectedSequence, request.sent ?? 0, request.body),
-              }),
-        },
-        parseWith(supportCommentSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_COMMENT, {
+        ticketId: request.ticketId,
+        body: request.body,
+        ...(request.expectedSequence === undefined
+          ? {}
+          : {
+              expectedSequence: request.expectedSequence,
+              clientRequestId: replyKey(request.ticketId, ctx.session.userId, request.expectedSequence, request.sent ?? 0, request.body),
+            }),
+      });
     case 'note':
-      return founderCall(
-        ctx,
-        'support',
-        'addInternalNote',
-        'POST',
-        {
-          ticketId: request.ticketId,
-          body: request.body,
-          clientRequestId: noteKey(request.ticketId, ctx.session.userId, request.expectedSequence, request.sent, request.body),
-        },
-        parseWith(supportCommentSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_INTERNAL_NOTE, {
+        ticketId: request.ticketId,
+        body: request.body,
+        clientRequestId: noteKey(request.ticketId, ctx.session.userId, request.expectedSequence, request.sent, request.body),
+      });
     case 'claim_next':
-      return founderCall(ctx, 'support', 'claimNext', 'POST', undefined, parseWith(supportTicketSchema));
+      return founderRecordCall(ctx, SUPPORT_DESK_CLAIM_NEXT, undefined);
     // The business key is the request, the person and the trail row they read: the same click sent twice is one change,
     // and the next unclaim or reassign (after the trail has moved on) is a new one.
     case 'unclaim':
-      return founderCall(
-        ctx,
-        'support',
-        'unclaim',
-        'POST',
-        {
-          ticketId: request.ticketId,
-          idempotencyKey: `admin-unclaim:${request.ticketId}:${ctx.session.userId}:${request.expectedSequence}`,
-        },
-        parseWith(supportTicketSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_UNCLAIM, {
+        ticketId: request.ticketId,
+        idempotencyKey: `admin-unclaim:${request.ticketId}:${ctx.session.userId}:${request.expectedSequence}`,
+      });
     case 'assign':
-      return founderCall(
-        ctx,
-        'support',
-        'assign',
-        'POST',
-        {
-          ticketId: request.ticketId,
-          assigneeId: request.assigneeId,
-          idempotencyKey: `admin-assign:${request.ticketId}:${ctx.session.userId}:${request.assigneeId}:${request.expectedSequence}`,
-        },
-        parseWith(supportTicketSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_ASSIGN, {
+        ticketId: request.ticketId,
+        assigneeId: request.assigneeId,
+        idempotencyKey: `admin-assign:${request.ticketId}:${ctx.session.userId}:${request.assigneeId}:${request.expectedSequence}`,
+      });
     case 'status':
-      return founderCall(
-        ctx,
-        'support',
-        'setStatus',
-        'POST',
-        {
-          ticketId: request.ticketId,
-          status: request.status,
-          ...(request.note ? { note: request.note } : {}),
-          ...(request.expectedSequence === undefined ? {} : { expectedSequence: request.expectedSequence }),
-        },
-        parseWith(supportTicketSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_SET_STATUS, {
+        ticketId: request.ticketId,
+        status: request.status,
+        ...(request.note ? { note: request.note } : {}),
+        ...(request.expectedSequence === undefined ? {} : { expectedSequence: request.expectedSequence }),
+      });
     case 'escalate':
-      return founderCall(
-        ctx,
-        'support',
-        'escalate',
-        'POST',
-        {
-          ticketId: request.ticketId,
-          reason: request.reason,
-          summary: request.summary,
-          ...(request.citedArticleIds ? { citedArticleIds: request.citedArticleIds } : {}),
-        },
-        parseWith(supportCaseFileSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_ESCALATE, {
+        ticketId: request.ticketId,
+        reason: request.reason,
+        summary: request.summary,
+        ...(request.citedArticleIds ? { citedArticleIds: [...request.citedArticleIds] } : {}),
+      });
     case 'group_save':
-      return founderCall(
-        ctx,
-        'support',
-        'groupsSave',
-        'POST',
-        { name: request.name, idempotencyKey: request.idempotencyKey, ...(request.groupId ? { groupId: request.groupId } : {}) },
-        readGroup,
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_GROUPS_SAVE, {
+        name: request.name,
+        idempotencyKey: request.idempotencyKey,
+        ...(request.groupId ? { groupId: request.groupId } : {}),
+      });
     case 'group_member':
-      return founderCall(
-        ctx,
-        'support',
-        request.op === 'add' ? 'groupsAddMember' : 'groupsRemoveMember',
-        'POST',
-        { groupId: request.groupId, userId: request.userId },
-        readGroup,
-      );
+      return founderRecordCall(ctx, request.op === 'add' ? SUPPORT_DESK_GROUPS_ADD_MEMBER : SUPPORT_DESK_GROUPS_REMOVE_MEMBER, {
+        groupId: request.groupId,
+        userId: request.userId,
+      });
     case 'staff_availability':
-      return founderCall(
-        ctx,
-        'support',
-        'staffSetAvailability',
-        'POST',
-        {
-          availability: request.availability,
-          ...(request.userId ? { userId: request.userId } : {}),
-          ...(request.reason ? { reason: request.reason } : {}),
-        },
-        readStaffMember,
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_STAFF_SET_AVAILABILITY, {
+        availability: request.availability,
+        ...(request.userId ? { userId: request.userId } : {}),
+        ...(request.reason ? { reason: request.reason } : {}),
+      });
     case 'routing_mode':
-      return founderCall(ctx, 'support', 'routingSetMode', 'POST', { groupId: request.groupId, mode: request.mode }, readSetModeResult);
-    case 'staff_routing':
-      return founderCall(
-        ctx,
-        'support',
-        'staffSetRouting',
-        'POST',
-        { userId: request.userId, capacity: request.capacity, skills: [...request.skills] },
-        readStaffRouting,
+      return mapOk(
+        await founderRecordCall(ctx, SUPPORT_DESK_ROUTING_SET_MODE, { groupId: request.groupId, mode: request.mode }),
+        setModeResult,
       );
+    case 'staff_routing':
+      return founderRecordCall(ctx, SUPPORT_DESK_STAFF_SET_ROUTING, {
+        userId: request.userId,
+        capacity: request.capacity,
+        skills: [...request.skills],
+      });
     case 'ticket_skill':
-      return founderCall(
-        ctx,
-        'support',
-        'ticketSetRequiredSkill',
-        'POST',
-        { ticketId: request.ticketId, skill: request.skill },
-        readRequiredSkillResult,
+      return mapOk(
+        await founderRecordCall(ctx, SUPPORT_DESK_TICKET_SET_SKILL, { ticketId: request.ticketId, skill: request.skill }),
+        requiredSkillResult,
       );
     case 'properties':
-      return founderCall(
-        ctx,
-        'support',
-        'setProperties',
-        'POST',
-        {
-          ticketId: request.ticketId,
-          clientRequestId: request.clientRequestId,
-          ...(request.priority !== undefined ? { priority: request.priority } : {}),
-          ...(request.ticketType !== undefined ? { ticketType: request.ticketType } : {}),
-          ...(request.labels !== undefined ? { labels: [...request.labels] } : {}),
-          ...(request.reason ? { reason: request.reason } : {}),
-        },
-        parseWith(supportTicketPropertiesSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_SET_PROPERTIES, {
+        ticketId: request.ticketId,
+        clientRequestId: request.clientRequestId,
+        ...(request.priority !== undefined ? { priority: request.priority } : {}),
+        ...(request.ticketType !== undefined ? { ticketType: request.ticketType } : {}),
+        ...(request.labels !== undefined ? { labels: [...request.labels] } : {}),
+        ...(request.reason ? { reason: request.reason } : {}),
+      });
     case 'merge':
-      return founderCall(
-        ctx,
-        'support',
-        'mergeTickets',
-        'POST',
-        { sourceId: request.ticketId, survivorId: request.survivorId, reason: request.reason },
-        parseWith(supportMergeResultSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_MERGE, {
+        sourceId: request.ticketId,
+        survivorId: request.survivorId,
+        reason: request.reason,
+      });
     case 'bulk':
-      return founderCall(
-        ctx,
-        'support',
-        'bulkUpdate',
-        'POST',
-        {
+      // The answer must carry the key that was sent and name exactly the requests that were sent.
+      return mapOk(
+        await founderRecordCall(ctx, SUPPORT_DESK_BULK_UPDATE, {
           batchKey: request.batchKey,
           ticketIds: [...request.ticketIds],
           change: request.change,
           ...(request.reason ? { reason: request.reason } : {}),
-        },
-        (raw) => readBulkResults(raw, { batchKey: request.batchKey, ticketIds: request.ticketIds }),
+        }),
+        (reply) => readBulkResults(reply, { batchKey: request.batchKey, ticketIds: request.ticketIds }),
       );
     case 'view_save':
-      return founderCall(
-        ctx,
-        'support',
-        'viewsSave',
-        'POST',
-        { name: request.name, expectedRevision: 0, shared: request.shared, filter: request.filter, reason: request.reason },
-        parseWith(supportViewSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_VIEWS_SAVE, {
+        name: request.name,
+        expectedRevision: 0,
+        shared: request.shared,
+        filter: request.filter,
+        reason: request.reason,
+      });
     case 'kb_publish':
-      return founderCall(
-        ctx,
-        'support',
-        'publishKb',
-        'POST',
-        {
-          id: request.id,
-          titleKey: request.titleKey,
-          bodyKey: request.bodyKey,
-          baseRevision: request.baseRevision,
-          ...(request.category ? { category: request.category } : {}),
-          ...(request.tags ? { tags: request.tags } : {}),
-        },
-        parseWith(supportKbArticleSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_PUBLISH_KB, {
+        id: request.id,
+        titleKey: request.titleKey,
+        bodyKey: request.bodyKey,
+        baseRevision: request.baseRevision,
+        ...(request.category ? { category: request.category } : {}),
+        ...(request.tags ? { tags: [...request.tags] } : {}),
+      });
     case 'signature_set':
-      return founderCall(
-        ctx,
-        'support',
-        'signatureSet',
-        'POST',
-        { signature: request.signature, expectedRevision: request.expectedRevision },
-        parseWith(supportSignatureSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_SIGNATURE_SET, {
+        signature: request.signature,
+        expectedRevision: request.expectedRevision,
+      });
     case 'kb_unpublish':
-      return founderCall(
-        ctx,
-        'support',
-        'unpublishKb',
-        'POST',
-        { id: request.id, baseRevision: request.baseRevision },
-        parseWith(supportKbArticleSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_UNPUBLISH_KB, { id: request.id, baseRevision: request.baseRevision });
     case 'kb_audience':
-      return founderCall(
-        ctx,
-        'support',
-        'setKbAudience',
-        'POST',
-        { id: request.id, baseRevision: request.baseRevision, audience: request.audience },
-        parseWith(supportKbArticleSchema),
-      );
+      return founderRecordCall(ctx, SUPPORT_DESK_SET_KB_AUDIENCE, {
+        id: request.id,
+        baseRevision: request.baseRevision,
+        audience: request.audience,
+      });
   }
 }

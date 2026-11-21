@@ -20,7 +20,8 @@ import { LedgerError, type PostRequest } from './types.js';
  * refused (`ledger.idempotency_conflict`) as on `/trpc/post`.
  *
  * Adding a recipe to the door is one entry in `RECIPE_DOORS` (its inputs' wire shape and the conversion to its bigints),
- * its line in `postRecipeInput`, and its grant in svc-ledger's `caller-allowlist.ts`. Only svc-academy's two recipes are on the door now.
+ * its line in `postRecipeInput`, and its grant in the ledger gate's `gate/caller-allowlist.ts`. On the door now: svc-academy's two
+ * recipes, and svc-agents' usage charge (`feeCharge` in its asset mode, `chargeEarn`, `chargeCollect`).
  */
 
 /** A positive or zero decimal string, at most 18 places: the recipe refuses zero where it must. */
@@ -48,6 +49,27 @@ const PLACE = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('partner-reserve'), partnerId: PLACE_ID }).strict(),
 ]);
 
+/** A selling module, as its fee pot names it (`fees:<module>`; `charge.ts` `MODULE_ID`). */
+const MODULE = z
+  .string()
+  .max(64)
+  .regex(/^[a-z0-9][a-z0-9_-]*$/);
+/** A sale, usage window or payment id (`charge.ts` `REF`): no spaces, no `:`. */
+const REF = z
+  .string()
+  .max(128)
+  .regex(/^[^\s:]+$/);
+/** A fee charge's own id: no spaces (a usage window's `agent.usage:<session>:<window>`). */
+const CHARGE_ID = z
+  .string()
+  .max(128)
+  .regex(/^[^\s]+$/);
+/** The reason a fee charge is booked under: a dotted lower-case code (`agents.usage.metered`). */
+const REASON = z
+  .string()
+  .max(64)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/);
+
 /** One recipe on the door: its inputs' wire shape, and how they become the registry recipe's own inputs. */
 interface RecipeDoor {
   readonly wire: z.ZodObject;
@@ -63,6 +85,31 @@ function door<S extends z.ZodObject>(wire: S, build: (input: z.output<S>) => Pos
 const academyFields = { course: COURSE, userId: UUID, n: COUNTER, assetId: ASSET, amount: AMOUNT, paymentId: CHAIN_TX };
 const academyPurchaseWire = z.object({ ...academyFields, to: PLACE }).strict();
 const academyRefundWire = z.object({ ...academyFields, from: PLACE }).strict();
+/** `feeCharge` in its asset mode only: the custodial charge (refused while the custody layer is off). */
+const feeChargeWire = z
+  .object({
+    chargeId: CHARGE_ID,
+    userId: UUID,
+    module: MODULE,
+    mode: z.literal('asset'),
+    assetId: ASSET,
+    amount: AMOUNT,
+    reason: REASON.optional(),
+  })
+  .strict();
+/** `chargeEarn`: the price is required here; an unset price never reaches the door (the caller refuses first). */
+const chargeEarnWire = z
+  .object({
+    module: MODULE,
+    saleId: REF,
+    userId: UUID,
+    memberUserId: UUID.optional(),
+    assetId: ASSET,
+    price: z.object({ perUnit: AMOUNT }).strict(),
+    units: COUNTER,
+  })
+  .strict();
+const chargeCollectWire = z.object({ module: MODULE, userId: UUID, to: PLACE, paymentId: REF, assetId: ASSET, amount: AMOUNT }).strict();
 
 /**
  * The recipes the door posts, one entry each, plus its line in `postRecipeInput` below. TypeScript checks each `build`
@@ -73,6 +120,15 @@ const RECIPE_DOORS = {
   academyPurchaseRefund: door(academyRefundWire, (i) =>
     recipes.academyPurchaseRefund({ ...i, n: BigInt(i.n), amount: parseAmount(i.amount) }),
   ),
+  feeCharge: door(feeChargeWire, (i) => recipes.feeCharge({ ...i, amount: parseAmount(i.amount) })),
+  chargeEarn: door(chargeEarnWire, (i) => {
+    const perUnit = parseAmount(i.price.perUnit);
+    const units = BigInt(i.units);
+    // The charge the price and the units give must fit the book, as every amount the door takes does.
+    parseAmount(perUnit * units);
+    return recipes.chargeEarn({ ...i, price: { perUnit }, units });
+  }),
+  chargeCollect: door(chargeCollectWire, (i) => recipes.chargeCollect({ ...i, amount: parseAmount(i.amount) })),
 } as const satisfies Partial<Record<RecipeName, RecipeDoor>>;
 
 export type PostRecipeName = keyof typeof RECIPE_DOORS;
@@ -89,7 +145,13 @@ export const POST_RECIPE_UNKNOWN = 'ledger.recipe_unknown';
 export const POST_RECIPE_INPUT_INVALID = 'ledger.recipe_input_invalid';
 
 const variant = <N extends PostRecipeName>(name: N) => z.object({ recipe: z.literal(name), input: RECIPE_DOORS[name].wire }).strict();
-const postRecipeInput = z.discriminatedUnion('recipe', [variant('academyPurchase'), variant('academyPurchaseRefund')]);
+const postRecipeInput = z.discriminatedUnion('recipe', [
+  variant('academyPurchase'),
+  variant('academyPurchaseRefund'),
+  variant('feeCharge'),
+  variant('chargeEarn'),
+  variant('chargeCollect'),
+]);
 
 const postedEntry = z.object({
   id: z.string(),
@@ -114,6 +176,33 @@ const samplePurchase = {
   to: { kind: 'treasury-wallet', walletId: '0x00000000000000000000000000000000000000aa' },
   paymentId: SAMPLE_TX,
 };
+const SAMPLE_BUSINESS = '22222222-2222-4222-8222-222222222222';
+const sampleFee = {
+  chargeId: `agent.usage:${SAMPLE_BUSINESS}:w1`,
+  userId: SAMPLE_USER,
+  module: 'agents',
+  mode: 'asset',
+  assetId: 'USDC',
+  amount: '0.25',
+  reason: 'agents.usage.metered',
+};
+const sampleEarn = {
+  module: 'agents',
+  saleId: `${SAMPLE_BUSINESS}.w1`,
+  userId: SAMPLE_BUSINESS,
+  memberUserId: SAMPLE_USER,
+  assetId: 'USDC',
+  price: { perUnit: '0.25' },
+  units: '1',
+};
+const sampleCollect = {
+  module: 'agents',
+  userId: SAMPLE_USER,
+  to: { kind: 'partner-reserve', partnerId: 'reserve-a' },
+  paymentId: 'pay_123',
+  assetId: 'USDC',
+  amount: '0.25',
+};
 
 export const LEDGER_POST_RECIPE = defineProcedure({
   name: 'ledger.postRecipe',
@@ -121,8 +210,8 @@ export const LEDGER_POST_RECIPE = defineProcedure({
   transport: 'http',
   method: 'POST',
   path: '/trpc/postRecipe',
-  /** The services granted a recipe on this door (svc-ledger `caller-allowlist.ts`); svc-ledger's `post-recipe-door.test.ts` holds them equal. */
-  access: { caller: 'service', callers: ['svc-academy'] },
+  /** The services granted a recipe on this door (`gate/caller-allowlist.ts`); svc-ledger's `post-recipe-door.test.ts` holds them equal. */
+  access: { caller: 'service', callers: ['svc-academy', 'svc-agents'] },
   /** Plain-HTTP refusals: status and `{ message, code }` from svc-ledger's `httpError`. */
   refusals: {
     [POST_RECIPE_UNKNOWN]: 'BAD_REQUEST',
@@ -158,7 +247,17 @@ export const LEDGER_POST_RECIPE = defineProcedure({
         },
       },
     },
+    { verdict: 'accept', input: { recipe: 'feeCharge', input: sampleFee } },
+    { verdict: 'accept', input: { recipe: 'chargeEarn', input: sampleEarn } },
+    { verdict: 'accept', input: { recipe: 'chargeCollect', input: sampleCollect } },
     { verdict: 'refuse', input: { recipe: 'deposit', input: samplePurchase } },
+    { verdict: 'refuse', input: { recipe: 'feeCharge', input: { ...sampleFee, mode: 'token' } } },
+    { verdict: 'refuse', input: { recipe: 'feeCharge', input: { ...sampleFee, chargeId: 'a b' } } },
+    { verdict: 'refuse', input: { recipe: 'chargeEarn', input: { ...sampleEarn, price: { perUnit: null } } } },
+    { verdict: 'refuse', input: { recipe: 'chargeEarn', input: { ...sampleEarn, units: '0' } } },
+    { verdict: 'refuse', input: { recipe: 'chargeEarn', input: { ...sampleEarn, saleId: 'a:b' } } },
+    { verdict: 'refuse', input: { recipe: 'chargeCollect', input: { ...sampleCollect, amount: '-1' } } },
+    { verdict: 'refuse', input: { recipe: 'chargeCollect', input: { ...sampleCollect, to: { kind: 'vault', walletId: 'w' } } } },
     { verdict: 'refuse', input: { recipe: 'academyPurchase', input: { ...samplePurchase, amount: 2.5 } } },
     { verdict: 'refuse', input: { recipe: 'academyPurchase', input: { ...samplePurchase, amount: '-1' } } },
     { verdict: 'refuse', input: { recipe: 'academyPurchase', input: { ...samplePurchase, n: '0' } } },

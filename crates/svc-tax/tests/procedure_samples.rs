@@ -1,6 +1,6 @@
 //! `procedure-samples.test.ts`: the mounted side of each svc-tax record's samples. Sent through
 //! the door by a caller the record admits, a refused sample is answered 400 and an accepted one never is. The samples
-//! are read from the contracts' published schema (`packages/contracts/procedures.schema.json`), so a sample added to a
+//! are read from the contracts' published schema (`packages/contracts/procedures/svc-tax.schema.json`), so a sample added to a
 //! record reaches this test without an edit here.
 #![allow(
     clippy::unwrap_used,
@@ -20,7 +20,7 @@ use svc_tax::tax::TaxDeps;
 
 const SCHEMA: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../packages/contracts/procedures.schema.json"
+    "/../../packages/contracts/procedures/svc-tax.schema.json"
 );
 const USER: &str = "11111111-1111-4111-8111-111111111111";
 

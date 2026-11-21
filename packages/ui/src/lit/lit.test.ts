@@ -3,10 +3,11 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { accents, roleNames, roleVar, templateSlots, templates, typeRoles } from './contracts.js';
+import { roleNames, roleVar, templateSlots, templates, typeRoles } from './contracts.js';
 import { formattedLitCss } from './format.js';
 import { looks } from '../theme/tokens.js';
-import { accentSets, accentTextLight, flat, flatTypeMap, lit, litLight } from './tokens.js';
+import { flat, flatTypeMap, lit, litLight } from './tokens.js';
+import { contrastRatio, deltaE2000, hue, toHex } from './colour.js';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const require = createRequire(import.meta.url);
@@ -86,7 +87,17 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
   });
 
   it('colour roles hold one value type in every skin (image roles are named in contracts)', () => {
-    const imageRoles = new Set(['field', 'sheen', 'glass-bg', 'primary-bg', 'secondary-bg', 'key-bg', 'key-lit-bg']);
+    const imageRoles = new Set([
+      'field',
+      'sheen',
+      'glass-bg',
+      'primary-bg',
+      'secondary-bg',
+      'key-bg',
+      'key-lit-bg',
+      'object-bg',
+      'object-spark-bg',
+    ]);
     const isImage = (x: string) => /gradient\(/.test(x);
     for (const r of roleNames) {
       if (imageRoles.has(r)) continue;
@@ -101,10 +112,23 @@ describe('lit tokens: lit.ts and lit.css cannot drift', () => {
     }
   });
 
-  it('light and accent sets only re-value known roles', () => {
+  it('the light set only re-values known roles', () => {
     const known = new Set<string>(roleNames);
     for (const k of Object.keys(litLight)) expect(known.has(k), k).toBe(true);
-    for (const a of accents) for (const k of Object.keys(accentSets[a])) expect(known.has(k), `${a}.${k}`).toBe(true);
+  });
+
+  it('draws Volt on the root with no switch: no direction or accent selector is left in lit.css', () => {
+    expect(css).not.toMatch(/data-direction|data-accent/);
+    expect(css.toLowerCase()).toContain(`--lit-accent: ${lit.accent.toLowerCase()};`);
+    expect(lit.accent).toBe('#E0F83A');
+  });
+
+  it("today's medium and large radii are box radii, never the control's pill (a tall box drawn with a pill clips into an ellipse)", () => {
+    for (const name of ['--if-r-md', '--if-r-lg']) {
+      const role = css.match(new RegExp(`${name}: var\\(--lit-([a-z-]+)\\);`))?.[1];
+      expect(role, name).toBeDefined();
+      expect(parseFloat(String(lit[role as keyof typeof lit])), `${name} → --lit-${role}`).toBeLessThan(40);
+    }
   });
 });
 
@@ -136,13 +160,6 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
     for (const s of lightSurfaces) expect(contrast(L[t], L[s]), `${t} on ${s}`).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(accents)('accent text of %s meets 4.5:1 in both schemes', (a) => {
-    const dark = { ...lit, ...accentSets[a] }['accent-text'];
-    for (const s of darkSurfaces) expect(contrast(dark, lit[s]), `${a} dark on ${s}`).toBeGreaterThanOrEqual(4.5);
-    const L = { ...lit, ...litLight };
-    for (const s of lightSurfaces) expect(contrast(accentTextLight[a], L[s]), `${a} light on ${s}`).toBeGreaterThanOrEqual(4.5);
-  });
-
   it('the risk band text is high contrast and its border is visible (COBS 4.12A: prominent, never faded)', () => {
     expect(contrast(lit['legal-fg'], lit['legal-bg'])).toBeGreaterThanOrEqual(7);
     expect(contrast(lit['legal-border'], lit['legal-bg'])).toBeGreaterThanOrEqual(3);
@@ -151,8 +168,8 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
     expect(contrast(L['legal-border'], L['legal-bg'])).toBeGreaterThanOrEqual(3);
   });
 
-  it.each(accents)('text on a %s lit fill meets 4.5:1', (a) => {
-    const m = { ...lit, ...accentSets[a] };
+  it('text on the lit fill meets 4.5:1', () => {
+    const m = lit;
     expect(contrast(m['on-accent'], m['accent-fill'])).toBeGreaterThanOrEqual(4.5);
     expect(contrast(m['on-accent'], m['accent-fill-2'])).toBeGreaterThanOrEqual(4.5);
   });
@@ -171,9 +188,8 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
       lit['accent-text'],
       lit['accent-fill'],
       lit['accent-fill-2'],
-      ...Object.values(accentTextLight),
+      litLight['accent-text'] ?? lit['accent-text'],
     ]);
-    for (const a of accents) for (const x of Object.values(accentSets[a])) brand.add(x);
     for (const m of [lit, { ...lit, ...litLight }]) {
       for (const r of ['legal-bg', 'legal-fg', 'legal-border', 'refusal-bg', 'refusal-fg', 'refusal-border'] as const) {
         expect(m[r], r).not.toContain('accent');
@@ -188,6 +204,70 @@ describe('lit tokens: contrast at the worst point (text sits on opaque surfaces)
       expect(contrast(m.focus, m['solid-bg'])).toBeGreaterThanOrEqual(3);
       expect(contrast(m.focus, m.page)).toBeGreaterThanOrEqual(3);
     }
+  });
+});
+
+describe('Volt: the chartreuse spark (intafaced issue 9302)', () => {
+  const dark = lit;
+  const light = { ...lit, ...litLight };
+  const stops = (gradient: string) => [...gradient.matchAll(/#[0-9A-F]{6}/gi)].map((m) => m[0]);
+
+  it('the colour measures agree with known values', () => {
+    expect(contrastRatio('#000000', '#FFFFFF')).toBeCloseTo(21, 5);
+    expect(contrastRatio('rgb(10, 10, 9)', '#0A0A09')).toBeCloseTo(1, 5);
+    expect(toHex('rgba(255, 255, 255, 0.5)', '#000000')).toBe('#808080');
+    expect(toHex('rgb(255 255 255 / 50%)')).toBe('#808080');
+    expect(toHex('rgb(224, 248, 58)')).toBe('#E0F83A');
+    expect(deltaE2000('#E0F83A', '#E0F83A')).toBe(0);
+    expect(deltaE2000('#FAF33E', '#FFC452')).toBeCloseTo(17.5, 1);
+  });
+
+  it('is chartreuse, not lemon: its hue sits on the green side of yellow, as in the references', () => {
+    expect(hue(dark.accent)).toBeGreaterThanOrEqual(64);
+    expect(hue(dark.accent)).toBeLessThanOrEqual(80);
+    expect(hue('#FAF33E')).toBeLessThan(64);
+  });
+
+  it('reads as another colour than the warning and the gain, in both schemes (CIEDE2000 at least 20)', () => {
+    for (const m of [dark, light]) {
+      expect(deltaE2000(m.accent, m['warn-text']), 'warning').toBeGreaterThanOrEqual(20);
+      expect(deltaE2000(m['accent-text'], m['warn-text']), 'warning as text').toBeGreaterThanOrEqual(20);
+      expect(deltaE2000(m.accent, m.up), 'gain').toBeGreaterThanOrEqual(20);
+    }
+  });
+
+  it('passes AA as text on the page and every solid surface, dark and light', () => {
+    for (const m of [dark, light])
+      for (const s of ['page', 'solid-bg', 'solid-bg-raised', 'solid-bg-sunken'] as const)
+        expect(contrastRatio(m['accent-text'], m[s]), s).toBeGreaterThanOrEqual(4.5);
+    expect(dark['accent-text']).toBe(dark.accent);
+  });
+
+  it('carries its text as a fill at every stop of its gradients, and on the light primary', () => {
+    for (const m of [dark, light]) {
+      for (const stop of [m['accent-fill'], m['accent-fill-2'], ...stops(m['object-spark-bg'])])
+        expect(contrastRatio(m['on-accent'], stop), stop).toBeGreaterThanOrEqual(4.5);
+    }
+    for (const stop of stops(dark['primary-bg'])) expect(contrastRatio(dark['primary-fg'], stop), stop).toBeGreaterThanOrEqual(4.5);
+    for (const stop of stops(light['primary-bg'])) expect(contrastRatio(light['primary-fg'], stop), stop).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('a warning or a refusal stays readable on its badge (its own colour at 15%, as Badge draws it) over every light surface', () => {
+    const tint = (fg: string, bg: string) =>
+      '#' +
+      [1, 3, 5]
+        .map((i) => Math.round(parseInt(fg.slice(i, i + 2), 16) * 0.15 + parseInt(bg.slice(i, i + 2), 16) * 0.85))
+        .map((c) => c.toString(16).padStart(2, '0'))
+        .join('');
+    for (const t of ['warn-text', 'error-text'] as const)
+      for (const s of ['page', 'solid-bg', 'solid-bg-raised', 'solid-bg-sunken'] as const)
+        expect(contrastRatio(light[t], tint(light[t], light[s])), `${t} on its tint over ${s}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('as a ring it stands 3:1 off the page in both schemes; the focus ring itself stays white or ink, never the spark', () => {
+    expect(contrastRatio(dark.accent, dark.page)).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(light['accent-text'], light.page)).toBeGreaterThanOrEqual(3);
+    for (const m of [dark, light]) expect([m.accent, m['accent-text'], m['accent-fill']]).not.toContain(m.focus);
   });
 });
 
@@ -214,12 +294,14 @@ describe('lit fonts are self-hosted and named as the roles name them', () => {
     expect([...fonts.matchAll(/@import '([^']+)'/g)].map((m) => m[1])).toEqual([
       '@fontsource-variable/geist/index.css',
       '@fontsource-variable/geist-mono/index.css',
+      '@fontsource-variable/archivo/wdth.css',
     ]);
   });
   it('the font roles lead with the families those packages declare', () => {
-    expect(lit['font-ui'].startsWith("'Geist Variable'")).toBe(true);
-    expect(lit['font-figure'].startsWith("'Geist Variable'")).toBe(true);
+    expect(lit['font-ui'].startsWith("'Archivo Variable'")).toBe(true);
+    expect(lit['font-figure'].startsWith("'Archivo Variable'")).toBe(true);
     expect(lit['font-mono'].startsWith("'Geist Mono Variable'")).toBe(true);
+    expect(readFileSync(require.resolve('@fontsource-variable/archivo/wdth.css'), 'utf8')).toContain("font-family: 'Archivo Variable'");
     for (const pkg of ['geist', 'geist-mono']) {
       const css = readFileSync(require.resolve(`@fontsource-variable/${pkg}/index.css`), 'utf8');
       expect(css).toContain(pkg === 'geist' ? "font-family: 'Geist Variable'" : "font-family: 'Geist Mono Variable'");

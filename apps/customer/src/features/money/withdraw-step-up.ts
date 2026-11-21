@@ -1,9 +1,6 @@
-// hand-declared-ok: the step-up answer is declared in svc-identity, not in a browser-safe @intafaced/contracts export
-import { z } from 'zod';
+import { stepUpTokenSchema } from '@intafaced/contracts/identity-account-room';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { requestPasskeyAssertion } from '../session';
-
-const minted = z.object({ accessToken: z.string().min(1), expiresAt: z.string().min(1), scopes: z.array(z.string()) });
 
 /** What the person answers with: a 6-digit authenticator code, a recovery code, or a passkey. */
 export type WithdrawStepUpMethod = { code: string } | { passkey: true };
@@ -32,7 +29,7 @@ export async function mintWithdrawToken(
     if (!assertion.ok) return assertion;
     proof = { webauthn: assertion.data };
   }
-  const result = await api.mutate('identity', 'auth.stepUp', proof, minted, {
+  const result = await api.mutate('identity', 'auth.stepUp', proof, stepUpTokenSchema, {
     signal,
     keepSessionFor: ['auth.mfa_invalid', 'auth.webauthn_invalid', 'auth.mfa_not_enrolled', 'auth.webauthn_not_enrolled'],
   });

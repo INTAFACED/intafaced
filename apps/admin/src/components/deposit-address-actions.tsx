@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { StepReplyView } from '@/components/approval-workbench';
 import { ControlDesk } from '@/components/control-desk';
-import { REASON_MAX, REASON_MIN, UUID, validReason } from '@/lib/desk/approval-packet';
+import { validReason } from '@/lib/desk/approval-packet';
+import { REASON_MAX, REASON_MIN, UUID } from '@/lib/approval-fields';
 import { readStepReply, type StepReply } from '@/lib/approval-types';
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import { rowText } from '@/lib/ops-desk/actions-model';

@@ -149,6 +149,7 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
             mode: z.enum(['live', 'sandbox']),
             attribution: surfacesView,
             rateLimit: keyRateLimitSchema.nullable().optional(),
+            apiVersionDefault: z.string().nullable().optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -166,6 +167,7 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
               mode: result.mode,
               attribution: attributedSurfaces(stamp),
               ...(result.rateLimit === undefined ? {} : { rateLimit: result.rateLimit }),
+              ...(result.apiVersionDefault === undefined ? {} : { apiVersionDefault: result.apiVersionDefault }),
             };
           } catch (err) {
             mapAttributionErr(err);

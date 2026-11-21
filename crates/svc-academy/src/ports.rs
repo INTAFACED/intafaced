@@ -196,12 +196,20 @@ pub struct PaperFlag {
 /// `PaperMarketFlagPort`: whether svc-trade lists a market as paper.
 pub trait PaperFlags: Send + Sync {
     fn lookup(&self, market_id: &str, symbol: &str) -> Result<Option<PaperFlag>, Refusal>;
+    /// Whether svc-trade is asked at all (`options.paperMarketFlagPort` set): `index.ts` builds the port only while
+    /// `TRADE_URL` is set, and so does `main.rs`.
+    fn wired(&self) -> bool {
+        true
+    }
 }
 
 /// No svc-trade: the flag cannot be read, so a paper workbook refuses.
 pub struct NoPaperFlags;
 
 impl PaperFlags for NoPaperFlags {
+    fn wired(&self) -> bool {
+        false
+    }
     fn lookup(&self, _market_id: &str, _symbol: &str) -> Result<Option<PaperFlag>, Refusal> {
         Err(Refusal::Academy(AcademyError::new(
             "the paper flag cannot be read: TRADE_URL is unset",
@@ -272,30 +280,6 @@ pub struct RefundSend {
 /// `RefundSender`: the transaction the signer sent for the key, or none when its answer was lost or unclear.
 pub trait Refunds: Send + Sync {
     fn send(&self, input: &RefundSend) -> Result<Option<String>, Refusal>;
-}
-
-/// The video store's signed URLs (`VideoStorageConfig`).
-pub trait ObjectStore: Send + Sync {
-    fn signed_url(&self, key: &str, expires_at: Instant) -> Result<String, Refusal>;
-    /// `isVideoStorageConfigured`: an endpoint, a bucket and keys are set.
-    fn configured(&self) -> bool {
-        true
-    }
-}
-
-/// No video store: `academy.video_storage_unconfigured`.
-pub struct NoObjectStore;
-
-impl ObjectStore for NoObjectStore {
-    fn configured(&self) -> bool {
-        false
-    }
-    fn signed_url(&self, _key: &str, _expires_at: Instant) -> Result<String, Refusal> {
-        Err(Refusal::Academy(AcademyError::new(
-            "video storage is not configured",
-            "academy.video_storage_unconfigured",
-        )))
-    }
 }
 
 /// The event bus's publish side (`JetStreamEventBus`): the certification XP awards and their reversals.
@@ -379,7 +363,6 @@ pub struct Ports {
     pub ledger: Option<Box<dyn Ledger>>,
     pub chain: Option<Box<dyn Chain>>,
     pub refunds: Option<Box<dyn Refunds>>,
-    pub objects: Box<dyn ObjectStore>,
     /// The bytes of an assignment file sent to and read from a signed store address (`putOverHttp`, `getOverHttp`).
     pub object_bytes: Box<dyn crate::assessment::storage::ObjectBytes>,
     pub bus: Box<dyn Bus>,
@@ -402,7 +385,6 @@ impl Ports {
             ledger: None,
             chain: None,
             refunds: None,
-            objects: Box::new(NoObjectStore),
             // The TypeScript's default is the real wire; it is reached only once the store is configured.
             object_bytes: Box::new(crate::assessment::storage::HttpObjectBytes::default()),
             bus: Box::new(NoBus),

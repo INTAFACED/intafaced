@@ -61,7 +61,6 @@ COPY apps/customer/package.json              apps/customer/
 COPY apps/invitation/package.json            apps/invitation/
 COPY apps/mobile/package.json                apps/mobile/
 
-COPY packages/academy-ambassadors-pay/package.json packages/academy-ambassadors-pay/
 COPY packages/assistant-mcp/package.json     packages/assistant-mcp/
 COPY packages/auth/package.json              packages/auth/
 COPY packages/config/package.json            packages/config/
@@ -91,12 +90,10 @@ COPY packages/venue-contracts/package.json   packages/venue-contracts/
 COPY packages/venue-sim/package.json         packages/venue-sim/
 COPY packages/venue-hyperliquid/package.json packages/venue-hyperliquid/
 
-COPY services/svc-academy/package.json       services/svc-academy/
 COPY services/svc-agents/package.json        services/svc-agents/
 COPY services/svc-bank/package.json          services/svc-bank/
 COPY services/svc-blueprint/package.json     services/svc-blueprint/
 COPY services/svc-identity/package.json      services/svc-identity/
-COPY services/svc-ledger/package.json        services/svc-ledger/
 COPY services/svc-mining-pool/package.json  services/svc-mining-pool/
 COPY services/svc-matching/package.json      services/svc-matching/
 COPY services/svc-notify/package.json        services/svc-notify/
@@ -142,6 +139,9 @@ COPY . .
 # platform to be running.
 # Native packaging requires a verified HTTPS origin and ships separately.
 # This image is for HTTP services and browser apps, including Customer and Invitation.
+# Package builds call tooling/scripts/tsc.mjs, which runs tsc only when CI is set (tsrs otherwise): the image is
+# built by the same compiler that judged it in CI.
+ENV CI=true
 RUN pnpm exec turbo run build --filter='!mobile'
 
 # ── runtime ─────────────────────────────────────────────────────────────────

@@ -1,10 +1,10 @@
-import { quantQuotaSchema } from '@intafaced/contracts/quant-algo';
 import { DataTable, Panel } from '../../shared/ui';
 import { useResource } from '../../shared/resource';
 import { Read } from '../more';
 import { useApi } from '../session';
 import { usageCopy } from './usage-copy';
 import { limitsCopy } from './limits-copy';
+import { QUANT_QUOTA_GET } from '@intafaced/contracts/quant-quota-procedures';
 
 /**
  * The usage view (AL-limits-01): each resource with what the account holds, counted from the stored rows, against its
@@ -14,10 +14,7 @@ export function UsagePanel({ revision }: { revision: number }) {
   const api = useApi();
   const { t } = usageCopy.useCopy();
   const limits = limitsCopy.useCopy();
-  const usage = useResource(
-    (signal) => api.query('quant', 'quota.get', undefined, quantQuotaSchema, { signal }),
-    `quant-usage:${revision}`,
-  );
+  const usage = useResource((signal) => api.call(QUANT_QUOTA_GET, undefined, { signal }), `quant-usage:${revision}`);
   return (
     <Panel title={t('title')}>
       <section data-testid="quant-usage" aria-label={t('title')}>

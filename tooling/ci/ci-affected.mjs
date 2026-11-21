@@ -107,13 +107,22 @@ export function rustCrates(root = fileURLToPath(new URL('../..', import.meta.url
   }
 }
 /**
- * Files outside `crates/` that the crates' tests read (`include_str!`): svc-tax's records and their samples, and the
- * compose file that starts it (crates/svc-tax/tests/procedure_samples.rs, refusal_coverage.rs, boot.rs).
+ * Files outside `crates/` that the crates' tests read (`include_str!`): the compose file that starts svc-tax
+ * (crates/svc-tax/tests/boot.rs), and each crate's own records, `packages/<package>/procedures/<crate>.schema.json`
+ * (crates/svc-tax/tests/procedure_samples.rs, refusal_coverage.rs; crates/svc-academy/tests/procedure_records.rs). Another
+ * service's records reach no crate, so a change to them runs no Rust job.
  */
-const RUST_READS = new Set(['packages/contracts/procedures.schema.json', 'docker-compose.apps.yml']);
+const RUST_READS = new Set(['docker-compose.apps.yml']);
+/** Source the Rust ledger's recorded tables come from (crates/svc-ledger/scripts/record-posting.mjs, checked in the Rust job). */
+const RUST_READS_UNDER = ['packages/ledger-client/src/'];
+const RECORDS_FILE = /^packages\/[^/]+\/procedures\/([^/]+)\.schema\.json$/;
 /** A file the Rust job judges: a Rust file, a file the crates' tests read, or anything in a TypeScript service a crate replaces. */
 export const reachesRust = (file, crates = rustCrates()) =>
-  isRustFile(file) || RUST_READS.has(posix(file)) || crates.some((name) => posix(file).startsWith(`services/${name}/`));
+  isRustFile(file) ||
+  RUST_READS.has(posix(file)) ||
+  RUST_READS_UNDER.some((dir) => posix(file).startsWith(dir)) ||
+  crates.includes(RECORDS_FILE.exec(posix(file))?.[1] ?? '') ||
+  crates.some((name) => posix(file).startsWith(`services/${name}/`));
 /** What defines the Rust job (its steps, and the `rust:check` script it runs): a change to one runs it too. */
 const RUST_JOB_FILES = ['.github/workflows/ci.yml', 'package.json'];
 
@@ -245,6 +254,13 @@ export function testedPackages(filters, run = (args) => execFileSync('pnpm', arg
   }
 }
 
+/**
+ * What a pull request's look gate (look-pr.yml, #9325) runs on: a change to a Customer room or the kit draws, or to
+ * the gate itself. Docs there draw nothing. The seal then needs its pass, as for the Rust job.
+ */
+const LOOK_PATHS = ['apps/customer/', 'packages/ui/', 'tooling/ci/look-gate/', '.github/workflows/look-pr.yml'];
+export const reachesLook = (files) => (files || []).map(posix).some((f) => !isDoc(f) && LOOK_PATHS.some((p) => matchesPrefix(f, p)));
+
 export function sealNeeded(flags, results) {
   const problems = [];
   const always = ['changes', 'gates', 'format', 'build'];
@@ -260,6 +276,8 @@ export function sealNeeded(flags, results) {
   }
   // The Rust job, when the change reaches Rust: skipped or missing is a failure then, as for the tests.
   if (flags.rust && results.rust !== 'success') problems.push(`rust was ${results.rust || 'missing'} (the change reaches Rust)`);
+  // The look gate, when a pull request changes what a Customer room draws: skipped or missing is a failure then.
+  if (flags.look && results.look !== 'success') problems.push(`look was ${results.look || 'missing'} (the change draws a Customer room)`);
   return problems;
 }
 
@@ -318,6 +336,7 @@ function runSeal() {
     full: process.env.FULL === 'true',
     affected: process.env.AFFECTED === 'true',
     rust: process.env.RUST === 'true',
+    look: process.env.LOOK === 'true',
   };
   const results = {
     changes: process.env.CHANGES,
@@ -326,6 +345,7 @@ function runSeal() {
     build: process.env.BUILD,
     'tests-full': process.env.T_FULL,
     rust: process.env.RUST_RESULT,
+    look: process.env.LOOK_RESULT,
   };
   const problems = sealNeeded(flags, results);
   if (problems.length) {
@@ -367,6 +387,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
     process.exit(0);
   }
   const flags = classify(files, { forceFull });
+  // Only a pull request's run: main's look is the daily look gate, and a merge queue's commit was sealed on its pull requests.
+  flags.look = process.env.GITHUB_EVENT_NAME === 'pull_request' && reachesLook(files);
   if (args.includes('--github-output'))
     githubOutput(flags, flags.affected && !flags.full ? testedPackages(affectedFilters(files, readEdges(), diffBase())) : []);
   else console.log(JSON.stringify({ files, flags }, null, 2));

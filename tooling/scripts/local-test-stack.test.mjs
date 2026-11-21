@@ -19,6 +19,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tsImport } from 'tsx/esm/api';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // The env a child gets when it should find its state under its own HOME. An inherited LOCAL_STACK_STATE (the INTAFACED
@@ -153,11 +154,9 @@ const script = resolve(here, 'local-test-stack.mjs');
   const { localTestServiceEnvs, s2sEnv, S2S_SERVICES, PLAN_SECRETS, newServiceKey, serviceKeyMatches } =
     await import('./local-test-stack.mjs');
   const { createPrivateKey, createPublicKey } = await import('node:crypto');
-  const contractsNames = [
-    ...readFileSync(resolve(here, '../../packages/contracts/src/service-keys.ts'), 'utf8')
-      .match(/export const SERVICE_NAMES = \[([^\]]*)\]/)[1]
-      .matchAll(/'(svc-[a-z0-9-]+)'/g),
-  ].map((m) => m[1]);
+  // packages/contracts' own list, imported (tsx runs its source, so no build is needed): the services that sign S2S calls.
+  const { SERVICE_NAMES: contractsNames } = await tsImport('../../packages/contracts/src/service-keys.ts', import.meta.url);
+  assert.ok(contractsNames.includes('svc-trade') && contractsNames.includes('svc-ledger'), 'packages/contracts lists the signing services');
   const stackSvcs = localTestServiceEnvs().map((d) => d.env.SERVICE_NAME);
   assert.deepEqual(
     [...S2S_SERVICES].sort(),
@@ -846,7 +845,7 @@ try {
       continue;
     }
     if (sv.rust) {
-      // svc-tax runs its Rust binary, which the stack builds from its crate (ensureTaxBinary).
+      // A Rust service (svc-tax, svc-academy) runs its binary, which the stack builds from its crate (ensureRustBinaries).
       assert.equal(existsSync(join(repo, 'crates', `svc-${sv.name}`, 'Cargo.toml')), true, `no crates/svc-${sv.name}/Cargo.toml`);
       continue;
     }
@@ -872,11 +871,11 @@ try {
   }
   assert.equal(names.at(-1), 'edge', 'Edge starts last');
 
-  // Edge route table, read from source.
-  const routes = readFileSync(join(repo, 'services', 'svc-edge', 'src', 'routes.ts'), 'utf8');
-  const upstreams = [...routes.matchAll(/prefix: '\/api\/([a-z0-9]+)', module: '[a-z0-9-]+', envVar: '([A-Z0-9_]+)'/g)].map((m) => ({
-    prefix: m[1],
-    envVar: m[2],
+  // Edge's route table, as svc-edge exports it (UPSTREAMS): each /api/<module> prefix and the env var naming its upstream.
+  const { UPSTREAMS } = await tsImport('../../services/svc-edge/src/routes.ts', import.meta.url);
+  const upstreams = UPSTREAMS.filter((u) => /^\/api\/[a-z0-9]+$/.test(u.prefix)).map((u) => ({
+    prefix: u.prefix.slice('/api/'.length),
+    envVar: u.envVar,
   }));
   assert.ok(upstreams.length >= 20, `could not read the Edge route table (${upstreams.length} rows)`);
   const reachable = (envVar) => {
@@ -918,8 +917,12 @@ try {
   used.delete('ledger'); // /api/ledger is deliberately not routed (a string in a comment/refusal)
   used.delete('v2');
   // /api/edge/* is no upstream: svc-edge answers it itself (the rate-limit doors, J-developer-06). Exempt only while
-  // svc-edge really registers that door, so a customer call to a missing edge path still fails here.
-  if (/'\/api\/edge\/rate-limits\//.test(readFileSync(join(repo, 'services', 'svc-edge', 'src', 'rate-limits-door.ts'), 'utf8'))) {
+  // svc-edge really serves that door, so a customer call to a missing edge path still fails here. The routes its shipped
+  // entrypoint registers, booted as a process, are svc-edge's wire-replay record (its wire-replay.test.ts holds the
+  // record equal to what the process registers).
+  const edgeServes = JSON.parse(readFileSync(join(repo, 'services', 'svc-edge', 'src', 'wire-replay.golden', 'routes.json'), 'utf8'));
+  assert.ok(edgeServes.length >= 20, `could not read svc-edge's recorded routes (${edgeServes.length})`);
+  if (['GET /api/edge/rate-limits/costs', 'GET /api/edge/rate-limits/keys/:keyId/usage'].every((r) => edgeServes.includes(r))) {
     used.delete('edge');
   }
   assert.ok(used.size >= 12, `found only ${used.size} Customer modules: ${[...used]}`);

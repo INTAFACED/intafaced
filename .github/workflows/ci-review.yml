@@ -70,7 +70,7 @@ jobs:
       # The project-state read goes through the Mac agents' GitHub App (intafaced-mac-agents, its own quota), not the
       # PROJECT_STATE_READ_TOKEN secret, which spends the shared ZenYoda3 login's 5,000 calls an hour: on 9 Nov, 9 of the
       # last 10 failed reviews stopped on a 403 from project-state while that quota was at 0 (project-state #1571).
-      # The token is cut to contents:read on project-state alone and is revoked when the job ends. The App's key is a
+      # The token is cut to contents:read, and pull-requests:read for a cited `decision` PR, on project-state alone and is revoked when the job ends. The App's key is a
       # `ci-review` environment secret, so only this default-branch workflow reads it, and only this step. Until the key
       # is set, the step is skipped and the old secret is used (the way back: delete the key). With the key set, a failed
       # mint fails the job, as any unreadable input does.
@@ -84,6 +84,7 @@ jobs:
           owner: INTAFACED
           repositories: project-state
           permission-contents: read
+          permission-pull-requests: read
 
       # The tree index the seal reads (review-marker.mjs readReviewRuns): an artifact named by this head's tree sha, so
       # a FAIL is found when the same code comes back on another branch without listing every run of this workflow (a
@@ -153,31 +154,38 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
+          CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
           KEY_DRILL_PR: ${{ vars.CI_REVIEW_KEY_DRILL_PR }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           dir="$RUNNER_TEMP/review"
-          # The second key (project-state#2180): kept in an unexported variable, so a call sees one key, as before. Only
-          # when the first key is refused or used up (reviewer-error.mjs --key: `other`, never a refusal about the
-          # change) is the same call asked once more on it. With no second key set, nothing here changes.
-          second="$CLAUDE_CODE_OAUTH_TOKEN_2"
-          unset CLAUDE_CODE_OAUTH_TOKEN_2
+          # The spare keys, in order (project-state#2180, #3451): kept in unexported variables, so a call sees one key, as
+          # before. Only when the key in use is refused or used up (reviewer-error.mjs --key: `other`, never a refusal
+          # about the change) is the same call asked once more, on the next spare key that is set. With no spare key set
+          # nothing here changes, and with CLAUDE_CODE_OAUTH_TOKEN_3 unset the second key is the last, as before.
+          spares=("$CLAUDE_CODE_OAUTH_TOKEN_2" "$CLAUDE_CODE_OAUTH_TOKEN_3")
+          names=(second third)
+          unset CLAUDE_CODE_OAUTH_TOKEN_2 CLAUDE_CODE_OAUTH_TOKEN_3
+          any_spare="${spares[0]}${spares[1]}"
           answered_on=first
+          next=0
           other_key() {
-            [ -n "$second" ] && [ "$answered_on" = first ] || return 1
+            while [ "$next" -lt 2 ] && [ -z "${spares[$next]}" ]; do next=$((next + 1)); done
+            [ "$next" -lt 2 ] || return 1
             [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1" "$2" --key)" = other ] || return 1
             line="$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1" "$2" | sed 's/^::[a-z]*:://')"
-            echo "::warning::the first reviewer key failed, so this call is asked again on CLAUDE_CODE_OAUTH_TOKEN_2: $line"
-            echo "first_line=$line" >> "$GITHUB_OUTPUT"
-            CLAUDE_CODE_OAUTH_TOKEN="${second}"
-            answered_on=second
+            echo "::warning::the $answered_on reviewer key failed, so this call is asked again on CLAUDE_CODE_OAUTH_TOKEN_$((next + 2)): $line"
+            [ "$answered_on" != first ] || echo "first_line=$line" >> "$GITHUB_OUTPUT"
+            CLAUDE_CODE_OAUTH_TOKEN="${spares[$next]}"
+            answered_on="${names[$next]}"
+            next=$((next + 1))
           }
           # The key drill: the repository variable CI_REVIEW_KEY_DRILL_PR names one pull request whose first call is sent
-          # with a key that cannot be valid, so the API refuses it and the fallback above must answer on the second key.
-          # It proves the second key on a real review without waiting for the first to run out. It skips no call and
-          # changes no verdict: with no second key it does nothing, and unset (the default) nothing here changes.
-          if [ -n "$KEY_DRILL_PR" ] && [ "$KEY_DRILL_PR" = "$PR_NUMBER" ] && [ -n "$second" ]; then
-            echo "::warning::key drill for #$PR_NUMBER (repository variable CI_REVIEW_KEY_DRILL_PR): the first call is sent with a refused key, so the second key must answer"
+          # with a key that cannot be valid, so the API refuses it and the fallback above must answer on a spare key.
+          # It proves the spare key on a real review without waiting for the first to run out. It skips no call and
+          # changes no verdict: with no spare key it does nothing, and unset (the default) nothing here changes.
+          if [ -n "$KEY_DRILL_PR" ] && [ "$KEY_DRILL_PR" = "$PR_NUMBER" ] && [ -n "$any_spare" ]; then
+            echo "::warning::key drill for #$PR_NUMBER (repository variable CI_REVIEW_KEY_DRILL_PR): the first call is sent with a refused key, so a spare key must answer"
             CLAUDE_CODE_OAUTH_TOKEN="placeholder-the-api-refuses"
           fi
           if [ -f "$dir/skip-reviewer" ]; then
@@ -214,13 +222,14 @@ jobs:
               --json-schema "$schema" \
               < "$dir/input.jsonl" > "$dir/answer.jsonl" 2> "$dir/answer.jsonl.stderr"
             }
-            ask || { rc=$?; other_key "$dir/answer.jsonl" "$rc" || failed "$dir/answer.jsonl" "$rc"; ask || failed "$dir/answer.jsonl" "$?"; }
+            until ask; do rc=$?; other_key "$dir/answer.jsonl" "$rc" || failed "$dir/answer.jsonl" "$rc"; done
             echo "called=true" >> "$GITHUB_OUTPUT"
-            [ -z "$second" ] || { echo "key=$answered_on" >> "$GITHUB_OUTPUT" && echo "reviewer key: $answered_on"; }
+            [ -z "$any_spare" ] || { echo "key=$answered_on" >> "$GITHUB_OUTPUT" && echo "reviewer key: $answered_on"; }
           else
             # A diff over the cap is reviewed in parts (ci-review.mjs splitDiff): the first in "$dir", each other in
             # "$dir/parts/<n>", one call each, side by side; the read step needs every part's answer. A part whose call
-            # failed on the first key (reviewer-error.mjs --key: `other`) is asked once more on the second, as one call was.
+            # failed on its key (reviewer-error.mjs --key: `other`) is asked again on the key now in use, or on the next
+            # spare when it failed on that one, as one call was.
             ask() {
             schema="$(cat "$1/schema.json")"
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
@@ -247,15 +256,20 @@ jobs:
               rc=0
               wait "${pids[$i]}" || rc=$?
               [ "$rc" = 0 ] && continue
-              if [ "$answered_on" = first ]; then
-                other_key "$p/answer.json" "$rc" || failed "$p/answer.json" "$rc"
-              else
-                [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$p/answer.json" "$rc" --key)" = other ] || failed "$p/answer.json" "$rc"
-              fi
-              ask "$p" || failed "$p/answer.json" "$?"
+              used=first
+              until [ "$rc" = 0 ]; do
+                if [ "$used" = "$answered_on" ]; then
+                  other_key "$p/answer.json" "$rc" || failed "$p/answer.json" "$rc"
+                else
+                  [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$p/answer.json" "$rc" --key)" = other ] || failed "$p/answer.json" "$rc"
+                fi
+                used="$answered_on"
+                rc=0
+                ask "$p" || rc=$?
+              done
             done
             echo "called=true" >> "$GITHUB_OUTPUT"
-            [ -z "$second" ] || { echo "key=$answered_on" >> "$GITHUB_OUTPUT" && echo "reviewer key: $answered_on"; }
+            [ -z "$any_spare" ] || { echo "key=$answered_on" >> "$GITHUB_OUTPUT" && echo "reviewer key: $answered_on"; }
           fi
           node "$GITHUB_WORKSPACE/tooling/ci/ci-review.mjs" read "$dir"
 
@@ -324,9 +338,9 @@ jobs:
         run: node tooling/ci/judge-down.mjs back "CI review" issue
 
       # Which key answered, in one place: the "CI review on its second key" project-state issue (judge-down.mjs `key`),
-      # opened when the second key answered and closed when the first answers again, so the first is renewed before the
-      # second runs out too. Its failure can't fail the job. With no second key set, no `key` output is written and this
-      # step never runs.
+      # opened when a spare key (the second or the third) answered and closed when the first answers again, so the first
+      # is renewed before the spares run out too. Its failure can't fail the job. With no spare key set, no `key` output
+      # is written and this step never runs.
       - name: Reviewer key
         if: ${{ !cancelled() && steps.review.outputs.key != '' && steps.review.outputs.kind != 'down' }}
         continue-on-error: true
@@ -334,7 +348,7 @@ jobs:
           ISSUE_TOKEN: ${{ steps.issues-token.outputs.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           LINE: ${{ steps.review.outputs.first_line }}
-        run: node tooling/ci/judge-down.mjs "${{ steps.review.outputs.key == 'second' && 'second' || 'first' }}" "CI review" key
+        run: node tooling/ci/judge-down.mjs "${{ steps.review.outputs.key == 'first' && 'first' || 'second' }}" "CI review" key
 
   # The proof read, a check on the pull request that blocks nothing (project-state OWNER.md items 251 (3) and 250 (2);
   # OWNER 257: nothing new may block a merge). A job of its own after the review, so the review job the seal reads
@@ -388,12 +402,14 @@ jobs:
           PROJECT_STATE_READ_TOKEN: ${{ secrets.PROJECT_STATE_READ_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CODE_OAUTH_TOKEN_2: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_2 }}
+          CLAUDE_CODE_OAUTH_TOKEN_3: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN_3 }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           dir="$RUNNER_TEMP/read"
-          # The second key, as in the Review step: unexported, and asked only after the first is refused or used up.
-          second="$CLAUDE_CODE_OAUTH_TOKEN_2"
-          unset CLAUDE_CODE_OAUTH_TOKEN_2
+          # The spare keys, as in the Review step: unexported, and each asked only after the key before it is refused or used up.
+          spares=("$CLAUDE_CODE_OAUTH_TOKEN_2" "$CLAUDE_CODE_OAUTH_TOKEN_3")
+          names=(second third)
+          unset CLAUDE_CODE_OAUTH_TOKEN_2 CLAUDE_CODE_OAUTH_TOKEN_3
           no() { echo "::warning::no proof read of this head: $1 (it blocks nothing)"; exit 0; }
           # The first read of a head counts: an earlier attempt of this run that read it is never read again.
           had="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=proof-v2-read-$HEAD_SHA" --jq '.total_count')" || no "the artifacts can't be listed"
@@ -427,15 +443,21 @@ jobs:
               "Read the steps in the input against the brief at its top. Answer with the structured reads only." \
               < "$d/prompt.txt" > "$d/answer.json" 2> "$d/answer.json.stderr"
           }
-          # One reader call, asked again on the second key only when the first is refused or used up (--key: `other`).
+          # One reader call, asked again on the next spare key that is set only when the key in use is refused or used up
+          # (--key: `other`).
           read_one() {
             ask "$1" && return 0
             rc=$?
-            [ -n "$second" ] && [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1/answer.json" "$rc" --key)" = other ] || return "$rc"
-            echo "::warning::the first reviewer key failed, so this read is asked again on CLAUDE_CODE_OAUTH_TOKEN_2: $(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1/answer.json" "$rc" | sed 's/^::[a-z]*:://')"
-            CLAUDE_CODE_OAUTH_TOKEN="${second}"
-            : > "$1/answered-on-second-key"
-            ask "$1"
+            for k in 0 1; do
+              [ -n "${spares[$k]}" ] || continue
+              [ "$(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1/answer.json" "$rc" --key)" = other ] || return "$rc"
+              echo "::warning::a reviewer key failed, so this read is asked again on CLAUDE_CODE_OAUTH_TOKEN_$((k + 2)): $(node "$GITHUB_WORKSPACE/tooling/ci/reviewer-error.mjs" "$1/answer.json" "$rc" | sed 's/^::[a-z]*:://')"
+              CLAUDE_CODE_OAUTH_TOKEN="${spares[$k]}"
+              echo "${names[$k]}" > "$1/answered-on-key"
+              ask "$1" && return 0
+              rc=$?
+            done
+            return "$rc"
           }
           for d in "$dir" "$dir/second"; do
             [ -f "$d/prompt.txt" ] || continue
@@ -453,8 +475,9 @@ jobs:
           done
           [ "$failed" = 0 ] || no "a reader call failed"
           echo "called=true" >> "$GITHUB_OUTPUT"
-          if [ -e "$dir/answered-on-second-key" ] || [ -e "$dir/second/answered-on-second-key" ]; then
-            echo "::warning::reviewer key: second (CLAUDE_CODE_OAUTH_TOKEN_2); renew CLAUDE_CODE_OAUTH_TOKEN"
+          spare="$(cat "$dir/answered-on-key" "$dir/second/answered-on-key" 2> /dev/null | sort -r | head -n 1)" || true
+          if [ -n "$spare" ]; then
+            echo "::warning::reviewer key: $spare (a spare key); renew CLAUDE_CODE_OAUTH_TOKEN"
           else echo "reviewer key: first"; fi
           node "$GITHUB_WORKSPACE/tooling/ci/step-read.mjs" read "$dir" || no "the answer can't be read"
           echo "read=1" >> "$GITHUB_OUTPUT"

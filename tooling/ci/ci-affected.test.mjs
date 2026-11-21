@@ -8,6 +8,7 @@ import {
   diffBase,
   mergeEdges,
   readEdges,
+  reachesLook,
   runsEverything,
   sealNeeded,
   shardMatrix,
@@ -117,6 +118,15 @@ test('classify: a change that reaches Rust runs the Rust job, and Rust files alo
     { files: ['services/svc-tax/src/wire-replay.golden.json'], expected: { full: false, affected: true, rust: true } },
     { files: ['services/svc-taxes/src/a.ts'], expected: { full: false, affected: true, rust: false } },
     { files: ['services/svc-bank/src/a.ts'], expected: { full: false, affected: true, rust: false } },
+    // A crate's tests read its own service's records, and only those (project-state#3522).
+    { files: ['packages/contracts/procedures/svc-tax.schema.json'], expected: { full: false, affected: true, rust: true } },
+    { files: ['packages/contracts/procedures/svc-academy.schema.json'], expected: { full: false, affected: true, rust: true } },
+    { files: ['packages/contracts/procedures/svc-market.schema.json'], expected: { full: false, affected: true, rust: false } },
+    // The Rust ledger's recorded gate tables come from ledger-client's sources (record-posting.mjs --check, Rust job).
+    { files: ['packages/ledger-client/src/gate/caller-allowlist.ts'], expected: { full: true, affected: false, rust: true } },
+    { files: ['packages/ledger-client/src/recipes/deposit.ts'], expected: { full: true, affected: false, rust: true } },
+    { files: ['packages/ledger-client/package.json'], expected: { full: true, affected: false, rust: false } },
+    { files: ['packages/contracts/procedures/svc-taxes.schema.json'], expected: { full: false, affected: true, rust: false } },
     { files: ['tooling/ci/gates.mjs'], expected: { full: true, affected: false, rust: false } },
     { files: ['docs/x.md'], expected: { full: false, affected: false, rust: false } },
     { files: ['vendor/x/y.ts'], expected: { full: true, affected: false, rust: false } },
@@ -201,6 +211,23 @@ test('seal: the required jobs a classification needs', () => {
   assert(sealNeeded(rust, { ...ok, rust: 'skipped' }).length === 1, 'a skipped Rust job is a failure when the change reaches Rust');
   assert(sealNeeded(rust, ok).length === 1, 'a missing Rust job is a failure when the change reaches Rust');
   assert(sealNeeded(none, { ...ok, rust: 'skipped' }).length === 0, 'a change that reaches no Rust needs no Rust job');
+  const look = { full: false, affected: true, look: true };
+  assert(sealNeeded(look, { ...ok, 'tests-full': 'success', look: 'success' }).length === 0, 'look gate green');
+  assert(sealNeeded(look, { ...ok, 'tests-full': 'success', look: 'failure' }).length === 1, 'look gate red');
+  assert(
+    sealNeeded(look, { ...ok, 'tests-full': 'success', look: 'skipped' }).length === 1,
+    'a skipped look gate is a failure when the change draws a room',
+  );
+  assert(sealNeeded(none, { ...ok, look: 'skipped' }).length === 0, 'a change that draws no room needs no look gate');
+});
+
+test('reachesLook: a change a Customer room or the kit draws, or the gate itself (#9325)', () => {
+  assert(reachesLook(['apps/customer/src/screens/pay/index.tsx']), 'a Customer room');
+  assert(reachesLook(['packages/ui/src/lit/tokens.ts']), 'the kit');
+  assert(reachesLook(['tooling/ci/look-gate/policy.mjs']), 'the gate');
+  assert(reachesLook(['.github/workflows/look-pr.yml']), 'its workflow');
+  assert(!reachesLook(['apps/customer/README.md']), 'a doc draws nothing');
+  assert(!reachesLook(['services/svc-pay/src/x.ts', 'apps/admin/src/a.tsx']), 'a service or the console is not a Customer room');
 });
 
 test('shards: how many test jobs a run takes', () => {

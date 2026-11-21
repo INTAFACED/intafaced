@@ -93,6 +93,18 @@ describe("the TEST venue's builder fee claims", () => {
     expect(await freeUsdc(sim)).toBe(a('0.3'));
   });
 
+  it('two starts of the venue name their claims apart, so a restarted venue never repeats a claim id', async () => {
+    const at = () => new Date(Date.UTC(2026, 10, 14, 12));
+    const first = new TestVenueSimulator({ clock: at, markets: TEST_VENUE_MARKETS, claimIdPrefix: 'sim-builder-claim-a' });
+    const again = new TestVenueSimulator({ clock: at, markets: TEST_VENUE_MARKETS, claimIdPrefix: 'sim-builder-claim-b' });
+    await earnOnce(first, 1);
+    await earnOnce(again, 1);
+    const [one] = first.claimBuilderFees(BUILDER);
+    const [two] = again.claimBuilderFees(BUILDER);
+    expect(one?.claimId).toBe('sim-builder-claim-a-1');
+    expect(two?.claimId).toBe('sim-builder-claim-b-1');
+  });
+
   it('a later claim takes only what was earned since the last one', async () => {
     const sim = new TestVenueSimulator({ clock: () => new Date(Date.UTC(2026, 10, 14, 11)), markets: TEST_VENUE_MARKETS });
     await earnOnce(sim, 1);

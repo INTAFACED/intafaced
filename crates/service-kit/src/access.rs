@@ -50,15 +50,18 @@ const SESSION_MFA_SCOPES: [&str; 4] = [
     "pay:onboard",
 ];
 
+/// `hasScope(granted, scope)`: the scope held, or implied by one held.
+pub fn has_scope(granted: &[String], scope: &str) -> bool {
+    granted
+        .iter()
+        .any(|s| s == scope || IMPLIED.iter().any(|(from, to)| s == from && *to == scope))
+}
+
 /// `requireScope(principal, scope)`: the scope held (or implied), not exercised from an API key or sub-account when it
 /// may not be, and with two-factor where the scope needs it. `code` is `scope.denied`, `scope.interactive_only` or
 /// `mfa.required`.
 pub fn require_scope(p: &Principal, scope: &str) -> Result<(), Refused> {
-    let held = p
-        .scopes
-        .iter()
-        .any(|s| s == scope || IMPLIED.iter().any(|(from, to)| s == from && *to == scope));
-    if !held {
+    if !has_scope(&p.scopes, scope) {
         return Err(Refused {
             message: format!("Scope \"{scope}\" is required"),
             code: "scope.denied".to_owned(),
@@ -122,6 +125,16 @@ struct ScreeningList {
     regions: Vec<Blocked>,
     declaration: Declaration,
     source: String,
+}
+
+/// The screening list as `ScreeningList` reads: `declaration`, `configured`, `source` and the listed regions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScreeningView<'a> {
+    pub declaration: &'static str,
+    pub configured: bool,
+    pub source: &'a str,
+    /// Each listed region and its reason.
+    pub regions: Vec<(&'a str, &'a str)>,
 }
 
 /// What the jurisdiction check reads from the environment, read once.
@@ -388,6 +401,31 @@ impl Jurisdiction {
             region_fail_closed,
             screening_fail_closed,
         })
+    }
+
+    /// `envScreeningList()` as its readers see it: the declaration, whether an answer was supplied, the provenance, and
+    /// each listed region with its reason (every row carries the list's own source).
+    pub fn screening(&self) -> ScreeningView<'_> {
+        ScreeningView {
+            declaration: match self.screening.declaration {
+                Declaration::Unset => "unset",
+                Declaration::Listed => "listed",
+                Declaration::ReviewedEmpty => "reviewed-empty",
+            },
+            configured: self.screening.declaration != Declaration::Unset,
+            source: &self.screening.source,
+            regions: self
+                .screening
+                .regions
+                .iter()
+                .map(|b| (b.region.as_str(), b.reason.as_deref().unwrap_or_default()))
+                .collect(),
+        }
+    }
+
+    /// `SHIPPED_BUSINESS_BLOCKS`: the matrix's own blocks, without the TEST blocks a dev or test process adds.
+    pub fn shipped_business_regions() -> impl Iterator<Item = &'static str> {
+        SHIPPED_BUSINESS_BLOCKS.iter().map(|(r, _)| *r)
     }
 
     fn money_grade(&self) -> &'static str {

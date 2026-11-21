@@ -109,7 +109,7 @@ export function VenueFrame({ mode, children }: { mode: Extract<VenueMode, { mode
 export function VenueHeader({ status, title, feeLine }: { status: VenueUp; title: ReactNode; feeLine?: ReactNode }) {
   const { t } = venueCopy.useCopy();
   return (
-    <header className="dk-panel" data-testid="venue-header" aria-label={t('Venue')}>
+    <header className="dk-panel dk-venue-head" data-testid="venue-header" aria-label={t('Venue')}>
       <h1 className="dk-tab-title">
         {title} <TestMark test={status.test} />
       </h1>
@@ -293,7 +293,8 @@ function keyOf(intent: VenueIntent, actionKey: string | undefined): string {
   if (intent.kind === 'withdraw') return intent.withdrawalKey;
   if (intent.kind === 'cancel_order') return actionKey ?? keys.cancel(intent.clientOrderKey);
   if (intent.kind === 'market_margin_transfer') return intent.moveKey;
-  if (intent.kind === 'update_isolated_margin') return intent.changeKey;
+  if (intent.kind === 'update_isolated_margin' || intent.kind === 'set_account_mode') return intent.changeKey;
+  if (intent.kind === 'spot_perps_transfer' || intent.kind === 'vault_transfer') return intent.moveKey;
   return actionKey ?? '';
 }
 

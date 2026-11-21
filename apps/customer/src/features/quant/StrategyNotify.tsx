@@ -1,12 +1,5 @@
-import {
-  QUANT_ALERT_FIELDS,
-  QUANT_ALERT_TEMPLATE_MAX,
-  quantAlertListSchema,
-  quantAlertSchema,
-  quantNotifySettingsSchema,
-  type QuantAlert,
-  type QuantStrategyDetail,
-} from '@intafaced/contracts/quant-algo';
+import { QUANT_ALERT_FIELDS, QUANT_ALERT_TEMPLATE_MAX, type QuantAlert, type QuantStrategyDetail } from '@intafaced/contracts/quant-algo';
+import { QUANT_NOTIFY_GET, QUANT_NOTIFY_SET } from '@intafaced/contracts/quant-strategy-settings-procedures';
 import { useState } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -15,6 +8,7 @@ import { channelStatus } from '../../screens/notifications/notify-api';
 import { Read, Select, TextArea } from '../more';
 import { useApi } from '../session';
 import { notifyCopy } from './notify-copy';
+import { QUANT_ALERT_LIST, QUANT_ALERT_CREATE } from '@intafaced/contracts/quant-alert-procedures';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const utcText = (iso: string) => iso.slice(0, 16).replace('T', ' ');
@@ -43,7 +37,7 @@ export function StrategyChannels({ strategy }: { strategy: QuantStrategyDetail }
   const { t } = notifyCopy.useCopy();
   const [revision, setRevision] = useState(0);
   const settings = useResource(
-    (signal) => api.query('quant', 'notify.get', { strategyId: strategy.id }, quantNotifySettingsSchema, { signal }),
+    (signal) => api.call(QUANT_NOTIFY_GET, { strategyId: strategy.id }, { signal }),
     `quant-notify:${strategy.id}:${revision}`,
   );
   const status = useResource((signal) => channelStatus(api, signal), 'quant-notify-channel-status');
@@ -70,12 +64,7 @@ export function StrategyChannels({ strategy }: { strategy: QuantStrategyDetail }
             setNote(null);
             setRefused(null);
             setFailure(null);
-            const res = await api.mutate(
-              'quant',
-              'notify.set',
-              { strategyId: strategy.id, channels: [...chosen] },
-              quantNotifySettingsSchema,
-            );
+            const res = await api.call(QUANT_NOTIFY_SET, { strategyId: strategy.id, channels: [...chosen] });
             setBusy(false);
             if (res.ok) {
               setPicked(null);
@@ -152,7 +141,7 @@ export function StrategyAlerts({ strategy }: { strategy: QuantStrategyDetail }) 
   const [opening, setOpening] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const list = useResource(
-    (signal) => api.query('quant', 'alert.list', { strategyId: strategy.id }, quantAlertListSchema, { signal }),
+    (signal) => api.call(QUANT_ALERT_LIST, { strategyId: strategy.id }, { signal }),
     `quant-alerts:${strategy.id}:${revision}`,
   );
   return (
@@ -231,12 +220,7 @@ function AlertForm(props: {
     setBusy(true);
     setInvalid(null);
     setFailure(null);
-    const res = await api.mutate(
-      'quant',
-      'alert.create',
-      { strategyId: props.strategy.id, strategyVersion: Number(version), template, ordinal },
-      quantAlertSchema,
-    );
+    const res = await api.call(QUANT_ALERT_CREATE, { strategyId: props.strategy.id, strategyVersion: Number(version), template, ordinal });
     setBusy(false);
     if (res.ok) return props.onCreated(res.data);
     const detail = invalidOf(res.message);

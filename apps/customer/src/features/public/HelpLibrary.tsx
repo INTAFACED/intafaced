@@ -1,3 +1,4 @@
+import { SUPPORT_KB_LIBRARY } from '@intafaced/contracts/support-desk-settings-procedures';
 import { SUPPORT_HELP_CENTRE_OFF } from '@intafaced/contracts/support-help-centre';
 import { supportKbParagraphs } from '@intafaced/contracts/support-kb-library';
 import { readContract } from '../../shared/contract-call';
@@ -7,14 +8,7 @@ import { useSession } from '../session';
 import { ContactSupport } from './ContactSupport';
 import { helpCopy as copy } from './help-copy';
 import { helpHref } from './help-guards';
-import {
-  HELP_SECTION_WINDOW,
-  helpCategoryHref,
-  helpLibraryRead,
-  helpSectionHref,
-  helpSectionRead,
-  type HelpLibraryPath,
-} from './help-library';
+import { HELP_SECTION_WINDOW, helpCategoryHref, helpSectionHref, helpSectionRead, type HelpLibraryPath } from './help-library';
 import './help.css';
 
 /**
@@ -24,7 +18,7 @@ import './help.css';
 export function HelpLibraryNav() {
   const { t, languageFor } = copy.useCopy();
   const { api, userId } = useSession();
-  const library = useResource((signal) => readContract(api, helpLibraryRead, undefined, { signal }), `help-library:${userId ?? 'public'}`);
+  const library = useResource((signal) => api.call(SUPPORT_KB_LIBRARY, undefined, { signal }), `help-library:${userId ?? 'public'}`);
   const read = library.resource;
   return (
     <nav className="help__card help__library" aria-label={t('libraryTitle')} data-testid="help-library">
@@ -125,7 +119,7 @@ function Refused({ kind }: { kind: 'off' | 'missing' }) {
 function CategoryPage({ id }: { id: string }) {
   const { t, languageFor } = copy.useCopy();
   const { api, userId } = useSession();
-  const library = useResource((signal) => readContract(api, helpLibraryRead, undefined, { signal }), `help-library:${userId ?? 'public'}`);
+  const library = useResource((signal) => api.call(SUPPORT_KB_LIBRARY, undefined, { signal }), `help-library:${userId ?? 'public'}`);
   const read = library.resource;
   if (read.status === 'loading') return <Loading label={t('loadingLibrary')} />;
   if (read.status === 'failed') {

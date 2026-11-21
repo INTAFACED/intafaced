@@ -13,8 +13,10 @@ import {
   partFrom,
   type PartLabels,
   explainRefusal,
+  founderRecordRead,
 } from '@/lib/desk';
 import type { AcademyAdminAssignment, AssignmentDeskReply, AssignmentView } from './assignments-model';
+import { ACADEMY_ADMIN_ASSIGNMENT } from '@intafaced/contracts/academy-admin-records';
 
 /**
  * An assignment's brief as the signed-in founder (AC-assignments-01). svc-academy keeps the revision and records the
@@ -31,7 +33,7 @@ const ACADEMY: PartLabels = {
 const readAssignment = parseWith(academyAdminAssignmentSchema);
 
 export async function loadAssignment(ctx: FounderCallContext, itemId: string): Promise<AssignmentView> {
-  const assignment = await founderCall(ctx, 'academy', 'admin.assignment', 'GET', { itemId }, readAssignment);
+  const assignment = await founderRecordRead(ctx, ACADEMY_ADMIN_ASSIGNMENT, { itemId }, readAssignment);
   return { assignment: partFrom(assignment, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
 

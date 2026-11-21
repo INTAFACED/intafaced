@@ -193,6 +193,20 @@ quote; the same key for another ask refuses `trade.venue_sell_quote_key_reused` 
 `trade.venue_sell_quote_not_spot`, an unknown market `trade.venue_sell_quote_market_unknown`. Nothing is sent and the
 ledger posts nothing. Finance reads them in `admin.convertDesk.venueSellQuotes`.
 
+**Convert on the person's own venue account (J-cex-spot-11).** `src/venue/venue-convert.ts`, routes under
+`/api/v1/venue/convert/` (`pairs`, `route`, `quote`, `accept`, `limit`, `submit`, `history`). A quote holds nothing: the
+venue's best price on the side it meets, bounded by `TRADE_MARKET_SLIPPAGE_CAP_BPS` into an IOC limit price, sized so a
+buy never costs more than the typed spend, with the venue's own preview of its fee and ours (none on a buy). Nothing is
+sent or locked; the quote is stored in `trade.venue_convert_quotes` under the caller's `quoteKey`. Accepting prepares one
+venue order under `convert:<owner>:<quoteId>`, so a double press, the same quote id twice and Check again are one action;
+past `TRADE_CONVERT_ACCEPT_WINDOW_MS` (owner value; blank refuses `trade.convert_window_unset`) an unsigned action is
+refused at accept and at submit (`trade.convert_quote_expired`). A limit convert rests one GTC order under
+`convert:<owner>:limit:<limitKey>`. The door refuses a `convert:` key on its plain routes (`trade.venue_convert_only`).
+`TRADE_CONVERT_ENABLED` off refuses `trade.convert_disabled`; a cash currency refuses `trade.convert_cash_not_offered` (no
+partner is set). History reads each accepted order's fills from the venue by client id. The ledger posts nothing for the
+swap; a sell's builder fee is posted once per fill by the builder-fee poster. The older `convert.*` tRPC path settles on
+our own book and is the custodial layer, kept and switched off with it.
+
 **The person's own venue trading, for svc-tax (J-cex-spot-01 #11).** `venue.ownActivity` (tRPC mutation, svc-tax only,
 `serviceProcedureFor`; contract `packages/contracts/src/trade-venue-activity.ts`; code `src/venue/own-activity.ts`) answers
 one person's venue accounts with each one's balances and every spot fill, as the venue reports them at the moment of the
@@ -914,15 +928,15 @@ Reads such as `GET /api/v1/account/balance` still answer. The mapping lives in o
 
 ## Service keys: ledger calls
 
-The ledger client signs with svc-trade's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The ledger client signs with svc-trade's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.
 
 ## Service keys: outgoing calls
 
-Every other outgoing call signs with svc-trade's own key too when `S2S_AUTH_MODE`, `S2S_KEYRING`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set, each for its callee: svc-identity (approval consume, operator entitlement, rank perks, sub-account ownership, affiliate accrue and payout), svc-matching (every engine call and the position close), svc-fix (drop-copy fill post) and svc-token (OTC stake read). The signature binds method, full URL, body and content type. `dual` also sends the shared secret, `keypair` the key only. Unset leaves the shared secret, exactly as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+Every other outgoing call signs with svc-trade's own key too when `S2S_AUTH_MODE`, `S2S_KEYRING`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set, each for its callee: svc-identity (approval consume, operator entitlement, rank perks, sub-account ownership, affiliate accrue and payout), svc-matching (every engine call and the position close), svc-fix (drop-copy fill post) and svc-token (OTC stake read). The signature binds method, full URL, body and content type. `dual` also sends the shared secret, `keypair` the key only. Unset leaves the shared secret, exactly as before. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.
 
 ## Service keys: inbound doors
 
-The internal doors (market lifecycle publication and read, funding-rate publish, copy-leader fixtures, outcomes settle, closure check) and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+The internal doors (market lifecycle publication and read, funding-rate publish, copy-leader fixtures, outcomes settle, closure check) and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. Setup and rotation: `crates/svc-ledger/CALLER-BINDING.md`.
 
 ## LOCAL TEST tape history
 

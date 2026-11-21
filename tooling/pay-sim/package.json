@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json --noEmit",
+    "build": "node ../scripts/tsc.mjs -p tsconfig.json --noEmit",
     "typecheck": "node ../../tooling/scripts/tsc.mjs -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run src/safety.test.ts src/oracle.test.ts src/cli.test.ts src/fixtures.test.ts",

@@ -2,7 +2,13 @@ import { z } from 'zod';
 import type { Scope } from '@intafaced/auth';
 import type { KycTier, ModuleId, Plane } from '@intafaced/config';
 import type { ServiceName, ServingServiceName } from './service-keys.js';
-import { portabilityFindings, REFINEMENT, SchemaNotPortableError, strictJsonSchema } from './procedure-strict-schema.js';
+import {
+  portabilityFindings,
+  REFINEMENT,
+  SchemaNotPortableError,
+  strictJsonSchema,
+  type PortabilityFinding,
+} from './procedure-strict-schema.js';
 
 /**
  * ONE WRITTEN RECORD PER CALL. A call between an app and a service, or between two services, is declared once here or in a
@@ -14,7 +20,8 @@ import { portabilityFindings, REFINEMENT, SchemaNotPortableError, strictJsonSche
  * Services export routers nothing may import (the boundary scan forbids an app or package depending on a service), so the
  * record lives here and the router is checked against it, never generated from it.
  *
- * `procedures.schema.json` beside this package holds the language-neutral form of every record (JSON Schema, draft 2020-12),
+ * `procedures/<service>.schema.json` beside this package holds the language-neutral form of every record (JSON Schema,
+ * draft 2020-12), one file per serving service so a change to one service's records touches only that service's file,
  * written by `pnpm --filter @intafaced/contracts procedures:write` and held by `procedure-registry.test.ts`.
  */
 
@@ -39,8 +46,9 @@ export interface HttpTransport {
 
 /**
  * Who may call. The serving side mounts the matching guard (`procedure-mount.ts`): `public` checks nothing, `scope` is
- * `scopedProcedure(scope, guards)`, `service` is `serviceProcedureFor(callers)` or, on a plain HTTP door, the service's
- * own signed-caller check against the same list; `signedIn` is `signedInProcedure(guards)`. `jurisdiction` needs no
+ * `scopedProcedure(scope, guards)`, `anyScope` is `anyScopeProcedure(scopes, guards)`, `service` is `serviceProcedureFor(callers)` or, on a plain HTTP door, the service's
+ * own signed-caller check against the same list; `signedIn` is `signedInProcedure(guards)`; `founder` is the serving service's
+ * own founder guard, handed to the mount (`ServiceParts` in `procedure-mount.ts`). `jurisdiction` needs no
  * principal but refuses a region the module is not served in (`publicJurisdictionProcedure(module, plane)`). The record
  * names the rule; the receiver reads the live facts.
  */
@@ -54,10 +62,27 @@ export type Access =
       readonly plane?: Plane;
       readonly tier?: KycTier;
       readonly person?: boolean;
+      /** The person's own session: an API key or a sub-account is refused FORBIDDEN with this code (`GuardOptions.ownSession`). */
+      readonly ownSession?: string;
+      /** The serving service's own check, by the name it hands the mount (`ServiceParts.checks`; `GuardOptions.check`). */
+      readonly check?: string;
+    }
+  /** The first of these scopes the caller holds (`anyScopeProcedure(scopes, guards)`): a read open to a member and an operator alike. */
+  | {
+      readonly caller: 'anyScope';
+      readonly scopes: readonly [Scope, ...Scope[]];
+      readonly module?: ModuleId;
+      readonly plane?: Plane;
     }
   | { readonly caller: 'service'; readonly callers: readonly ServiceName[] }
   /** Any signed-in principal, no scope; then the module's jurisdiction check when `module` is named (`signedInProcedure`). */
-  | { readonly caller: 'signedIn'; readonly module?: ModuleId; readonly plane?: Plane };
+  | { readonly caller: 'signedIn'; readonly module?: ModuleId; readonly plane?: Plane }
+  /**
+   * A founder at the console: a signed interactive principal with MFA and no API key, whose founder entitlement the serving
+   * service reads live before the input is parsed. No scope says it (`admin:read` can sit on a long-lived key), so the
+   * service passes its own founder guard to the mount, and the handler reads `ctx.founderUserId`.
+   */
+  | { readonly caller: 'founder' };
 
 /** The tRPC codes a refusal is sent with (a plain HTTP door maps them to its status). */
 export type RefusalStatus =
@@ -68,7 +93,23 @@ export type RefusalStatus =
   | 'CONFLICT'
   | 'PRECONDITION_FAILED'
   | 'TOO_MANY_REQUESTS'
-  | 'SERVICE_UNAVAILABLE';
+  | 'SERVICE_UNAVAILABLE'
+  | 'TIMEOUT'
+  | 'PAYLOAD_TOO_LARGE';
+
+/** The HTTP status tRPC sends each refusal status with, for tests that check a mounted record on the wire. */
+export const REFUSAL_HTTP_STATUS: Readonly<Record<RefusalStatus, number>> = Object.freeze({
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  CONFLICT: 409,
+  PRECONDITION_FAILED: 412,
+  TOO_MANY_REQUESTS: 429,
+  SERVICE_UNAVAILABLE: 503,
+  TIMEOUT: 408,
+  PAYLOAD_TOO_LARGE: 413,
+});
 
 /** Every named refusal the call may answer with, by its machine code, and the status it is sent with. */
 export type Refusals = Readonly<Record<string, RefusalStatus>>;
@@ -107,7 +148,7 @@ export interface ProcedureSample {
 }
 
 export type ProcedureRecord<I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodType> = (TrpcTransport | HttpTransport) & {
-  /** Stable name of the record; the key in `procedures.schema.json`. */
+  /** Stable name of the record; its key in `procedures/<service>.schema.json`. */
   readonly name: string;
   /** The service that serves the call. */
   readonly service: ServingServiceName;
@@ -121,6 +162,12 @@ export type ProcedureRecord<I extends z.ZodType = z.ZodType, O extends z.ZodType
   readonly refusals: Refusals;
   /** The input checks JSON Schema cannot carry, by name. */
   readonly checks?: Readonly<Record<string, InputCheck>>;
+  /**
+   * The answer's own refinements JSON Schema cannot carry, by name, as `checks` names the input's: `at` is where one
+   * sits (`output`, `output.personalCap`). The schema still runs it (the mount and every caller parse with `output`);
+   * naming it makes every other implementation of the record carry it too. The export refuses an unnamed one.
+   */
+  readonly outputChecks?: Readonly<Record<string, InputCheck>>;
   /**
    * The callers' own checks over the reply, beyond its schema, by name: a caller holding the answer to a stricter rule
    * writes it here, where every caller (`api.call`, `callHttpRecord`) runs it, rather than in one caller's copy. A reply one
@@ -187,8 +234,9 @@ export function procedureJsonSchema(record: ProcedureRecord): Record<string, unk
     access: record.access,
     refusals: record.refusals,
     ...inputJsonSchema(record),
-    output: strictJsonSchema(`${record.name}.output`, record.output, 'output'),
+    output: outputJsonSchema(record),
     ...(record.checks === undefined ? {} : { checks: record.checks }),
+    ...(record.outputChecks === undefined ? {} : { outputChecks: record.outputChecks }),
     ...(record.accept === undefined
       ? {}
       : { accept: Object.fromEntries(Object.entries(record.accept).map(([name, check]) => [name, check.says])) }),
@@ -200,6 +248,42 @@ export function procedureJsonSchema(record: ProcedureRecord): Record<string, unk
   };
 }
 
+/** The refinements a record names (`checks` or `outputChecks`), by where each sits. */
+function namedAt(checks: Readonly<Record<string, InputCheck>> | undefined): Map<string, string> {
+  return new Map(
+    Object.entries(checks ?? {}).flatMap(([name, check]) =>
+      (typeof check.at === 'string' ? [check.at] : check.at).map((at) => [at, name] as const),
+    ),
+  );
+}
+
+/** What the export can't carry once the record's named refinements are set aside, and each name that names none. */
+function unnamed(findings: readonly PortabilityFinding[], named: Map<string, string>, side: string): PortabilityFinding[] {
+  const used = new Set<string>();
+  const left = findings.filter((f) => {
+    if (f.construct !== REFINEMENT || !named.has(f.at)) return true;
+    used.add(f.at);
+    return false;
+  });
+  const stale = [...named]
+    .filter(([at]) => !used.has(at))
+    .map(([at, name]) => ({ at, construct: `${side} check ${name} names no refinement here` }));
+  return [...left, ...stale];
+}
+
+/** The output side of the export: a refinement must be named in `outputChecks` at the place it sits. */
+function outputJsonSchema(record: ProcedureRecord): Record<string, unknown> {
+  const left = unnamed(portabilityFindings(record.output, 'output', 'output'), namedAt(record.outputChecks), 'output');
+  // Named from `output`, as `outputChecks` names them; reported from the record's name, as the export always has.
+  const label = `${record.name}.output`;
+  if (left.length > 0)
+    throw new SchemaNotPortableError(
+      label,
+      left.map((f) => ({ ...f, at: f.at.replace(/^output/, label) })),
+    );
+  return z.toJSONSchema(record.output, { io: 'output', unrepresentable: 'throw' });
+}
+
 /**
  * The input side of the export. No input is `input: null`. An input that may be absent as a whole is
  * `inputOptional: true` beside the schema of what it is when present, since JSON Schema has no absent document. A
@@ -209,30 +293,27 @@ function inputJsonSchema(record: ProcedureRecord): Record<string, unknown> {
   if (record.input === NO_INPUT) return { input: null };
   const optional = record.input instanceof z.ZodOptional;
   const present = record.input instanceof z.ZodOptional ? record.input.unwrap() : record.input;
-  const named = new Map(
-    Object.entries(record.checks ?? {}).flatMap(([name, check]) =>
-      (typeof check.at === 'string' ? [check.at] : check.at).map((at) => [at, name] as const),
-    ),
-  );
-  const findings = portabilityFindings(present, 'input', 'input');
-  const used = new Set<string>();
-  const left = findings.filter((f) => {
-    if (f.construct !== REFINEMENT || !named.has(f.at)) return true;
-    used.add(f.at);
-    return false;
-  });
-  const stale = [...named]
-    .filter(([at]) => !used.has(at))
-    .map(([at, name]) => ({ at, construct: `input check ${name} names no refinement here` }));
-  if (left.length > 0 || stale.length > 0) throw new SchemaNotPortableError(`${record.name}.input`, [...left, ...stale]);
+  const left = unnamed(portabilityFindings(present, 'input', 'input'), namedAt(record.checks), 'input');
+  if (left.length > 0) throw new SchemaNotPortableError(`${record.name}.input`, left);
   const schema: Record<string, unknown> = z.toJSONSchema(present, { io: 'input', unrepresentable: 'throw' });
   return optional ? { inputOptional: true, input: schema } : { input: schema };
 }
 
-/** The text of a package's `procedures.schema.json`: every record by name, in name order, as `procedureJsonSchema` writes it. */
-export function procedureSchemaFile(records: readonly ProcedureRecord[]): string {
+/**
+ * The files of a package's `procedures/` directory: `<service>.schema.json` for each serving service, holding that
+ * service's records by name, in name order, as `procedureJsonSchema` writes them. One file per service, never one for the
+ * package: a record change then touches only its own service's file, and a Rust crate reads only the records it serves.
+ */
+export function procedureSchemaFiles(records: readonly ProcedureRecord[]): Record<string, string> {
   const names = records.map((r) => r.name);
   if (new Set(names).size !== names.length) throw new Error(`two records share a name: ${names.join(', ')}`);
-  const byName = Object.fromEntries([...records].sort((a, b) => a.name.localeCompare(b.name)).map((r) => [r.name, procedureJsonSchema(r)]));
-  return `${JSON.stringify({ $comment: 'Written by `procedures:write`; held by its drift test. Do not edit by hand.', procedures: byName }, null, 2)}\n`;
+  const sorted = [...records].sort((a, b) => a.name.localeCompare(b.name));
+  const services = [...new Set(sorted.map((r) => r.service))].sort();
+  return Object.fromEntries(
+    services.map((service) => {
+      const byName = Object.fromEntries(sorted.filter((r) => r.service === service).map((r) => [r.name, procedureJsonSchema(r)]));
+      const text = `${JSON.stringify({ $comment: 'Written by `procedures:write`; held by its drift test. Do not edit by hand.', procedures: byName }, null, 2)}\n`;
+      return [`${service}.schema.json`, text];
+    }),
+  );
 }

@@ -6,6 +6,7 @@ const row = (hash: string, timestamp: number, direction: 'in' | 'out', amount: s
   chainId: 84532,
   hash,
   blockHeight: timestamp,
+  blockHash: `0x${'b'.repeat(64)}`,
   index: 0,
   timestamp,
   from: '0x1',

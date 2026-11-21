@@ -14,6 +14,7 @@ import {
   coreOpsReconciliationAlertUpdated,
   copySkipped,
   copyStopped,
+  recurringBuySuspended,
   agentUsageAlertCrossed,
   agentAlertFired,
   agentApprovalRequested,
@@ -948,7 +949,9 @@ export async function subscribeNotificationEvents(
   );
 
   // Copy trading (J-copy-bots-otc-03 #6): svc-trade publishes after the skip row or the stop is saved. The notice says
-  // why, in words keyed by the reason id, and what the person can do; it never shows a raw code. Inbox only.
+  // why, in words keyed by the reason id, and what the person can do; it never shows a raw code. It goes out of app like
+  // any order notice: one email to a confirmed address when an email sender is set (the delivery row keeps it to one);
+  // with none, no address can be confirmed, nothing is sent, and the settings name vendor.email.
   attachments.push(
     await attach(bus, 'copySkipped', copySkipped.subject, 'notify-copy-skipped', async (payload) => {
       // A skip the follower chose (a pause or a stop) is theirs already; svc-trade does not send it, and none is written.
@@ -965,7 +968,6 @@ export async function subscribeNotificationEvents(
           sourceSubject: copySkipped.subject,
           // One notice per follow and leader fill, however often svc-trade sends it.
           sourceIdempotencyKey: `${payload.followId}:${payload.leaderFillId}`,
-          outOfApp: false,
         }),
       );
     }),
@@ -986,7 +988,26 @@ export async function subscribeNotificationEvents(
           sourceSubject: copyStopped.subject,
           // A stop is one-way, so one notice per follow and close-only.
           sourceIdempotencyKey: `${payload.followId}:${payload.closeOnly}`,
-          outOfApp: false,
+        }),
+      );
+    }),
+  );
+
+  // A recurring buy suspended for insufficient funds (J-copy-bots-otc-16 #6): svc-trade publishes once per rule and slot
+  // after the status moved. One notice per rule and slot, however often it is sent; the room shows the suspended state.
+  attachments.push(
+    await attach(bus, 'recurringBuySuspended', recurringBuySuspended.subject, 'notify-recurring-buy-suspended', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'trade.recurring_buy.suspended',
+          titleKey: 'notify.trade.recurring_buy_suspended.title',
+          bodyKey: 'notify.trade.recurring_buy_suspended.body',
+          params: { ruleId: payload.ruleId, asset: payload.asset, amount: payload.amount, free: payload.free },
+          href: '/trade/bots/dca',
+          severity: 'action',
+          sourceSubject: recurringBuySuspended.subject,
+          sourceIdempotencyKey: `${payload.ruleId}:${payload.slot}`,
         }),
       );
     }),

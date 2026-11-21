@@ -16,6 +16,7 @@ import { ifcFeeAtPlacement, sameFeeCurrency, type IfcPlacement } from '../fee-if
 import {
   assertMarketOpen,
   assertOutsideOpeningWindow,
+  assertZoneOrder,
   assertNotional,
   assertPrice,
   assertQty,
@@ -197,6 +198,8 @@ export async function placeOrderInner(
   assertMarketOpen(market, svc.now());
   // A new listing in its opening window takes limit orders only; a position close is a market order and is refused too.
   assertOutsideOpeningWindow(market, orderType, svc.now());
+  // A higher-risk zone market takes capped limit orders only, and none while its owner cap is unset.
+  assertZoneOrder(market, { type: orderType, price: input.price ?? null, qty: input.qty });
 
   // The fee tier is read once, here, and carried in the admitted payload like the rank perks: the row keeps it and a
   // tier snapshot taken after this never re-prices the order. The house market maker and a sub-account have no tier of

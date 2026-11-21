@@ -16,7 +16,7 @@ import { VerificationSelfie } from './VerificationSelfie';
 import { VerificationTradingChecks } from './VerificationTradingChecks';
 import { verificationTradingCopy } from './verification-trading-copy';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
-import { kycProfileSchema } from '@intafaced/contracts/identity-kyc-profile';
+import { IDENTITY_KYC_PROFILE_READ } from '@intafaced/contracts/identity-kyc-profile-procedures';
 import {
   finishVerification,
   readVerification,
@@ -33,6 +33,7 @@ import {
   type VerificationJournal,
   type VerificationOriginal,
   type VerificationRecord,
+  type VerificationStatus,
 } from './verification-guards';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
@@ -75,10 +76,7 @@ export function Verification() {
   const trading = verificationTradingCopy.useCopy();
   // A guided draft the person left (J-identity-08 #2): its steps open on their own when they return.
   const guidedDraft = useResource(
-    (signal) =>
-      userId
-        ? api.query('identity', 'kyc.profile.read', undefined, kycProfileSchema, { signal })
-        : Promise.resolve({ ok: true as const, data: null }),
+    (signal) => (userId ? api.call(IDENTITY_KYC_PROFILE_READ, undefined, { signal }) : Promise.resolve({ ok: true as const, data: null })),
     `verification-bank-draft:${userId}`,
   );
   const [openedSearch] = useState(() => window.location.search);
@@ -104,7 +102,7 @@ export function Verification() {
   const privateVisible = privateContext.current.api === api && privateContext.current.userId === userId;
   const clientVersion = useRef({ api, value: 0 });
   if (clientVersion.current.api !== api) clientVersion.current = { api, value: clientVersion.current.value + 1 };
-  const { resource, reload } = useResource(
+  const { resource, reload } = useResource<VerificationStatus>(
     (signal) =>
       userId
         ? api.query('identity', 'kyc.status', { limit }, verificationStatus(userId, limit), { signal })

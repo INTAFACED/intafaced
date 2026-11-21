@@ -1,7 +1,8 @@
 //! The svc-academy process: `svc-academy` serves; `svc-academy migrate [--down]` applies (or reverses) the academy
 //! schema's migrations.
 //!
-//! It is not wired into compose or the stack yet: the TypeScript service serves the Academy until the switch.
+//! Compose runs it from its own image (`crates/svc-academy/Dockerfile`), `svc-academy-migrate` first; the local test
+//! stack builds it and starts it the same way. It replaced the TypeScript service (`services/svc-academy`).
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;
@@ -74,7 +75,7 @@ fn payment_settings(env: &AcademyEnv) -> Option<PaymentSettings> {
     })
 }
 
-/// The door, built once from the environment. An outside port is its stand-in until its slice wires the real one.
+/// The door, built once from the environment, with every outside port `index.ts` wires.
 fn door(
     env: &AcademyEnv,
     bus: Option<JetStreamBus>,
@@ -193,6 +194,18 @@ fn door(
     })
 }
 
+/// `SELECT 1 FROM academy.rooms LIMIT 1` at boot: a database without the academy schema stops the start.
+fn schema_present(store: &Store) -> Result<(), String> {
+    const MISSING: &str = "academy schema is missing — run migrations before starting svc-academy";
+    let pool = store.pool().map_err(|_| MISSING.to_owned())?;
+    svc_academy::db::with_client(pool, |c| {
+        c.query("SELECT 1 FROM academy.rooms LIMIT 1", &[])
+            .map_err(|e| svc_academy::db::refusal(&e))
+    })
+    .map(|_| ())
+    .map_err(|_| MISSING.to_owned())
+}
+
 /// AC-analytics-02: the report sweep runs requested reports, one sweep at a time, every `ACADEMY_REPORT_SWEEP_SECONDS`
 /// (the first after one interval, as `setInterval`), on its own connection. A blank interval runs none.
 fn report_sweep(
@@ -265,6 +278,11 @@ fn run() -> Result<(), String> {
             return Err(e);
         }
     };
+    // As `index.ts`: the schema answers before anything is served, or the service does not start.
+    if let Err(e) = schema_present(door.store()) {
+        telemetry.shutdown();
+        return Err(e);
+    }
     // AC-rooms-02: author notices a down bus left waiting go now. A failure leaves them waiting; the boot goes on.
     let outbox = moderation::Outbox {
         bus: door.ports().bus.as_ref(),

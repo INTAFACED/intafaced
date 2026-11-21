@@ -145,7 +145,7 @@ pub fn handle(ctx: &Ctx<'_>) -> Answer {
                 ("sessions", Json::Array(sessions)),
                 (
                     "pinnedLessons",
-                    Json::Array(pinned.iter().map(|p| p.json()).collect()),
+                    Json::Array(pinned.iter().map(|p| p.summary_json()).collect()),
                 ),
             ])))
         }

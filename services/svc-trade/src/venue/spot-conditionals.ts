@@ -37,7 +37,9 @@ import {
  * lock) before it sends the stop. A take-profit fill on the venue ends the stop loss once; a partial fill leaves the
  * stop loss on what is still resting. A bracket's entry is the person's own signed order; once it is final, the coins it
  * received are put behind one OCO exit pair; an entry that filled nothing places no exit. A linked close
- * (one-triggers-other) is placed on the venue when its entry fills, and is cancelled with the entry before that.
+ * (one-triggers-other) is placed on the venue when its entry fills, and is cancelled with the entry before that. A
+ * good-till-date order (J-cex-spot-03 #7: the venue offers none, and the owner chose that we build it) is the person's own good-till-cancelled limit, signed in their wallet; at its expiry our engine cancels it on
+ * the venue under the agent permission, which releases the venue's lock, and it ends `expired`.
  *
  * Crash points (whose funds are stranded?): none. Every venue order here is stored under a business key before it is
  * sent (`spot-cond:<owner>:<client>:tp|close|entry`, `spot-cond:fire:<owner>:<client>`), the venue's client order id
@@ -58,7 +60,9 @@ export type SpotConditionalErrorCode =
   | 'trade.spot_agent_unapproved'
   | 'trade.spot_agent_key_unset'
   | 'trade.spot_conditional_unknown'
-  | 'trade.spot_conditional_final';
+  | 'trade.spot_conditional_final'
+  | 'trade.gtd_expiry_missing'
+  | 'trade.gtd_expiry_past';
 
 export class SpotConditionalError extends Error {
   constructor(
@@ -77,7 +81,9 @@ export const SPOT_VENUE_LABEL = 'Rests on the venue as its trigger order';
 /** The agent name the person's wallet sees when it approves the spot-order key on the venue. */
 export const SPOT_AGENT_NAME = 'spot-orders';
 
-const KINDS: readonly SpotConditionalKind[] = ['stop_limit', 'stop_market', 'oco', 'bracket', 'oto'];
+const KINDS: readonly SpotConditionalKind[] = ['stop_limit', 'stop_market', 'oco', 'bracket', 'oto', 'gtd'];
+/** The kinds whose first order is the person's own limit on the venue, signed in their wallet, that our engine watches. */
+const ENTRY_KINDS: ReadonlySet<SpotConditionalKind> = new Set(['bracket', 'oto', 'gtd']);
 type Field = 'triggerPrice' | 'limitPrice' | 'takeProfitPrice' | 'entryPrice' | 'closePrice';
 const FIELDS: readonly Field[] = ['triggerPrice', 'limitPrice', 'takeProfitPrice', 'entryPrice', 'closePrice'];
 /** The price fields each kind takes, and which of them it needs (`limitPrice` on an OCO or bracket is judged by side). */
@@ -87,6 +93,7 @@ const TAKES: Readonly<Record<SpotConditionalKind, { readonly needs: readonly Fie
   oco: { needs: ['takeProfitPrice', 'triggerPrice'], may: ['limitPrice'] },
   bracket: { needs: ['entryPrice', 'takeProfitPrice', 'triggerPrice'], may: ['limitPrice'] },
   oto: { needs: ['entryPrice', 'closePrice'], may: [] },
+  gtd: { needs: ['entryPrice'], may: [] },
 };
 const FIELD_WORDS: Readonly<Record<Field, string>> = {
   triggerPrice: 'a trigger price',
@@ -101,6 +108,7 @@ const KIND_WORDS: Readonly<Record<SpotConditionalKind, string>> = {
   oco: 'OCO',
   bracket: 'bracket',
   oto: 'linked close',
+  gtd: 'good-till-date order',
 };
 
 export interface SpotConditionalRequest {
@@ -115,6 +123,8 @@ export interface SpotConditionalRequest {
   readonly entryPrice?: unknown;
   readonly entryTif?: unknown;
   readonly closePrice?: unknown;
+  /** A good-till-date order's expiry, an ISO time in the future. */
+  readonly expireAt?: unknown;
   readonly clientOrderId?: unknown;
 }
 
@@ -160,6 +170,8 @@ export interface SpotConditionalView {
   readonly entryTif: 'GTC' | 'IOC' | null;
   readonly closePrice: string | null;
   readonly exitQuantity: string | null;
+  /** A good-till-date order's expiry, when our engine cancels it on the venue; null for every other kind. */
+  readonly expireAt: string | null;
   /** The venue's last traded price now, the price a stop here is judged on; null where it has none. */
   readonly referencePrice: string | null;
   readonly failure: string | null;
@@ -206,6 +218,12 @@ export interface SpotConditionalsDeps {
 const DECIMAL_RE = /^\d+(\.\d+)?$/;
 const CLIENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const FINAL: ReadonlySet<string> = new Set(['filled', 'canceled', 'rejected', 'expired']);
+/**
+ * How long a new OCO's take profit belongs to the request that created it: the engine's pass leaves it alone that long,
+ * so the two never send the same key at once, and finishes it after, when that request stopped short (a crash).
+ */
+const PLACING_OWNED_BY_REQUEST_MS = 30_000;
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
 const TEN_THOUSAND = parseAmount('10000');
 
 function bad(message: string, code: SpotConditionalErrorCode = 'trade.spot_conditional_invalid'): never {
@@ -245,12 +263,13 @@ interface Parsed {
   readonly quantity: Amount;
   readonly prices: Readonly<Record<Field, Amount | null>>;
   readonly entryTif: 'GTC' | 'IOC' | null;
+  readonly expireAt: Date | null;
 }
 
 /** The request on its face: every refusal here is before anything is read, stored or signed. */
 function parse(req: SpotConditionalRequest): Parsed {
   if (typeof req.kind !== 'string' || !KINDS.includes(req.kind as SpotConditionalKind))
-    bad('kind must be stop_limit, stop_market, oco, bracket or oto');
+    bad('kind must be stop_limit, stop_market, oco, bracket, oto or gtd');
   const kind = req.kind as SpotConditionalKind;
   if (req.side !== 'buy' && req.side !== 'sell') bad('side must be buy or sell');
   const side = req.side;
@@ -291,11 +310,29 @@ function parse(req: SpotConditionalRequest): Parsed {
     FIELDS.map((f) => [f, given(req[f]) ? positive(req[f], FIELD_WORDS[f].replace(/^an? /, '')) : null]),
   ) as Record<Field, Amount | null>;
   let entryTif: 'GTC' | 'IOC' | null = null;
+  let expireAt: Date | null = null;
+  if (kind === 'gtd') {
+    // The venue's own order is good till cancelled; our engine is what ends it at the expiry.
+    if (given(req.entryTif) && req.entryTif !== 'GTC') bad('a good-till-date order rests on the venue good till cancelled');
+    entryTif = 'GTC';
+    if (!given(req.expireAt)) {
+      throw new SpotConditionalError(
+        'trade.gtd_expiry_missing',
+        'A good-till-date order needs an expiry: the time our engine cancels it. Nothing was placed.',
+        400,
+      );
+    }
+    if (typeof req.expireAt !== 'string' || !ISO_RE.test(req.expireAt) || Number.isNaN(Date.parse(req.expireAt)))
+      bad('expireAt must be an ISO time');
+    expireAt = new Date(req.expireAt);
+  } else if (given(req.expireAt)) {
+    throw new SpotConditionalError('trade.spot_conditional_field_unsupported', `a ${KIND_WORDS[kind]} does not take an expiry`, 400);
+  }
   if (kind === 'bracket' || kind === 'oto') {
     const tif = req.entryTif ?? 'GTC';
     if (tif !== 'GTC' && tif !== 'IOC') bad('entryTif must be GTC or IOC');
     entryTif = tif;
-  } else if (given(req.entryTif)) {
+  } else if (kind !== 'gtd' && given(req.entryTif)) {
     throw new SpotConditionalError('trade.spot_conditional_field_unsupported', `a ${KIND_WORDS[kind]} does not take an entry`, 400);
   }
   return {
@@ -306,6 +343,7 @@ function parse(req: SpotConditionalRequest): Parsed {
     quantity: positive(req.quantity, 'quantity'),
     prices,
     entryTif,
+    expireAt,
   };
 }
 
@@ -372,7 +410,8 @@ const sameTerms = (row: SpotConditional, p: Parsed, symbol: string) =>
   row.takeProfitPrice === p.prices.takeProfitPrice &&
   row.entryPrice === p.prices.entryPrice &&
   row.closePrice === p.prices.closePrice &&
-  row.entryTif === p.entryTif;
+  row.entryTif === p.entryTif &&
+  (row.expireAt?.getTime() ?? null) === (p.expireAt?.getTime() ?? null);
 
 export class VenueSpotConditionals {
   constructor(private readonly deps: SpotConditionalsDeps) {}
@@ -449,6 +488,13 @@ export class VenueSpotConditionals {
       );
     }
     assertOrder(p, last);
+    if (p.expireAt !== null && p.expireAt.getTime() <= this.deps.now().getTime()) {
+      throw new SpotConditionalError(
+        'trade.gtd_expiry_past',
+        `The expiry (${p.expireAt.toISOString()}) has passed: pick a time in the future. Nothing was placed and nothing is signed.`,
+        400,
+      );
+    }
 
     // A stop the venue holds on spot rests there as its own trigger order, for the person's wallet to sign.
     if ((p.kind === 'stop_limit' || p.kind === 'stop_market') && spotStopRestsOn(market) === 'venue') {
@@ -510,9 +556,10 @@ export class VenueSpotConditionals {
       entryTif: p.entryTif,
       closePrice: p.prices.closePrice,
       exitQuantity: null,
+      expireAt: p.expireAt,
       agentAddress: agent.agentAddress,
       region,
-      status: p.kind === 'oco' ? 'placing' : p.kind === 'bracket' || p.kind === 'oto' ? 'entry' : 'armed',
+      status: p.kind === 'oco' ? 'placing' : ENTRY_KINDS.has(p.kind) ? 'entry' : 'armed',
       failure: null,
       cancelReason: null,
       firedAt: null,
@@ -520,7 +567,7 @@ export class VenueSpotConditionals {
     });
     const reused = stored.createdAt.getTime() !== now.getTime() || existing !== undefined;
     let entry: PreparedAnswer | null = null;
-    if (stored.kind === 'bracket' || stored.kind === 'oto') {
+    if (ENTRY_KINDS.has(stored.kind)) {
       // The entry is the person's own order, signed in their own wallet; our engine watches it on the venue.
       entry = await this.deps.door.prepare(principal, {
         owner: account.owner,
@@ -547,7 +594,7 @@ export class VenueSpotConditionals {
 
   /** What the venue account holds free now covers what this order will need when it is sent; nothing is locked. */
   private async assertFree(account: UserVenueAccount, market: UserVenueMarket, p: Parsed): Promise<void> {
-    if (p.kind === 'bracket' || p.kind === 'oto') return; // the entry is the person's own order: the venue judges it
+    if (ENTRY_KINDS.has(p.kind)) return; // the entry is the person's own order: the venue judges it
     const venue = await this.deps.door.venue();
     const balances = (await venue.balances(account)).value;
     const free = (asset: string) => balances.find((b) => b.asset === asset)?.free ?? ZERO;
@@ -570,7 +617,7 @@ export class VenueSpotConditionals {
     const { market } = await this.spotMarket(typeof req.owner === 'string' ? req.owner : '', p.symbol);
     const legs: { role: SpotLegRole; side: 'buy' | 'sell'; liquidity: 'maker' | 'taker'; price: Amount; quantity: Amount }[] = [];
     const exitSide = p.kind === 'bracket' ? other(p.side) : p.side;
-    if (p.kind === 'bracket' || p.kind === 'oto')
+    if (ENTRY_KINDS.has(p.kind))
       legs.push({
         role: 'entry',
         side: p.side,
@@ -662,6 +709,7 @@ export class VenueSpotConditionals {
     const row = await this.deps.store.get(principal.userId, id);
     if (!row) throw new SpotConditionalError('trade.spot_conditional_unknown', 'no conditional order with that id on your account', 404);
     if (row.kind === 'oto') bad('a linked close has no stop to modify; cancel it instead');
+    if (row.kind === 'gtd') bad('a good-till-date order has no stop to modify; cancel it instead');
     if (!['armed', 'open', 'entry', 'placing'].includes(row.status))
       throw new SpotConditionalError('trade.spot_conditional_final', `that order is already ${row.status}`, 409);
     const request: SpotConditionalRequest = {
@@ -699,7 +747,10 @@ export class VenueSpotConditionals {
       try {
         if (row.status === 'firing') await this.fire(row);
         else if (row.status === 'cancelling') await this.finishCancel(row);
-        else if (row.status === 'placing') await this.placeExit(row);
+        else if (row.status === 'placing') {
+          if (row.kind === 'oco' && this.deps.now().getTime() - row.createdAt.getTime() < PLACING_OWNED_BY_REQUEST_MS) continue;
+          await this.placeExit(row);
+        } else if (row.status === 'entry' && row.kind === 'gtd') await this.watchGoodTillDate(row);
         else if (row.status === 'entry') await this.watchEntry(row);
         else if (row.status === 'open' || row.status === 'armed') {
           if (row.status === 'open' && (await this.takeProfitEnded(row))) continue;
@@ -750,6 +801,31 @@ export class VenueSpotConditionals {
     if (order.status === 'filled') await this.deps.store.move(row.id, 'open', 'filled', at, { firedAt: at });
     else await this.deps.store.move(row.id, 'open', 'cancelled', at, { cancelReason: 'take_profit_ended' });
     return true;
+  }
+
+  /**
+   * A good-till-date order, as the venue reads it: one the venue ended first (filled, or cancelled there) ends with it;
+   * at the expiry one still resting is claimed by this worker alone and cancelled on the venue under the agent key,
+   * which releases its lock, and it ends `expired`.
+   */
+  private async watchGoodTillDate(row: SpotConditional): Promise<void> {
+    const entry = await this.orderOf(row, spotKeys.leg(row, 'entry'));
+    const at = this.deps.now();
+    if (entry?.state === 'refused') {
+      await this.deps.store.move(row.id, 'entry', 'failed', at, {
+        failure: `the venue refused the order (${entry.refusal?.detail ?? 'no reason given'})`,
+      });
+      return;
+    }
+    const order = entry?.state === 'accepted' ? entry.order : null;
+    if (order && FINAL.has(order.status)) {
+      if (order.status === 'filled') await this.deps.store.move(row.id, 'entry', 'filled', at, { firedAt: at });
+      else await this.deps.store.move(row.id, 'entry', 'cancelled', at, { cancelReason: 'ended_on_venue' });
+      return;
+    }
+    if (row.expireAt === null || at.getTime() < row.expireAt.getTime()) return;
+    if (await this.deps.store.move(row.id, 'entry', 'cancelling', at, { cancelReason: 'expired' }))
+      await this.finishCancel({ ...row, status: 'cancelling', cancelReason: 'expired' });
   }
 
   /** A bracket's or linked close's entry, as the venue reads it: once final, its exits go up for what it received. */
@@ -832,7 +908,8 @@ export class VenueSpotConditionals {
       const done = await this.cancelOnVenue(row, key);
       if (!done) return;
     }
-    await this.deps.store.move(row.id, 'cancelling', 'cancelled', this.deps.now());
+    // A good-till-date order our engine cancelled at its expiry ends expired; every other cancel ends cancelled.
+    await this.deps.store.move(row.id, 'cancelling', row.cancelReason === 'expired' ? 'expired' : 'cancelled', this.deps.now());
   }
 
   /** One cancel of the venue order under `key`, signed by the agent key: true once the venue has answered it. */
@@ -985,7 +1062,7 @@ export class VenueSpotConditionals {
         ? legStatusOf(order)
         : read?.state === 'refused'
           ? 'failed'
-          : row.status === 'cancelled' || row.status === 'failed'
+          : row.status === 'cancelled' || row.status === 'failed' || row.status === 'expired'
             ? 'cancelled'
             : 'waiting';
       legs.push({
@@ -1046,7 +1123,7 @@ export class VenueSpotConditionals {
       });
     };
     if (row.kind === 'stop_limit' || row.kind === 'stop_market') await engineLeg('stop', row.quantity);
-    if (row.kind === 'bracket' || row.kind === 'oto')
+    if (ENTRY_KINDS.has(row.kind))
       await venueLeg('entry', spotKeys.leg(row, 'entry'), row.side, row.entryPrice!, row.quantity, 'wallet', null);
     if (row.kind === 'oco' || row.kind === 'bracket') {
       const size = row.exitQuantity ?? row.quantity;
@@ -1083,6 +1160,7 @@ export class VenueSpotConditionals {
       entryTif: row.entryTif,
       closePrice: fmt(row.closePrice),
       exitQuantity: fmt(row.exitQuantity),
+      expireAt: row.expireAt?.toISOString() ?? null,
       referencePrice: fmt(last),
       failure: row.failure,
       cancelReason: row.cancelReason,

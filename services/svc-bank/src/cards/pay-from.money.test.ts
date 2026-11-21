@@ -20,6 +20,7 @@ import { cardSimPartnerFor, type CardPartnerTerms } from './partner-terms.js';
 import { testPartnerCardHolds, type PartnerCardHolds } from './partner-card-holds.js';
 import { testPartner } from '../partner/test-partner.js';
 import type { PriceSource, QuotedMark } from '../loans/prices.js';
+import { DEFAULT_CARD_CONVERSION_POLICY } from './conversion.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -140,6 +141,20 @@ describe('Pay from (J-bank-29 #1 #2, PG-hard)', () => {
       quote: async ({ assetId }) => (assetId === 'BTC' ? { rate: '0', asOf: AT.toISOString() } : { rate: '1e3', asOf: AT.toISOString() }),
     };
     for (const row of (await quoted(QUOTING, odd).payFrom(user)).assets) expect(row.rate).toBeNull();
+  });
+
+  it('a partner quote older than the conversion policy’s window, or dated in the future, reads "not known"; a fresh one shows', async () => {
+    const maxAge = DEFAULT_CARD_CONVERSION_POLICY.maxAgeSeconds;
+    const at = (seconds: number) => new Date(AT.getTime() + seconds * 1_000).toISOString();
+    const base = testPartnerCardHolds({ terms: () => QUOTING, switches: () => testPartner().switches(user), clock: () => AT });
+    const agedBy = (seconds: number): PartnerCardHolds => ({
+      ...base,
+      quote: async ({ assetId }) => (assetId === 'BTC' ? { rate: '65000.5', asOf: at(-seconds) } : null),
+    });
+    const btc = async (holds: PartnerCardHolds) => (await quoted(QUOTING, holds).payFrom(user)).assets.find((a) => a.assetId === 'BTC');
+    expect(await btc(agedBy(maxAge + 1))).toMatchObject({ state: 'offered', partnerBalance: '0.01', rate: null, rateAsOf: null });
+    expect(await btc(agedBy(-120))).toMatchObject({ rate: null, rateAsOf: null });
+    expect(await btc(agedBy(maxAge))).toMatchObject({ rate: '65000.5', rateAsOf: at(-maxAge) });
   });
 
   it('a partner whose quote throws reads each rate "not known" and Pay from still opens with its balances', async () => {

@@ -1,12 +1,13 @@
 import {
-  quantBacktestHistorySchema,
   quantStrategyDetailSchema,
-  quantVersionDiffSchema,
   type QuantStrategyDetail,
   type QuantStrategyVersion,
   type QuantVersionDiff,
 } from '@intafaced/contracts/quant-algo';
+import { QUANT_BACKTEST_HISTORY } from '@intafaced/contracts/quant-backtest-procedures';
+import { QUANT_STUDIO_DIFF, QUANT_STUDIO_GET } from '@intafaced/contracts/quant-studio-procedures';
 import { useState } from 'react';
+import { parsesAs } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable, EmptyState, Panel } from '../../shared/ui';
 import { Read, preservePaperHref } from '../more';
@@ -36,7 +37,7 @@ export function StrategyPage({ strategyId, paper }: { strategyId: string; paper:
   const api = useApi();
   const { t } = strategyPageCopy.useCopy();
   const detail = useResource(
-    (signal) => api.query('quant', 'studio.get', { id: strategyId }, quantStrategyDetailSchema, { signal }),
+    (signal) => api.call(QUANT_STUDIO_GET, { id: strategyId }, { signal, accept: parsesAs(quantStrategyDetailSchema) }),
     `quant-strategy:${strategyId}`,
   );
   return (
@@ -145,7 +146,7 @@ function VersionDiff({ strategyId, from, to }: { strategyId: string; from: numbe
   const api = useApi();
   const { t } = strategyPageCopy.useCopy();
   const diff = useResource(
-    (signal) => api.query('quant', 'studio.diff', { id: strategyId, from, to }, quantVersionDiffSchema, { signal }),
+    (signal) => api.call(QUANT_STUDIO_DIFF, { id: strategyId, from, to }, { signal }),
     `quant-diff:${strategyId}:${from}:${to}`,
   );
   return (
@@ -203,8 +204,7 @@ function RunsOfStrategy({ strategy }: { strategy: QuantStrategyDetail }) {
   const api = useApi();
   const { t } = strategyPageCopy.useCopy();
   const runs = useResource(
-    (signal) =>
-      api.query('quant', 'backtest.history', { limit: RUN_PAGE, strategyId: strategy.id }, quantBacktestHistorySchema, { signal }),
+    (signal) => api.call(QUANT_BACKTEST_HISTORY, { limit: RUN_PAGE, strategyId: strategy.id }, { signal }),
     `quant-strategy-runs:${strategy.id}`,
   );
   const [open, setOpen] = useState<string | null>(null);

@@ -1,7 +1,7 @@
 import './desk.css';
 import type { QuantPromotionAudit, QuantStage } from '@intafaced/contracts/quant-algo';
 import { formatAsOf } from '@/lib/as-of';
-import type { Part } from '@/lib/desk/part';
+import type { Part } from '@/lib/part';
 
 /**
  * PROMOTION AUDIT (AL-lifecycle-01, J-algo-dev-13 #3), on the quant desk. Every gate decision svc-quant stores, newest

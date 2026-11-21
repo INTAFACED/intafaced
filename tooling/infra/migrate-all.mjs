@@ -46,8 +46,9 @@
  * and mining_pool.shares, and compose gives it DATABASE_URL.
  * svc-quant is listed: it ships drizzle SQL for the paper strategy library,
  * and compose gives it DATABASE_URL.
- * svc-tax is absent: it is a Rust binary in its own image, and compose's
- * svc-tax-migrate runs its `migrate` command the same way, as svc_tax, once.
+ * svc-tax, svc-academy and svc-ledger are absent: each is a Rust binary in its own image,
+ * and compose's svc-tax-migrate, svc-academy-migrate and svc-ledger-migrate run its
+ * `migrate` command the same way, as its own role (svc_tax, svc_academy, svc_ledger), once.
  * svc-campaigns is listed: it ships drizzle SQL for seasons, drops and their claims,
  * and compose gives it DATABASE_URL.
  */
@@ -56,7 +57,6 @@ import { spawnSync } from 'node:child_process';
 /** service directory name -> the postgres schema and role it owns. */
 const SERVICES = [
   ['svc-identity', 'identity'],
-  ['svc-ledger', 'ledger'],
   ['svc-token', 'token'],
   ['svc-trade', 'trade'],
   ['svc-pay', 'pay'],
@@ -68,7 +68,6 @@ const SERVICES = [
   ['svc-indexer', 'indexer'],
   ['svc-notify', 'notify'],
   ['svc-support', 'support'],
-  ['svc-academy', 'academy'],
   ['svc-market', 'market'],
   ['svc-mining-pool', 'mining_pool'],
   ['svc-ops', 'ops'],

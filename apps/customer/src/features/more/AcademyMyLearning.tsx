@@ -1,18 +1,14 @@
-import { z } from 'zod';
-import {
-  academyAccessGrantSchema,
-  academyMyCourseSchema,
-  type AcademyAccessGrant,
-  type AcademyMyCourse,
-} from '@intafaced/contracts/academy-catalogue';
+import { type AcademyAccessGrant, type AcademyMyCourse } from '@intafaced/contracts/academy-catalogue';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
 import { EmptyState, Loading, Panel } from '../../shared/ui';
-import { useApi, useSession } from '../session/session';
+import { useApi, useSession } from '../session';
 import { Details } from './common';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref, formatDay } from './academy-lms';
 import { AcademyRefusal, ProgressBar, pathLabel } from './AcademyLmsParts';
+import { ACADEMY_MY_LEARNING } from '@intafaced/contracts/academy-my-learning-procedures';
+import { ACADEMY_MY_ACCESS_GRANTS } from '@intafaced/contracts/academy-my-access-grants-procedures';
 
 const itemHref = (slug: string) => `/academy/${encodeURIComponent(slug)}`;
 const SECTIONS = [
@@ -26,10 +22,7 @@ export function AcademyMyLearning() {
   const api = useApi();
   const { userId } = useSession();
   const { t } = copy.useCopy();
-  const mine = useResource(
-    (signal) => api.query('academy', 'myLearning', undefined, z.array(academyMyCourseSchema), { signal }),
-    `my-learning:${userId}`,
-  );
+  const mine = useResource((signal) => api.call(ACADEMY_MY_LEARNING, undefined, { signal }), `my-learning:${userId}`);
   return (
     <Panel title={t('myLearning')}>
       {mine.resource.status === 'loading' ? (
@@ -108,10 +101,7 @@ export function AcademyAccessGrants() {
   const api = useApi();
   const { userId } = useSession();
   const { t } = copy.useCopy();
-  const grants = useResource(
-    (signal) => api.query('academy', 'myAccessGrants', undefined, z.array(academyAccessGrantSchema), { signal }),
-    `access-grants:${userId}`,
-  );
+  const grants = useResource((signal) => api.call(ACADEMY_MY_ACCESS_GRANTS, undefined, { signal }), `access-grants:${userId}`);
   return (
     <Panel title={t('accessTitle')}>
       {grants.resource.status === 'loading' ? (

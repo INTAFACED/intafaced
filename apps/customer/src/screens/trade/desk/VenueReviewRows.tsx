@@ -54,6 +54,7 @@ export function VenueReviewRows({
   protectionBps = null,
   selfTrade = null,
   tag = '',
+  expireAt = null,
 }: {
   intent: OrderIntent;
   preview: AsOf<VenuePreview>;
@@ -65,6 +66,8 @@ export function VenueReviewRows({
   selfTrade?: VenueSelfTradeMode | null;
   /** The person's own tag on the order, or blank. */
   tag?: string;
+  /** A good-till-date order's expiry (J-cex-spot-03 #7): the order rests good till cancelled and our engine cancels it then. */
+  expireAt?: string | null;
 }) {
   const { t } = spotVenueCopy.useCopy();
   const v = venueCopy.useCopy().t;
@@ -130,8 +133,22 @@ export function VenueReviewRows({
         </div>
         <div>
           <dt>{t('Time in force')}</dt>
-          <dd data-line="tif">{word(v, 'tif', intent.timeInForce)}</dd>
+          <dd data-line="tif">{word(v, 'tif', expireAt ? 'GTD' : intent.timeInForce)}</dd>
         </div>
+        {expireAt ? (
+          <div>
+            <dt>{t('Expires review')}</dt>
+            <dd data-line="expires" data-expire-at={expireAt}>
+              {new Date(expireAt).toLocaleString()}
+            </dd>
+          </div>
+        ) : null}
+        {expireAt ? (
+          <div>
+            <dt>{t('Tif engine')}</dt>
+            <dd data-line="expiry-engine">{t('Expiry engine review')}</dd>
+          </div>
+        ) : null}
         {intent.type === 'market' ? (
           <div>
             <dt>{t('Worst price review')}</dt>

@@ -7,7 +7,7 @@ import {
   type OpsAlertDetail,
   type OpsAlertResolveInput,
 } from '@intafaced/contracts/ops-reconciliation-alerts';
-import { treasuryHolder } from '@/lib/accounts/holds-server';
+import { treasuryHolder } from '@/lib/accounts';
 import {
   edgeCall,
   type ExecuteFn,

@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
+import { accountRegisteredHolds, accountTargetsHold, accountVerifiedHolds } from '@intafaced/contracts/notify-account-room';
+import { NOTIFY_REGISTER_TARGET, NOTIFY_REMOVE_TARGET, NOTIFY_TARGETS, NOTIFY_VERIFY_TARGET } from '@intafaced/contracts/notify-procedures';
+import type { ProcedureInput, ProcedureOutput } from '@intafaced/contracts/procedure';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, Failure, Field, Loading } from '../../shared/ui';
@@ -7,27 +10,9 @@ import { useSession } from '../session';
 import { notificationTargetsCopy as copy } from './notification-targets-copy';
 import './notification-targets.css';
 
-const channel = z.enum(['email', 'sms', 'push']);
-type Channel = z.infer<typeof channel>;
-const date = z.string().datetime({ offset: true });
-const target = z.object({ channel, address: z.string().min(1), locale: z.string(), verifiedAt: date.nullable() });
-const targets = z
-  .array(target)
-  .max(3)
-  .refine((rows) => new Set(rows.map((row) => row.channel)).size === rows.length, 'Duplicate targets');
-type Target = z.infer<typeof target>;
+type Channel = ProcedureInput<typeof NOTIFY_REMOVE_TARGET>['channel'];
+type Target = ProcedureOutput<typeof NOTIFY_TARGETS>[number];
 const signature = (row: Target | undefined) => JSON.stringify(row ? [row.channel, row.address, row.locale, row.verifiedAt] : null);
-const refusal = z
-  .string()
-  .min(1)
-  .refine((value) => !/^\d{6}$/.test(value), 'A refusal is not a verification code')
-  .nullable();
-const registration = z
-  .object({ status: z.enum(['sent', 'refused', 'failed']), channel, code: refusal, expiresAt: date })
-  .refine((row) => (row.status === 'refused' ? row.code !== null : row.code === null), 'Invalid registration outcome');
-const verification = z
-  .object({ verified: z.boolean(), code: refusal })
-  .refine((row) => !row.verified || row.code === null, 'Invalid verification outcome');
 type Action = { kind: 'register'; address: string; locale: string } | { kind: 'verify'; code: string } | { kind: 'remove' };
 type Note = {
   key:
@@ -65,7 +50,7 @@ function OwnerTargets({ userId, revision, onChanged }: OwnerProps) {
   const { api } = useSession();
   const { t, Copy, languageFor } = copy.useCopy();
   const read = useResource(
-    (signal) => api.query('notify', 'notify.targets', undefined, targets, { signal }),
+    (signal) => api.call(NOTIFY_TARGETS, undefined, { signal, accept: accountTargetsHold }),
     'target-controls:' + userId + ':' + revision,
   );
   const [busy, setBusy] = useState(false);
@@ -97,7 +82,7 @@ function OwnerTargets({ userId, revision, onChanged }: OwnerProps) {
     const controller = new AbortController();
     preflight.current = controller;
     try {
-      const fresh = await api.query('notify', 'notify.targets', undefined, targets, { signal: controller.signal });
+      const fresh = await api.call(NOTIFY_TARGETS, undefined, { signal: controller.signal, accept: accountTargetsHold });
       if (!alive.current) return;
       if (!fresh.ok) {
         setReadFailure(fresh);
@@ -113,11 +98,10 @@ function OwnerTargets({ userId, revision, onChanged }: OwnerProps) {
       // owner read narrows the race; it cannot provide atomic compare-and-set.
       let outcome: ApiResult<unknown>;
       if (action.kind === 'register') {
-        const result = await api.mutate(
-          'notify',
-          'notify.registerTarget',
+        const result = await api.call(
+          NOTIFY_REGISTER_TARGET,
           { channel: id, address: action.address, locale: action.locale },
-          registration.refine((row) => row.channel === id, 'Wrong registration channel'),
+          { accept: (row) => row.channel === id && accountRegisteredHolds(row) },
         );
         outcome = result;
         if (alive.current && result.ok)
@@ -129,7 +113,7 @@ function OwnerTargets({ userId, revision, onChanged }: OwnerProps) {
             expiresAt: result.data.expiresAt,
           });
       } else if (action.kind === 'verify') {
-        const result = await api.mutate('notify', 'notify.verifyTarget', { channel: id, code: action.code }, verification);
+        const result = await api.call(NOTIFY_VERIFY_TARGET, { channel: id, code: action.code }, { accept: accountVerifiedHolds });
         outcome = result;
         if (alive.current && result.ok)
           setNote({
@@ -139,7 +123,7 @@ function OwnerTargets({ userId, revision, onChanged }: OwnerProps) {
             code: result.data.code,
           });
       } else {
-        const result = await api.mutate('notify', 'notify.removeTarget', { channel: id }, z.object({ removed: z.boolean() }));
+        const result = await api.call(NOTIFY_REMOVE_TARGET, { channel: id });
         outcome = result;
         if (alive.current && result.ok)
           setNote({

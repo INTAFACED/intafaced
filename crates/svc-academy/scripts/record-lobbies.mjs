@@ -1,8 +1,5 @@
 // Records, from the TypeScript svc-academy in this checkout, what the Rust lobbies slice is held to:
 //
-// - `src/lobbies/spine.json`: the curriculum summaries a room's pinned lessons show (`listCurriculum()`, in its
-//   order) and the spine size the pin read pages by. The full spine belongs to the curriculum slice; this is the part
-//   the lobbies read.
 // - `tests/fixtures/lobbies-parity.golden.json`: zod's own verdicts, through the TypeScript functions themselves, on
 //   a corpus of scenes (`parseScene`, `sceneFingerprint`, `decideHostSceneWrite`) and rank-perk payloads
 //   (`rankPerksSchema`).
@@ -14,15 +11,23 @@
 // It stops being runnable when the TypeScript service is deleted, and from then on what it wrote is the reference.
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const CRATE = fileURLToPath(new URL('../', import.meta.url));
 const SVC = `${ROOT}services/svc-academy/src/`;
+const NAME = 'record-lobbies';
+// The TypeScript service was deleted when svc-academy switched to this crate (weed project-state#3343): what this script
+// wrote is now the reference, and a change to it is made in the recorded file itself. Read the TypeScript in git history.
+if (!existsSync(SVC)) {
+  console.error(
+    `${NAME}: services/svc-academy no longer exists (the Rust crate replaced it); nothing to record from. The files it wrote are the reference now.`,
+  );
+  process.exit(2);
+}
 const CHECK = process.argv.includes('--check');
 
-const { listCurriculum, curriculumSpineSize } = await import(`${SVC}curriculum/catalog.ts`);
 const { parseScene, emptyScene } = await import(`${SVC}spatial/scene.ts`);
 const { decideHostSceneWrite, sceneFingerprint } = await import(`${SVC}spatial/edit-policy.ts`);
 const { rankPerksSchema, BASE_PERKS } = await import(`${SVC}../node_modules/@intafaced/contracts/dist/index.js`);
@@ -143,9 +148,7 @@ const perks = [
 
 // ── Write or check ──────────────────────────────────────────────────────────────────────────────────────────────────
 
-const spine = { size: curriculumSpineSize(), items: listCurriculum() };
 const files = [
-  [`${CRATE}src/lobbies/spine.json`, `${JSON.stringify(spine, null, 1)}\n`],
   [
     `${CRATE}tests/fixtures/lobbies-parity.golden.json`,
     `${JSON.stringify({ big, parsed: parsed.map((p) => (p.input === big ? { ...p, input: 'BIG' } : p)), writes, perks })}\n`,

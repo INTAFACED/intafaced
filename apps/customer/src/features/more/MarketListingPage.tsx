@@ -1,48 +1,22 @@
-// hand-declared-ok: svc-market's listing, review and purchase answers are declared only in services/svc-market/src/router.ts; packages/contracts has no market response schema yet.
 import { useState } from 'react';
-import { z } from 'zod';
-import { useApi, useSession } from '../session/session';
+import {
+  MARKET_LISTING,
+  MARKET_MY_PURCHASES,
+  MARKET_REVIEWS_LIST,
+  MARKET_REVIEWS_SUBMIT,
+  type MarketListingDetail,
+} from '@intafaced/contracts/market-procedures';
+import { useApi, useSession } from '../session';
 import { useResource } from '../../shared/resource';
 import { usePreferences } from '../../shared/preferences';
-import { decimalSchema, displayAmount } from '../../shared/money';
+import { displayAmount } from '../../shared/money';
 import { Button, EmptyState, Failure, Panel } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { Details, Read } from './common';
-import { listingSchema } from './Market';
 import { periodUnit } from './market-explorer';
 import { marketExplorerCopy } from './market-explorer-copy';
 import { marketListingCopy } from './market-listing-copy';
 import { reviewablePurchase, reviewKey } from './market-listing';
-
-const uuid = z.string().guid();
-const time = z.string().datetime({ offset: true });
-
-/** svc-market `market.listing` (MC-market-01): public, with no seller user id; performance is unreported. */
-const listingDetailSchema = z.object({
-  listing: listingSchema,
-  vendor: z.object({ id: uuid, displayName: z.string(), description: z.string(), createdAt: time }),
-  activeListingCount: z.number().int().positive(),
-  reviews: z.object({ count: z.string().regex(/^(0|[1-9][0-9]*)$/), mean: decimalSchema.nullable(), meanRounding: z.string() }),
-  terms: z.object({
-    offerType: z.enum(['one_time', 'subscription']),
-    assetId: z.string().min(1),
-    price: decimalSchema,
-    periodSeconds: z.number().int().positive().nullable(),
-  }),
-  performance: z.object({ reported: z.literal(false) }),
-});
-type ListingDetail = z.infer<typeof listingDetailSchema>;
-const reviewRowSchema = z.object({
-  id: uuid,
-  listingId: uuid,
-  vendorId: uuid,
-  score: z.number().int(),
-  text: z.string().nullable(),
-  createdAt: time,
-});
-const reviewListSchema = z.object({ reviews: z.array(reviewRowSchema), nextCursor: z.string().nullable() });
-const myPurchaseSchema = z.object({ id: uuid, listingId: uuid, buyerId: uuid, status: z.string(), createdAt: time });
-const reviewOutSchema = z.object({ id: uuid, purchaseId: uuid, listingId: uuid, score: z.number().int(), text: z.string().nullable() });
 
 const SCORES = [5, 4, 3, 2, 1] as const;
 /** The most purchases one read returns (svc-market `myPurchases`, which has no cursor). */
@@ -54,12 +28,12 @@ export function MarketListingPage({ listingId }: { listingId: string }) {
   const { t } = marketListingCopy.useCopy();
   // An id that cannot be a listing is answered here, without asking the service. The service answers an unknown or
   // withdrawn listing 404 (`market.listing_not_found`, the only NOT_FOUND of its `listing` read).
-  const wellFormed = uuid.safeParse(listingId).success;
+  const wellFormed = MARKET_LISTING.input.safeParse({ listingId }).success;
   const detail = useResource(
     (signal) =>
       wellFormed
-        ? api.query('market', 'listing', { listingId }, listingDetailSchema, { signal })
-        : Promise.resolve<ApiResult<ListingDetail>>({
+        ? api.call(MARKET_LISTING, { listingId }, { signal })
+        : Promise.resolve<ApiResult<MarketListingDetail>>({
             ok: false,
             reason: 'not_mounted',
             message: 'market.listing_not_found',
@@ -90,7 +64,7 @@ export function MarketListingPage({ listingId }: { listingId: string }) {
   );
 }
 
-function ListingBody({ detail }: { detail: ListingDetail }) {
+function ListingBody({ detail }: { detail: MarketListingDetail }) {
   const api = useApi();
   const { t } = marketListingCopy.useCopy();
   const explorer = marketExplorerCopy.useCopy();
@@ -150,7 +124,7 @@ function ListingBody({ detail }: { detail: ListingDetail }) {
                 listingId={listing.id}
                 onPosted={async () => {
                   setRevision((n) => n + 1);
-                  const again = await api.query('market', 'listing', { listingId: listing.id }, listingDetailSchema);
+                  const again = await api.call(MARKET_LISTING, { listingId: listing.id });
                   if (again.ok) setReviews(again.data.reviews);
                 }}
               />
@@ -173,10 +147,7 @@ function ReviewList({ listingId }: { listingId: string }) {
   const api = useApi();
   const { t } = marketListingCopy.useCopy();
   const preferences = usePreferences();
-  const list = useResource(
-    (signal) => api.query('market', 'reviews.list', { listingId, limit: 20 }, reviewListSchema, { signal }),
-    `market-reviews:${listingId}`,
-  );
+  const list = useResource((signal) => api.call(MARKET_REVIEWS_LIST, { listingId, limit: 20 }, { signal }), `market-reviews:${listingId}`);
   return (
     <Read resource={list.resource} retry={list.reload}>
       {({ reviews }) =>
@@ -226,11 +197,10 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
    * and posting it), or what stops the review.
    */
   async function purchase(): Promise<{ id: string } | Outcome> {
-    const mine = await api.query(
-      'market',
-      'myPurchases',
+    const mine = await api.call(
+      MARKET_MY_PURCHASES,
       { limit: PURCHASES_READ },
-      z.array(myPurchaseSchema).refine((rows) => rows.every((row) => row.buyerId === userId)),
+      { accept: (rows) => rows.every((row) => row.buyerId === userId) },
     );
     if (!mine.ok) return { kind: 'failed', result: mine };
     const found = reviewablePurchase(mine.data, listingId);
@@ -259,11 +229,10 @@ function WriteReview({ listingId, onPosted }: { listingId: string; onPosted: () 
       return;
     }
     const body = text.trim();
-    const result = await api.mutate(
-      'market',
-      'reviews.submit',
+    const result = await api.call(
+      MARKET_REVIEWS_SUBMIT,
       { purchaseId: found.id, score, text: body || undefined, clientRequestId: reviewKey(found.id, score, body) },
-      reviewOutSchema.refine((row) => row.purchaseId === found.id && row.listingId === listingId && row.score === score),
+      { accept: (row) => row.purchaseId === found.id && row.listingId === listingId && row.score === score },
     );
     setBusy(false);
     if (result.ok) {

@@ -18,6 +18,9 @@ import {
   TRPCError,
 } from '@intafaced/contracts';
 import { AuthError as GuardError, hasScope, requireMfa } from '@intafaced/auth';
+import { IDENTITY_ACTION_APPROVAL_LIST } from '@intafaced/contracts/identity-action-approval-procedures';
+import { mountRecord } from '@intafaced/contracts/procedure-mount';
+import { codedRefusal } from './record-refusal.js';
 import { ActionApprovalError, type ActionApprovalService } from './auth/action-approval-service.js';
 import {
   isInteractiveFounderPrincipal,
@@ -270,20 +273,24 @@ export function createActionApprovalRouter(
        * A session that is neither an operator nor a founder is refused the pending
        * view. `mine` is the caller's own rows. Limit is required — omit is not a page.
        */
-      list: protectedProcedure
-        .input(z.object({ view: z.enum(['pending', 'mine']), limit: z.number().int().min(1).max(100) }))
-        .output(z.object({ approvals: z.array(actionApprovalSchema), pageFull: z.boolean() }))
-        .query(async ({ ctx, input }) => {
+      list: mountRecord(
+        IDENTITY_ACTION_APPROVAL_LIST,
+        async ({ ctx, input }) => {
+          const principal = ctx.principal;
+          // The record's signed-in guard has already refused a call with no principal.
+          if (!principal) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
           try {
-            const access = await callerAccess(ctx.principal);
+            const access = await callerAccess(principal);
             if (input.view === 'pending' && !access.operator && !access.founder) {
               throw new ActionApprovalError('pending approvals are an operator or founder read', 'action_approval.operator_only');
             }
-            return await svc.listForCaller(ctx.principal.userId, input.view, input.limit, access);
+            return await svc.listForCaller(principal.userId, input.view, input.limit, access);
           } catch (err) {
             toTrpc(err);
           }
-        }),
+        },
+        codedRefusal,
+      ),
 
       /**
        * Every policy-governed action type with its owner policy row, or `unset` with `action_approval.policy_unset`

@@ -157,17 +157,38 @@ services:
   # svc-ledger is the root of the money plane: six services call it and none of
   # them can move value without it. It owns the `ledger` JetStream stream and
   # asserts `chain_tip` exists at boot.
+  # svc-ledger's own `ledger` schema migrations, applied once by its Rust binary as its own role (svc_ledger), the way
+  # `migrate` applies every Node service's: before the service starts, never by the service at start-up.
+  svc-ledger-migrate:
+    image: intafaced/svc-ledger:dev
+    build:
+      context: .
+      dockerfile: crates/svc-ledger/Dockerfile
+    container_name: intafaced-svc-ledger-migrate
+    restart: 'no'
+    command: ['/app/svc-ledger', 'migrate']
+    environment:
+      DATABASE_URL: postgres://svc_ledger:${SVC_LEDGER_DB_PASSWORD:-svc_ledger}@postgres:5432/intafaced
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Rust binary (crates/svc-ledger), its own image, like svc-tax's and svc-academy's.
   svc-ledger:
-    <<: *app
+    image: intafaced/svc-ledger:dev
+    build:
+      context: .
+      dockerfile: crates/svc-ledger/Dockerfile
+    restart: unless-stopped
     container_name: intafaced-svc-ledger
-    command: ['node', 'services/svc-ledger/dist/index.js']
+    command: ['/app/svc-ledger']
     environment:
       <<: [*service-env, *internal-secret]
       SERVICE_NAME: svc-ledger
       HTTP_PORT: '4001'
       DATABASE_URL: postgres://svc_ledger:${SVC_LEDGER_DB_PASSWORD:-svc_ledger}@postgres:5432/intafaced
       # svc-ledger merges `authEnvSchema` for its OPERATOR surface
-      # (operator-http.ts), so this is required at boot with no default — and it
+      # (the operator doors, src/env.rs), so this is required at boot with no default — and it
       # was never set here. The service crash-looped on `JWT_ACCESS_SECRET:
       # Required` the first time its container was recreated.
       #
@@ -184,7 +205,7 @@ services:
       JWT_ISSUER: ${JWT_ISSUER:-intafaced}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-intafaced.api}
       JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
-      # Posting freeze. env.ts already names this (default true). Without compose
+      # Posting freeze. env.rs already names this (default true). Without compose
       # pass-through a host `.env` freeze after a reconcile mismatch never
       # reaches the container. Do not default posting OFF — that would halt the
       # money plane on a clean clone.
@@ -201,9 +222,15 @@ services:
       LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-detect}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4001']
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4001/health']
     depends_on:
-      <<: [*needs-schema, *needs-bus]
+      <<: *needs-bus
+      postgres:
+        condition: service_healthy
+      svc-ledger-migrate:
+        condition: service_completed_successfully
 
   # ── THE FRONT DOOR ─────────────────────────────────────────
   #
@@ -1869,16 +1896,35 @@ services:
     command: ['--dev', '--bind', '0.0.0.0']
     expose: ['7880', '7881', '7882/udp']
 
-  svc-academy:
-    <<: *app
-    container_name: intafaced-svc-academy
-    command: ['node', 'services/svc-academy/dist/index.js']
+  # svc-academy's own `academy` schema migrations, applied once by its Rust binary as its own role (svc_academy), the
+  # way `migrate` applies every Node service's: before the service starts, never by the service at start-up.
+  svc-academy-migrate:
+    image: intafaced/svc-academy:dev
+    build:
+      context: .
+      dockerfile: crates/svc-academy/Dockerfile
+    container_name: intafaced-svc-academy-migrate
+    restart: 'no'
+    command: ['/app/svc-academy', 'migrate']
     environment:
-      # *internal-secret is required here. src/env.ts merges
-      # `internalServiceEnvSchema` for its two callees, and
-      # INTERNAL_SERVICE_SECRET has no default — so without it the process dies
-      # at import with `EnvError: INTERNAL_SERVICE_SECRET: Required` and the
-      # container is never created at all. That is why there are no
+      DATABASE_URL: postgres://svc_academy:${SVC_ACADEMY_DB_PASSWORD:-svc_academy}@postgres:5432/intafaced
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The Rust binary (crates/svc-academy), its own image, like svc-tax's.
+  svc-academy:
+    image: intafaced/svc-academy:dev
+    build:
+      context: .
+      dockerfile: crates/svc-academy/Dockerfile
+    restart: unless-stopped
+    container_name: intafaced-svc-academy
+    command: ['/app/svc-academy']
+    environment:
+      # *internal-secret is required here. src/env.rs refuses a missing
+      # INTERNAL_SERVICE_SECRET (it signs the calls to its callees), so without
+      # it the process exits at start and the container never becomes healthy. That is why there are no
       # restart-loop logs for anyone to read: a service that fails to boot is
       # loud, a service nobody started is silent.
       #
@@ -1912,16 +1958,16 @@ services:
       # Owner-published lobby ceiling. Empty = unset refuse
       # academy.room_capacity_unset. Never invent 5000.
       ACADEMY_MAX_ROOM_CAPACITY: ${ACADEMY_MAX_ROOM_CAPACITY:-}
-      # Paper-drill ops kill. env.ts already names this (default true); without
+      # Paper-drill ops kill. env.rs already names this (default true); without
       # compose pass-through a host `.env` never reaches the container. Live
       # trade on svc-trade is unaffected. No prize, IFC, or paper balance here.
       ACADEMY_PAPER_TRADING_ENABLED: ${ACADEMY_PAPER_TRADING_ENABLED:-true}
-      # Tournament ladder kill. env.ts already names this (default true) and
+      # Tournament ladder kill. env.rs already names this (default true) and
       # refuses academy.tournament_disabled when off. Without compose
       # pass-through a host `.env` never reaches the container. No prize,
       # IFC, or programme JSON here.
       ACADEMY_TOURNAMENT_ENABLED: ${ACADEMY_TOURNAMENT_ENABLED:-true}
-      # Owner-published ambassador rate law. env.ts already names these
+      # Owner-published ambassador rate law. env.rs already names these
       # (empty default = unpublished refuse). Never invent session credits
       # or fee %. Class M settlement stays owner JSON + ledger recipes.
       ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON: ${ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON:-}
@@ -1976,14 +2022,20 @@ services:
       ACADEMY_VIDEO_POSITION_SAVE_SECONDS: ${ACADEMY_VIDEO_POSITION_SAVE_SECONDS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4016']
-    healthcheck: *healthcheck
+    healthcheck:
+      <<: *healthcheck
+      test: ['CMD', 'curl', '-fsS', 'http://127.0.0.1:4016/health']
     depends_on:
       # *needs-bus since certification publishes `intafaced.identity.xp.earned`
-      # (services/svc-academy/src/certs/xp-publish.ts). NATS_URL already arrives
+      # (crates/svc-academy/src/certs). NATS_URL already arrives
       # on *service-env; what was missing was the ordering. Academy degrades
       # rather than dies without the bus, so this is about not starting into a
       # known-absent dependency — not about making the lobby need one.
-      <<: [*needs-schema, *needs-bus]
+      <<: *needs-bus
+      postgres:
+        condition: service_healthy
+      svc-academy-migrate:
+        condition: service_completed_successfully
       svc-identity:
         condition: service_healthy
       svc-token:
