@@ -13,8 +13,8 @@
 //! `/health` and `/ready` (the `store` slice, `crate::status`), the freeze doors (the `freeze` slice, `freeze.rs`), the
 //! history doors (the `history` slice, `history.rs`), `/operator/reconcile` (the `reconcile` slice, `reconcile.rs`),
 //! the account and transaction reads (the `balances` slice, `crate::balances`), the five report doors (the `reports`
-//! slice, `crate::reports`) and the ledger desk's reads and account metadata writes (the `desk` slice, `desk.rs` over
-//! `crate::desk`).
+//! slice, `crate::reports`), the ledger desk's reads and account metadata writes (the `desk` slice, `desk.rs` over
+//! `crate::desk`) and svc-ops' five reads (the `ops-reads` slice, `crate::ops_reads`).
 
 mod callers;
 mod desk;
@@ -253,7 +253,12 @@ pub const ROUTES: [Route; 44] = [
     ),
     s2s("assetsList", "/trpc/assetsList", Input::None, Assets),
     s2s("assetsGet", "/trpc/assetsGet", Input::None, Assets),
-    s2s("feeRevenue", "/trpc/feeRevenue", Input::None, OpsReads),
+    s2s(
+        "feeRevenue",
+        "/trpc/feeRevenue",
+        Input::Body("feeRevenue"),
+        OpsReads,
+    ),
     s2s("ownFunds", "/trpc/ownFunds", Input::None, OpsReads),
     s2s(
         "restoreWatermark",
@@ -264,13 +269,13 @@ pub const ROUTES: [Route; 44] = [
     s2s(
         "reconciliationEvaluations",
         "/trpc/reconciliationEvaluations",
-        Input::None,
+        Input::Body("reconciliationEvaluations"),
         OpsReads,
     ),
     s2s(
         "transactionsExist",
         "/trpc/transactionsExist",
-        Input::None,
+        Input::Body("transactionsExist"),
         OpsReads,
     ),
     s2s(
@@ -702,8 +707,23 @@ impl LedgerDoor {
     }
 
     /// A service door's call once its input parses: the ported slices answer it, the rest are owed.
-    fn past_the_door(&self, route: &Route, door: &str, input: &Value) -> Outcome {
+    fn past_the_door(&self, route: &Route, door: &str, input: &Value, body: &Body) -> Outcome {
         match route.slice {
+            Slice::OpsReads => {
+                let body = match body {
+                    Body::Absent => None,
+                    Body::Parsed(j) => Some(j),
+                };
+                let reply = crate::ops_reads::answer(
+                    door,
+                    &self.cfg.store,
+                    input,
+                    body,
+                    self.cfg.clock_skew_bound_ms,
+                    self.cfg.now_ms,
+                );
+                answer(reply.map_or_else(|e| errors::http_error(&e), |j| (200, j)))
+            }
             Slice::History => Outcome::Answer(self.history_door(door, input)),
             Slice::Reports => self.reports_door(door, input),
             Slice::Balances => answer(crate::balances::respond(
@@ -759,7 +779,7 @@ impl LedgerDoor {
             )));
         }
         let Input::Body(name) = route.input else {
-            return Outcome::Owed(route.slice);
+            return self.past_the_door(route, door, &Value::Undefined, body);
         };
         // `refuseHistoryCursor`: on the raw body, before the schema would strip the field.
         if door == "history"
@@ -774,7 +794,7 @@ impl LedgerDoor {
             Body::Parsed(j) => Value::from_json(j),
         };
         match parse(name, value) {
-            Ok(Parsed::Ok(input)) => self.past_the_door(route, door, &input),
+            Ok(Parsed::Ok(input)) => self.past_the_door(route, door, &input, body),
             Ok(Parsed::Issues(issues)) => {
                 answer(errors::http_error(&Failure::Zod(schema::message(&issues))))
             }
